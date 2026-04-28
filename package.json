@@ -1,0 +1,19 @@
+{
+  "name": "clozehive",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently --names \"API,AGENT,FRONTEND\" --prefix-colors \"blue,magenta,cyan\" \"npm run dev:api\" \"npm run dev:agent\" \"npm run dev:frontend\"",
+    "dev:api": "dotenv -e .env -- sh -c 'cd services/api-gateway && uvicorn app.main:app --host 0.0.0.0 --port ${API_GATEWAY_PORT:-8000} --reload'",
+    "dev:agent": "dotenv -e .env -- sh -c 'cd services/ai-agent && uvicorn app.main:app --host 0.0.0.0 --port ${AI_AGENT_PORT:-8001} --reload'",
+    "dev:frontend": "dotenv -e .env -- npm --prefix frontend run dev",
+    "start": "docker compose up --build",
+    "start:api": "dotenv -e .env -- sh -c 'cd services/api-gateway && uvicorn app.main:app --host 0.0.0.0 --port ${API_GATEWAY_PORT:-8000}'",
+    "start:agent": "dotenv -e .env -- sh -c 'cd services/ai-agent && uvicorn app.main:app --host 0.0.0.0 --port ${AI_AGENT_PORT:-8001}'",
+    "start:frontend": "dotenv -e .env -- npm --prefix frontend run preview"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "dotenv-cli": "^8.0.0"
+  }
+}

@@ -1,0 +1,28 @@
+# ── CLOZEHIVE MCP Servers — consolidated requirements ─────────────────────────
+# Install once for the entire mcp-servers/ workspace:
+#   pip install -r requirements-base.txt
+
+# MCP framework
+fastmcp>=2.0.0
+
+# LangChain agent stack
+langchain>=0.2.0
+langchain-openai>=0.1.7
+langchain-mcp-adapters>=0.1.0
+langgraph>=0.2.0
+
+# FastAPI gateway
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+python-multipart>=0.0.9
+
+# OpenAI SDK
+openai>=1.30.0
+
+# Pydantic / settings
+pydantic>=2.7.0
+pydantic-settings>=2.2.0
+python-dotenv>=1.0.0
+
+# HTTP
+httpx>=0.27.0

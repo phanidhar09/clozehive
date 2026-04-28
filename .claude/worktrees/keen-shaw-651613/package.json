@@ -1,0 +1,19 @@
+{
+  "name": "clozehive",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently --names \"BACKEND,AI,FRONTEND\" --prefix-colors \"blue,magenta,cyan\" \"npm run dev:backend\" \"npm run dev:ai\" \"npm run dev:frontend\"",
+    "dev:backend": "dotenv -e .env -- npm --prefix backend run dev",
+    "dev:ai": "dotenv -e .env -- sh -c 'cd ai-service && source venv/bin/activate 2>/dev/null || true && uvicorn app.main:app --host 0.0.0.0 --port ${AI_SERVICE_PORT:-8000} --reload'",
+    "dev:frontend": "dotenv -e .env -- npm --prefix frontend run dev",
+    "start": "concurrently --names \"BACKEND,AI,FRONTEND\" --prefix-colors \"blue,magenta,cyan\" \"npm run start:backend\" \"npm run start:ai\" \"npm run start:frontend\"",
+    "start:backend": "dotenv -e .env -- npm --prefix backend start",
+    "start:ai": "dotenv -e .env -- sh -c 'cd ai-service && source venv/bin/activate 2>/dev/null || true && uvicorn app.main:app --host 0.0.0.0 --port ${AI_SERVICE_PORT:-8000}'",
+    "start:frontend": "dotenv -e .env -- npm --prefix frontend run preview"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "dotenv-cli": "^8.0.0"
+  }
+}

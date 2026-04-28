@@ -1,0 +1,87 @@
+# ─────────────────────────────────────────────────────────────
+#  CLOZEHIVE — .gitignore
+# ─────────────────────────────────────────────────────────────
+
+# ── Environment files ─────────────────────────────────────────
+# Real .env files contain secrets — never commit them
+.env
+.env.local
+.env.*.local
+
+# .env.example files are safe templates — always commit them
+!.env.example
+!**/.env.example
+
+# ── Node.js ───────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.yarn-integrity
+
+# ── Python ────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ── Build outputs ─────────────────────────────────────────────
+dist/
+build/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+
+# ── IDE ───────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── OS ────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Logs ──────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Database files ────────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+backend/data/
+
+# ── Uploads / user-generated files ───────────────────────────
+uploads/
+
+# ── AI service data / ML artefacts ───────────────────────────
+ai-service/data/
+ai-service/venv/
+*.pkl
+*.h5
+
+# ── Misc ──────────────────────────────────────────────────────
+*.tmp
+*.temp
+clozehive-clean/
+Roo-Code/

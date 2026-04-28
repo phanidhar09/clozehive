@@ -1,0 +1,177 @@
+// ─────────────────────────────────────────────────────────────────────────────
+//  Domain types — aligned with production backend (UUID PKs throughout)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface ClosetItem {
+  id: string            // UUID
+  user_id: string       // UUID
+  name: string
+  category: string
+  color?: string
+  color_hex?: string
+  fabric?: string
+  pattern?: string
+  brand?: string
+  size?: string
+  price?: number
+  image_url?: string
+  tags: string[]
+  wear_count: number
+  last_worn?: string
+  season?: string
+  occasion: string[]
+  eco_score?: number
+  is_favorite?: boolean
+  notes?: string
+  created_at: string
+}
+
+export interface Outfit {
+  id: string
+  name: string
+  item_ids: string[]
+  items?: ClosetItem[]
+  occasion: string
+  weather_condition?: string
+  temperature?: number
+  ai_explanation: string
+  style_score?: number
+  is_saved?: boolean
+}
+
+export interface OutfitSuggestion {
+  name: string
+  item_ids?: string[]
+  items: Partial<ClosetItem>[]
+  explanation?: string
+  style_notes?: string
+  style_score?: number
+  occasion_fit?: string
+  weather_fit?: string
+  weather_suitability?: string
+}
+
+export interface PackingItem {
+  name: string
+  category: string
+  quantity: number
+  reason?: string
+  available_in_closet?: boolean
+  closet_item_id?: string
+  packed?: boolean
+  from_closet?: boolean
+  item_id?: string
+}
+
+export interface DailyOutfitPlan {
+  date: string
+  weather?: {
+    date: string
+    condition: string
+    temp_high: number
+    temp_low: number
+    description: string
+  }
+  outfit_suggestion?: string
+  outfit_name?: string
+  items?: string[]
+  items_needed?: string[]
+}
+
+export interface PackingResult {
+  destination: string
+  start_date: string
+  end_date: string
+  duration_days?: number
+  purpose?: string
+  trip_type?: string
+  weather_summary?: {
+    dominant_condition: string
+    avg_high: number
+    avg_low: number
+    rainy_days: number
+    total_days: number
+    recommendation: string
+  }
+  packing_list?: PackingItem[]
+  items?: PackingItem[]
+  missing_items?: PackingItem[]
+  daily_plan?: DailyOutfitPlan[]
+  daily_plans?: DailyOutfitPlan[]
+  alerts: string[]
+  summary?: string
+}
+
+export interface ChatMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  outfits?: OutfitSuggestion[]
+  timestamp: Date
+}
+
+// ── Auth ──────────────────────────────────────────────────────────────────────
+
+export interface AuthUser {
+  id: string            // UUID
+  email: string
+  username: string
+  display_name: string
+  bio?: string | null
+  avatar_url?: string | null
+  role: 'user' | 'admin'
+  follower_count?: number
+  following_count?: number
+  created_at?: string
+}
+
+// ── Social ────────────────────────────────────────────────────────────────────
+
+export interface SocialUser {
+  id: string            // UUID
+  username: string
+  display_name: string
+  bio?: string | null
+  avatar_url?: string | null
+  follower_count: number
+  following_count: number
+  is_following?: boolean
+  item_count?: number
+  closet_preview?: Partial<ClosetItem>[]
+}
+
+// ── Groups ────────────────────────────────────────────────────────────────────
+
+export interface GroupMember {
+  id: string            // UUID
+  display_name: string
+  username: string
+  avatar_url?: string | null
+  role: 'owner' | 'admin' | 'member'
+  joined_at: string
+}
+
+export interface Group {
+  id: string            // UUID
+  name: string
+  description?: string | null
+  is_public: boolean
+  invite_code: string
+  member_count: number
+  members?: GroupMember[]
+  role?: 'owner' | 'admin' | 'member'
+  created_at: string
+  updated_at?: string
+}
+
+// ── UI helpers ────────────────────────────────────────────────────────────────
+
+export type ColorScheme = 'light' | 'dark'
+export type Category =
+  | 'all'
+  | 'tops'
+  | 'bottoms'
+  | 'shoes'
+  | 'outerwear'
+  | 'dresses'
+  | 'accessories'

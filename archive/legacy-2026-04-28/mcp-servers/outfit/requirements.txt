@@ -1,0 +1,6 @@
+# Outfit MCP Server — GPT-4o outfit recommendation
+fastmcp>=2.0.0
+pydantic>=2.7.0
+pydantic-settings>=2.2.0
+python-dotenv>=1.0.0
+openai>=1.30.0

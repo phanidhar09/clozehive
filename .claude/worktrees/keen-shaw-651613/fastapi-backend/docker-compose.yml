@@ -1,0 +1,116 @@
+# ── ClozéHive FastAPI stack ────────────────────────────────────────────────────
+#
+# Secrets hygiene:
+#   All credentials are read from the .env file (or environment variables).
+#   Hard-coded values are NEVER used for passwords in this file.
+#   Copy fastapi-backend/.env.example → fastapi-backend/.env and fill in values
+#   before running `docker compose up`.
+#
+# Production notes:
+#   - Remove the volume mount under `api` (hot-reload dev convenience only)
+#   - Set APP_ENV=production in .env to enable HTTPS / HSTS / secure cookies
+#   - Put the API behind a reverse proxy (nginx/traefik) that terminates TLS
+#   - Rotate POSTGRES_PASSWORD, REDIS_PASSWORD, and SECRET_KEY before first run
+
+version: "3.9"
+
+# ── Shared networking ──────────────────────────────────────────────────────────
+networks:
+  internal:          # backend ↔ db / cache — not exposed to host
+    driver: bridge
+  public:            # api ← host
+    driver: bridge
+
+services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: clozehive_postgres
+    restart: unless-stopped
+    networks: [internal]
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER:-clozehive}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB:       ${POSTGRES_DB:-clozehive}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Do NOT expose port 5432 to the host in production.
+    # Uncomment below only for local development / DB inspection:
+    # ports:
+    #   - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-clozehive}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis (rate limiting + session storage) ──────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: clozehive_redis
+    restart: unless-stopped
+    networks: [internal]
+    # requirepass enables Redis AUTH — the API must include it in REDIS_URL.
+    # If REDIS_PASSWORD is empty, AUTH is disabled (dev-only, never in prod).
+    command: >
+      sh -c '
+        if [ -n "$${REDIS_PASSWORD}" ]; then
+          redis-server --save 60 1 --loglevel warning --requirepass "$${REDIS_PASSWORD}"
+        else
+          redis-server --save 60 1 --loglevel warning
+        fi
+      '
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    volumes:
+      - redisdata:/data
+    # Do NOT expose 6379 to the host in production.
+    # ports:
+    #   - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: >
+        sh -c '
+          if [ -n "$${REDIS_PASSWORD}" ]; then
+            redis-cli -a "$${REDIS_PASSWORD}" ping
+          else
+            redis-cli ping
+          fi
+        '
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── FastAPI Backend ─────────────────────────────────────────────────────────
+  api:
+    build: .
+    container_name: clozehive_api
+    restart: unless-stopped
+    networks: [internal, public]
+    # Load all app settings from the .env file.
+    # Credentials used by Docker services are overridden below using the same
+    # env vars so that passwords are defined in exactly one place (.env).
+    env_file: .env
+    environment:
+      # Override URL values so the API talks to Docker service names, not localhost.
+      DATABASE_URL: >-
+        postgresql+asyncpg://${POSTGRES_USER:-clozehive}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-clozehive}
+      SYNC_DATABASE_URL: >-
+        postgresql+psycopg2://${POSTGRES_USER:-clozehive}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-clozehive}
+      REDIS_URL: >-
+        redis://:${REDIS_PASSWORD:-}@redis:6379/0
+    ports:
+      - "${API_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      # Hot-reload convenience in development — REMOVE in production.
+      # In prod, the image bakes in the code at build time.
+      - .:/app
+
+volumes:
+  pgdata:
+  redisdata:

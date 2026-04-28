@@ -1,0 +1,5 @@
+# Weather MCP Server — no AI calls, fully offline
+fastmcp>=2.0.0
+pydantic>=2.7.0
+pydantic-settings>=2.2.0
+python-dotenv>=1.0.0

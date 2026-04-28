@@ -1,0 +1,161 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  ClozéHive — Render Blueprint
+#
+#  Deploy: push this file + connect the repo at https://dashboard.render.com
+#          → "New +" → "Blueprint" → pick this repo → Apply
+#
+#  Creates:
+#    • Managed Postgres 16
+#    • Managed Redis
+#    • 4 private MCP services (internal-only, not public)
+#    • ai-agent (private, consumed by api-gateway)
+#    • clozehive-api public web service (public HTTPS endpoint)
+#
+#  Secrets that must be set manually (sync: false) after the first deploy:
+#    • OPENAI_API_KEY  — on every Python service
+#    • ALLOWED_ORIGINS — on clozehive-api (set to your Vercel URL)
+# ─────────────────────────────────────────────────────────────────────────────
+
+databases:
+  - name: clozehive-postgres
+    plan: starter                 # 256 MB, daily backups. Switch to "free" (90-day) for a disposable demo.
+    databaseName: clozehive
+    user: clozehive
+    postgresMajorVersion: "16"
+
+services:
+
+  # ── Redis ─────────────────────────────────────────────────────────────────
+  - type: redis
+    name: clozehive-redis
+    plan: starter
+    ipAllowList: []               # internal only — no public access
+
+  # ── MCP microservices (private, reachable via internal DNS) ───────────────
+  - type: pserv
+    name: mcp-weather
+    runtime: docker
+    rootDir: services/mcp
+    dockerfilePath: services/mcp/weather/Dockerfile
+    plan: starter
+    autoDeploy: true
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: WEATHER_HOST
+        value: "0.0.0.0"
+      - key: WEATHER_PORT
+        value: "8010"
+
+  - type: pserv
+    name: mcp-vision
+    runtime: docker
+    rootDir: services/mcp
+    dockerfilePath: services/mcp/vision/Dockerfile
+    plan: starter
+    autoDeploy: true
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: VISION_HOST
+        value: "0.0.0.0"
+      - key: VISION_PORT
+        value: "8011"
+
+  - type: pserv
+    name: mcp-outfit
+    runtime: docker
+    rootDir: services/mcp
+    dockerfilePath: services/mcp/outfit/Dockerfile
+    plan: starter
+    autoDeploy: true
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OUTFIT_HOST
+        value: "0.0.0.0"
+      - key: OUTFIT_PORT
+        value: "8012"
+
+  - type: pserv
+    name: mcp-packing
+    runtime: docker
+    rootDir: services/mcp
+    dockerfilePath: services/mcp/packing/Dockerfile
+    plan: starter
+    autoDeploy: true
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: PACKING_HOST
+        value: "0.0.0.0"
+      - key: PACKING_PORT
+        value: "8013"
+
+  # ── AI agent (private; only api-gateway calls it) ────────────────────────
+  - type: pserv
+    name: ai-agent
+    runtime: docker
+    rootDir: services/ai-agent
+    dockerfilePath: services/ai-agent/Dockerfile
+    plan: standard                # LangGraph + OpenAI SDK wants >=1 GB RAM
+    autoDeploy: true
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o
+      - key: PORT
+        value: "8001"
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: clozehive-redis
+          property: connectionString
+      - key: MCP_WEATHER_URL
+        value: http://mcp-weather:8010/sse
+      - key: MCP_VISION_URL
+        value: http://mcp-vision:8011/sse
+      - key: MCP_OUTFIT_URL
+        value: http://mcp-outfit:8012/sse
+      - key: MCP_PACKING_URL
+        value: http://mcp-packing:8013/sse
+
+  # ── Public API gateway ───────────────────────────────────────────────────
+  - type: web
+    name: clozehive-api
+    runtime: docker
+    rootDir: services/api-gateway
+    dockerfilePath: services/api-gateway/Dockerfile
+    plan: standard
+    autoDeploy: true
+    healthCheckPath: /health
+    preDeployCommand: alembic upgrade head
+    envVars:
+      - key: PORT
+        value: "8000"
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: clozehive-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: clozehive-redis
+          property: connectionString
+      - key: AI_AGENT_URL
+        value: http://ai-agent:8001
+      - key: JWT_SECRET
+        generateValue: true         # Render generates a cryptographically strong value
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false                 # set to your Vercel URL after the first frontend deploy
