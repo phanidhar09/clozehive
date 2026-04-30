@@ -127,16 +127,17 @@ export default function Signup() {
           <div>
             <h1 className="font-display font-bold text-3xl text-white mb-2">Join ClozéHive</h1>
             <p className="text-white/60 text-sm leading-relaxed max-w-xs mx-auto">
-              Create your free account and start styling your wardrobe with the power of AI.
+              Create your free account styling your wardrobe with the power of AI.
             </p>
           </div>
 
           {/* Stats */}
           <div className="flex gap-6 justify-center pt-4">
             {[
-              { value: '10K+', label: 'Users' },
-              { value: '500K+', label: 'Outfits' },
-              { value: '4.9★', label: 'Rating' },
+              { value: '3', label: 'Users' },
+              { value: '100', label: 'Outfits' },
+              { value: '5', label: 'Rating' },
+              { value: '6', label: 'AI Models' },
             ].map(s => (
               <div key={s.label} className="text-center">
                 <div className="font-display font-bold text-2xl text-white">{s.value}</div>
@@ -163,7 +164,7 @@ export default function Signup() {
             <h2 className="font-display font-bold text-2xl text-slate-900 dark:text-white mb-1">
               Create your account
             </h2>
-            <p className="text-slate-500 dark:text-slate-400 text-sm">Free forever · No credit card required</p>
+            <p className="text-slate-500 dark:text-slate-400 text-sm">No credit card required</p>
           </div>
 
           {/* Error */}
@@ -181,7 +182,7 @@ export default function Signup() {
               <input
                 type="text"
                 className="input w-full"
-                placeholder="Alex Carter"
+                placeholder="Phanidhar Reddy"
                 value={form.name}
                 onChange={set('name')}
                 autoComplete="name"
@@ -212,7 +213,7 @@ export default function Signup() {
                 <input
                   type="text"
                   className="input w-full pl-7"
-                  placeholder="alexcarter"
+                  placeholder="phanidhar_reddy"
                   value={form.username}
                   onChange={set('username')}
                   autoComplete="username"

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
+
+check_url() {
+  local name="$1"
+  local url="$2"
+
+  printf "%-16s" "$name"
+  curl -fsS "$url" >/dev/null
+  echo "ok"
+}
+
+check_url "api-gateway" "http://localhost:8000/health"
+check_url "ai-agent" "http://localhost:8001/health"
+check_url "frontend" "http://localhost:${FRONTEND_HOST_PORT:-3001}"
+
+if command -v docker >/dev/null 2>&1; then
+  docker compose ps
+fi

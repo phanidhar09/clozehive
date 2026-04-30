@@ -7,6 +7,7 @@ import ProtectedRoute from '@/components/auth/ProtectedRoute'
 // Auth pages (no layout wrapper)
 const Login = lazy(() => import('@/auth/Login'))
 const Signup = lazy(() => import('@/auth/Signup'))
+const OAuthCallback = lazy(() => import('@/auth/OAuthCallback'))
 
 // App pages
 const Dashboard = lazy(() => import('@/pages/Dashboard'))
@@ -61,6 +62,7 @@ export default function App() {
             <Route path="/signup" element={
               <AuthGuard><Signup /></AuthGuard>
             } />
+            <Route path="/oauth/callback" element={<OAuthCallback />} />
 
             {/* ── Protected app routes (with Layout) ──────────── */}
             <Route path="/" element={

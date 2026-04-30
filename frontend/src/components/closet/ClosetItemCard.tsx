@@ -13,8 +13,8 @@ export default function ClosetItemCard({ item, onClick }: Props) {
       onClick={onClick}
       className="group card-hover overflow-hidden cursor-pointer"
     >
-      {/* Image */}
-      <div className="relative aspect-[3/4] overflow-hidden bg-cream-100 dark:bg-slate-700">
+      {/* Image banner */}
+      <div className="relative aspect-[16/9] overflow-hidden bg-cream-100 dark:bg-slate-700">
         {item.image_url ? (
           <img
             src={item.image_url}

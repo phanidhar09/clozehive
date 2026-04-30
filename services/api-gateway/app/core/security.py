@@ -9,6 +9,7 @@ import hashlib
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import urlencode
 
 import bcrypt
 from jose import JWTError, jwt
@@ -87,6 +88,6 @@ def build_google_auth_url(state: str) -> str:
         "scope": "openid email profile",
         "state": state,
         "access_type": "offline",
+        "prompt": "select_account",
     }
-    query = "&".join(f"{k}={v}" for k, v in params.items())
-    return f"https://accounts.google.com/o/oauth2/v2/auth?{query}"
+    return f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}"

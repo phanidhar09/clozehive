@@ -10,9 +10,11 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.agent.wardrobe_agent import get_agent
+from app.core.config import get_settings
 from app.services.vector_store import search_closet_context
 
 router = APIRouter(prefix="/agent", tags=["Agent"])
+settings = get_settings()
 
 
 def _mcp_output_to_str(raw: Any) -> str:
@@ -26,6 +28,10 @@ def _mcp_output_to_str(raw: Any) -> str:
         for block in raw:
             if isinstance(block, dict) and block.get("type") == "text":
                 parts.append(str(block.get("text", "")))
+            elif hasattr(block, "text"):
+                parts.append(str(block.text))
+            elif hasattr(block, "content"):
+                parts.append(str(block.content))
             else:
                 parts.append(str(block))
         return "".join(parts)
@@ -33,12 +39,28 @@ def _mcp_output_to_str(raw: Any) -> str:
 
 
 def _parse_json_mcp(raw: Any) -> Any:
-    if isinstance(raw, (dict, list)):
+    if isinstance(raw, dict):
         return raw
     text = _mcp_output_to_str(raw).strip()
     if not text:
         raise ValueError("empty MCP tool output")
     return json.loads(text)
+
+
+def _normalize_vision_response(data: Any) -> Any:
+    if not isinstance(data, dict) or data.get("error"):
+        return data
+
+    normalized = dict(data)
+    normalized.setdefault("garment_type", normalized.get("category"))
+    normalized.setdefault("fabric", normalized.get("material"))
+    normalized.setdefault("color_primary", normalized.get("color"))
+
+    notes = normalized.get("notes")
+    if notes and not normalized.get("wearing_tips"):
+        normalized["wearing_tips"] = [str(notes)]
+    normalized.setdefault("care_instructions", [])
+    return normalized
 
 
 class ChatRequest(BaseModel):
@@ -82,6 +104,14 @@ def _require_agent():
     return agent
 
 
+def _require_openai_key() -> None:
+    if not settings.has_valid_openai_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="OPENAI_API_KEY is not configured. Replace sk-your-openai-key in .env with a real OpenAI API key and restart ai-agent.",
+        )
+
+
 def _sse(data: dict[str, Any]) -> str:
     return f"data: {json.dumps(data)}\n\n"
 
@@ -89,6 +119,7 @@ def _sse(data: dict[str, Any]) -> str:
 @router.post("/chat", response_model=ChatResponse)
 async def chat(body: ChatRequest):
     """Full agent-orchestrated wardrobe chat."""
+    _require_openai_key()
     agent = _require_agent()
 
     # Enrich message with closet context
@@ -110,6 +141,7 @@ async def chat(body: ChatRequest):
 @router.post("/chat/stream")
 async def chat_stream(body: ChatRequest):
     """True token stream from LangGraph/LangChain to the API gateway."""
+    _require_openai_key()
     agent = _require_agent()
 
     message = body.message
@@ -223,7 +255,7 @@ async def vision_analyze(body: VisionRequest):
             "image_base64": body.image_base64,
             "media_type": body.media_type,
         })
-        return _parse_json_mcp(raw)
+        return _normalize_vision_response(_parse_json_mcp(raw))
     except HTTPException:
         raise
     except json.JSONDecodeError as exc:

@@ -19,6 +19,7 @@ yarn-debug.log*
 yarn-error.log*
 .npm
 .yarn-integrity
+*.tsbuildinfo
 
 # ── Python ────────────────────────────────────────────────────
 __pycache__/
@@ -26,6 +27,11 @@ __pycache__/
 *$py.class
 *.so
 .Python
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.dmypy.json
+.tox/
 .venv/
 venv/
 env/
@@ -51,11 +57,19 @@ sdist/
 var/
 wheels/
 
+# ── Coverage ──────────────────────────────────────────────────
+.coverage
+coverage.xml
+htmlcov/
+coverage/
+
 # ── IDE ───────────────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp
 *.swo
+.claude/
+.cursor/
 
 # ── OS ────────────────────────────────────────────────────────
 .DS_Store
@@ -70,6 +84,9 @@ logs/
 *.sqlite
 *.sqlite3
 backend/data/
+redpanda_data/
+postgres_data/
+redis_data/
 
 # ── Uploads / user-generated files ───────────────────────────
 uploads/

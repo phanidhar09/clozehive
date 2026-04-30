@@ -8,6 +8,7 @@ langchain>=0.2.0
 langchain-openai>=0.1.7
 langchain-mcp-adapters>=0.1.0
 langgraph>=0.2.0
+langsmith>=0.1.75
 openai>=1.30.0
 asyncpg>=0.29.0
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect,useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { Sparkles, Upload, Plane, Shirt, ArrowRight, Leaf, TrendingUp, Sun, Loader2, RefreshCw } from 'lucide-react'
 import { useApp } from '@/store'
@@ -66,8 +66,8 @@ export default function Dashboard() {
   return (
     <div className="space-y-6 max-w-6xl animate-slide-up">
       {/* Hero */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-brand-700 via-brand-600 to-violet-500 p-6 lg:p-8 text-white shadow-xl">
-        <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=1200&q=60')] bg-cover bg-center opacity-10" />
+      <div className="relative ovetrflow-hidden rounded-2xl bg-gradient-to-br from-brand-700 via-brand-600 to-violet-500 p-6 lg:p-8 text-white shadow-xl">
+        <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1579587007203-6dc14d835970?w=500&auto=format&fit=crop&q=60&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8N3x8aG9uZXljb21ifGVufDB8fDB8fHwy')] bg-cover bg-center opacity-10" />
         <div className="relative">
           <div className="flex items-center gap-2 mb-1">
             <Sun size={16} className="text-yellow-300" />

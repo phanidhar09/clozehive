@@ -5,6 +5,7 @@ Single source of truth for all authentication logic.
 
 from __future__ import annotations
 
+import re
 import secrets
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
@@ -157,7 +158,65 @@ class AuthService:
         await self.tokens.revoke_all_for_user(user_id)
         logger.info("password_changed", user_id=str(user_id))
 
+    async def google_oauth_login(
+        self,
+        google_id: str,
+        email: str,
+        name: str,
+        avatar_url: str | None = None,
+    ) -> AuthResponse:
+        """Find or create a user from Google OAuth, then return a token pair."""
+        user = await self.users.get_by_google_id(google_id)
+
+        if not user:
+            # Try linking to an existing account by email
+            user = await self.users.get_by_email(email.lower())
+            if user:
+                await self.users.update(user, google_id=google_id)
+                if avatar_url and not user.avatar_url:
+                    await self.users.update(user, avatar_url=avatar_url)
+            else:
+                # Brand-new user via Google
+                username = await self._generate_unique_username(name, email)
+                user = await self.users.create(
+                    email=email.lower(),
+                    username=username,
+                    name=name,
+                    google_id=google_id,
+                    avatar_url=avatar_url,
+                    role="user",
+                    is_verified=True,
+                )
+                # No password — OAuth-only account
+                await self.creds.create(user_id=user.id, password_hash=None)
+
+        if not user.is_active:
+            raise AuthenticationError("Account is disabled")
+
+        access, refresh_raw = _build_tokens(str(user.id), user.role)
+        await self._store_refresh(user.id, refresh_raw)
+
+        logger.info("google_oauth_login", user_id=str(user.id), email=email)
+        return AuthResponse(
+            user=_user_response(user),
+            access_token=access,
+            refresh_token=refresh_raw,
+        )
+
     # ── Internal helpers ──────────────────────────────────────────────────────
+
+    async def _generate_unique_username(self, name: str, email: str) -> str:
+        """Derive a unique username from Google name or email."""
+        base = re.sub(r"[^a-z0-9_]", "", name.lower().replace(" ", "_"))[:40]
+        if not base:
+            base = re.sub(r"[^a-z0-9_]", "", email.split("@")[0].lower())[:40]
+        if not base:
+            base = "user"
+        username, counter = base, 0
+        while await self.users.username_exists(username):
+            counter += 1
+            username = f"{base}{counter}"
+        return username
 
     async def _store_refresh(self, user_id: UUID, raw_token: str) -> RefreshToken:
         expires_at = datetime.now(UTC) + timedelta(days=settings.refresh_token_expire_days)

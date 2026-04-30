@@ -2,7 +2,7 @@
 #  CLOZEHIVE — Developer Makefile
 # ─────────────────────────────────────────────────────────────────────────────
 
-.PHONY: help up down build migrate test lint clean logs shell-api shell-db
+.PHONY: help up stop down build migrate test test-api build-frontend test-frontend lint clean smoke health logs shell-api shell-db
 
 # Prefer repo-root .venv when present (see services/api-gateway/requirements-dev.txt).
 PYTHON := $(shell test -x $(CURDIR)/.venv/bin/python && echo $(CURDIR)/.venv/bin/python || echo python3)
@@ -14,6 +14,9 @@ help: ## Show this help
 
 up: ## Start all services (detached)
 	docker compose up -d --build
+
+stop: ## Stop all services without removing volumes
+	docker compose down
 
 down: ## Stop all services and remove volumes
 	docker compose down -v
@@ -30,6 +33,12 @@ logs-api: ## Tail API gateway logs
 logs-agent: ## Tail AI agent logs
 	docker compose logs -f ai-agent
 
+logs-worker: ## Tail AI worker logs
+	docker compose logs -f ai-worker
+
+logs-kafka: ## Tail Redpanda logs
+	docker compose logs -f redpanda kafka-topics
+
 # ── Database ──────────────────────────────────────────────────────────────────
 
 migrate: ## Run Alembic migrations
@@ -44,19 +53,22 @@ migrate-down: ## Roll back one migration
 # ── Testing ───────────────────────────────────────────────────────────────────
 
 test: ## Run all tests
-	$(MAKE) test-api test-frontend
+	$(MAKE) test-api build-frontend
 
 test-api: ## Run API gateway tests
 	cd services/api-gateway && $(PYTHON) -m pytest tests/ -v --tb=short
 
-test-frontend: ## Run frontend tests
+build-frontend: ## Build the frontend
 	cd frontend && npm run build
+
+test-frontend: build-frontend ## Alias for build-frontend until frontend tests exist
 
 # ── Linting ───────────────────────────────────────────────────────────────────
 
 lint: ## Lint all Python services
 	cd services/api-gateway && ruff check app/
 	cd services/ai-agent && ruff check app/
+	cd services/ai-worker && ruff check app/
 	cd services/mcp && ruff check .
 
 # ── Local dev (without Docker) ────────────────────────────────────────────────
@@ -81,8 +93,11 @@ shell-api: ## Shell into API gateway container
 shell-db: ## psql shell into PostgreSQL
 	docker compose exec postgres psql -U clozehive -d clozehive
 
-clean: ## Remove __pycache__, .pyc, dist, build artifacts
-	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null; true
-	find . -name "*.pyc" -delete 2>/dev/null; true
-	find . -type d -name ".pytest_cache" -exec rm -rf {} + 2>/dev/null; true
-	find . -type d -name "dist" -not -path "*/node_modules/*" -exec rm -rf {} + 2>/dev/null; true
+clean: ## Remove generated artifacts and local caches
+	./scripts/clean-artifacts.sh
+
+smoke: ## Validate Compose config and local service health
+	./scripts/dev-smoke.sh
+
+health: ## Check local service/container health
+	./scripts/check-health.sh

@@ -74,11 +74,13 @@ def create_app() -> FastAPI:
     @app.get("/health", include_in_schema=False)
     async def health() -> dict[str, Any]:
         agent = get_agent()
+        ready = agent.is_ready and settings.has_valid_openai_key
         return {
-            "status": "ok" if agent.is_ready else "degraded",
+            "status": "ok" if ready else "degraded",
             "service": settings.app_name,
             "version": settings.app_version,
             "agent_ready": agent.is_ready,
+            "openai_configured": settings.has_valid_openai_key,
             "tools": agent.available_tools,
         }
 

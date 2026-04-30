@@ -1,329 +1,141 @@
-Here’s a **clean, professional, production-ready `README.md`** based on your content. I’ve structured it so it’s readable for GitHub, recruiters, and contributors 👇
+# ClozeHive
 
----
+ClozeHive is a wardrobe intelligence app with a React frontend, a FastAPI API
+gateway, LangGraph-based AI orchestration, Kafka-backed async processing, and
+small MCP services for weather, vision, outfit, and packing tools.
 
-# 🚀 ClozeHive
+The local folder may still be named `closetiq-integrated`; `ClozeHive` is the
+product/repository name used in documentation.
 
-A scalable AI-powered wardrobe and lifestyle platform built with a modular architecture using FastAPI, LangGraph, and MCP services.
+## Architecture
 
----
-
-## 📦 Architecture Overview
-
-ClozeHive follows a **modular-monolith + AI microservices architecture**:
-
-```
-Frontend
-  → API Gateway
-      → Postgres
-      → Redis
-      → AI Agent
-          → MCP Services (weather, vision, outfit, packing)
-```
-
----
-
-## 🧱 Core Components
-
-### 🔹 Frontend (`frontend/`)
-
-* **Tech:** React + Vite + TypeScript + Tailwind
-* **Responsibilities:**
-
-  * User authentication (login/signup)
-  * Dashboard & profile
-  * Closet management
-  * Image uploads
-  * AI stylist chat
-  * Travel planner
-  * Social/groups features
-  * Streaming AI responses
-
-```env
-VITE_API_URL=http://localhost:8000
+```mermaid
+flowchart LR
+  Browser[Frontend] --> ApiGateway[API Gateway]
+  ApiGateway --> Postgres[(Postgres + pgvector)]
+  ApiGateway --> Redis[(Redis)]
+  ApiGateway --> AiAgent[AI Agent]
+  ApiGateway --> Redpanda[(Redpanda)]
+  Redpanda --> AiWorker[AI Worker]
+  AiWorker --> AiAgent
+  AiAgent --> WeatherMcp[Weather MCP]
+  AiAgent --> VisionMcp[Vision MCP]
+  AiAgent --> OutfitMcp[Outfit MCP]
+  AiAgent --> PackingMcp[Packing MCP]
+  VisionMcp --> OpenAI[OpenAI]
 ```
 
-👉 Frontend communicates **only with API Gateway**
+## Service Responsibilities
 
----
+- `frontend`: React + Vite app served on host port `3001` in Docker.
+- `services/api-gateway`: public FastAPI boundary, auth, closet APIs, database access, Redis cache, and Kafka event production.
+- `services/ai-agent`: FastAPI + LangGraph orchestration over MCP tools and vector retrieval.
+- `services/ai-worker`: async Kafka consumer for background AI request processing.
+- `services/mcp`: independent MCP tool services for weather, vision, outfit suggestions, and packing.
+- `infra`: local infrastructure configuration for Postgres, Redpanda/Kafka, and Nginx.
 
-### 🔹 API Gateway (`services/api-gateway/`)
+Legacy stacks are archived under `archive/legacy-2026-04-28`. Duplicate cleanup
+copies are archived under `archive/legacy-2026-04-28-repo-cleanup`.
 
-* **Tech:** FastAPI + SQLAlchemy (async) + Alembic + Redis
-* **Responsibilities:**
+## Local Setup With Docker
 
-  * Public API layer
-  * JWT authentication & session handling
-  * Closet CRUD APIs
-  * Social/group APIs
-  * File uploads
-  * AI request proxying
-  * SSE streaming
-  * WebSocket handling
-  * Rate limiting & caching
+1. Copy the environment template and fill in secrets:
 
-#### Main Routes
+   ```sh
+   cp .env.example .env
+   ```
 
-```
-/api/v1/auth
-/api/v1/closet
-/api/v1/social
-/api/v1/ai
-/api/v1/ws
-```
+2. Start the stack:
 
-#### Internal Structure
+   ```sh
+   make up
+   ```
 
-```
-app/api/v1/        → controllers
-app/services/      → business logic
-app/repositories/  → DB access
-app/models/        → ORM models
-app/schemas/       → Pydantic schemas
-app/core/          → config, security, logging
-app/db/            → DB setup
-```
+3. Check health:
 
----
+   ```sh
+   make health
+   ```
 
-### 🤖 AI Agent (`services/ai-agent/`)
+Useful URLs:
 
-* **Tech:** FastAPI + LangGraph + LangChain + OpenAI
-* **Responsibilities:**
+- Frontend: `http://localhost:3001`
+- API gateway health: `http://localhost:8000/health`
+- AI agent health: `http://localhost:8001/health`
+- Redpanda Console: `http://localhost:8080`
 
-  * AI orchestration layer
-  * Streaming LLM responses
-  * Tool calling (MCP services)
-  * Outfit, packing, and vision analysis
+## Local Setup Without Docker
 
-#### Endpoints
+Start Postgres, Redis, and Redpanda first, then install local dependencies:
 
-```
-/api/v1/agent/chat
-/api/v1/agent/chat/stream
-/api/v1/agent/outfit
-/api/v1/agent/packing
-/api/v1/agent/vision/analyze
+```sh
+npm install
+npm --prefix frontend install
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r services/api-gateway/requirements-dev.txt
+pip install -r services/ai-agent/requirements.txt
 ```
 
----
+Run app services in separate terminals:
 
-### 🧩 MCP Tool Services (`services/mcp/`)
-
-Each service is **independent + single responsibility**:
-
-| Service | Purpose                 |
-| ------- | ----------------------- |
-| weather | Forecast + trip weather |
-| vision  | Image analysis          |
-| outfit  | Outfit generation       |
-| packing | Travel packing          |
-
----
-
-## 🗄️ Data Layer
-
-### PostgreSQL
-
-Stores:
-
-* Users & credentials
-* Closet items & outfits
-* Social groups
-* Vector embeddings
-
-Extensions:
-
-* `pgcrypto` → UUIDs
-* `pg_trgm` → search
-* `pgvector` → semantic search
-
----
-
-### Redis
-
-Used for:
-
-* Cache
-* Rate limiting
-* WebSocket Pub/Sub
-* Cross-instance communication
-
-Example keys:
-
-```
-clozehive:v1:profile:{user_id}
-clozehive:v1:closet:{user_id}
-clozehive:v1:ws:broadcast
-```
-
----
-
-## 🔄 Request Flows
-
-### 🔐 Login
-
-```
-Frontend → API Gateway → Postgres → JWT tokens
-```
-
-### 👕 Closet
-
-```
-Frontend → API → Service → Repository → Postgres
-```
-
-### 📸 Image Upload
-
-```
-Frontend → API → AI Agent → Vision MCP → OpenAI → Postgres
-```
-
-### 💬 AI Chat (Streaming)
-
-```
-Frontend → API → AI Agent → LLM → Stream back tokens
-```
-
-### 🧳 Travel Planner
-
-```
-Frontend → API → AI Agent → Weather + Packing MCP
-```
-
-### 🔌 WebSockets
-
-```
-Client → API Gateway → Redis Pub/Sub → Broadcast across instances
-```
-
----
-
-## 🐳 Local Development
-
-### 🔹 Run with Docker
-
-```bash
-docker compose up --build
-```
-
-### 🔹 Services
-
-| Service     | URL                                            |
-| ----------- | ---------------------------------------------- |
-| Frontend    | [http://localhost:3001](http://localhost:3001) |
-| API Gateway | [http://localhost:8000](http://localhost:8000) |
-| AI Agent    | [http://localhost:8001](http://localhost:8001) |
-| Weather MCP | [http://localhost:8010](http://localhost:8010) |
-| Vision MCP  | [http://localhost:8011](http://localhost:8011) |
-| Outfit MCP  | [http://localhost:8012](http://localhost:8012) |
-| Packing MCP | [http://localhost:8013](http://localhost:8013) |
-
----
-
-### 🔹 Health Checks
-
-```bash
-curl http://localhost:8000/health
-curl http://localhost:8001/health
-```
-
----
-
-### 🔹 Non-Docker Dev
-
-```bash
+```sh
 npm run dev:api
 npm run dev:agent
 npm run dev:frontend
 ```
 
----
+## Environment Variables
 
-## 🌐 Nginx (Production Proxy)
+Use `.env.example` as the source of truth for local values. The most commonly
+changed settings are:
 
-Path:
+- `OPENAI_API_KEY`: required for vision and AI agent flows.
+- `JWT_SECRET`: replace the development value before sharing an environment.
+- `DATABASE_URL`: host development defaults to Postgres on port `5433`.
+- `REDIS_URL`: host development defaults to Redis on port `6380`.
+- `KAFKA_BOOTSTRAP_SERVERS`: use `redpanda:9092` inside Docker and `localhost:19092` from the host.
+- `ALLOWED_ORIGINS`: include the frontend origins used by Docker and Vite.
 
-```
-infra/nginx/nginx.conf
-```
+Never commit a real `.env` file.
 
-Handles:
+## Common Commands
 
-* Reverse proxy
-* Static frontend
-* API routing
-* WebSockets
-* Security headers
-* Rate limiting
-
----
-
-## 📈 Scaling Strategy (10K+ Users)
-
-* Load balancer + CDN
-* Stateless API Gateway (JWT-based)
-* Redis for session + Pub/Sub
-* Postgres read replicas
-* AI Agent horizontal scaling
-* MCP services scale independently
-
----
-
-## ⚡ Future Improvements
-
-### Event-Driven Architecture
-
-Use:
-
-* Apache Kafka
-  or
-* Redpanda
-
-Events:
-
-```
-item_uploaded
-image_analyzed
-outfit_generated
-trip_planned
-recommendation_requested
+```sh
+make help             # list Makefile commands
+make up               # build and start Docker services
+make stop             # stop services without removing volumes
+make down             # stop services and remove volumes
+make logs             # follow all Compose logs
+make migrate          # run Alembic migrations
+make test-api         # run API tests with local Python deps
+make build-frontend   # type-check and build the frontend
+make smoke            # validate Compose config and health endpoints
+make clean            # remove generated artifacts and caches
 ```
 
----
+## Verification
 
-## 🏁 Final Architecture
+Run these before handing off changes:
 
-```
-Frontend
-  → API Gateway
-      → Auth / Closet / Social
-      → Redis
-      → Postgres + pgvector
-      → AI Agent
-          → LangGraph
-          → MCP Services
-          → OpenAI
+```sh
+docker compose config --quiet
+make smoke
+make build-frontend
 ```
 
----
+For API tests, install dev dependencies locally or run them in a disposable
+container with a writable dependency location:
 
-## 📂 Notes
+```sh
+cd services/api-gateway
+python -m pytest tests/ -v --tb=short
+```
 
-* Legacy stacks moved to `archive/legacy-2026-04-28`
-* Use `services/*` as the source of truth
-* Designed for scalability + AI-first workflows
+## Troubleshooting
 
----
-
-📄 Source: 
-
----
-
-If you want, I can next:
-
-✅ Add **badges + screenshots (GitHub-ready UI)**
-✅ Add **setup with .env + auth instructions**
-✅ Make this **ATS-friendly for portfolio / resume**
-
-Just tell me 👍
+- Missing OpenAI features: confirm `OPENAI_API_KEY` is set in `.env`, then restart `ai-agent` and `mcp-vision`.
+- Redpanda startup issues: run `docker compose ps` and check `docker compose logs redpanda kafka-topics`.
+- API cannot reach AI agent: confirm `AI_AGENT_URL` is `http://ai-agent:8001` inside Docker.
+- Frontend cannot reach API: confirm `VITE_API_URL` points to `http://localhost:8000` for browser-based local development.
+- Stale generated files: run `make clean`, then rebuild only what you need.

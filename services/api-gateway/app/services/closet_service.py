@@ -40,20 +40,21 @@ class ClosetService:
         self,
         user_id: UUID,
         *,
+        section: str | None = None,
         category: str | None = None,
         season: str | None = None,
         page: int = 1,
         per_page: int = 50,
     ) -> ClosetListResponse:
         cache_key = cache_service.closet_key(str(user_id))
-        if not category and not season:
+        if not section and not category and not season:
             cached = await cache_service.get(cache_key)
             if cached:
                 return ClosetListResponse(**cached)
 
         offset = (page - 1) * per_page
         items = await self.repo.get_by_user(
-            user_id, category=category, season=season, limit=per_page, offset=offset
+            user_id, section=section, category=category, season=season, limit=per_page, offset=offset
         )
         total = await self.repo.count_by_user(user_id)
         response = ClosetListResponse(
@@ -63,7 +64,7 @@ class ClosetService:
             per_page=per_page,
         )
 
-        if not category and not season:
+        if not section and not category and not season:
             await cache_service.set(cache_key, response.model_dump(mode="json"), _CACHE_TTL)
 
         return response

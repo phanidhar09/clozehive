@@ -18,7 +18,7 @@ COPY . .
 
 # Create non-root user
 RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
-RUN chown -R appuser:appgroup /app
+RUN mkdir -p /app/uploads && chown -R appuser:appgroup /app
 USER appuser
 
 EXPOSE 8000

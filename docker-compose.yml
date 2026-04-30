@@ -63,6 +63,63 @@ services:
       timeout: 3s
       retries: 5
 
+  redpanda:
+    image: redpandadata/redpanda:v24.2.9
+    <<: [*restart, *logging]
+    command:
+      - redpanda
+      - start
+      - --smp
+      - "1"
+      - --memory
+      - 1G
+      - --reserve-memory
+      - 0M
+      - --overprovisioned
+      - --node-id
+      - "0"
+      - --check=false
+      - --kafka-addr
+      - PLAINTEXT://0.0.0.0:9092,OUTSIDE://0.0.0.0:19092
+      - --advertise-kafka-addr
+      - PLAINTEXT://redpanda:9092,OUTSIDE://localhost:19092
+    ports:
+      - "${KAFKA_HOST_PORT:-19092}:19092"
+      - "${REDPANDA_ADMIN_HOST_PORT:-19644}:9644"
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster info --brokers 127.0.0.1:9092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  kafka-topics:
+    image: redpandadata/redpanda:v24.2.9
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+      KAFKA_PARTITIONS: ${KAFKA_PARTITIONS:-6}
+      KAFKA_REPLICATION_FACTOR: ${KAFKA_REPLICATION_FACTOR:-1}
+      KAFKA_RETENTION_MS: ${KAFKA_RETENTION_MS:-604800000}
+    volumes:
+      - ./infra/kafka/create-topics.sh:/create-topics.sh:ro
+    entrypoint: ["/bin/sh", "/create-topics.sh"]
+    restart: "no"
+
+  redpanda-console:
+    image: redpandadata/console:v2.7.2
+    <<: [*restart, *logging]
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+    ports:
+      - "${REDPANDA_CONSOLE_HOST_PORT:-8080}:8080"
+    depends_on:
+      redpanda:
+        condition: service_healthy
+
   # ── MCP Microservices ───────────────────────────────────────────────────────
 
   mcp-weather:
@@ -139,6 +196,10 @@ services:
       MCP_OUTFIT_URL: http://mcp-outfit:8012/sse
       MCP_PACKING_URL: http://mcp-packing:8013/sse
       OPENAI_MODEL: gpt-4o
+      LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}
+      LANGSMITH_ENDPOINT: ${LANGSMITH_ENDPOINT:-https://api.smith.langchain.com}
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+      LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-clozehive}
     ports:
       - "8001:8001"
     depends_on:
@@ -174,14 +235,27 @@ services:
       DATABASE_URL: postgresql+asyncpg://clozehive:clozehive@postgres:5432/clozehive
       REDIS_URL: redis://redis:6379/0
       AI_AGENT_URL: http://ai-agent:8001
+      KAFKA_ENABLED: "true"
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
       JWT_SECRET: ${JWT_SECRET:-dev_secret_change_in_production_please}
       ALLOWED_ORIGINS: http://localhost:3000,http://localhost:3001,http://localhost:5173
+      # Google OAuth — set these in your .env file
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      OAUTH_REDIRECT_URI: ${OAUTH_REDIRECT_URI:-http://localhost:8000/api/v1/auth/google/callback}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3001}
+      # Firebase / Firestore — set FIREBASE_CREDENTIALS_JSON to service account JSON contents
+      # or mount a credentials file and set GOOGLE_APPLICATION_CREDENTIALS to its path
+      FIREBASE_CREDENTIALS_JSON: ${FIREBASE_CREDENTIALS_JSON:-}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
     ports:
       - "8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      redpanda:
         condition: service_healthy
       ai-agent:
         condition: service_started
@@ -191,6 +265,32 @@ services:
       timeout: 10s
       start_period: 30s
       retries: 3
+    volumes:
+      - ./services/api-gateway/app:/app/app  # live code mount — no rebuild needed for Python changes
+      - uploads:/app/uploads
+
+  # ── AI Worker ───────────────────────────────────────────────────────────────
+
+  ai-worker:
+    build:
+      context: ./services/ai-worker
+      dockerfile: Dockerfile
+    <<: [*restart, *logging]
+    environment:
+      <<: *python-env
+      DATABASE_URL: postgresql://clozehive:clozehive@postgres:5432/clozehive
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      AI_AGENT_URL: http://ai-agent:8001
+      MAX_ATTEMPTS: "5"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+      kafka-topics:
+        condition: service_completed_successfully
+      ai-agent:
+        condition: service_started
     volumes:
       - uploads:/app/uploads
 
@@ -238,4 +338,5 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  redpanda_data:
   uploads:

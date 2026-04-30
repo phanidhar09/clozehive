@@ -68,6 +68,11 @@ class Settings(BaseSettings):
         return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]
 
     @property
+    def has_valid_openai_key(self) -> bool:
+        key = self.openai_api_key.strip()
+        return key.startswith("sk-") and key not in {"sk-your-openai-key", "sk-test"}
+
+    @property
     def mcp_server_config(self) -> dict:
         return {
             "weather": {"transport": "sse", "url": self.mcp_weather_url},

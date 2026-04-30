@@ -2,9 +2,9 @@ import { useState, useMemo } from 'react'
 import { Search, Filter, Grid3X3, List, SlidersHorizontal, Loader2, RefreshCw, Trash2 } from 'lucide-react'
 import { useApp } from '@/store'
 import { closetApi } from '@/lib/api'
-import ClosetItemCard from '@/components/closet/ClosetItemCard'
 import ItemDetailModal from '@/components/closet/ItemDetailModal'
 import Badge from '@/components/ui/Badge'
+import RevealCard from '@/components/ui/RevealCard'
 import type { ClosetItem, Category } from '@/types'
 import { categoryIcon } from '@/lib/utils'
 
@@ -192,7 +192,7 @@ export default function Closet() {
           {filtered.map(item =>
             view === 'grid' ? (
               <div key={item.id} className="relative group">
-                <ClosetItemCard item={item} onClick={() => setSelected(item)} />
+                <RevealCard item={item} onOpen={setSelected} />
                 <button
                   onClick={() => handleDelete(item)}
                   disabled={deleting === item.id}
@@ -210,7 +210,7 @@ export default function Closet() {
                 className="card-hover flex items-center gap-4 p-3 group"
               >
                 <div
-                  className="w-12 h-12 rounded-xl overflow-hidden bg-cream-100 dark:bg-slate-700 flex-shrink-0 cursor-pointer"
+                  className="w-28 h-16 rounded-xl overflow-hidden bg-cream-100 dark:bg-slate-700 flex-shrink-0 cursor-pointer"
                   onClick={() => setSelected(item)}
                 >
                   {item.image_url

@@ -11,6 +11,10 @@ from pathlib import Path
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# config.py lives at services/api-gateway/app/core/config.py — 5 levels up is the project root
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
+_ENV_FILE = _PROJECT_ROOT / ".env"
+
 
 class Settings(BaseSettings):
     # ── App ───────────────────────────────────────────────────────────────────
@@ -62,14 +66,29 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     google_client_secret: str = ""
     oauth_redirect_uri: str = "http://localhost:8000/api/v1/auth/google/callback"
+    frontend_url: str = "http://localhost:3000"
+
+    # ── Firebase / Firestore ──────────────────────────────────────────────────
+    # Set FIREBASE_CREDENTIALS_JSON to the full contents of your service account JSON,
+    # OR set GOOGLE_APPLICATION_CREDENTIALS to the path of the JSON file,
+    # OR leave blank to use Application Default Credentials (works on GCP).
+    firebase_credentials_json: str = ""
+    firebase_project_id: str = ""
 
     # ── Observability ─────────────────────────────────────────────────────────
     log_level: str = "INFO"
     enable_metrics: bool = True
     sentry_dsn: str = ""
 
+    # ── Kafka / Redpanda ──────────────────────────────────────────────────────
+    kafka_enabled: bool = True
+    kafka_bootstrap_servers: str = "redpanda:9092"
+    kafka_client_id: str = "clozehive-api-gateway"
+    kafka_result_group_id: str = "clozehive-api-gateway-results"
+    kafka_request_timeout_ms: int = 10_000
+
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(str(_ENV_FILE), ".env"),  # project root first, then local CWD override
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
