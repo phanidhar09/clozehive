@@ -17,7 +17,8 @@ _MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
 
 _SYSTEM = """\
 You are an expert personal stylist. Given a wardrobe of clothing items, weather conditions,
-and the user's occasion, suggest 3 complete outfit combinations.
+the user's occasion, and (optionally) the user's body + style profile, suggest 3 realistic
+outfit combinations that the user can actually wear and would look good in.
 
 Return ONLY valid JSON (no markdown) with this structure:
 {
@@ -34,12 +35,54 @@ Return ONLY valid JSON (no markdown) with this structure:
   "style_tips": ["tip1", "tip2"]
 }
 
-Rules:
-- Only use items from the provided wardrobe.
-- Each outfit must contain 2–5 items.
+Hard rules:
+- Use ONLY items from the provided wardrobe (referenced by id).
+- Each outfit must contain 2–5 items, with at least one top and one bottom (or a dress/full-look).
+- Avoid pairing items whose fits clash (e.g. oversized top + oversized bottom unless intentional).
+- Respect the user's preferred_fit and body_type when choosing combinations.
+- Avoid styles or categories listed in `avoid_categories` / `avoid_colors`.
+- Make each of the 3 outfits visually distinct — do not return three near-duplicates.
 - style_score is a float 0–10.
-- style_tips are general styling hints for this weather + occasion.
+- style_tips are 2–4 short hints tailored to the weather + occasion + user style.
 """
+
+
+def _format_user_profile(profile: dict | None) -> str:
+    """Render the user profile compactly for the prompt; empty string when absent."""
+    if not profile:
+        return ""
+
+    body = profile.get("body_profile") or {}
+    style = profile.get("style_profile") or {}
+    prefs = profile.get("preferences") or {}
+
+    lines: list[str] = []
+
+    body_bits = []
+    if body.get("body_type"):     body_bits.append(f"body_type={body['body_type']}")
+    if body.get("preferred_fit"): body_bits.append(f"preferred_fit={body['preferred_fit']}")
+    if body.get("height_cm"):     body_bits.append(f"height={body['height_cm']}cm")
+    if body.get("shirt_size"):    body_bits.append(f"shirt={body['shirt_size']}")
+    if body.get("pant_size"):     body_bits.append(f"pant={body['pant_size']}")
+    if body.get("shoe_size"):     body_bits.append(f"shoe={body['shoe_size']}")
+    if body_bits:
+        lines.append("Body: " + ", ".join(body_bits))
+
+    if style.get("learned_style"):
+        lines.append(f"Dominant style (learned from closet): {style['learned_style']}")
+    if style.get("selected_styles"):
+        lines.append(f"Preferred styles: {', '.join(style['selected_styles'])}")
+    if style.get("favorite_colors"):
+        lines.append(f"Favorite colors: {', '.join(style['favorite_colors'])}")
+    if style.get("avoid_colors"):
+        lines.append(f"Avoid colors: {', '.join(style['avoid_colors'])}")
+
+    if prefs.get("avoid_categories"):
+        lines.append(f"Avoid categories: {', '.join(prefs['avoid_categories'])}")
+    if prefs.get("notes"):
+        lines.append(f"Notes: {prefs['notes']}")
+
+    return "\n".join(lines)
 
 
 def _mock_result(closet_items: list[ClosetItem], occasion: str) -> OutfitResult:
@@ -70,6 +113,7 @@ async def generate_outfits(
     occasion: str,
     weather: str = "",
     temperature: float | None = None,
+    user_profile: dict | None = None,
 ) -> OutfitResult:
     """
     Generate outfit suggestions using GPT-4o.
@@ -94,11 +138,15 @@ async def generate_outfits(
     )
 
     temp_str = f"{temperature:.0f}°C" if temperature is not None else "unknown"
-    user_msg = (
-        f"Occasion: {occasion}\n"
-        f"Weather: {weather or 'Not specified'}, {temp_str}\n\n"
-        f"Wardrobe:\n{wardrobe_json}"
-    )
+    profile_block = _format_user_profile(user_profile)
+    user_msg_parts = [
+        f"Occasion: {occasion}",
+        f"Weather: {weather or 'Not specified'}, {temp_str}",
+    ]
+    if profile_block:
+        user_msg_parts.append(f"\nUser profile:\n{profile_block}")
+    user_msg_parts.append(f"\nWardrobe:\n{wardrobe_json}")
+    user_msg = "\n".join(user_msg_parts)
 
     try:
         async with httpx.AsyncClient(timeout=45) as client:

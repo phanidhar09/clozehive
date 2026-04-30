@@ -79,6 +79,7 @@ class OutfitRequest(BaseModel):
     occasion: str = "casual"
     weather: str = "mild"
     temperature: float = 20.0
+    user_profile: dict[str, Any] | None = None
 
 
 class PackingRequest(BaseModel):
@@ -181,12 +182,15 @@ async def outfit(body: OutfitRequest):
         raise HTTPException(status_code=503, detail="Outfit tool unavailable")
 
     try:
-        raw = await outfit_tool.ainvoke({
+        invoke_args: dict[str, Any] = {
             "closet_items_json": json.dumps(body.closet_items),
             "occasion": body.occasion,
             "weather": body.weather,
             "temperature": body.temperature,
-        })
+        }
+        if body.user_profile:
+            invoke_args["user_profile_json"] = json.dumps(body.user_profile)
+        raw = await outfit_tool.ainvoke(invoke_args)
         return _parse_json_mcp(raw)
     except HTTPException:
         raise

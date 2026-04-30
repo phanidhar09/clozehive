@@ -15,7 +15,7 @@ from sqlalchemy import (
     Text,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -36,6 +36,18 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     google_id: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
+
+    # ── Personalization profile (JSONB; nullable for backwards compat) ────────
+    # body_profile  — height/weight/body_type/preferred_fit/sizes
+    # style_profile — initial styles + behaviorally-learned style classification
+    # preferences   — favorite_colors, dislikes, occasion_focus, etc.
+    # permissions   — { location: bool, calendar: bool, location_coords?: ..., timezone?: ... }
+    body_profile: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    style_profile: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    preferences: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    permissions: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    avatar_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

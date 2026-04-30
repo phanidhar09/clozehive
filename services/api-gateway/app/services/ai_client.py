@@ -135,12 +135,14 @@ async def generate_outfits(
     occasion: str,
     weather: str,
     temperature: float,
+    user_profile: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload = {
         "closet_items": closet_items,
         "occasion": occasion,
         "weather": weather,
         "temperature": temperature,
+        "user_profile": user_profile,
     }
     try:
         resp = await get_client().post("/api/v1/agent/outfit", json=payload)

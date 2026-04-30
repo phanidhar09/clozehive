@@ -18,6 +18,7 @@ from app.core.deps import CurrentUser, DbSession
 from app.core.exceptions import AppError, BadRequestError
 from app.events import producer as event_producer, topics
 from app.events.schemas import AsyncAcceptedResponse, EventEnvelope
+from app.repositories.user_repo import UserRepository
 from app.services import ai_client
 from app.services.ai_request_service import create_request
 from app.services.firestore.closet_service import FirestoreClosetService
@@ -43,6 +44,8 @@ class OutfitRequest(BaseModel):
     occasion: str = "casual"
     weather: str = "mild"
     temperature: float = Field(20.0, ge=-30, le=55)
+    # Optional client-side override; if absent we load profile from DB.
+    user_profile: dict[str, Any] | None = None
 
 
 class PackingRequest(BaseModel):
@@ -57,6 +60,31 @@ class PackingRequest(BaseModel):
 async def _get_closet_as_dicts(user_id: UUID) -> list[dict[str, Any]]:
     svc = FirestoreClosetService()
     return await svc.get_all_for_ai(user_id, limit=200)
+
+
+async def _resolve_user_profile(
+    session, user_id: UUID, override: dict[str, Any] | None
+) -> dict[str, Any] | None:
+    """
+    Build the personalization context passed to the AI agent.
+
+    Client-supplied `override` wins (lets the UI temporarily tune a request);
+    otherwise we read the persisted profile from Postgres. Returns None when
+    there is nothing useful to send so the agent can fall back to defaults.
+    """
+    if override:
+        return override
+    user = await UserRepository(session).get(user_id)
+    if user is None:
+        return None
+    profile = {
+        "body_profile":  user.body_profile,
+        "style_profile": user.style_profile,
+        "preferences":   user.preferences,
+    }
+    # Drop empty/null sections so the prompt stays compact.
+    profile = {k: v for k, v in profile.items() if v}
+    return profile or None
 
 
 def _sse(data: dict[str, Any]) -> str:
@@ -135,10 +163,14 @@ async def chat_async(body: ChatRequest, user_id: CurrentUser, session: DbSession
 # ── Outfit ────────────────────────────────────────────────────────────────────
 
 @router.post("/outfit")
-async def outfit(body: OutfitRequest, user_id: CurrentUser):
+async def outfit(body: OutfitRequest, user_id: CurrentUser, session: DbSession):
     """Generate 3 AI outfit suggestions from the user's closet."""
-    closet = await _get_closet_as_dicts(UUID(user_id))
-    return await ai_client.generate_outfits(closet, body.occasion, body.weather, body.temperature)
+    uid = UUID(user_id)
+    closet = await _get_closet_as_dicts(uid)
+    profile = await _resolve_user_profile(session, uid, body.user_profile)
+    return await ai_client.generate_outfits(
+        closet, body.occasion, body.weather, body.temperature, user_profile=profile,
+    )
 
 
 @router.post("/outfit/async", response_model=AsyncAcceptedResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -147,11 +179,13 @@ async def outfit_async(body: OutfitRequest, user_id: CurrentUser, session: DbSes
     request_id = uuid4()
     user_uuid = UUID(user_id)
     closet = await _get_closet_as_dicts(user_uuid)
+    profile = await _resolve_user_profile(session, user_uuid, body.user_profile)
     payload = {
         "closet_items": closet,
         "occasion": body.occasion,
         "weather": body.weather,
         "temperature": body.temperature,
+        "user_profile": profile,
     }
     await create_request(session, request_id=request_id, user_id=user_uuid, request_type=topics.OUTFIT_REQUESTED, input_payload=payload)
     await session.commit()
@@ -163,12 +197,17 @@ async def outfit_async(body: OutfitRequest, user_id: CurrentUser, session: DbSes
 
 
 @router.post("/outfit/stream")
-async def outfit_stream(body: OutfitRequest, user_id: CurrentUser):
+async def outfit_stream(body: OutfitRequest, user_id: CurrentUser, session: DbSession):
+    uid = UUID(user_id)
+
     async def events():
         try:
             yield _sse({"type": "status", "message": "Generating outfits…"})
-            closet = await _get_closet_as_dicts(UUID(user_id))
-            data = await ai_client.generate_outfits(closet, body.occasion, body.weather, body.temperature)
+            closet = await _get_closet_as_dicts(uid)
+            profile = await _resolve_user_profile(session, uid, body.user_profile)
+            data = await ai_client.generate_outfits(
+                closet, body.occasion, body.weather, body.temperature, user_profile=profile,
+            )
             yield _sse({"type": "result", "data": data})
             yield _sse({"type": "done"})
         except AppError as exc:

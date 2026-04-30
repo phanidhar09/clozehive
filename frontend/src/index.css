@@ -2,92 +2,256 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   DESIGN TOKENS
+───────────────────────────────────────────────────────────────────────────── */
 @layer base {
   :root {
     --sidebar-width: 260px;
     --navbar-height: 64px;
+
+    /* Light surface */
+    --surface-bg:      rgba(255,255,255,0.90);
+    --surface-border:  rgba(0,0,0,0.08);
+
+    /* Motion */
+    --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-out:    cubic-bezier(0.0, 0.0, 0.2, 1);
   }
 
-  * { @apply border-cream-300 dark:border-slate-700; }
+  .dark {
+    /* Dark surface */
+    --surface-bg:      rgba(255,255,255,0.04);
+    --surface-border:  rgba(255,255,255,0.08);
+  }
+
+  * { @apply border-cream-300 dark:border-white/[0.08]; }
 
   html { scroll-behavior: smooth; }
 
   body {
     @apply font-sans bg-cream-100 dark:bg-slate-950 text-slate-800 dark:text-slate-100;
     font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   h1,h2,h3 { @apply font-display; }
 
-  ::-webkit-scrollbar { @apply w-1.5 h-1.5; }
-  ::-webkit-scrollbar-track { @apply bg-transparent; }
-  ::-webkit-scrollbar-thumb { @apply bg-cream-300 dark:bg-slate-700 rounded-full; }
-  ::-webkit-scrollbar-thumb:hover { @apply bg-brand-300 dark:bg-slate-500; }
+  /* Premium scrollbar */
+  ::-webkit-scrollbar         { @apply w-1 h-1; }
+  ::-webkit-scrollbar-track   { @apply bg-transparent; }
+  ::-webkit-scrollbar-thumb   { @apply rounded-full bg-slate-200 dark:bg-white/10; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-slate-300 dark:bg-white/20; }
 
-  ::selection { @apply bg-brand-200 dark:bg-brand-700 text-brand-900 dark:text-white; }
+  ::selection { @apply bg-indigo-500/30 text-white; }
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   COMPONENT SYSTEM
+───────────────────────────────────────────────────────────────────────────── */
 @layer components {
+
+  /* ── GLASS ─────────────────────────────────────────────────────────────── */
+
   .glass {
-    @apply bg-white/80 dark:bg-slate-800/80 backdrop-blur-xl;
+    @apply bg-white/80 dark:bg-white/[0.04]
+           backdrop-blur-xl
+           border border-cream-200 dark:border-white/[0.08];
   }
 
+  /* ── CARDS ─────────────────────────────────────────────────────────────── */
+
   .card {
-    @apply bg-white dark:bg-slate-800 rounded-2xl shadow-card border border-cream-300 dark:border-slate-700;
+    /* Light: clean white */
+    @apply bg-white rounded-2xl border border-cream-200 shadow-card;
+    /* Dark: glass */
+    @apply dark:bg-white/[0.04] dark:backdrop-blur-xl dark:border-white/[0.08] dark:shadow-glass-card;
   }
 
   .card-hover {
-    @apply card transition-all duration-200 hover:shadow-card-hover hover:-translate-y-0.5 cursor-pointer;
+    @apply card transition-all duration-300 cursor-pointer;
+    /* Light lift */
+    @apply hover:-translate-y-0.5 hover:shadow-card-hover;
+    /* Dark glass lift + indigo glow */
+    @apply dark:hover:bg-white/[0.07] dark:hover:border-white/[0.14]
+           dark:hover:shadow-glass-card-hover dark:hover:-translate-y-1;
   }
 
+  /* Glass card — explicit dark-only premium surface */
+  .glass-card {
+    @apply rounded-2xl border dark:border-white/[0.08] border-cream-200/60
+           bg-white/60 dark:bg-white/[0.04]
+           backdrop-blur-xl shadow-glass-card;
+  }
+
+  .glass-card-hover {
+    @apply glass-card transition-all duration-300 cursor-pointer;
+    @apply hover:-translate-y-1 dark:hover:bg-white/[0.07] dark:hover:border-white/[0.14]
+           dark:hover:shadow-glass-card-hover;
+  }
+
+  /* Stat / number card */
+  .stat-card {
+    @apply glass-card p-4 flex flex-col gap-1 select-none;
+  }
+
+  /* ── BUTTONS ───────────────────────────────────────────────────────────── */
+
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm
-      bg-gradient-brand text-white shadow-sm
-      hover:opacity-90 active:scale-[.98] transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl
+           font-semibold text-sm text-white
+           bg-gradient-to-r from-indigo-500 to-violet-600
+           shadow-glow-sm
+           hover:shadow-glow-md hover:-translate-y-px
+           active:scale-[.97] active:shadow-glow-sm
+           transition-all duration-200
+           disabled:opacity-40 disabled:cursor-not-allowed
+           disabled:translate-y-0 disabled:shadow-none;
   }
 
   .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm
-      bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-cream-300 dark:border-slate-600
-      hover:bg-cream-100 dark:hover:bg-slate-700 active:scale-[.98] transition-all duration-150;
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl
+           font-semibold text-sm
+           bg-white dark:bg-white/[0.06]
+           text-slate-700 dark:text-white
+           border border-cream-300 dark:border-white/[0.10]
+           hover:bg-cream-50 dark:hover:bg-white/[0.10]
+           hover:border-cream-400 dark:hover:border-white/[0.20]
+           hover:-translate-y-px
+           active:scale-[.97] transition-all duration-200;
   }
 
   .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl font-medium text-sm
-      text-slate-600 dark:text-slate-400 hover:bg-cream-200 dark:hover:bg-slate-700 transition-colors;
+    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl
+           font-medium text-sm
+           text-slate-500 dark:text-white/50
+           hover:text-slate-800 dark:hover:text-white
+           hover:bg-slate-100 dark:hover:bg-white/[0.07]
+           active:scale-[.97] transition-all duration-150;
   }
+
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl
+           font-semibold text-sm text-white
+           bg-red-500 hover:bg-red-600
+           hover:-translate-y-px active:scale-[.97]
+           transition-all duration-200;
+  }
+
+  /* ── INPUTS ────────────────────────────────────────────────────────────── */
 
   .input {
-    @apply w-full px-4 py-2.5 rounded-xl border border-cream-300 dark:border-slate-600
-      bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400
-      focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-transparent
-      transition-all duration-150 text-sm;
+    @apply w-full px-4 py-2.5 rounded-xl text-sm
+           bg-white dark:bg-white/[0.05]
+           border border-cream-300 dark:border-white/[0.10]
+           text-slate-800 dark:text-white
+           placeholder-slate-400 dark:placeholder-white/30
+           focus:outline-none
+           focus:ring-2 focus:ring-indigo-500/40
+           focus:border-indigo-400 dark:focus:border-indigo-500/60
+           transition-all duration-200;
   }
 
-  .label { @apply block text-sm font-medium text-slate-600 dark:text-slate-400 mb-1.5; }
+  .label {
+    @apply block text-sm font-medium text-slate-600 dark:text-white/60 mb-1.5;
+  }
+
+  /* ── BADGES ────────────────────────────────────────────────────────────── */
 
   .badge {
     @apply inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold;
   }
 
+  /* ── NAVIGATION ─────────────────────────────────────────────────────────── */
+
   .nav-item {
     @apply flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
-      text-slate-400 hover:text-white hover:bg-white/10 transition-all cursor-pointer;
+           text-slate-400 dark:text-white/45
+           hover:text-slate-800 dark:hover:text-white
+           hover:bg-slate-100 dark:hover:bg-white/[0.07]
+           transition-all duration-150 cursor-pointer;
   }
 
   .nav-item.active {
-    @apply text-white bg-white/15;
+    @apply text-slate-900 dark:text-white
+           bg-slate-100 dark:bg-white/[0.10]
+           dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08)];
   }
+
+  /* Active nav — indigo left accent */
+  .dark .nav-item.active {
+    position: relative;
+  }
+  .dark .nav-item.active::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 25%;
+    bottom: 25%;
+    width: 2px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, #6366f1, #7c3aed);
+  }
+
+  /* ── PAGE ENTER ─────────────────────────────────────────────────────────── */
 
   .page-enter { @apply animate-fade-in; }
 }
 
-/* Custom scrollbar for chat */
-.chat-scroll::-webkit-scrollbar { width: 4px; }
-.chat-scroll::-webkit-scrollbar-thumb { @apply bg-cream-300 dark:bg-slate-600 rounded-full; }
+/* ─────────────────────────────────────────────────────────────────────────────
+   UTILITY OVERRIDES
+───────────────────────────────────────────────────────────────────────────── */
+@layer utilities {
+  /* Staggered child animations — set --i on each child */
+  .stagger > * {
+    animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: calc(var(--i, 0) * 55ms);
+  }
 
-/* Drag-drop glow */
+  /* Gradient text */
+  .text-gradient {
+    @apply bg-gradient-to-r from-indigo-400 via-violet-400 to-cyan-400
+           bg-clip-text text-transparent;
+  }
+
+  /* Shimmer loading skeleton */
+  .shimmer-bg {
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent);
+    background-size: 200% 100%;
+    animation: shimmer 2.2s linear infinite;
+  }
+
+  /* Glow border via box-shadow */
+  .border-glow {
+    box-shadow: 0 0 0 1px rgba(99,102,241,0.40),
+                0 0 12px rgba(99,102,241,0.20);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   SCROLLBAR — Chat
+───────────────────────────────────────────────────────────────────────────── */
+.chat-scroll::-webkit-scrollbar       { width: 4px; }
+.chat-scroll::-webkit-scrollbar-thumb { @apply bg-slate-200 dark:bg-white/10 rounded-full; }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   DRAG-DROP GLOW
+───────────────────────────────────────────────────────────────────────────── */
 .drop-zone-active {
-  @apply border-brand-500 bg-brand-50 dark:bg-brand-900/20;
-  box-shadow: 0 0 0 3px rgb(83 74 183 / 0.2);
+  @apply border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20;
+  box-shadow: 0 0 0 3px rgba(99,102,241,0.25);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   REDUCE MOTION
+───────────────────────────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .animate-float-1,
+  .animate-float-2,
+  .animate-float-3,
+  .animate-glow-pulse,
+  .shimmer-bg { animation: none !important; }
+
+  * { transition-duration: 0.01ms !important; }
 }

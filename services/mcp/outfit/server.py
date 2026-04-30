@@ -40,6 +40,7 @@ async def generate_outfit_suggestions(
     occasion: str,
     weather: str = "",
     temperature: float = 20.0,
+    user_profile_json: str = "",
 ) -> str:
     """
     Generate outfit suggestions from the user's wardrobe.
@@ -49,6 +50,7 @@ async def generate_outfit_suggestions(
         occasion:          Target occasion — casual, formal, sport, beach, business, etc.
         weather:           Weather condition string, e.g. "Sunny", "Rainy".
         temperature:       Temperature in Celsius (default 20).
+        user_profile_json: Optional JSON object with body_profile / style_profile / preferences.
 
     Returns:
         JSON OutfitResult with outfits[] and style_tips[].
@@ -61,6 +63,7 @@ async def generate_outfit_suggestions(
     logger.info(
         "tool_generate_outfit_suggestions",
         occasion=occasion, weather=weather, temperature=temperature,
+        has_profile=bool(user_profile_json),
     )
 
     try:
@@ -69,8 +72,17 @@ async def generate_outfit_suggestions(
     except (json.JSONDecodeError, TypeError) as exc:
         return json.dumps({"error": f"Invalid closet_items_json: {exc}"})
 
+    user_profile: dict | None = None
+    if user_profile_json.strip():
+        try:
+            parsed = json.loads(user_profile_json)
+            if isinstance(parsed, dict):
+                user_profile = parsed
+        except json.JSONDecodeError:
+            user_profile = None  # silently ignore malformed profile
+
     try:
-        result = await generate_outfits(items, occasion, weather, temperature)
+        result = await generate_outfits(items, occasion, weather, temperature, user_profile)
         return result.model_dump_json(indent=2)
     except Exception as exc:
         logger.error("tool_error", tool="generate_outfit_suggestions", error=str(exc))

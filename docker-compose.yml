@@ -237,6 +237,10 @@ services:
       AI_AGENT_URL: http://ai-agent:8001
       KAFKA_ENABLED: "true"
       KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      FAISS_ENABLED: "true"
+      FAISS_DIMENSION: "1536"
+      FAISS_INDEX_PATH: "/app/data/faiss/index.bin"
+      FAISS_ID_MAP_PATH: "/app/data/faiss/id_map.json"
       JWT_SECRET: ${JWT_SECRET:-dev_secret_change_in_production_please}
       ALLOWED_ORIGINS: http://localhost:3000,http://localhost:3001,http://localhost:5173
       # Google OAuth — set these in your .env file
@@ -267,6 +271,7 @@ services:
       retries: 3
     volumes:
       - ./services/api-gateway/app:/app/app  # live code mount — no rebuild needed for Python changes
+      - faiss_data:/app/data/faiss
       - uploads:/app/uploads
 
   # ── AI Worker ───────────────────────────────────────────────────────────────
@@ -339,4 +344,5 @@ volumes:
   postgres_data:
   redis_data:
   redpanda_data:
+  faiss_data:
   uploads:

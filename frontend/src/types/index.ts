@@ -123,6 +123,61 @@ export interface AuthUser {
   follower_count?: number
   following_count?: number
   created_at?: string
+
+  // ── Personalization (User Intelligence Hub) ────────────────────────────────
+  body_profile?: BodyProfile | null
+  style_profile?: StyleProfile | null
+  preferences?: UserPreferences | null
+  permissions?: UserPermissions | null
+  avatar_config?: AvatarConfig | null
+}
+
+// ── Personalization sub-types — mirror api-gateway/app/schemas/auth.py ───────
+
+export type BodyType = 'slim' | 'athletic' | 'average' | 'broad' | 'curvy' | 'plus'
+export type PreferredFit = 'slim' | 'regular' | 'oversized'
+export type StyleTag =
+  | 'casual' | 'formal' | 'streetwear' | 'sporty' | 'minimal'
+  | 'business' | 'boho' | 'vintage' | 'preppy' | 'elegant'
+
+export interface BodyProfile {
+  height_cm?: number | null
+  weight_kg?: number | null
+  body_type?: BodyType | null
+  preferred_fit?: PreferredFit | null
+  shirt_size?: string | null
+  pant_size?: string | null
+  shoe_size?: string | null
+}
+
+export interface StyleProfile {
+  selected_styles: StyleTag[]
+  learned_style?: string | null
+  learned_at?: string | null
+  favorite_colors: string[]
+  avoid_colors: string[]
+}
+
+export interface UserPreferences {
+  occasion_focus: string[]
+  avoid_categories: string[]
+  notes?: string | null
+}
+
+export interface UserPermissions {
+  location: boolean
+  calendar: boolean
+  location_coords?: { lat: number; lon: number } | null
+  location_label?: string | null
+  timezone?: string | null
+}
+
+export interface AvatarConfig {
+  skin_tone?: string | null
+  hair_color?: string | null
+  hair_style?: string | null
+  body_type?: string | null
+  outfit?: string | null
 }
 
 // ── Social ────────────────────────────────────────────────────────────────────
