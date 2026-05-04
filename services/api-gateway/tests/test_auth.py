@@ -33,7 +33,8 @@ async def test_signup_duplicate_email(client: AsyncClient):
     await client.post("/api/v1/auth/signup", json=payload)
     resp = await client.post("/api/v1/auth/signup", json={**payload, "username": "dupuser2"})
     assert resp.status_code == 409
-    assert "Email" in resp.json()["message"]
+    body = resp.json()
+    assert "Email" in body.get("detail", "") or "Email" in body.get("message", "")
 
 
 @pytest.mark.asyncio
@@ -45,6 +46,13 @@ async def test_signup_weak_password(client: AsyncClient):
         "password": "password",  # no uppercase, no digit
     })
     assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_health_live(client: AsyncClient):
+    resp = await client.get("/live")
+    assert resp.status_code == 200
+    assert resp.json().get("status") == "alive"
 
 
 @pytest.mark.asyncio
@@ -115,10 +123,3 @@ async def test_token_refresh(client: AsyncClient):
     data = resp.json()
     assert "access_token" in data
     assert data["refresh_token"] != refresh_token  # token rotated
-
-
-@pytest.mark.asyncio
-async def test_health(client: AsyncClient):
-    resp = await client.get("/health")
-    assert resp.status_code == 200
-    assert resp.json()["status"] in ("ok", "degraded")

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useSearchParams, useNavigate } from 'react-router-dom'
+import { useSearchParams, useNavigate, Link } from 'react-router-dom'
 import {
   Search, Users, UserCheck, Loader2, Edit3, Check, Shirt,
   User as UserIcon, Ruler, Palette, Brain, MapPin, Calendar, Sparkles,
@@ -16,6 +16,7 @@ import AvatarEditor, { withAvatarDefaults } from '@/components/profile/AvatarEdi
 import { analyzeCloset } from '@/lib/closetInsights'
 import { requestGeolocation } from '@/hooks/useWeather'
 import { cn } from '@/lib/utils'
+import { hideNonMvpUi } from '@/config/features'
 
 type Tab = 'overview' | 'avatar' | 'body' | 'style' | 'insights' | 'social' | 'settings'
 
@@ -42,9 +43,11 @@ export default function Profile() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
 
-  const [activeTab, setActiveTab] = useState<Tab>(
-    () => (searchParams.get('tab') as Tab) || 'overview',
-  )
+  const [activeTab, setActiveTab] = useState<Tab>(() => {
+    const raw = (searchParams.get('tab') as Tab) || 'overview'
+    if (hideNonMvpUi() && (raw === 'avatar' || raw === 'social')) return 'overview'
+    return raw
+  })
 
   const [profile, setProfile] = useState<SocialUser | null>(null)
   const [profileLoading, setProfileLoading] = useState(true)
@@ -66,7 +69,7 @@ export default function Profile() {
 
   const insight = useMemo(() => analyzeCloset(closetItems), [closetItems])
 
-  const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
+  const allTabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'overview', label: 'Overview',    icon: <UserIcon size={14} /> },
     { id: 'avatar',   label: 'Avatar',      icon: <Sparkles size={14} /> },
     { id: 'body',     label: 'Body & Size', icon: <Ruler size={14} /> },
@@ -76,12 +79,35 @@ export default function Profile() {
     { id: 'settings', label: 'Settings',    icon: <Edit3 size={14} /> },
   ]
 
+  const TABS = useMemo(
+    () => (hideNonMvpUi() ? allTabs.filter(t => t.id !== 'social' && t.id !== 'avatar') : allTabs),
+    [],
+  )
+
   if (!currentUser) {
     return <div className="p-8 text-slate-400">Sign in to view your profile.</div>
   }
 
   return (
-    <div className="max-w-5xl space-y-6 animate-slide-up">
+    <div className="max-w-5xl space-y-6">
+
+      {searchParams.get('onboarding') === '1' && (
+        <div className="rounded-2xl border border-indigo-200 dark:border-indigo-500/35 bg-indigo-50/90 dark:bg-indigo-950/35 p-4 text-sm text-slate-700 dark:text-slate-200">
+          <p className="font-semibold mb-2">Welcome — finish your setup</p>
+          <ol className="list-decimal list-inside space-y-1 text-slate-600 dark:text-slate-300">
+            <li>Add your body profile and style preferences using the tabs below.</li>
+            <li><Link className="text-brand-600 dark:text-brand-400 font-medium" to="/upload">Upload wardrobe photos</Link>.</li>
+            <li>Open your <Link className="text-brand-600 dark:text-brand-400 font-medium" to="/dashboard">dashboard</Link> when you are ready.</li>
+          </ol>
+          <button
+            type="button"
+            className="mt-3 text-xs text-slate-500 dark:text-slate-400 underline"
+            onClick={() => navigate('/profile', { replace: true })}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* ── Header card ──────────────────────────────────────── */}
       <GlassCard padding="none" className="overflow-hidden">
@@ -122,8 +148,12 @@ export default function Profile() {
             <div className="flex gap-6">
               {[
                 { label: 'Items',     value: profile?.item_count ?? 0,      tab: 'overview' as Tab },
-                { label: 'Followers', value: profile?.follower_count ?? 0,  tab: 'social' as Tab },
-                { label: 'Following', value: profile?.following_count ?? 0, tab: 'social' as Tab },
+                ...(hideNonMvpUi()
+                  ? []
+                  : [
+                      { label: 'Followers', value: profile?.follower_count ?? 0, tab: 'social' as Tab },
+                      { label: 'Following', value: profile?.following_count ?? 0, tab: 'social' as Tab },
+                    ]),
               ].map(s => (
                 <button key={s.label} onClick={() => setActiveTab(s.tab)} className="text-center hover:opacity-80">
                   <div className="font-bold text-lg text-slate-900 dark:text-white">{s.value}</div>
@@ -832,6 +862,7 @@ function SettingsTab({
         }
         setPerms(next)
         await onSavePermissions(next)
+        alert('Location saved. Outfit suggestions will now factor in your local weather.')
       } else {
         const next: UserPermissions = { ...perms, location: false, location_coords: null, location_label: null }
         setPerms(next)
@@ -879,16 +910,16 @@ function SettingsTab({
       {/* Permissions */}
       <GlassCard padding="md" className="space-y-3">
         <h3 className="font-semibold text-base text-slate-800 dark:text-white flex items-center gap-2">
-          Permissions
+          Location & Weather
           {savingPerms && <Loader2 size={14} className="animate-spin text-slate-400" />}
         </h3>
         <Toggle
           icon={<MapPin size={16} className="text-emerald-500" />}
-          title="Location"
+          title="Enable weather-aware outfit suggestions"
           desc="Used to fetch local weather and adjust outfits to current conditions."
           checked={perms.location}
           onChange={toggleLocation}
-          extra={perms.location_label ? `Detected: ${perms.location_label}` : undefined}
+          extra={perms.location_label ? `Current location: ${perms.location_label}` : undefined}
         />
         <Toggle
           icon={<Calendar size={16} className="text-indigo-500" />}

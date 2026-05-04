@@ -23,10 +23,9 @@ async def test_chat_stream_smoke(client: AsyncClient, monkeypatch: pytest.Monkey
     token = signup.json()["access_token"]
 
     async def _fake_stream_chat(*args, **kwargs):
-        yield {"type": "token", "content": "Hello from mocked AI."}
-        yield {"type": "done"}
+        yield "Hello from mocked AI."
 
-    monkeypatch.setattr(ai_routes.ai_client, "stream_chat", _fake_stream_chat)
+    monkeypatch.setattr(ai_routes.ai_service, "stream_chat", _fake_stream_chat)
 
     async with client.stream(
         "POST",

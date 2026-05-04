@@ -216,6 +216,7 @@ def _build_alerts(
 async def _ai_summary(
     destination: str,
     purpose: str,
+    notes: str,
     weather_summary: WeatherSummary,
     packing_list: list[PackingItem],
 ) -> str:
@@ -223,7 +224,7 @@ async def _ai_summary(
     api_key = os.getenv("OPENAI_API_KEY", "")
     if not api_key:
         return (
-            f"Packing list for your {purpose} trip to {destination}. "
+        f"Packing list for your {purpose} trip to {destination}. "
             f"Expect {weather_summary.dominant_condition.lower()} conditions with highs of "
             f"{weather_summary.avg_high:.0f}°C."
         )
@@ -231,6 +232,7 @@ async def _ai_summary(
     prompt = (
         f"Write a 2-sentence friendly packing summary for a {purpose} trip to {destination}. "
         f"Weather: {weather_summary.dominant_condition}, avg {weather_summary.avg_high:.0f}°C. "
+        f"Trip notes: {notes or 'none'}. "
         f"Items packed: {len(packing_list)}. Be concise and encouraging."
     )
 
@@ -259,6 +261,7 @@ async def generate_packing_list(
     purpose: str,
     closet_items: list[ClosetItem],
     weather_summary: WeatherSummary,
+    notes: str = "",
 ) -> PackingResult:
     """
     Build a full trip packing list.
@@ -287,10 +290,10 @@ async def generate_packing_list(
         if e.category == "essentials" and e.quantity > 1:
             e.quantity = min(e.quantity, trip_days + 1)
 
-    full_list = essentials + matched + extras
+    full_list = sorted(essentials + matched + extras, key=lambda item: item.category)
     daily_plan = _build_daily_plan(matched, weather_summary, start_date, end_date)
     alerts = _build_alerts(missing, weather_summary, trip_days)
-    summary = await _ai_summary(destination, purpose, weather_summary, full_list)
+    summary = await _ai_summary(destination, purpose, notes, weather_summary, full_list)
 
     return PackingResult(
         destination=destination,

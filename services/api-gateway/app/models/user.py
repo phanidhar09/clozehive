@@ -4,8 +4,10 @@ User, UserCredential, and RefreshToken ORM models.
 
 from __future__ import annotations
 
+from typing import Optional
+
 import uuid
-from datetime import UTC, datetime
+from datetime import timezone, datetime
 
 from sqlalchemy import (
     Boolean,
@@ -30,23 +32,23 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    bio: Mapped[str | None] = mapped_column(Text, nullable=True)
-    avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    bio: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    avatar_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="user")  # user | admin
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    google_id: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True)
+    google_id: Mapped[Optional[str]] = mapped_column(String(255), unique=True, nullable=True)
 
     # ── Personalization profile (JSONB; nullable for backwards compat) ────────
     # body_profile  — height/weight/body_type/preferred_fit/sizes
     # style_profile — initial styles + behaviorally-learned style classification
     # preferences   — favorite_colors, dislikes, occasion_focus, etc.
     # permissions   — { location: bool, calendar: bool, location_coords?: ..., timezone?: ... }
-    body_profile: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    style_profile: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    preferences: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    permissions: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    avatar_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    body_profile: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    style_profile: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    preferences: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    permissions: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    avatar_config: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -56,7 +58,7 @@ class User(Base):
     )
 
     # Relationships
-    credential: Mapped[UserCredential | None] = relationship(
+    credential: Mapped[Optional[UserCredential]] = relationship(
         "UserCredential", back_populates="user", uselist=False, cascade="all, delete-orphan"
     )
     refresh_tokens: Mapped[list[RefreshToken]] = relationship(
@@ -65,18 +67,18 @@ class User(Base):
     closet_items: Mapped[list["ClosetItem"]] = relationship(
         "ClosetItem", back_populates="owner", cascade="all, delete-orphan"
     )
-    following: Mapped[list["Follow"]] = relationship(
-        "Follow", foreign_keys="Follow.follower_id", back_populates="follower", cascade="all, delete-orphan"
-    )
-    followers: Mapped[list["Follow"]] = relationship(
-        "Follow", foreign_keys="Follow.following_id", back_populates="following", cascade="all, delete-orphan"
-    )
-    owned_groups: Mapped[list["Group"]] = relationship(
-        "Group", back_populates="owner", cascade="all, delete-orphan"
-    )
-    group_memberships: Mapped[list["GroupMember"]] = relationship(
-        "GroupMember", back_populates="user", cascade="all, delete-orphan"
-    )
+    # following: Mapped[list["Follow"]] = relationship(  # Non-MVP social features disabled for launch stabilization
+    #     "Follow", foreign_keys="Follow.follower_id", back_populates="follower", cascade="all, delete-orphan"
+    # )
+    # followers: Mapped[list["Follow"]] = relationship(  # Non-MVP social features disabled for launch stabilization
+    #     "Follow", foreign_keys="Follow.following_id", back_populates="following", cascade="all, delete-orphan"
+    # )
+    # owned_groups: Mapped[list["Group"]] = relationship(  # Non-MVP social features disabled for launch stabilization
+    #     "Group", back_populates="owner", cascade="all, delete-orphan"
+    # )
+    # group_memberships: Mapped[list["GroupMember"]] = relationship(  # Non-MVP social features disabled for launch stabilization
+    #     "GroupMember", back_populates="user", cascade="all, delete-orphan"
+    # )
 
 
 class UserCredential(Base):
@@ -88,7 +90,7 @@ class UserCredential(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True
     )
-    password_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    password_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

@@ -1,0 +1,29 @@
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  deploy:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deployment placeholder
+        run: |
+          echo "Configure deployment here."
+          echo "Common options: SSH to a server and run docker compose pull/up, or push images to a container registry."
+          echo "Add secrets such as DEPLOY_HOST, DEPLOY_USER, SSH_PRIVATE_KEY, and registry credentials before enabling real deploys."
+      - name: Write deployment summary
+        run: |
+          {
+            echo "## Deployment Placeholder"
+            echo ""
+            echo "CI passed on main. Replace this placeholder with your production deployment steps."
+            echo ""
+            echo "- Commit: ${{ github.event.workflow_run.head_sha }}"
+            echo "- Branch: ${{ github.event.workflow_run.head_branch }}"
+          } >> "$GITHUB_STEP_SUMMARY"

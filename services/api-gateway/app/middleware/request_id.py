@@ -20,6 +20,7 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         # Bind to structlog context — all log lines in this request include request_id
         structlog.contextvars.clear_contextvars()
         structlog.contextvars.bind_contextvars(request_id=request_id)
+        request.state.request_id = request_id
 
         response = await call_next(request)
         response.headers["X-Request-ID"] = request_id

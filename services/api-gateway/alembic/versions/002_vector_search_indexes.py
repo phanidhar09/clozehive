@@ -14,9 +14,31 @@ branch_labels = None
 depends_on = None
 
 
+def _try_execute(conn: sa.engine.Connection, sql: str) -> bool:
+    """Run SQL inside a savepoint. Returns True on success, False if it fails.
+
+    When a statement fails inside a Postgres transaction the whole transaction
+    is aborted.  Rolling back to a savepoint un-aborts it so the surrounding
+    migration can continue.
+    """
+    conn.execute(sa.text("SAVEPOINT _optional_stmt"))
+    try:
+        conn.execute(sa.text(sql))
+        conn.execute(sa.text("RELEASE SAVEPOINT _optional_stmt"))
+        return True
+    except Exception:
+        conn.execute(sa.text("ROLLBACK TO SAVEPOINT _optional_stmt"))
+        return False
+
+
 def upgrade() -> None:
-    op.execute('CREATE EXTENSION IF NOT EXISTS "vector"')
-    op.execute('CREATE EXTENSION IF NOT EXISTS "pg_trgm"')
+    # pgvector is optional — similarity search degrades gracefully without it.
+    # Production always has the extension; local PG14 may not.  We use
+    # savepoints so a missing extension doesn't abort the outer transaction.
+    conn = op.get_bind()
+
+    vector_available = _try_execute(conn, 'CREATE EXTENSION IF NOT EXISTS "vector"')
+    _try_execute(conn, 'CREATE EXTENSION IF NOT EXISTS "pg_trgm"')
 
     op.create_table(
         "closet_item_embeddings",
@@ -29,16 +51,20 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
     )
-    op.execute("ALTER TABLE closet_item_embeddings ALTER COLUMN embedding TYPE vector(1536) USING embedding::vector")
-    op.create_index("idx_closet_item_embeddings_user_id", "closet_item_embeddings", ["user_id"])
-    op.execute(
-        "CREATE INDEX idx_closet_item_embeddings_vector "
-        "ON closet_item_embeddings USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)"
-    )
 
+    if vector_available:
+        conn.execute(sa.text(
+            "ALTER TABLE closet_item_embeddings ALTER COLUMN embedding TYPE vector(1536) USING embedding::vector"
+        ))
+        conn.execute(sa.text(
+            "CREATE INDEX idx_closet_item_embeddings_vector "
+            "ON closet_item_embeddings USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100)"
+        ))
+
+    op.create_index("idx_closet_item_embeddings_user_id", "closet_item_embeddings", ["user_id"])
     op.create_index("idx_outfits_user_id", "outfits", ["user_id"])
-    op.execute("CREATE INDEX idx_users_username_trgm ON users USING gin (username gin_trgm_ops)")
-    op.execute("CREATE INDEX idx_users_name_trgm ON users USING gin (name gin_trgm_ops)")
+    _try_execute(conn, "CREATE INDEX idx_users_username_trgm ON users USING gin (username gin_trgm_ops)")
+    _try_execute(conn, "CREATE INDEX idx_users_name_trgm ON users USING gin (name gin_trgm_ops)")
 
 
 def downgrade() -> None:

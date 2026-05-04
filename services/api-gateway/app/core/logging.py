@@ -1,6 +1,5 @@
 """
-Structured logging with structlog.
-JSON in production, pretty console in development.
+Structured JSON logging with structlog.
 Import: from app.core.logging import get_logger, setup_logging
 """
 
@@ -14,6 +13,23 @@ import structlog
 from app.core.config import get_settings
 
 
+def _add_service(_logger, _method_name, event_dict):
+    event_dict["service"] = "api-gateway"
+    return event_dict
+
+
+def _rename_event(_logger, _method_name, event_dict):
+    if "event" in event_dict:
+        event_dict["message"] = event_dict.pop("event")
+    return event_dict
+
+
+def _uppercase_level(_logger, _method_name, event_dict):
+    if "level" in event_dict:
+        event_dict["level"] = str(event_dict["level"]).upper()
+    return event_dict
+
+
 def setup_logging() -> None:
     """Call once at app startup (in main.py lifespan)."""
     settings = get_settings()
@@ -22,18 +38,15 @@ def setup_logging() -> None:
 
     shared_processors: list = [
         structlog.contextvars.merge_contextvars,
-        structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,
-        structlog.processors.TimeStamper(fmt="iso"),
+        _uppercase_level,
+        structlog.processors.TimeStamper(fmt="iso", key="timestamp"),
+        _add_service,
+        _rename_event,
         structlog.processors.StackInfoRenderer(),
     ]
 
-    if settings.is_production:
-        # JSON renderer for log aggregation (DataDog, ELK, CloudWatch)
-        renderer = structlog.processors.JSONRenderer()
-    else:
-        # Human-readable for local dev
-        renderer = structlog.dev.ConsoleRenderer(colors=True)
+    renderer = structlog.processors.JSONRenderer()
 
     structlog.configure(
         processors=shared_processors + [

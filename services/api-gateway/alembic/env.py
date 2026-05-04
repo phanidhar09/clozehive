@@ -12,7 +12,7 @@ from app.core.config import get_settings
 from app.db.base import Base
 
 # Import models so Alembic can auto-detect them
-from app.models import user, closet, social  # noqa: F401
+from app.models import user, closet, social, trips  # noqa: F401
 
 config = context.config
 settings = get_settings()

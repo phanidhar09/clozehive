@@ -80,7 +80,7 @@ export default function Signup() {
         password: form.password,
       })
       login(user, access_token, refresh_token)
-      navigate('/dashboard', { replace: true })
+      navigate('/profile?onboarding=1', { replace: true })
     } catch (err: unknown) {
       type ApiErr = {
         response?: {
@@ -289,7 +289,10 @@ export default function Signup() {
           <button
             type="button"
             className="w-full h-11 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-sm font-medium flex items-center justify-center gap-3 hover:bg-slate-50 dark:hover:bg-slate-700/60 transition-colors"
-            onClick={() => alert('Google OAuth coming soon! Configure GOOGLE_CLIENT_ID in your .env to enable.')}
+            onClick={() => {
+              const api = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+              window.location.href = `${api}/api/v1/auth/google/login`
+            }}
           >
             <svg width="18" height="18" viewBox="0 0 48 48" fill="none">
               <path d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z" fill="#FFC107"/>

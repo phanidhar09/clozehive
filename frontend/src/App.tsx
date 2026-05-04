@@ -1,8 +1,12 @@
 import { Suspense, lazy, useEffect } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { AnimatePresence } from 'framer-motion'
 import { AppContext, createAppState, useApp } from '@/store'
 import Layout from '@/components/layout/Layout'
 import ProtectedRoute from '@/components/auth/ProtectedRoute'
+import ErrorBoundary from '@/components/ErrorBoundary'
+import PageTransition from '@/components/PageTransition'
+import { hideNonMvpUi } from '@/config/features'
 
 // Auth pages (no layout wrapper)
 const Login = lazy(() => import('@/auth/Login'))
@@ -12,6 +16,7 @@ const OAuthCallback = lazy(() => import('@/auth/OAuthCallback'))
 // App pages
 const Dashboard = lazy(() => import('@/pages/Dashboard'))
 const Closet = lazy(() => import('@/pages/Closet'))
+const OutfitBuilder = lazy(() => import('@/pages/OutfitBuilder'))
 const Upload = lazy(() => import('@/pages/Upload'))
 const AIStylist = lazy(() => import('@/pages/AIStylist'))
 const TravelPlanner = lazy(() => import('@/pages/TravelPlanner'))
@@ -48,44 +53,86 @@ function RouteFallback() {
   )
 }
 
+function PageBoundary({ children }: { children: React.ReactNode }) {
+  return <ErrorBoundary><PageTransition>{children}</PageTransition></ErrorBoundary>
+}
+
+function NonMvpPlaceholder() {
+  return <Navigate to="/dashboard" replace />
+}
+
+
+function AnimatedRoutes() {
+  const location = useLocation()
+  return (
+    <AnimatePresence mode="wait">
+      <Routes location={location} key={location.pathname}>
+        {/* ── Auth routes (no sidebar/navbar) ─────────────── */}
+        <Route path="/login" element={
+          <AuthGuard><Login /></AuthGuard>
+        } />
+        <Route path="/signup" element={
+          <AuthGuard><Signup /></AuthGuard>
+        } />
+        <Route path="/oauth/callback" element={<OAuthCallback />} />
+
+        {/* ── Protected app routes (with Layout) ──────────── */}
+        <Route path="/" element={
+          <ProtectedRoute>
+            <Layout />
+          </ProtectedRoute>
+        }>
+          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route path="dashboard"  element={<PageBoundary><Dashboard /></PageBoundary>} />
+          <Route path="closet"     element={<PageBoundary><Closet /></PageBoundary>} />
+          <Route path="outfit-builder" element={<PageBoundary><OutfitBuilder /></PageBoundary>} />
+          <Route path="upload"     element={<PageBoundary><Upload /></PageBoundary>} />
+          <Route
+            path="ai-stylist"
+            element={
+              hideNonMvpUi()
+                ? <NonMvpPlaceholder />
+                : <PageBoundary><AIStylist /></PageBoundary>
+            }
+          />
+          <Route path="travel"     element={<PageBoundary><TravelPlanner /></PageBoundary>} />
+          <Route
+            path="avatar"
+            element={
+              hideNonMvpUi()
+                ? <NonMvpPlaceholder />
+                : <PageBoundary><AvatarBuilder /></PageBoundary>
+            }
+          />
+          <Route path="analytics"  element={<PageBoundary><Analytics /></PageBoundary>} />
+          <Route
+            path="groups"
+            element={
+              hideNonMvpUi()
+                ? <NonMvpPlaceholder />
+                : <PageBoundary><Groups /></PageBoundary>
+            }
+          />
+          <Route path="profile"    element={<PageBoundary><Profile /></PageBoundary>} />
+        </Route>
+
+        {/* Catch-all → login */}
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+    </AnimatePresence>
+  )
+}
+
 export default function App() {
   return (
     <AppProvider>
       <BrowserRouter>
         <DataLoader />
-        <Suspense fallback={<RouteFallback />}>
-          <Routes>
-            {/* ── Auth routes (no sidebar/navbar) ─────────────── */}
-            <Route path="/login" element={
-              <AuthGuard><Login /></AuthGuard>
-            } />
-            <Route path="/signup" element={
-              <AuthGuard><Signup /></AuthGuard>
-            } />
-            <Route path="/oauth/callback" element={<OAuthCallback />} />
-
-            {/* ── Protected app routes (with Layout) ──────────── */}
-            <Route path="/" element={
-              <ProtectedRoute>
-                <Layout />
-              </ProtectedRoute>
-            }>
-              <Route index element={<Navigate to="/dashboard" replace />} />
-              <Route path="dashboard"  element={<Dashboard />} />
-              <Route path="closet"     element={<Closet />} />
-              <Route path="upload"     element={<Upload />} />
-              <Route path="ai-stylist" element={<AIStylist />} />
-              <Route path="travel"     element={<TravelPlanner />} />
-              <Route path="avatar"     element={<AvatarBuilder />} />
-              <Route path="analytics"  element={<Analytics />} />
-              <Route path="groups"     element={<Groups />} />
-              <Route path="profile"    element={<Profile />} />
-            </Route>
-
-            {/* Catch-all → login */}
-            <Route path="*" element={<Navigate to="/login" replace />} />
-          </Routes>
-        </Suspense>
+        <ErrorBoundary>
+          <Suspense fallback={<RouteFallback />}>
+            <AnimatedRoutes />
+          </Suspense>
+        </ErrorBoundary>
       </BrowserRouter>
     </AppProvider>
   )

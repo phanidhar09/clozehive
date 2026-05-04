@@ -39,7 +39,7 @@ function CreateGroupModal({ onClose, onCreate }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md animate-slide-up">
+      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-md">
         <div className="flex items-center justify-between p-5 border-b border-cream-200 dark:border-slate-700">
           <h2 className="font-display font-bold text-lg text-slate-800 dark:text-white">Create Group</h2>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-cream-100 dark:hover:bg-slate-700 transition-colors">
@@ -117,7 +117,7 @@ function JoinGroupModal({ onClose, onJoin }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm animate-slide-up">
+      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-sm">
         <div className="flex items-center justify-between p-5 border-b border-cream-200 dark:border-slate-700">
           <h2 className="font-display font-bold text-lg text-slate-800 dark:text-white">Join Group</h2>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-cream-100 dark:hover:bg-slate-700 transition-colors">
@@ -231,7 +231,7 @@ function GroupDetail({ group, onClose, onUpdate }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col animate-slide-up">
+      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-cream-200 dark:border-slate-700 flex-shrink-0">
           <div>
@@ -430,7 +430,7 @@ export default function Groups() {
   const displayGroups = activeTab === 'mine' ? myGroups : publicGroups
 
   return (
-    <div className="max-w-5xl space-y-6 animate-slide-up">
+    <div className="max-w-5xl space-y-6">
 
       {/* ── Header ─────────────────────────────────────────── */}
       <div className="flex items-center justify-between">

@@ -87,6 +87,8 @@ backend/data/
 redpanda_data/
 postgres_data/
 redis_data/
+backups/
+*.sql.gz
 
 # ── Uploads / user-generated files ───────────────────────────
 uploads/

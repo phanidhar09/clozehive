@@ -60,7 +60,7 @@ copies are archived under `archive/legacy-2026-04-28-repo-cleanup`.
 Useful URLs:
 
 - Frontend: `http://localhost:3001`
-- API gateway health: `http://localhost:8000/health`
+- API gateway: `http://localhost:8000/health`, `/live`, `/ready`
 - AI agent health: `http://localhost:8001/health`
 - Redpanda Console: `http://localhost:8080`
 
@@ -123,6 +123,19 @@ docker compose config --quiet
 make smoke
 make build-frontend
 ```
+
+### Dependency audits
+
+```sh
+npm audit --prefix frontend
+pip install pip-audit && pip-audit -r services/api-gateway/requirements.txt
+```
+
+### API health endpoints
+
+- `GET /live` — process is up (Docker liveness)
+- `GET /ready` — database and Redis (when `REDIS_CHECK_ON_READY=true`)
+- `GET /health` — aggregate JSON status for operators
 
 For API tests, install dev dependencies locally or run them in a disposable
 container with a writable dependency location:

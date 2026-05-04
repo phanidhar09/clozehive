@@ -5,9 +5,10 @@ Gracefully degrades (logs warning, returns None) when Redis is unavailable.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Optional, Any
 
 import redis.asyncio as aioredis
 
@@ -135,3 +136,34 @@ def websocket_user_channel(user_id: str) -> str:
 
 def websocket_broadcast_channel() -> str:
     return namespaced_key("ws", "broadcast")
+
+
+# ── AI response cache helpers ─────────────────────────────────────────────────
+
+def build_closet_hash(closet_items: list[dict[str, Any]]) -> str:
+    ids = sorted(str(item.get("id", "")) for item in closet_items)
+    return hashlib.sha256(json.dumps(ids, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def build_cache_key(user_id: str, messages: list, closet_hash: str) -> str:
+    recent = messages[-3:]
+    messages_json = json.dumps(recent, sort_keys=True, separators=(",", ":"), default=str)
+    digest = hashlib.sha256(f"{user_id}:{messages_json}:{closet_hash}".encode("utf-8")).hexdigest()
+    return f"ai_cache:{user_id}:{digest}"
+
+
+async def get_cached_response(redis: aioredis.Redis, cache_key: str) -> str | None:
+    value = await redis.get(cache_key)
+    return value if isinstance(value, str) else None
+
+
+async def cache_response(redis: aioredis.Redis, cache_key: str, response: str, ttl: int = 600) -> None:
+    await redis.set(cache_key, response, ex=ttl)
+
+
+async def invalidate_user_ai_cache(redis: aioredis.Redis, user_id: str) -> int:
+    pattern = f"ai_cache:{user_id}:*"
+    deleted = 0
+    async for key in redis.scan_iter(match=pattern, count=100):
+        deleted += await redis.delete(key)
+    return deleted

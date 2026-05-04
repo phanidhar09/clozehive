@@ -1,12 +1,13 @@
 import { useState } from 'react'
-import { Plane, AlertTriangle, CheckCircle2, Package, Calendar, MapPin, Loader2 } from 'lucide-react'
+import { Plane, AlertTriangle, Calendar, MapPin, Loader2, ArrowLeft } from 'lucide-react'
 import Button from '@/components/ui/Button'
 import Input, { Select } from '@/components/ui/Input'
 import Badge from '@/components/ui/Badge'
+import GlassCard from '@/components/ui/GlassCard'
 import { useApp } from '@/store'
-import { streamPacking } from '@/lib/api'
-import type { PackingResult } from '@/types'
-import { weatherIcon } from '@/lib/utils'
+import { tripsApi } from '@/lib/api'
+import { useAsyncError } from '@/hooks/useAsyncError'
+import type { PackingItem, PackingResult, Trip } from '@/types'
 
 const PURPOSE_OPTIONS = [
   { value: 'leisure', label: '🌴 Leisure / Holiday' },
@@ -18,287 +19,292 @@ const PURPOSE_OPTIONS = [
 
 export default function TravelPlanner() {
   const { closetItems } = useApp()
-  const [form, setForm] = useState({ destination: '', start_date: '', end_date: '', purpose: 'leisure' })
+  const throwAsyncError = useAsyncError()
+  const [form, setForm] = useState({ destination: '', start_date: '', end_date: '', purpose: 'leisure', notes: '' })
   const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<PackingResult | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'packing' | 'daily' | 'weather'>('packing')
+  const [trip, setTrip] = useState<Trip | null>(null)
+  const [trips, setTrips] = useState<Trip[]>([])
+  const [packingList, setPackingList] = useState<PackingResult | null>(null)
+  const [packingLoading, setPackingLoading] = useState(false)
+  const [packedItems, setPackedItems] = useState<Record<string, boolean>>({})
+  const [showForm, setShowForm] = useState(true)
+  const [formError, setFormError] = useState<string | null>(null)
 
-  // Streaming state
-  const [streamStatus, setStreamStatus] = useState('')
-  const [streamText, setStreamText] = useState('')
+  const loadTrips = async () => {
+    try {
+      const list = await tripsApi.list()
+      setTrips(list)
+    } catch (err) {
+      throwAsyncError(err instanceof Error ? err : new Error('Failed to load trips'))
+    }
+  }
 
-  const submit = async () => {
-    if (!form.destination || !form.start_date || !form.end_date) return
+  const handleSubmit = async () => {
+    if (!form.destination || !form.start_date || !form.end_date) {
+      setFormError('Please fill in all required fields')
+      return
+    }
+
+    if (new Date(form.end_date) <= new Date(form.start_date)) {
+      setFormError('End date must be after start date')
+      return
+    }
+
     setLoading(true)
-    setError(null)
-    setResult(null)
-    setStreamStatus('Initialising…')
-    setStreamText('')
+    setFormError(null)
 
-    await streamPacking(
-      {
+    try {
+      const newTrip = await tripsApi.create({
         destination: form.destination,
         start_date: form.start_date,
         end_date: form.end_date,
         purpose: form.purpose,
-      },
-      {
-        onStatus: (msg: string) => setStreamStatus(msg),
-        onToken: (token: string) => setStreamText(t => t + token),
-        onResult: (data: PackingResult) => {
-          setResult(data)
-          setActiveTab('packing')
-        },
-        onError: (err: string) => {
-          setError(`Could not generate packing list: ${err}. Make sure the backend and AI service are running.`)
-          setLoading(false)
-          setStreamStatus('')
-        },
-        onDone: () => {
-          setLoading(false)
-          setStreamStatus('')
-        },
-      },
-    )
+        notes: form.notes || undefined,
+      })
+      setTrip(newTrip)
+      setShowForm(false)
+      setPackingLoading(true)
+      try {
+        const packing = await tripsApi.getPackingList(newTrip.id)
+        setPackingList(packing)
+        setPackedItems({})
+      } finally {
+        setPackingLoading(false)
+      }
+      await loadTrips()
+    } catch (err) {
+      throwAsyncError(err instanceof Error ? err : new Error('Failed to create trip'))
+    } finally {
+      setLoading(false)
+    }
   }
 
+  const handleDeleteTrip = async (tripId: string) => {
+    try {
+      await tripsApi.delete(tripId)
+      setTrips(trips.filter(t => t.id !== tripId))
+      if (trip?.id === tripId) {
+        setTrip(null)
+        setPackingList(null)
+        setPackedItems({})
+        setShowForm(true)
+      }
+    } catch (err) {
+      throwAsyncError(err instanceof Error ? err : new Error('Failed to delete trip'))
+    }
+  }
+
+  const startDate = form.start_date ? new Date(form.start_date) : null
+  const endDate = form.end_date ? new Date(form.end_date) : null
+  const duration = startDate && endDate ? Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) : 0
+  const packingItems = [...(packingList?.packing_list ?? packingList?.items ?? []), ...(packingList?.missing_items ?? [])]
+  const groupedPacking = packingItems.reduce<Record<string, PackingItem[]>>((acc, item) => {
+    const category = item.category || 'Other'
+    acc[category] = acc[category] ?? []
+    acc[category].push(item)
+    return acc
+  }, {})
+
   return (
-    <div className="max-w-4xl space-y-6 animate-slide-up">
+    <div className="max-w-4xl space-y-6">
       <div>
         <h2 className="font-display font-bold text-xl text-slate-800 dark:text-slate-100 flex items-center gap-2">
-          <Plane size={20} className="text-brand-500" /> Travel Planner
+          <Plane size={20} className="text-brand-500" /> Travel Packing
         </h2>
         <p className="text-sm text-slate-400 mt-0.5">
           {closetItems.length > 0
-            ? `AI generates a smart packing list from your ${closetItems.length} wardrobe items`
-            : 'AI generates a smart packing list based on weather + your wardrobe'}
+            ? `Plan trips and organize packing lists from your ${closetItems.length} wardrobe items`
+            : 'Create a trip to get started with travel packing'}
         </p>
       </div>
 
       {closetItems.length === 0 && (
         <div className="card p-3 bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 text-sm flex items-center gap-2">
           <AlertTriangle size={15} />
-          Your wardrobe is empty. The AI will generate a list of items you should buy.
+          Your closet is empty. Add some items to get better packing recommendations.
         </div>
       )}
 
-      {/* Form */}
-      <div className="card p-6 space-y-4">
-        <div className="grid sm:grid-cols-2 gap-4">
-          <Input
-            label="Destination"
-            placeholder="e.g. Bali, Indonesia"
-            value={form.destination}
-            onChange={e => setForm(f => ({ ...f, destination: e.target.value }))}
-            leftIcon={<MapPin size={14} />}
-          />
-          <Select
-            label="Trip purpose"
-            options={PURPOSE_OPTIONS}
-            value={form.purpose}
-            onChange={e => setForm(f => ({ ...f, purpose: e.target.value }))}
-          />
-        </div>
-        <div className="grid sm:grid-cols-2 gap-4">
-          <Input label="Start date" type="date" value={form.start_date} onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))} leftIcon={<Calendar size={14} />} />
-          <Input label="End date" type="date" value={form.end_date} onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))} leftIcon={<Calendar size={14} />} />
-        </div>
-        <Button
-          className="w-full sm:w-auto"
-          onClick={submit}
-          loading={loading}
-          icon={<Plane size={15} />}
-          disabled={!form.destination || !form.start_date || !form.end_date}
-        >
-          Generate Packing List
-        </Button>
-      </div>
-
-      {/* Error */}
-      {error && (
-        <div className="card p-3 bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm flex items-start gap-2">
-          <AlertTriangle size={15} className="flex-shrink-0 mt-0.5" />
-          {error}
-        </div>
-      )}
-
-      {/* Live streaming panel */}
-      {loading && (
+      {showForm ? (
         <div className="card p-6 space-y-4">
-          {/* Status line */}
-          <div className="flex items-center gap-3 text-slate-500 dark:text-slate-400">
-            <Loader2 size={18} className="animate-spin text-brand-500 flex-shrink-0" />
-            <span className="text-sm font-medium">{streamStatus || 'Working…'}</span>
-          </div>
+          <h3 className="font-semibold text-slate-800 dark:text-white mb-4">Create a New Trip</h3>
 
-          {/* Streaming AI text (packing insights) */}
-          {streamText && (
-            <div className="relative rounded-xl bg-brand-50 dark:bg-brand-900/20 border border-brand-200 dark:border-brand-800 p-4">
-              <p className="text-xs font-semibold text-brand-600 dark:text-brand-400 mb-2 uppercase tracking-wide">
-                ✨ AI Packing Insights
-              </p>
-              <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed" style={{ whiteSpace: 'pre-wrap' }}>
-                {streamText}
-                {/* Blinking cursor */}
-                <span className="inline-block w-0.5 h-4 bg-brand-500 ml-0.5 animate-pulse align-middle" />
-              </p>
+          {formError && (
+            <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm">
+              {formError}
             </div>
           )}
 
-          {/* Progress steps */}
-          <div className="flex items-center gap-2 text-xs text-slate-400">
-            {['Fetching weather', 'Matching wardrobe', 'AI insights'].map((step, i) => {
-              const reached =
-                (i === 0 && streamStatus.includes('weather')) ||
-                (i === 0 && streamStatus.includes('Matching')) ||
-                (i === 0 && streamStatus.includes('AI')) ||
-                (i === 1 && (streamStatus.includes('Matching') || streamStatus.includes('AI'))) ||
-                (i === 2 && streamStatus.includes('AI'))
-              return (
-                <span key={step} className={`flex items-center gap-1 ${reached ? 'text-brand-600 dark:text-brand-400' : ''}`}>
-                  {reached ? '✓' : '○'} {step}
-                  {i < 2 && <span className="text-slate-300 dark:text-slate-600 mx-1">→</span>}
-                </span>
-              )
-            })}
+          <div className="grid sm:grid-cols-2 gap-4">
+            <Input
+              label="Destination *"
+              placeholder="e.g. Bali, Indonesia"
+              value={form.destination}
+              onChange={e => setForm(f => ({ ...f, destination: e.target.value }))}
+              leftIcon={<MapPin size={14} />}
+            />
+            <Select
+              label="Trip purpose *"
+              options={PURPOSE_OPTIONS}
+              value={form.purpose}
+              onChange={e => setForm(f => ({ ...f, purpose: e.target.value }))}
+            />
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-4">
+            <Input
+              label="Start date *"
+              type="date"
+              value={form.start_date}
+              onChange={e => setForm(f => ({ ...f, start_date: e.target.value }))}
+              leftIcon={<Calendar size={14} />}
+            />
+            <Input
+              label="End date *"
+              type="date"
+              value={form.end_date}
+              onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))}
+              leftIcon={<Calendar size={14} />}
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 dark:text-white/80 mb-1.5 uppercase tracking-wider">
+              Notes (optional)
+            </label>
+            <textarea
+              value={form.notes}
+              onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+              placeholder="e.g. Beach activities, formal dinners, hiking..."
+              className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-white/10 bg-white dark:bg-slate-900 text-slate-900 dark:text-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 dark:focus:ring-brand-400"
+              rows={3}
+            />
+          </div>
+
+          <div className="flex gap-3 pt-4">
+            <Button
+              variant="primary"
+              onClick={handleSubmit}
+              disabled={loading || !form.destination || !form.start_date || !form.end_date}
+              className="flex-1"
+            >
+              {loading ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" /> Creating...
+                </>
+              ) : (
+                'Create Trip'
+              )}
+            </Button>
           </div>
         </div>
-      )}
-
-      {/* Result */}
-      {result && !loading && (
-        <div className="space-y-4 animate-slide-up">
-          {/* Alerts */}
-          <div className="space-y-2">
-            {result.alerts.map((alert, i) => {
-              const isWarning = alert.includes('⚠️') || alert.includes('🌧')
-              return (
-                <div key={i} className={`flex items-start gap-3 p-3 rounded-xl text-sm ${isWarning ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300' : 'bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-300'}`}>
-                  {isWarning ? <AlertTriangle size={15} className="flex-shrink-0 mt-0.5" /> : <CheckCircle2 size={15} className="flex-shrink-0 mt-0.5" />}
-                  {alert}
-                </div>
-              )
-            })}
+      ) : trip ? (
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              onClick={() => { setShowForm(true); setFormError(null) }}
+              className="flex items-center gap-2"
+            >
+              <ArrowLeft size={16} /> Create Another Trip
+            </Button>
           </div>
 
-          {/* Weather summary */}
-          <div className="card p-4">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="text-2xl">{weatherIcon(result.weather_summary?.dominant_condition ?? '')}</div>
+          {/* Trip Summary */}
+          <GlassCard padding="lg">
+            <div className="flex items-start justify-between mb-4">
               <div>
-                <p className="font-semibold text-slate-800 dark:text-slate-100">{result.destination}</p>
-                <p className="text-sm text-slate-400">{result.duration_days} days · {result.trip_type}</p>
+                <h3 className="font-semibold text-lg text-slate-800 dark:text-white">{trip.destination}</h3>
+                <p className="text-sm text-slate-500 dark:text-white/40 mt-1">
+                  {duration} days • {new Date(trip.start_date).toLocaleDateString()} to {new Date(trip.end_date).toLocaleDateString()}
+                </p>
               </div>
-              <div className="ml-auto text-right">
-                <p className="font-bold text-lg text-slate-800 dark:text-slate-100">{result.weather_summary?.avg_high ?? '--'}°C</p>
-                <p className="text-xs text-slate-400">avg high</p>
-              </div>
+              <Badge>{trip.purpose}</Badge>
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 bg-cream-50 dark:bg-slate-800 rounded-lg p-2.5">{result.weather_summary?.recommendation}</p>
-          </div>
+            {trip.notes && (
+              <p className="text-sm text-slate-600 dark:text-white/60 mt-3">
+                {trip.notes}
+              </p>
+            )}
+          </GlassCard>
 
-          {/* Tabs */}
-          <div className="flex gap-1 bg-cream-100 dark:bg-slate-800 p-1 rounded-xl w-fit">
-            {(['packing', 'daily', 'weather'] as const).map(tab => (
-              <button key={tab} onClick={() => setActiveTab(tab)} className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all capitalize ${activeTab === tab ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
-                {tab === 'packing' ? '🧳 Packing List' : tab === 'daily' ? '📅 Daily Plan' : '🌤️ Weather'}
-              </button>
+          {packingLoading && (
+            <div className="card p-4 bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 text-sm">
+              Generating packing list from your closet...
+            </div>
+          )}
+
+          {packingList && (
+            <GlassCard padding="lg">
+              <div className="space-y-4">
+                <div>
+                  <h3 className="font-semibold text-lg text-slate-800 dark:text-white">Packing List</h3>
+                  {packingList.summary && (
+                    <p className="text-sm text-slate-500 dark:text-white/50 mt-1">{packingList.summary}</p>
+                  )}
+                </div>
+
+                {Object.entries(groupedPacking).map(([category, items]) => (
+                  <div key={category} className="space-y-2">
+                    <h4 className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-white/40">
+                      {category}
+                    </h4>
+                    {items.map(item => {
+                      const key = item.closet_item_id ?? `${item.category}-${item.name}`
+                      return (
+                        <label key={key} className="flex items-center justify-between gap-3 p-3 rounded-xl bg-white/70 dark:bg-white/5 border border-slate-200 dark:border-white/10">
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(packedItems[key])}
+                              onChange={e => setPackedItems(prev => ({ ...prev, [key]: e.target.checked }))}
+                              className="rounded border-slate-300"
+                            />
+                            <div>
+                              <p className="text-sm font-medium text-slate-800 dark:text-white">{item.name}</p>
+                              <p className="text-xs text-slate-500 dark:text-white/40">Qty {item.quantity}</p>
+                            </div>
+                          </div>
+                          <Badge variant={item.available_in_closet ? 'green' : 'gray'}>
+                            {item.available_in_closet ? 'In your closet' : 'Need to buy'}
+                          </Badge>
+                        </label>
+                      )
+                    })}
+                  </div>
+                ))}
+              </div>
+            </GlassCard>
+          )}
+        </div>
+      ) : null}
+
+      {/* List of Trips */}
+      {trips.length > 0 && (
+        <div>
+          <h3 className="font-display font-semibold text-sm uppercase tracking-widest text-slate-500 dark:text-white/40 mb-3">
+            Your Trips
+          </h3>
+          <div className="space-y-3">
+            {trips.map(t => (
+              <GlassCard key={t.id} padding="md" hover>
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <p className="font-semibold text-slate-800 dark:text-white">{t.destination}</p>
+                    <p className="text-xs text-slate-500 dark:text-white/40 mt-1">
+                      {new Date(t.start_date).toLocaleDateString()} to {new Date(t.end_date).toLocaleDateString()}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleDeleteTrip(t.id)}
+                    className="text-red-500 hover:text-red-700 dark:hover:text-red-300 text-xs font-medium ml-2"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </GlassCard>
             ))}
           </div>
-
-          {/* Packing list */}
-          {activeTab === 'packing' && (
-            <div className="grid sm:grid-cols-2 gap-4 animate-fade-in">
-              <div className="card p-4 space-y-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <CheckCircle2 size={15} className="text-emerald-500" />
-                  <p className="font-semibold text-sm text-slate-700 dark:text-slate-300">From your closet</p>
-                  <Badge variant="green">{(result.packing_list ?? result.items ?? []).length} items</Badge>
-                </div>
-                {(result.packing_list ?? result.items ?? []).length === 0 ? (
-                  <p className="text-sm text-slate-400 text-center py-4">No matching items in your wardrobe</p>
-                ) : (
-                  (result.packing_list ?? result.items ?? []).map((item, i) => (
-                    <div key={i} className="flex items-center gap-3 p-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/20">
-                      <CheckCircle2 size={14} className="text-emerald-500 flex-shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-slate-700 dark:text-slate-200 truncate">{item.name}</p>
-                        <p className="text-[11px] text-slate-400">{item.reason}</p>
-                      </div>
-                      <Package size={12} className="text-emerald-400 flex-shrink-0" />
-                    </div>
-                  ))
-                )}
-              </div>
-
-              <div className="card p-4 space-y-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <AlertTriangle size={15} className="text-red-500" />
-                  <p className="font-semibold text-sm text-slate-700 dark:text-slate-300">Need to buy</p>
-                  <Badge variant={(result.missing_items ?? []).length > 0 ? 'red' : 'green'}>
-                    {(result.missing_items ?? []).length} missing
-                  </Badge>
-                </div>
-                {(result.missing_items ?? []).length === 0 ? (
-                  <p className="text-sm text-emerald-600 text-center py-4">✓ Your wardrobe has everything!</p>
-                ) : (
-                  (result.missing_items ?? []).map((item, i) => (
-                    <div key={i} className="flex items-center gap-3 p-2 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
-                      <AlertTriangle size={14} className="text-red-400 flex-shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-red-700 dark:text-red-300 truncate">{item.name}</p>
-                        <p className="text-[11px] text-red-400">{item.reason}</p>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Daily plan */}
-          {activeTab === 'daily' && (
-            <div className="space-y-3 animate-fade-in">
-              {(result.daily_plan ?? []).length === 0 ? (
-                <div className="card p-8 text-center text-slate-400">No daily plan generated</div>
-              ) : (
-                (result.daily_plan ?? []).map((day, i) => (
-                  <div key={i} className="card p-4 flex gap-4">
-                    <div className="text-center flex-shrink-0 w-14">
-                      <div className="text-2xl mb-1">{weatherIcon(day.weather?.condition ?? '')}</div>
-                      <p className="text-[10px] text-slate-400 font-medium">{new Date(day.date).toLocaleDateString('en', { month: 'short', day: 'numeric' })}</p>
-                      <p className="text-xs font-bold text-slate-700 dark:text-slate-300">{day.weather?.temp_high ?? '--'}°</p>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-slate-400 mb-1">{day.weather?.description}</p>
-                      <p className="text-sm text-slate-700 dark:text-slate-200">
-                        {day.outfit_suggestion ?? day.outfit_name ?? '—'}
-                      </p>
-                      <div className="flex gap-1 flex-wrap mt-2">
-                        {(day.items_needed ?? day.items ?? []).map(item => <Badge key={item} variant="purple">{item}</Badge>)}
-                      </div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-
-          {/* Weather grid */}
-          {activeTab === 'weather' && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 animate-fade-in">
-              {(result.daily_plan ?? []).map((day, i) => (
-                <div key={i} className="card p-3 text-center space-y-1">
-                  <p className="text-xs text-slate-400">{new Date(day.date).toLocaleDateString('en', { weekday: 'short' })}</p>
-                  <div className="text-2xl">{weatherIcon(day.weather?.condition ?? '')}</div>
-                  <p className="font-bold text-slate-800 dark:text-slate-100">{day.weather?.temp_high ?? '--'}°</p>
-                  <p className="text-[11px] text-slate-400">{day.weather?.temp_low ?? '--'}° low</p>
-                  <p className="text-[10px] text-slate-500 capitalize">{(day.weather?.condition ?? '').replace('_', ' ')}</p>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       )}
     </div>

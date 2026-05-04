@@ -43,7 +43,7 @@ export default function AvatarBuilder() {
   }
 
   return (
-    <div className="max-w-4xl animate-slide-up space-y-5">
+    <div className="max-w-4xl space-y-5">
       <div>
         <h2 className="font-display font-bold text-xl text-slate-800 dark:text-white">Avatar Builder</h2>
         <p className="text-sm text-slate-400 mt-0.5">Customise your digital style persona — saved to your profile.</p>

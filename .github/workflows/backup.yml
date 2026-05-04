@@ -1,0 +1,21 @@
+name: Scheduled Database Backup
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger backup on production server
+        run: |
+          echo "Configure this step with your deployment method"
+          echo "See scripts/backup.sh for the backup script to run"
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "Backup failed - configure Slack/email notification here"
+          echo "::error::Database backup failed"

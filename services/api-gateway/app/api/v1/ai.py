@@ -7,26 +7,30 @@ Postgres session is only needed for async routes that track requests via create_
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Optional
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, File, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 
 from app.core.deps import CurrentUser, DbSession
-from app.core.exceptions import AppError, BadRequestError
+from app.core.exceptions import AppError
+from app.core.logging import get_logger
+from app.core.config import get_settings
+from app.core.redis import get_redis
 from app.events import producer as event_producer, topics
 from app.events.schemas import AsyncAcceptedResponse, EventEnvelope
+from app.models.closet import ClosetItem
 from app.repositories.user_repo import UserRepository
-from app.services import ai_client
+from app.services import ai_client, ai_service, cache_service, outfit_service, packing_service, weather_service
 from app.services.ai_request_service import create_request
-from app.services.firestore.closet_service import FirestoreClosetService
+from app.services.upload_service import read_validated_image
 
 router = APIRouter(prefix="/ai", tags=["AI"])
-
-_ALLOWED_MEDIA = {"image/jpeg", "image/png", "image/webp", "image/heic"}
-
+logger = get_logger("ai.routes")
+settings = get_settings()
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
 
@@ -45,7 +49,7 @@ class OutfitRequest(BaseModel):
     weather: str = "mild"
     temperature: float = Field(20.0, ge=-30, le=55)
     # Optional client-side override; if absent we load profile from DB.
-    user_profile: dict[str, Any] | None = None
+    user_profile: Optional[dict[str, Any]] = None
 
 
 class PackingRequest(BaseModel):
@@ -53,17 +57,34 @@ class PackingRequest(BaseModel):
     start_date: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
     end_date: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
     purpose: str = "general"
+    notes: str | None = None
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-async def _get_closet_as_dicts(user_id: UUID) -> list[dict[str, Any]]:
-    svc = FirestoreClosetService()
-    return await svc.get_all_for_ai(user_id, limit=200)
+async def _get_closet_as_dicts(session, user_id: UUID) -> list[dict[str, Any]]:
+    result = await session.execute(
+        select(ClosetItem)
+        .where(ClosetItem.user_id == user_id, ClosetItem.is_archived == False)  # noqa: E712
+        .order_by(ClosetItem.wear_count.desc(), ClosetItem.created_at.desc())
+        .limit(50)
+    )
+    return [
+        {
+            "id": str(item.id),
+            "name": item.name,
+            "category": item.category,
+            "color": item.color or "",
+            "occasion": item.occasion or [],
+            "season": item.season or "",
+            "wear_count": item.wear_count,
+        }
+        for item in result.scalars().all()
+    ]
 
 
 async def _resolve_user_profile(
-    session, user_id: UUID, override: dict[str, Any] | None
+    session, user_id: UUID, override: Optional[dict[str, Any]]
 ) -> dict[str, Any] | None:
     """
     Build the personalization context passed to the AI agent.
@@ -91,6 +112,72 @@ def _sse(data: dict[str, Any]) -> str:
     return f"data: {json.dumps(data)}\n\n"
 
 
+def _weather_prompt_block(weather: dict[str, Any] | None) -> str:
+    if not weather:
+        return ""
+    label = weather.get("location_label") or "your location"
+    return f"""
+
+[CURRENT WEATHER at {label}]
+Condition: {weather.get("condition")}
+Temperature: {weather.get("temp_c")}°C / {weather.get("temp_f")}°F
+Feels like: {weather.get("feels_like_c")}°C
+Humidity: {weather.get("humidity")}%
+[END WEATHER]
+
+Factor this weather into outfit recommendations. Suggest layering if needed. Mention weather suitability explicitly."""
+
+
+async def _resolve_weather_context(session, user_id: UUID) -> dict[str, Any] | None:
+    user = await UserRepository(session).get(user_id)
+    permissions = user.permissions if user else None
+    if not isinstance(permissions, dict) or not permissions.get("location"):
+        return None
+    try:
+        coords = permissions.get("location_coords")
+        label = permissions.get("location_label")
+        if isinstance(coords, dict) and coords.get("lat") is not None and coords.get("lon") is not None:
+            return await weather_service.get_current_weather(float(coords["lat"]), float(coords["lon"]), label)
+        if label:
+            return await weather_service.get_weather_by_city(str(label))
+    except Exception as exc:
+        # Weather is helpful context, but chat should never fail because it is unavailable.
+        logger.warning("weather_context_unavailable", error=str(exc), user_id=str(user_id))
+    return None
+
+
+def _build_stylist_system_prompt(closet_items: list[dict[str, Any]], weather: dict[str, Any] | None = None) -> str:
+    if not closet_items:
+        return (
+            "You are a personal AI stylist for ClosetIQ. This user has not added any wardrobe items yet. "
+            "Give general fashion advice and encourage them to upload their wardrobe items using the Smart "
+            f"Closet Scan feature.{_weather_prompt_block(weather)}"
+        )
+
+    lines = [f"USER'S WARDROBE ({len(closet_items)} items):"]
+    for item in closet_items:
+        occasions = item.get("occasion") or []
+        occasion_text = ", ".join(str(o) for o in occasions) if isinstance(occasions, list) else str(occasions)
+        lines.append(
+            f"- {item.get('name', 'Unnamed item')} | {item.get('category', 'uncategorised')} | "
+            f"{item.get('color') or 'unknown'} | {occasion_text}"
+        )
+    closet_context = "\n".join(lines)
+    return f"""You are a personal AI stylist for ClosetIQ. The user's complete wardrobe is listed below. When suggesting outfits or styling advice:
+- ONLY recommend items from the wardrobe list below
+- Always refer to items by their EXACT name as listed
+- If the wardrobe lacks a suitable item for an outfit component, explicitly say so rather than inventing items
+- Consider the occasions listed for each item when making recommendations
+
+[WARDROBE CONTEXT]
+{closet_context}
+[END WARDROBE CONTEXT]{_weather_prompt_block(weather)}"""
+
+
+def _chat_messages(body: ChatRequest) -> list[dict[str, str]]:
+    return [*body.history, {"role": "user", "content": body.message}]
+
+
 _STREAM_HEADERS = {
     "Cache-Control": "no-cache",
     "Connection": "keep-alive",
@@ -101,35 +188,56 @@ _STREAM_HEADERS = {
 # ── Chat ──────────────────────────────────────────────────────────────────────
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat(body: ChatRequest, user_id: CurrentUser):
+async def chat(body: ChatRequest, user_id: CurrentUser, session: DbSession):
     """Send a message to the CLOZEHIVE wardrobe AI."""
-    closet = await _get_closet_as_dicts(UUID(user_id)) if body.include_closet else []
-    reply = await ai_client.chat(body.message, history=body.history, closet_items=closet, user_id=user_id)
+    uid = UUID(user_id)
+    closet = await _get_closet_as_dicts(session, uid) if body.include_closet else []
+    weather = await _resolve_weather_context(session, uid)
+    messages = _chat_messages(body)
+    cache_key = cache_service.build_cache_key(user_id, messages, cache_service.build_closet_hash(closet))
+    if settings.ai_cache_enabled:
+        redis = await get_redis()
+        cached = await cache_service.get_cached_response(redis, cache_key)
+        if cached is not None:
+            logger.info("AI cache hit", user_id=user_id, key=cache_key)
+            return ChatResponse(reply=cached)
+        logger.info("AI cache miss", user_id=user_id, key=cache_key)
+    reply = await ai_service.chat(messages, _build_stylist_system_prompt(closet, weather))
+    if settings.ai_cache_enabled:
+        await cache_service.cache_response(await get_redis(), cache_key, reply, settings.ai_cache_ttl)
     return ChatResponse(reply=reply)
 
 
 @router.post("/chat/stream")
-async def chat_stream(body: ChatRequest, user_id: CurrentUser):
+async def chat_stream(body: ChatRequest, user_id: CurrentUser, session: DbSession):
     """SSE stream of assistant tokens proxied from the AI agent."""
 
     async def events():
         done = False
         try:
             yield _sse({"type": "status", "message": "Thinking…"})
-            closet = await _get_closet_as_dicts(UUID(user_id)) if body.include_closet else []
-            async for event in ai_client.stream_chat(
-                body.message,
-                history=body.history,
-                closet_items=closet,
-                user_id=user_id,
-            ):
-                if event.get("type") == "status":
-                    continue
-                if event.get("type") == "done":
-                    done = True
-                yield _sse(event)
-            if not done:
-                yield _sse({"type": "done"})
+            uid = UUID(user_id)
+            closet = await _get_closet_as_dicts(session, uid) if body.include_closet else []
+            weather = await _resolve_weather_context(session, uid)
+            messages = _chat_messages(body)
+            cache_key = cache_service.build_cache_key(user_id, messages, cache_service.build_closet_hash(closet))
+            if settings.ai_cache_enabled:
+                redis = await get_redis()
+                cached = await cache_service.get_cached_response(redis, cache_key)
+                if cached is not None:
+                    logger.info("AI cache hit", user_id=user_id, key=cache_key)
+                    yield _sse({"type": "token", "content": cached, "cache": "HIT"})
+                    yield _sse({"type": "done"})
+                    return
+                logger.info("AI cache miss", user_id=user_id, key=cache_key)
+            full_response = []
+            async for chunk in ai_service.stream_chat(messages, _build_stylist_system_prompt(closet, weather)):
+                full_response.append(chunk)
+                yield _sse({"type": "token", "content": chunk})
+            if settings.ai_cache_enabled:
+                await cache_service.cache_response(await get_redis(), cache_key, "".join(full_response), settings.ai_cache_ttl)
+            done = True
+            yield _sse({"type": "done"})
         except AppError as exc:
             yield _sse({"type": "error", "message": exc.message})
         except Exception as exc:
@@ -143,7 +251,7 @@ async def chat_async(body: ChatRequest, user_id: CurrentUser, session: DbSession
     """Publish an async AI chat job; tokens are delivered through ai_response_stream events."""
     request_id = uuid4()
     user_uuid = UUID(user_id)
-    closet = await _get_closet_as_dicts(user_uuid) if body.include_closet else []
+    closet = await _get_closet_as_dicts(session, user_uuid) if body.include_closet else []
     payload = {"message": body.message, "history": body.history, "closet_items": closet}
     await create_request(
         session,
@@ -166,9 +274,9 @@ async def chat_async(body: ChatRequest, user_id: CurrentUser, session: DbSession
 async def outfit(body: OutfitRequest, user_id: CurrentUser, session: DbSession):
     """Generate 3 AI outfit suggestions from the user's closet."""
     uid = UUID(user_id)
-    closet = await _get_closet_as_dicts(uid)
+    closet = await _get_closet_as_dicts(session, uid)
     profile = await _resolve_user_profile(session, uid, body.user_profile)
-    return await ai_client.generate_outfits(
+    return await outfit_service.generate_outfits(
         closet, body.occasion, body.weather, body.temperature, user_profile=profile,
     )
 
@@ -178,7 +286,7 @@ async def outfit_async(body: OutfitRequest, user_id: CurrentUser, session: DbSes
     """Publish an outfit generation job and return immediately."""
     request_id = uuid4()
     user_uuid = UUID(user_id)
-    closet = await _get_closet_as_dicts(user_uuid)
+    closet = await _get_closet_as_dicts(session, user_uuid)
     profile = await _resolve_user_profile(session, user_uuid, body.user_profile)
     payload = {
         "closet_items": closet,
@@ -203,9 +311,9 @@ async def outfit_stream(body: OutfitRequest, user_id: CurrentUser, session: DbSe
     async def events():
         try:
             yield _sse({"type": "status", "message": "Generating outfits…"})
-            closet = await _get_closet_as_dicts(uid)
+            closet = await _get_closet_as_dicts(session, uid)
             profile = await _resolve_user_profile(session, uid, body.user_profile)
-            data = await ai_client.generate_outfits(
+            data = await outfit_service.generate_outfits(
                 closet, body.occasion, body.weather, body.temperature, user_profile=profile,
             )
             yield _sse({"type": "result", "data": data})
@@ -221,10 +329,12 @@ async def outfit_stream(body: OutfitRequest, user_id: CurrentUser, session: DbSe
 # ── Packing ───────────────────────────────────────────────────────────────────
 
 @router.post("/packing")
-async def packing(body: PackingRequest, user_id: CurrentUser):
+async def packing(body: PackingRequest, user_id: CurrentUser, session: DbSession):
     """Generate a smart travel packing list matched against the user's closet."""
-    closet = await _get_closet_as_dicts(UUID(user_id))
-    return await ai_client.generate_packing_list(body.destination, body.start_date, body.end_date, body.purpose, closet)
+    closet = await _get_closet_as_dicts(session, UUID(user_id))
+    return await packing_service.generate_packing_list(
+        body.destination, body.start_date, body.end_date, body.purpose, closet, notes=body.notes
+    )
 
 
 @router.post("/packing/async", response_model=AsyncAcceptedResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -232,12 +342,13 @@ async def packing_async(body: PackingRequest, user_id: CurrentUser, session: DbS
     """Publish a trip planning/packing job and return immediately."""
     request_id = uuid4()
     user_uuid = UUID(user_id)
-    closet = await _get_closet_as_dicts(user_uuid)
+    closet = await _get_closet_as_dicts(session, user_uuid)
     payload = {
         "destination": body.destination,
         "start_date": body.start_date,
         "end_date": body.end_date,
         "purpose": body.purpose,
+        "notes": body.notes,
         "closet_items": closet,
     }
     await create_request(session, request_id=request_id, user_id=user_uuid, request_type=topics.TRIP_PLANNED, input_payload=payload)
@@ -250,13 +361,13 @@ async def packing_async(body: PackingRequest, user_id: CurrentUser, session: DbS
 
 
 @router.post("/packing/stream")
-async def packing_stream(body: PackingRequest, user_id: CurrentUser):
+async def packing_stream(body: PackingRequest, user_id: CurrentUser, session: DbSession):
     async def events():
         try:
             yield _sse({"type": "status", "message": "Fetching weather…"})
-            closet = await _get_closet_as_dicts(UUID(user_id))
-            data = await ai_client.generate_packing_list(
-                body.destination, body.start_date, body.end_date, body.purpose, closet
+            closet = await _get_closet_as_dicts(session, UUID(user_id))
+            data = await packing_service.generate_packing_list(
+                body.destination, body.start_date, body.end_date, body.purpose, closet, notes=body.notes
             )
             yield _sse({"type": "status", "message": "Matching wardrobe…"})
             summary = str(data.get("summary") or "") if isinstance(data, dict) else ""
@@ -279,10 +390,6 @@ async def packing_stream(body: PackingRequest, user_id: CurrentUser):
 @router.post("/vision/analyze")
 async def vision_analyze(user_id: CurrentUser, file: UploadFile = File(...)):
     """Analyse a garment image with GPT-4o Vision."""
-    ct = file.content_type or "image/jpeg"
-    if ct not in _ALLOWED_MEDIA:
-        raise BadRequestError(f"Unsupported image type: {ct}")
-    data = await file.read()
-    if len(data) > 10 * 1024 * 1024:
-        raise BadRequestError("Image must be under 10 MB")
-    return await ai_client.analyze_image(data, ct)
+    logger.info("vision_analyze_request", user_id=user_id)
+    image_bytes, content_type = await read_validated_image(file)
+    return await ai_client.analyze_image(image_bytes, content_type)

@@ -56,7 +56,7 @@ export interface PackingItem {
   category: string
   quantity: number
   reason?: string
-  available_in_closet?: boolean
+  available_in_closet: boolean
   closet_item_id?: string
   packed?: boolean
   from_closet?: boolean
@@ -180,6 +180,69 @@ export interface AvatarConfig {
   outfit?: string | null
 }
 
+// ── Trips ────────────────────────────────────────────────────────────────────
+
+export interface Trip {
+  id: string            // UUID
+  user_id: string       // UUID
+  destination: string
+  start_date: string    // ISO date
+  end_date: string      // ISO date
+  purpose: string
+  notes?: string | null
+  created_at: string
+  updated_at: string
+}
+
+// ── Analytics ────────────────────────────────────────────────────────────────
+
+export interface CategoryCoverageItem {
+  category: string
+  count: number
+  recommended_minimum: number
+  status: 'good' | 'low' | 'missing'
+}
+
+export interface ColorStats {
+  color: string
+  count: number
+  percentage: number
+}
+
+export interface CategoryStats {
+  category: string
+  count: number
+  percentage: number
+}
+
+export interface OutfitReadiness {
+  estimated_outfits: number
+  best_covered_occasions: string[]
+  weakest_covered_occasions: string[]
+}
+
+export interface UsageInsights {
+  most_worn_items: Array<{ name: string; wear_count: number }>
+  least_worn_items: Array<{ name: string; wear_count: number }>
+  not_worn_recently: Array<{ name: string; last_worn?: string }>
+}
+
+export interface ClosetSummary {
+  total_items: number
+  strongest_category?: string | null
+  most_common_color?: string | null
+  best_covered_occasion?: string | null
+}
+
+export interface ClosetAnalytics {
+  summary: ClosetSummary
+  category_coverage: CategoryCoverageItem[]
+  color_stats: ColorStats[]
+  category_stats: CategoryStats[]
+  outfit_readiness: OutfitReadiness
+  usage_insights?: UsageInsights | null
+}
+
 // ── Social ────────────────────────────────────────────────────────────────────
 
 export interface SocialUser {
@@ -217,6 +280,116 @@ export interface Group {
   role?: 'owner' | 'admin' | 'member'
   created_at: string
   updated_at?: string
+}
+
+// ── Smart bulk ingestion ──────────────────────────────────────────────────────
+
+export type IngestJobStatus = 'processing' | 'completed' | 'failed'
+export type ReviewItemStatus = 'pending_review' | 'approved' | 'rejected'
+
+export interface IngestJob {
+  job_id: string
+  status: IngestJobStatus
+  total_images: number
+  processed_images: number
+  items_detected: number
+  failed_images: number
+  created_at: string
+  updated_at: string
+  error?: string | null
+}
+
+export interface ReviewItem {
+  temp_item_id: string
+  job_id: string
+  source_image_id: string
+  original_crop_url: string
+  processed_image_url: string
+  name: string
+  category: string
+  subcategory: string
+  description: string
+  primary_color: string
+  secondary_colors: string[]
+  pattern: string
+  material: string
+  occasion_tags: string[]
+  season_tags: string[]
+  style_tags: string[]
+  fit: string
+  eco_score?: number | null
+  brand: string
+  confidence_score: number
+  status: ReviewItemStatus
+  needs_review: boolean
+  warnings: string[]
+}
+
+export interface IngestResults {
+  job_id: string
+  status: string
+  summary: {
+    total_images: number
+    items_detected: number
+    items_ready_for_review: number
+    low_confidence_items: number
+    failed_images: number
+  }
+  items: ReviewItem[]
+  errors: string[]
+}
+
+export interface ApproveResponse {
+  approved: number
+  failed: number
+  closet_item_ids: string[]
+}
+
+// ── Outfit AI analysis ────────────────────────────────────────────────────────
+
+export interface OutfitItemRef {
+  id: string
+  name: string
+  category: string
+  color?: string | null
+}
+
+export interface OutfitItemSlots {
+  top?: OutfitItemRef | null
+  bottom?: OutfitItemRef | null
+  footwear?: OutfitItemRef | null
+  outerwear?: OutfitItemRef | null
+  accessories?: OutfitItemRef[]
+}
+
+export interface ScoreBreakdown {
+  color: number       // max 25
+  occasion: number    // max 25
+  fit: number         // max 20
+  style: number       // max 15
+  weather: number     // max 10
+  preference: number  // max 5
+}
+
+export interface OutfitRecommendations {
+  improvements: string[]
+  issues: string[]
+  styling_tips: string[]
+}
+
+export interface ScoredOutfit {
+  items: OutfitItemSlots
+  matching_score: number
+  confidence: number
+  score_breakdown: ScoreBreakdown
+  recommendations: OutfitRecommendations
+  reasoning: string
+}
+
+export interface OutfitAnalysis {
+  outfit: ScoredOutfit
+  missing_pieces: string[]
+  style_tips: string[]
 }
 
 // ── UI helpers ────────────────────────────────────────────────────────────────

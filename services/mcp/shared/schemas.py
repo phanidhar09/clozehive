@@ -35,6 +35,7 @@ class ClosetItem(BaseModel):
     brand: str = ""
     size: str = ""
     occasion: list[str] = Field(default_factory=list)
+    season: str = ""
     tags: list[str] = Field(default_factory=list)
     image_url: str | None = None
     wear_count: int = 0

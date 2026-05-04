@@ -5,9 +5,11 @@ Single source of truth for all authentication logic.
 
 from __future__ import annotations
 
+from typing import Optional
+
 import re
 import secrets
-from datetime import UTC, datetime, timedelta
+from datetime import timezone, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.core.exceptions import AuthenticationError, BadRequestError, ConflictError
 from app.core.logging import get_logger
+from app.core.redis import (
+    get_redis,
+    is_refresh_token_valid,
+    revoke_refresh_token,
+    store_refresh_token,
+)
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -115,6 +123,10 @@ class AuthService:
         )
 
     async def refresh(self, raw_token: str) -> TokenResponse:
+        redis = await get_redis()
+        if not await is_refresh_token_valid(redis, raw_token):
+            raise AuthenticationError("Refresh token has been revoked. Please log in again.")
+
         token_hash = hash_token(raw_token)
         stored = await self.tokens.get_valid(token_hash)
 
@@ -127,6 +139,7 @@ class AuthService:
 
         # Rotate: revoke old token, issue new pair
         await self.tokens.update(stored, revoked=True)
+        await revoke_refresh_token(redis, raw_token)
         access, new_refresh_raw = _build_tokens(str(user.id), user.role)
         await self._store_refresh(user.id, new_refresh_raw)
 
@@ -138,11 +151,17 @@ class AuthService:
         )
 
     async def logout(self, user_id: UUID, raw_token: str) -> None:
+        await self.logout_by_refresh(raw_token)
+        logger.info("user_logged_out", user_id=str(user_id))
+
+    async def logout_by_refresh(self, raw_token: str) -> None:
+        redis = await get_redis()
+        await revoke_refresh_token(redis, raw_token)
         token_hash = hash_token(raw_token)
         stored = await self.tokens.get_valid(token_hash)
         if stored:
             await self.tokens.update(stored, revoked=True)
-        logger.info("user_logged_out", user_id=str(user_id))
+        logger.info("refresh_token_revoked")
 
     async def logout_all(self, user_id: UUID) -> None:
         await self.tokens.revoke_all_for_user(user_id)
@@ -163,7 +182,7 @@ class AuthService:
         google_id: str,
         email: str,
         name: str,
-        avatar_url: str | None = None,
+        avatar_url: Optional[str] = None,
     ) -> AuthResponse:
         """Find or create a user from Google OAuth, then return a token pair."""
         user = await self.users.get_by_google_id(google_id)
@@ -219,9 +238,17 @@ class AuthService:
         return username
 
     async def _store_refresh(self, user_id: UUID, raw_token: str) -> RefreshToken:
-        expires_at = datetime.now(UTC) + timedelta(days=settings.refresh_token_expire_days)
-        return await self.tokens.create(
+        expires_at = datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days)
+        stored = await self.tokens.create(
             user_id=user_id,
             token_hash=hash_token(raw_token),
             expires_at=expires_at,
         )
+        redis = await get_redis()
+        await store_refresh_token(
+            redis,
+            str(user_id),
+            raw_token,
+            settings.refresh_token_expire_days * 24 * 60 * 60,
+        )
+        return stored

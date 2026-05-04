@@ -43,6 +43,7 @@ async def generate_trip_packing_list(
     purpose: str,
     closet_items_json: str,
     weather_summary_json: str,
+    notes: str = "",
 ) -> str:
     """
     Generate a complete packing list for a trip.
@@ -93,6 +94,7 @@ async def generate_trip_packing_list(
             start_date=start_date,
             end_date=end_date,
             purpose=purpose,
+            notes=notes,
             closet_items=closet_items,
             weather_summary=weather_summary,
         )

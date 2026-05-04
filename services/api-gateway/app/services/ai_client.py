@@ -9,7 +9,7 @@ import base64
 import json
 from collections.abc import AsyncIterator
 from datetime import date
-from typing import Any
+from typing import Optional, Any
 
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -62,7 +62,7 @@ async def chat(
     message: str,
     history: list[dict[str, str]] | None = None,
     closet_items: list[dict[str, Any]] | None = None,
-    user_id: str | None = None,
+    user_id: Optional[str] = None,
 ) -> str:
     """Send a chat message to the wardrobe agent and return reply text."""
     payload = {
@@ -87,7 +87,7 @@ async def stream_chat(
     message: str,
     history: list[dict[str, str]] | None = None,
     closet_items: list[dict[str, Any]] | None = None,
-    user_id: str | None = None,
+    user_id: Optional[str] = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Proxy true SSE events from ai-agent without buffering the full answer."""
     payload = {
@@ -135,7 +135,7 @@ async def generate_outfits(
     occasion: str,
     weather: str,
     temperature: float,
-    user_profile: dict[str, Any] | None = None,
+    user_profile: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     payload = {
         "closet_items": closet_items,
@@ -161,12 +161,14 @@ async def generate_packing_list(
     end_date: str,
     purpose: str,
     closet_items: list[dict[str, Any]],
+    notes: str | None = None,
 ) -> dict[str, Any]:
     payload = {
         "destination": destination,
         "start_date": start_date,
         "end_date": end_date,
         "purpose": purpose,
+        "notes": notes,
         "closet_items": closet_items,
     }
     try:

@@ -28,9 +28,9 @@ services:
     image: pgvector/pgvector:pg16
     <<: [*restart, *logging]
     environment:
-      POSTGRES_USER: clozehive
-      POSTGRES_PASSWORD: clozehive
-      POSTGRES_DB: clozehive
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       # Host 5433 → container 5432 so we don't clash with a local Postgres install.
       # Override by setting POSTGRES_HOST_PORT in .env if you want a different mapping.
@@ -39,7 +39,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U clozehive -d clozehive"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -122,7 +122,10 @@ services:
 
   # ── MCP Microservices ───────────────────────────────────────────────────────
 
+  # CONSOLIDATED: logic moved to api-gateway/app/services/
+  # Remove this block after verifying the consolidated version works.
   mcp-weather:
+    profiles: ["legacy-mcp"]
     build:
       context: ./services/mcp
       dockerfile: weather/Dockerfile
@@ -139,7 +142,10 @@ services:
       start_period: 15s
       retries: 3
 
+  # CONSOLIDATED: logic moved to api-gateway/app/services/
+  # Remove this block after verifying the consolidated version works.
   mcp-vision:
+    profiles: ["legacy-mcp"]
     build:
       context: ./services/mcp
       dockerfile: vision/Dockerfile
@@ -156,7 +162,10 @@ services:
       start_period: 15s
       retries: 3
 
+  # CONSOLIDATED: logic moved to api-gateway/app/services/
+  # Remove this block after verifying the consolidated version works.
   mcp-outfit:
+    profiles: ["legacy-mcp"]
     build:
       context: ./services/mcp
       dockerfile: outfit/Dockerfile
@@ -167,7 +176,10 @@ services:
     ports:
       - "8012:8012"
 
+  # CONSOLIDATED: logic moved to api-gateway/app/services/
+  # Remove this block after verifying the consolidated version works.
   mcp-packing:
+    profiles: ["legacy-mcp"]
     build:
       context: ./services/mcp
       dockerfile: packing/Dockerfile
@@ -189,28 +201,16 @@ services:
       <<: *python-env
       PORT: "8001"
       REDIS_URL: redis://redis:6379/1
-      DATABASE_URL: postgresql://clozehive:clozehive@postgres:5432/clozehive
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       VECTOR_STORE: pgvector
-      MCP_WEATHER_URL: http://mcp-weather:8010/sse
-      MCP_VISION_URL: http://mcp-vision:8011/sse
-      MCP_OUTFIT_URL: http://mcp-outfit:8012/sse
-      MCP_PACKING_URL: http://mcp-packing:8013/sse
       OPENAI_MODEL: gpt-4o
       LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}
       LANGSMITH_ENDPOINT: ${LANGSMITH_ENDPOINT:-https://api.smith.langchain.com}
-      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY}
       LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-clozehive}
     ports:
       - "8001:8001"
     depends_on:
-      mcp-weather:
-        condition: service_healthy
-      mcp-vision:
-        condition: service_started
-      mcp-outfit:
-        condition: service_started
-      mcp-packing:
-        condition: service_started
       redis:
         condition: service_healthy
       postgres:
@@ -232,8 +232,12 @@ services:
     environment:
       <<: *python-env
       PORT: "8000"
-      DATABASE_URL: postgresql+asyncpg://clozehive:clozehive@postgres:5432/clozehive
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-20}
+      DB_POOL_RECYCLE: ${DB_POOL_RECYCLE:-300}
       REDIS_URL: redis://redis:6379/0
+      REDIS_CHECK_ON_READY: ${REDIS_CHECK_ON_READY:-true}
       AI_AGENT_URL: http://ai-agent:8001
       KAFKA_ENABLED: "true"
       KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
@@ -241,12 +245,12 @@ services:
       FAISS_DIMENSION: "1536"
       FAISS_INDEX_PATH: "/app/data/faiss/index.bin"
       FAISS_ID_MAP_PATH: "/app/data/faiss/id_map.json"
-      JWT_SECRET: ${JWT_SECRET:-dev_secret_change_in_production_please}
+      JWT_SECRET: ${JWT_SECRET}
       ALLOWED_ORIGINS: http://localhost:3000,http://localhost:3001,http://localhost:5173
       # Google OAuth — set these in your .env file
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
-      OAUTH_REDIRECT_URI: ${OAUTH_REDIRECT_URI:-http://localhost:8000/api/v1/auth/google/callback}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:8000/api/v1/auth/google/callback}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3001}
       # Firebase / Firestore — set FIREBASE_CREDENTIALS_JSON to service account JSON contents
       # or mount a credentials file and set GOOGLE_APPLICATION_CREDENTIALS to its path
@@ -264,11 +268,11 @@ services:
       ai-agent:
         condition: service_started
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/live"]
       interval: 30s
       timeout: 10s
-      start_period: 30s
       retries: 3
+      start_period: 40s
     volumes:
       - ./services/api-gateway/app:/app/app  # live code mount — no rebuild needed for Python changes
       - faiss_data:/app/data/faiss
@@ -283,7 +287,7 @@ services:
     <<: [*restart, *logging]
     environment:
       <<: *python-env
-      DATABASE_URL: postgresql://clozehive:clozehive@postgres:5432/clozehive
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
       AI_AGENT_URL: http://ai-agent:8001
       MAX_ATTEMPTS: "5"
@@ -307,7 +311,7 @@ services:
       dockerfile: Dockerfile
     command: alembic upgrade head
     environment:
-      DATABASE_URL: postgresql+asyncpg://clozehive:clozehive@postgres:5432/clozehive
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     depends_on:
       postgres:
         condition: service_healthy

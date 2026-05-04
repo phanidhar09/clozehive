@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 from datetime import datetime
 from uuid import UUID
 
@@ -12,8 +14,8 @@ class PublicUserResponse(BaseModel):
     id: UUID
     username: str
     name: str
-    bio: str | None
-    avatar_url: str | None
+    bio: Optional[str]
+    avatar_url: Optional[str]
     follower_count: int
     following_count: int
     item_count: int
@@ -29,22 +31,22 @@ class FollowResponse(BaseModel):
 
 class GroupCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
-    description: str | None = Field(None, max_length=1000)
+    description: Optional[str] = Field(None, max_length=1000)
     is_private: bool = False
 
 
 class GroupUpdate(BaseModel):
-    name: str | None = Field(None, min_length=1, max_length=100)
-    description: str | None = None
-    is_private: bool | None = None
-    avatar_url: str | None = None
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = None
+    is_private: Optional[bool] = None
+    avatar_url: Optional[str] = None
 
 
 class GroupMemberResponse(BaseModel):
     user_id: UUID
     username: str
     name: str
-    avatar_url: str | None
+    avatar_url: Optional[str]
     role: str
     joined_at: datetime
 
@@ -54,14 +56,14 @@ class GroupMemberResponse(BaseModel):
 class GroupResponse(BaseModel):
     id: UUID
     name: str
-    description: str | None
+    description: Optional[str]
     owner_id: UUID
     is_private: bool
     invite_code: str
-    avatar_url: str | None
+    avatar_url: Optional[str]
     member_count: int
     members: list[GroupMemberResponse]
-    my_role: str | None
+    my_role: Optional[str]
     is_member: bool
     created_at: datetime
 

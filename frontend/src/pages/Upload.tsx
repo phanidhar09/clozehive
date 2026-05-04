@@ -32,9 +32,11 @@ interface VisionResult {
 export default function Upload() {
   const { addClosetItem } = useApp()
   const [dragging, setDragging] = useState(false)
-  const [file, setFile] = useState<File | null>(null)
+  const [files, setFiles] = useState<File[]>([])
   const [preview, setPreview] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState<string | null>(null)
+  const [bulkSummary, setBulkSummary] = useState<{ added: number; failed: Array<{ filename: string; error: string }> } | null>(null)
   const [vision, setVision] = useState<VisionResult | null>(null)
   const [createdItem, setCreatedItem] = useState<ClosetItem | null>(null)
   const [saving, setSaving] = useState(false)
@@ -46,30 +48,47 @@ export default function Upload() {
   })
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const handleFile = useCallback((f: File) => {
-    setFile(f)
-    setPreview(URL.createObjectURL(f))
+  const handleFiles = useCallback((selected: File[]) => {
+    const images = selected.filter(f => f.type.startsWith('image/')).slice(0, 20)
+    setFiles(images)
+    setPreview(images[0] ? URL.createObjectURL(images[0]) : null)
     setSaved(false)
     setVision(null)
     setCreatedItem(null)
+    setBulkSummary(null)
+    setUploadProgress(null)
     setError(null)
   }, [])
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     setDragging(false)
-    const f = e.dataTransfer.files[0]
-    if (f && f.type.startsWith('image/')) handleFile(f)
-  }, [handleFile])
+    handleFiles(Array.from(e.dataTransfer.files))
+  }, [handleFiles])
 
   // Step 1: Upload image → backend → vision AI analysis → item created in DB
   const analyse = async () => {
-    if (!file) return
+    if (files.length === 0) return
     setUploading(true)
     setError(null)
+    setUploadProgress(`Analyzing file 1 of ${files.length}...`)
+    let progressIndex = 1
+    const progressTimer = window.setInterval(() => {
+      progressIndex = Math.min(progressIndex + 1, files.length)
+      setUploadProgress(`Analyzing file ${progressIndex} of ${files.length}...`)
+    }, 800)
     try {
+      if (files.length > 1) {
+        const result = await closetApi.bulkUpload(files)
+        result.created.forEach(addClosetItem)
+        setBulkSummary({ added: result.created.length, failed: result.failed })
+        setCreatedItem(result.created[0] ?? null)
+        setSaved(result.created.length > 0)
+        return
+      }
+
       const fd = new FormData()
-      fd.append('file', file)
+      fd.append('file', files[0])
       if (form.category) fd.append('category', form.category)
       if (form.name) fd.append('name', form.name)
 
@@ -117,6 +136,8 @@ export default function Upload() {
       setError(`Upload failed: ${msg}`)
       console.error('Upload error:', err)
     } finally {
+      window.clearInterval(progressTimer)
+      setUploadProgress(null)
       setUploading(false)
     }
   }
@@ -144,8 +165,10 @@ export default function Upload() {
   }
 
   const reset = () => {
-    setFile(null)
+    setFiles([])
     setPreview(null)
+    setUploadProgress(null)
+    setBulkSummary(null)
     setVision(null)
     setCreatedItem(null)
     setSaved(false)
@@ -154,7 +177,7 @@ export default function Upload() {
   }
 
   return (
-    <div className="max-w-3xl animate-slide-up space-y-6">
+    <div className="max-w-3xl space-y-6">
       <div>
         <h2 className="font-display font-bold text-xl text-slate-800 dark:text-slate-100">Upload Clothing Item</h2>
         <p className="text-sm text-slate-400 mt-0.5">AI will automatically detect fabric, color, pattern and more</p>
@@ -209,16 +232,45 @@ export default function Upload() {
                   <p className="font-semibold text-sm text-slate-600 dark:text-slate-300">Drop your photo here</p>
                   <p className="text-xs text-slate-400 mt-0.5">or click to browse</p>
                 </div>
-                <p className="text-[11px] text-slate-300 dark:text-slate-600">JPG, PNG, WEBP · Max 10MB</p>
+                <p className="text-[11px] text-slate-300 dark:text-slate-600">JPG, PNG, WEBP · Max 10MB each · Up to 20 files</p>
               </div>
             )}
           </div>
-          <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={e => e.target.files?.[0] && handleFile(e.target.files[0])} />
+          <input ref={inputRef} type="file" accept="image/*" multiple className="hidden" onChange={e => handleFiles(Array.from(e.target.files ?? []))} />
+
+          {files.length > 0 && (
+            <p className="text-xs font-medium text-slate-500 dark:text-slate-400 text-center">
+              {files.length} of 20 files selected
+            </p>
+          )}
+
+          {uploadProgress && (
+            <div className="card p-3 bg-brand-50 dark:bg-brand-900/20 border-brand-200 dark:border-brand-800 text-brand-700 dark:text-brand-300 text-sm">
+              {uploadProgress}
+            </div>
+          )}
+
+          {bulkSummary && (
+            <div className="card p-3 bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800 text-sm space-y-2">
+              <p className="font-semibold text-emerald-700 dark:text-emerald-300">
+                {bulkSummary.added} items added, {bulkSummary.failed.length} failed
+              </p>
+              {bulkSummary.failed.length > 0 && (
+                <div className="space-y-1">
+                  {bulkSummary.failed.map(f => (
+                    <p key={f.filename} className="text-xs text-red-600 dark:text-red-300">
+                      {f.filename}: {f.error}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Analyse button — shown when image selected but not yet uploaded */}
-          {file && !createdItem && (
-            <Button className="w-full" loading={uploading} icon={<Sparkles size={15} />} onClick={analyse}>
-              {uploading ? 'Uploading & analysing…' : 'Analyse with Vision AI'}
+          {files.length > 0 && !createdItem && (
+            <Button className="w-full" disabled={uploading} icon={<Sparkles size={15} />} onClick={analyse}>
+              {uploading ? 'Analyzing selected files…' : files.length > 1 ? 'Analyze Closet Scan' : 'Analyse with Vision AI'}
             </Button>
           )}
 
@@ -234,7 +286,7 @@ export default function Upload() {
         <div className="space-y-4">
           {/* AI Vision result */}
           {vision && Object.keys(vision).length > 0 && (
-            <div className="card p-4 bg-brand-50 dark:bg-brand-900/20 border-brand-200 dark:border-brand-800 space-y-3 animate-slide-up">
+            <div className="card p-4 bg-brand-50 dark:bg-brand-900/20 border-brand-200 dark:border-brand-800 space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-semibold text-brand-700 dark:text-brand-300 uppercase tracking-wide flex items-center gap-1.5">
                   <Sparkles size={11} /> AI Detection results
@@ -332,8 +384,8 @@ export default function Upload() {
               </Button>
             ) : (
               /* No item yet → prompt to upload */
-              <Button className="w-full" onClick={() => inputRef.current?.click()} disabled={!!file} icon={<UploadIcon size={15} />}>
-                {file ? 'Click "Analyse" above first' : 'Choose a photo to start'}
+              <Button className="w-full" onClick={() => inputRef.current?.click()} disabled={files.length > 0} icon={<UploadIcon size={15} />}>
+                {files.length > 0 ? 'Click "Analyse" above first' : 'Choose photos to start'}
               </Button>
             )}
           </div>

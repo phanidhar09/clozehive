@@ -20,7 +20,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from typing import Any
+from typing import Optional, Any
 
 import structlog
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
@@ -151,7 +151,7 @@ manager = ConnectionManager()
 #  Token auth helper
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _authenticate(token: str | None) -> str | None:
+def _authenticate(token: Optional[str]) -> str | None:
     """Return user_id from JWT token, or None if invalid."""
     if not token:
         return None
@@ -209,7 +209,7 @@ async def _handle_chat(ws: WebSocket, user_id: str, message: str) -> None:
 @router.websocket("")
 async def websocket_endpoint(
     ws: WebSocket,
-    token: str | None = None,
+    token: Optional[str] = None,
 ) -> None:
     """
     Main WebSocket endpoint.

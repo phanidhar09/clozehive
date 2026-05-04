@@ -1,13 +1,16 @@
 import { useState, useRef, useEffect } from 'react'
-import { Menu, Bell, Search, LogOut, User, Settings, UserPlus, UserCheck, Loader2, X } from 'lucide-react'
+import { Menu, Bell, Search, LogOut, User, Settings, UserPlus, UserCheck, Loader2, X, Moon, Sun } from 'lucide-react'
 import { useApp } from '@/store'
+import { useColorScheme } from '@/hooks/useColorScheme'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { socialApi } from '@/lib/api'
 import type { SocialUser } from '@/types'
+import { hideNonMvpUi } from '@/config/features'
 
 const TITLES: Record<string, string> = {
   '/dashboard':  'Dashboard',
   '/closet':     'My Closet',
+  '/outfit-builder': 'Outfit Builder',
   '/upload':     'Upload Item',
   '/ai-stylist': 'AI Stylist',
   '/travel':     'Travel Planner',
@@ -234,6 +237,7 @@ function UserSearch() {
 /* ── Navbar ────────────────────────────────────────────────────────────────── */
 export default function Navbar() {
   const { setSidebarOpen, currentUser } = useApp()
+  const { isDark, toggleColorScheme } = useColorScheme()
   const location = useLocation()
   const [showMenu, setShowMenu] = useState(false)
 
@@ -251,7 +255,7 @@ export default function Navbar() {
       <div className="flex items-center gap-3">
         <button
           onClick={() => setSidebarOpen(true)}
-          className="lg:hidden p-2 rounded-xl
+          className="lg:hidden p-2 min-h-[44px] min-w-[44px] rounded-xl
                      text-slate-500 dark:text-white/50
                      hover:text-slate-800 dark:hover:text-white
                      hover:bg-slate-100 dark:hover:bg-white/[0.08]
@@ -275,10 +279,25 @@ export default function Navbar() {
           </span>
         )}
 
-        <UserSearch />
+        {currentUser && !hideNonMvpUi() && (
+          <UserSearch />
+        )}
+
+        <button
+          onClick={toggleColorScheme}
+          title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+          aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+          className="p-2 min-h-[44px] min-w-[44px] rounded-xl
+                     text-slate-500 dark:text-white/50
+                     hover:text-slate-800 dark:hover:text-white
+                     hover:bg-slate-100 dark:hover:bg-white/[0.08]
+                     transition-colors"
+        >
+          {isDark ? <Sun size={19} /> : <Moon size={19} />}
+        </button>
 
         {/* Notification bell */}
-        <button className="relative p-2 rounded-xl
+        <button className="relative p-2 min-h-[44px] min-w-[44px] rounded-xl
                            text-slate-500 dark:text-white/50
                            hover:text-slate-800 dark:hover:text-white
                            hover:bg-slate-100 dark:hover:bg-white/[0.08]
@@ -292,7 +311,7 @@ export default function Navbar() {
         <div className="relative">
           <button
             onClick={() => setShowMenu(v => !v)}
-            className="w-9 h-9 rounded-full
+            className="min-h-[44px] min-w-[44px] rounded-full
                        bg-gradient-to-br from-indigo-500 to-violet-600
                        flex items-center justify-center text-sm font-bold text-white
                        ring-2 ring-transparent hover:ring-indigo-400/40

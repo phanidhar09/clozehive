@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlencode
 
@@ -46,13 +46,14 @@ def _encode(payload: dict[str, Any]) -> str:
 
 
 def create_access_token(user_id: str, role: str = "user") -> str:
-    expire = datetime.now(UTC) + timedelta(minutes=settings.access_token_expire_minutes)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
     payload = {
         "sub": user_id,
         "role": role,
         "type": ACCESS_TOKEN_TYPE,
         "exp": expire,
-        "iat": datetime.now(UTC),
+        "iat": datetime.now(timezone.utc),
+        "jti": secrets.token_urlsafe(16),
     }
     return _encode(payload)
 
@@ -83,7 +84,7 @@ def hash_token(raw_token: str) -> str:
 def build_google_auth_url(state: str) -> str:
     params = {
         "client_id": settings.google_client_id,
-        "redirect_uri": settings.oauth_redirect_uri,
+        "redirect_uri": settings.google_redirect_uri,
         "response_type": "code",
         "scope": "openid email profile",
         "state": state,

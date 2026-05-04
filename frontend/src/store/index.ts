@@ -8,6 +8,10 @@ import { tokenStorage, authApi, closetApi } from '@/lib/api'
 
 interface AppState {
   // ── Theme ──────────────────────────────────────────────────────────────────
+  colorScheme: ColorScheme
+  toggleColorScheme: () => void
+  initColorScheme: () => void
+  // Backwards-compatible aliases used by older components.
   theme: ColorScheme
   toggleTheme: () => void
 
@@ -49,6 +53,32 @@ export function useApp() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const USER_KEY = 'ch_user'
+const COLOR_SCHEME_KEY = 'closetiq-color-scheme'
+
+function getSystemColorScheme(): ColorScheme {
+  if (typeof window === 'undefined') return 'light'
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
+
+function readStoredColorScheme(): ColorScheme | null {
+  try {
+    const value = localStorage.getItem(COLOR_SCHEME_KEY)
+    return value === 'dark' || value === 'light' ? value : null
+  } catch {
+    return null
+  }
+}
+
+function applyColorScheme(colorScheme: ColorScheme) {
+  if (typeof document === 'undefined') return
+  document.documentElement.classList.toggle('dark', colorScheme === 'dark')
+}
+
+export function initColorSchemeBeforeRender(): ColorScheme {
+  const colorScheme = readStoredColorScheme() ?? getSystemColorScheme()
+  applyColorScheme(colorScheme)
+  return colorScheme
+}
 
 function loadPersistedUser(): AuthUser | null {
   try {
@@ -75,14 +105,34 @@ export function createAppState(): AppState {
 
   // ── Theme ──────────────────────────────────────────────────────────────────
 
-  const [theme, setTheme] = useState<ColorScheme>('light')
+  const [colorScheme, setColorScheme] = useState<ColorScheme>(() => initColorSchemeBeforeRender())
 
-  const toggleTheme = useCallback(() => {
-    setTheme(t => {
-      const next = t === 'light' ? 'dark' : 'light'
-      document.documentElement.classList.toggle('dark', next === 'dark')
+  const initColorScheme = useCallback(() => {
+    const next = initColorSchemeBeforeRender()
+    setColorScheme(next)
+  }, [])
+
+  const toggleColorScheme = useCallback(() => {
+    setColorScheme(current => {
+      const next = current === 'light' ? 'dark' : 'light'
+      applyColorScheme(next)
+      try { localStorage.setItem(COLOR_SCHEME_KEY, next) } catch { /* ignore */ }
       return next
     })
+  }, [])
+
+  useEffect(() => {
+    applyColorScheme(colorScheme)
+  }, [colorScheme])
+
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-color-scheme: dark)')
+    const handler = (event: MediaQueryListEvent) => {
+      if (readStoredColorScheme()) return
+      setColorScheme(event.matches ? 'dark' : 'light')
+    }
+    media.addEventListener('change', handler)
+    return () => media.removeEventListener('change', handler)
   }, [])
 
   // ── Auth ───────────────────────────────────────────────────────────────────
@@ -106,6 +156,7 @@ export function createAppState(): AppState {
     clearPersistedUser()
     setCurrentUser(null)
     setClosetItems([])
+    if (window.location.pathname !== '/login') window.location.assign('/login')
   }, [])
 
   const updateCurrentUser = useCallback((updates: Partial<AuthUser>) => {
@@ -123,6 +174,7 @@ export function createAppState(): AppState {
       clearPersistedUser()
       setCurrentUser(null)
       setClosetItems([])
+      if (window.location.pathname !== '/login') window.location.assign('/login')
     }
     window.addEventListener('ch:unauthenticated', handler)
     return () => window.removeEventListener('ch:unauthenticated', handler)
@@ -164,8 +216,11 @@ export function createAppState(): AppState {
   // ── Return ─────────────────────────────────────────────────────────────────
 
   return {
-    theme,
-    toggleTheme,
+    colorScheme,
+    toggleColorScheme,
+    initColorScheme,
+    theme: colorScheme,
+    toggleTheme: toggleColorScheme,
     currentUser,
     isAuthenticated: !!currentUser && !!tokenStorage.getAccess(),
     login,

@@ -28,20 +28,24 @@ class Settings(BaseSettings):
     port: int = 8000
 
     # ── Database (PostgreSQL + asyncpg) ───────────────────────────────────────
-    database_url: str = "postgresql+asyncpg://clozehive:clozehive@localhost:5432/clozehive"
+    database_url: str
     db_pool_size: int = 10
     db_max_overflow: int = 20
     db_pool_pre_ping: bool = True
+    db_pool_recycle: int = 300
+    db_pool_timeout: int = 30
 
     # ── Redis ─────────────────────────────────────────────────────────────────
     redis_url: str = "redis://localhost:6379/0"
+    # When False, /ready and /health skip Redis (local dev without Redis).
+    redis_check_on_ready: bool = True
     cache_ttl_profile: int = 300      # 5 min
     cache_ttl_closet: int = 120       # 2 min
     cache_ttl_weather: int = 3600     # 1 hour
     cache_ttl_social: int = 60        # 1 min
 
     # ── JWT ───────────────────────────────────────────────────────────────────
-    jwt_secret: str = "CHANGE_ME_TO_A_RANDOM_64_CHAR_SECRET"
+    jwt_secret: str
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 7
@@ -49,6 +53,14 @@ class Settings(BaseSettings):
     # ── AI Agent Service ──────────────────────────────────────────────────────
     ai_agent_url: str = "http://ai-agent:8001"
     ai_timeout_seconds: int = 60
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-sonnet-4-6"
+    anthropic_max_tokens: int = 1024
+    openweather_api_key: str = ""
+    ai_cache_enabled: bool = True
+    ai_cache_ttl: int = 600
+    embedding_model: str = "text-embedding-ada-002"
+    openai_api_key: str = ""
 
     # ── File Upload ───────────────────────────────────────────────────────────
     upload_dir: str = "./uploads"
@@ -63,9 +75,9 @@ class Settings(BaseSettings):
     rate_limit_ai: str = "20/minute"
 
     # ── OAuth ─────────────────────────────────────────────────────────────────
-    google_client_id: str = ""
-    google_client_secret: str = ""
-    oauth_redirect_uri: str = "http://localhost:8000/api/v1/auth/google/callback"
+    google_client_id: str
+    google_client_secret: str
+    google_redirect_uri: str = "http://localhost:8000/api/v1/auth/google/callback"
     frontend_url: str = "http://localhost:3000"
 
     # ── Firebase / Firestore ──────────────────────────────────────────────────
@@ -123,11 +135,7 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _validate_production_config(self):
         if self.is_production:
-            unsafe_secrets = {
-                "CHANGE_ME_TO_A_RANDOM_64_CHAR_SECRET",
-                "dev_secret_change_in_production_please",
-            }
-            if self.jwt_secret in unsafe_secrets or len(self.jwt_secret) < 32:
+            if len(self.jwt_secret) < 32:
                 raise ValueError("JWT_SECRET must be a strong production secret")
             if not self.allowed_origins or "localhost" in self.allowed_origins:
                 raise ValueError("ALLOWED_ORIGINS must be explicit production origins")

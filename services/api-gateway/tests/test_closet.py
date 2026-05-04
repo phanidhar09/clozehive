@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from httpx import AsyncClient
+from types import SimpleNamespace
 
 from app.api.v1 import closet as closet_routes
 
@@ -109,17 +110,25 @@ async def test_log_wear(client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_upload_persists_image_url(client: AsyncClient, monkeypatch, tmp_path):
+    from io import BytesIO
+
+    from PIL import Image
+
     headers = await _auth_headers(client, "7")
+
+    jpeg_buf = BytesIO()
+    Image.new("RGB", (4, 4), color=(120, 80, 60)).save(jpeg_buf, format="JPEG")
+    jpeg_bytes = jpeg_buf.getvalue()
 
     async def fake_analyze_image(_image_bytes: bytes, _media_type: str) -> dict:
         return {"name": "Uploaded Shirt", "category": "tops", "color": "white"}
 
-    monkeypatch.setattr(closet_routes.settings, "upload_dir", str(tmp_path))
-    monkeypatch.setattr(closet_routes.ai_client, "analyze_image", fake_analyze_image)
+    monkeypatch.setattr("app.services.upload_service.get_settings", lambda: SimpleNamespace(upload_path=tmp_path))
+    monkeypatch.setattr(closet_routes.vision_service, "analyze_image", fake_analyze_image)
 
     resp = await client.post(
         "/api/v1/closet/upload",
-        files={"file": ("shirt.jpg", b"fake image bytes", "image/jpeg")},
+        files={"file": ("shirt.jpg", jpeg_bytes, "image/jpeg")},
         headers=headers,
     )
 

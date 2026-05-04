@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-from typing import Any
+from datetime import timezone, datetime
+from typing import Optional, Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
@@ -15,7 +15,7 @@ class EventEnvelope(BaseModel):
     event_version: int = 1
     request_id: UUID
     user_id: UUID
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     source: str = "api-gateway"
     payload: dict[str, Any] = Field(default_factory=dict)
 

@@ -13,6 +13,7 @@ from typing import Any
 from uuid import UUID
 
 from google.cloud import firestore
+from google.cloud.firestore_v1 import AsyncClient
 from google.cloud.firestore_v1.base_query import FieldFilter
 
 from app.core.exceptions import ForbiddenError, NotFoundError
@@ -101,25 +102,24 @@ class FirestoreClosetService:
                 return ClosetListResponse(**cached)
 
         db = get_db()
-        # Only filter on user_id to avoid composite index requirements;
-        # remaining filters are applied in Python after fetch.
-        query = db.collection(_COLLECTION).where(filter=FieldFilter("user_id", "==", uid))
+        query = (
+            db.collection(_COLLECTION)
+            .where(filter=FieldFilter("user_id", "==", uid))
+            .where(filter=FieldFilter("is_archived", "==", False))
+        )
+        if section:
+            query = query.where(filter=FieldFilter("section", "==", section))
+        if category:
+            query = query.where(filter=FieldFilter("category", "==", category))
+        if season:
+            query = query.where(filter=FieldFilter("season", "==", season))
 
+        query = query.order_by("created_at", direction="DESCENDING")
+
+        # Firestore doesn't support SQL-style OFFSET, so we fetch all and slice
         all_docs: list[dict[str, Any]] = []
         async for doc in query.stream():
-            d = doc.to_dict()
-            if d.get("is_archived", False):
-                continue
-            if section and d.get("section") != section:
-                continue
-            if category and d.get("category") != category:
-                continue
-            if season and d.get("season") != season:
-                continue
-            all_docs.append(d)
-
-        # Sort by created_at descending in Python
-        all_docs.sort(key=lambda x: x.get("created_at") or datetime.min.replace(tzinfo=UTC), reverse=True)
+            all_docs.append(doc.to_dict())
 
         total = len(all_docs)
         offset = (page - 1) * per_page
@@ -139,11 +139,14 @@ class FirestoreClosetService:
 
     async def count_by_user(self, user_id: UUID) -> int:
         db = get_db()
-        query = db.collection(_COLLECTION).where(filter=FieldFilter("user_id", "==", str(user_id)))
+        query = (
+            db.collection(_COLLECTION)
+            .where(filter=FieldFilter("user_id", "==", str(user_id)))
+            .where(filter=FieldFilter("is_archived", "==", False))
+        )
         count = 0
-        async for doc in query.stream():
-            if not doc.to_dict().get("is_archived", False):
-                count += 1
+        async for _ in query.stream():
+            count += 1
         return count
 
     # ── Get one ───────────────────────────────────────────────────────────────
@@ -252,14 +255,11 @@ class FirestoreClosetService:
         query = (
             db.collection(_COLLECTION)
             .where(filter=FieldFilter("user_id", "==", str(user_id)))
-            .limit(limit * 2)  # over-fetch to account for archived items filtered below
+            .where(filter=FieldFilter("is_archived", "==", False))
+            .limit(limit)
         )
         result = []
         async for doc in query.stream():
-            if doc.to_dict().get("is_archived", False):
-                continue
-            if len(result) >= limit:
-                break
             d = doc.to_dict()
             result.append({
                 "id": d.get("id", ""),

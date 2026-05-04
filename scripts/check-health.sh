@@ -14,6 +14,8 @@ check_url() {
 }
 
 check_url "api-gateway" "http://localhost:8000/health"
+check_url "api-gateway-live" "http://localhost:8000/live"
+check_url "api-gateway-ready" "http://localhost:8000/ready"
 check_url "ai-agent" "http://localhost:8001/health"
 check_url "frontend" "http://localhost:${FRONTEND_HOST_PORT:-3001}"
 

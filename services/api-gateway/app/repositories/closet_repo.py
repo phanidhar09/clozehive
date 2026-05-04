@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 from uuid import UUID
 
 from sqlalchemy import and_, select
@@ -17,9 +19,9 @@ class ClosetRepository(BaseRepository[ClosetItem]):
         self,
         user_id: UUID,
         *,
-        section: str | None = None,
-        category: str | None = None,
-        season: str | None = None,
+        section: Optional[str] = None,
+        category: Optional[str] = None,
+        season: Optional[str] = None,
         include_archived: bool = False,
         limit: int = 100,
         offset: int = 0,

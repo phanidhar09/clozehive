@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from typing import Optional
+
+from datetime import timezone, datetime
 from uuid import UUID
 
 from sqlalchemy import and_, select
@@ -14,19 +16,19 @@ from app.repositories.base import BaseRepository
 class UserRepository(BaseRepository[User]):
     model = User
 
-    async def get_by_email(self, email: str) -> User | None:
+    async def get_by_email(self, email: str) -> Optional[User]:
         result = await self.session.execute(
             select(User).where(User.email == email.lower())
         )
         return result.scalar_one_or_none()
 
-    async def get_by_username(self, username: str) -> User | None:
+    async def get_by_username(self, username: str) -> Optional[User]:
         result = await self.session.execute(
             select(User).where(User.username == username.lower())
         )
         return result.scalar_one_or_none()
 
-    async def get_by_google_id(self, google_id: str) -> User | None:
+    async def get_by_google_id(self, google_id: str) -> Optional[User]:
         result = await self.session.execute(
             select(User).where(User.google_id == google_id)
         )
@@ -57,7 +59,7 @@ class UserRepository(BaseRepository[User]):
 class CredentialRepository(BaseRepository[UserCredential]):
     model = UserCredential
 
-    async def get_by_user_id(self, user_id: UUID) -> UserCredential | None:
+    async def get_by_user_id(self, user_id: UUID) -> Optional[UserCredential]:
         result = await self.session.execute(
             select(UserCredential).where(UserCredential.user_id == user_id)
         )
@@ -67,13 +69,13 @@ class CredentialRepository(BaseRepository[UserCredential]):
 class RefreshTokenRepository(BaseRepository[RefreshToken]):
     model = RefreshToken
 
-    async def get_valid(self, token_hash: str) -> RefreshToken | None:
+    async def get_valid(self, token_hash: str) -> Optional[RefreshToken]:
         result = await self.session.execute(
             select(RefreshToken).where(
                 and_(
                     RefreshToken.token_hash == token_hash,
                     RefreshToken.revoked == False,
-                    RefreshToken.expires_at > datetime.now(UTC),
+                    RefreshToken.expires_at > datetime.now(timezone.utc),
                 )
             )
         )

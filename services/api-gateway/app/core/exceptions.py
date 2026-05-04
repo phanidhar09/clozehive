@@ -7,8 +7,11 @@ No raw stack traces ever reach the client.
 
 from __future__ import annotations
 
-from fastapi import Request, status
-from fastapi.responses import JSONResponse
+from typing import Optional
+
+from fastapi import HTTPException, Request, status
+
+from app.core.error_response import json_error
 
 
 class AppError(Exception):
@@ -17,12 +20,13 @@ class AppError(Exception):
     status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR
     code: str = "INTERNAL_ERROR"
 
-    def __init__(self, message: str, *, detail: str | None = None) -> None:
+    def __init__(self, message: str, *, detail: Optional[str] = None) -> None:
         self.message = message
         self.detail = detail
         super().__init__(message)
 
     def to_dict(self) -> dict:
+        """Legacy shape — prefer structured handler output."""
         payload: dict = {"error": self.code, "message": self.message}
         if self.detail:
             payload["detail"] = self.detail
@@ -85,7 +89,13 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
         message=exc.message,
         status_code=exc.status_code,
     )
-    return JSONResponse(status_code=exc.status_code, content=exc.to_dict())
+    human = exc.detail if exc.detail else exc.message
+    return json_error(
+        request,
+        detail=human,
+        code=exc.code,
+        status_code=exc.status_code,
+    )
 
 
 async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
@@ -105,7 +115,47 @@ async def unhandled_error_handler(request: Request, exc: Exception) -> JSONRespo
     else:
         msg = str(exc)
 
-    return JSONResponse(
+    return json_error(
+        request,
+        detail=msg,
+        code="INTERNAL_ERROR",
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"error": "INTERNAL_ERROR", "message": msg},
+    )
+
+
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    from app.core.logging import get_logger
+    logger = get_logger("exceptions")
+    detail = exc.detail
+    if isinstance(detail, list):
+        human = "Validation failed"
+    elif isinstance(detail, dict):
+        human = str(detail.get("detail") or detail.get("message") or detail)
+    else:
+        human = str(detail)
+    code_map = {
+        status.HTTP_401_UNAUTHORIZED: "UNAUTHORIZED",
+        status.HTTP_403_FORBIDDEN: "FORBIDDEN",
+        status.HTTP_404_NOT_FOUND: "NOT_FOUND",
+        status.HTTP_409_CONFLICT: "CONFLICT",
+        status.HTTP_422_UNPROCESSABLE_ENTITY: "VALIDATION_ERROR",
+        status.HTTP_429_TOO_MANY_REQUESTS: "RATE_LIMITED",
+        status.HTTP_503_SERVICE_UNAVAILABLE: "SERVICE_UNAVAILABLE",
+    }
+    code = code_map.get(exc.status_code, "HTTP_ERROR")
+    logger.warning(
+        "http_exception",
+        path=str(request.url.path),
+        status_code=exc.status_code,
+        code=code,
+    )
+    extra = {}
+    if isinstance(detail, dict) and detail:
+        extra["errors"] = detail
+    return json_error(
+        request,
+        detail=human,
+        code=code,
+        status_code=exc.status_code,
+        extra=extra if extra else None,
     )

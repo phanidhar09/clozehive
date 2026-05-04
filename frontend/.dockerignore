@@ -1,0 +1,19 @@
+# Keep build context small — without this, node_modules (~100MB+) is sent to Docker.
+node_modules
+dist
+build
+.vite
+.cache
+coverage
+.nyc_output
+*.log
+npm-debug.log*
+.DS_Store
+.env
+.env.*
+!.env.example
+.git
+.gitignore
+*.md
+.vscode
+.idea

@@ -32,7 +32,7 @@ export default function OAuthCallback() {
       .getMe()
       .then(user => {
         login(user, accessToken, refreshToken)
-        navigate('/dashboard', { replace: true })
+        navigate('/profile?onboarding=1', { replace: true })
       })
       .catch(() => {
         tokenStorage.clear()

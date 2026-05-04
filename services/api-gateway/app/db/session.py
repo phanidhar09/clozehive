@@ -27,6 +27,8 @@ engine = create_async_engine(
     pool_size=settings.db_pool_size,
     max_overflow=settings.db_max_overflow,
     pool_pre_ping=settings.db_pool_pre_ping,
+    pool_recycle=settings.db_pool_recycle,
+    pool_timeout=settings.db_pool_timeout,
     echo=settings.debug,
     future=True,
 )
@@ -64,7 +66,8 @@ async def connect() -> None:
     try:
         async with engine.connect() as conn:
             await conn.execute(__import__("sqlalchemy").text("SELECT 1"))
-        logger.info("database_connected", url=settings.database_url.split("@")[-1])
+        # Never log credentials — host/db fragment only
+        logger.info("database_connected", target=settings.database_url.split("@")[-1])
     except Exception as exc:
         logger.error("database_connection_failed", error=str(exc))
         raise

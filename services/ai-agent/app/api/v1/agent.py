@@ -63,6 +63,21 @@ def _normalize_vision_response(data: Any) -> Any:
     return normalized
 
 
+def _format_wardrobe(items: list[dict[str, Any]]) -> str:
+    lines = ["MY WARDROBE:"]
+    for item in items:
+        occasions = item.get("occasion") or []
+        if isinstance(occasions, list):
+            occasion_text = ", ".join(str(o) for o in occasions)
+        else:
+            occasion_text = str(occasions)
+        lines.append(
+            f"- {item.get('name', 'Unnamed item')} | {item.get('category', 'uncategorized')} | "
+            f"{item.get('color') or 'unknown color'} | occasions: {occasion_text or 'none listed'}"
+        )
+    return "\n".join(lines)
+
+
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
     history: list[dict[str, str]] = Field(default_factory=list)
@@ -87,6 +102,7 @@ class PackingRequest(BaseModel):
     start_date: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
     end_date: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
     purpose: str = "general"
+    notes: str | None = None
     closet_items: list[dict[str, Any]] = Field(default_factory=list)
 
 
@@ -126,7 +142,13 @@ async def chat(body: ChatRequest):
     # Enrich message with closet context
     message = body.message
     if body.closet_items:
-        message += f"\n\n[User's closet ({len(body.closet_items)} items)]:\n{json.dumps(body.closet_items)}"
+        message += (
+            "\n\nYou are a personal stylist. When suggesting outfits, ONLY recommend items from "
+            "the user's wardrobe listed above. Always refer to items by their exact name as listed. "
+            "If the wardrobe does not have a suitable item for part of an outfit, say so explicitly "
+            "rather than inventing items.\n\n"
+            f"{_format_wardrobe(body.closet_items)}"
+        )
     if body.user_id:
         vector_matches = await search_closet_context(body.user_id, body.message)
         if vector_matches:
@@ -147,7 +169,13 @@ async def chat_stream(body: ChatRequest):
 
     message = body.message
     if body.closet_items:
-        message += f"\n\n[User's closet ({len(body.closet_items)} items)]:\n{json.dumps(body.closet_items)}"
+        message += (
+            "\n\nYou are a personal stylist. When suggesting outfits, ONLY recommend items from "
+            "the user's wardrobe listed above. Always refer to items by their exact name as listed. "
+            "If the wardrobe does not have a suitable item for part of an outfit, say so explicitly "
+            "rather than inventing items.\n\n"
+            f"{_format_wardrobe(body.closet_items)}"
+        )
     if body.user_id:
         vector_matches = await search_closet_context(body.user_id, body.message)
         if vector_matches:
@@ -228,6 +256,7 @@ async def packing(body: PackingRequest):
             "start_date": body.start_date,
             "end_date": body.end_date,
             "purpose": body.purpose,
+            "notes": body.notes or "",
             "closet_items_json": json.dumps(body.closet_items),
             "weather_summary_json": weather_json,
         })
