@@ -104,3 +104,5 @@ ai-service/venv/
 *.temp
 clozehive-clean/
 Roo-Code/
+.claude/
+.cursor/
