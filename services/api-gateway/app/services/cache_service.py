@@ -5,6 +5,7 @@ Gracefully degrades (logs warning, returns None) when Redis is unavailable.
 
 from __future__ import annotations
 
+import builtins
 import hashlib
 import json
 from collections.abc import AsyncIterator
@@ -156,7 +157,7 @@ def _normalize_filter_value(value: Any) -> Any:
             for k, v in sorted(value.items(), key=lambda item: str(item[0]))
             if _normalize_filter_value(v) is not None
         }
-    if isinstance(value, (list, tuple, set)):
+    if isinstance(value, (list, tuple, builtins.set)):
         normalized_items = [_normalize_filter_value(item) for item in value]
         normalized_items = [item for item in normalized_items if item is not None]
         try:

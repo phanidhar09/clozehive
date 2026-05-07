@@ -7,7 +7,7 @@ Data stored in PostgreSQL via ClosetService.
 from __future__ import annotations
 
 import asyncio
-from typing import Optional, Any
+from typing import Optional, Any, cast
 
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -208,7 +208,7 @@ async def bulk_upload_items(
             failed.append(BulkUploadFailure(filename=filename, error=str(result)))
             continue
 
-        image_url, vision = result
+        image_url, vision = cast(tuple[Any, Any], result)
         try:
             item = await svc.create_item(user_uuid, _item_from_vision(vision, image_url))
             created.append(item)

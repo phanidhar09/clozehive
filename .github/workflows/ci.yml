@@ -15,7 +15,7 @@ jobs:
       - name: Install lint dependencies
         run: pip install flake8 mypy
       - name: Run flake8
-        run: flake8 services/api-gateway/app --max-line-length=120 --ignore=E501,W503
+        run: flake8 services/api-gateway/app --config services/api-gateway/.flake8
       - name: Run mypy
         run: mypy services/api-gateway/app --ignore-missing-imports
 

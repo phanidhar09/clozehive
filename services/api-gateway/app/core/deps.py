@@ -48,6 +48,8 @@ async def get_current_admin(
     credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(_bearer)],
 ) -> str:
     """Like get_current_user_id but also checks role == 'admin'."""
+    if credentials is None:
+        raise AuthenticationError("Authentication required")
     try:
         payload = decode_access_token(credentials.credentials)
         if payload.get("role") != "admin":

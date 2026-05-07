@@ -117,12 +117,13 @@ class ConnectionManager:
         while True:
             try:
                 client = await cache_service.get_redis()
-                self._pubsub = client.pubsub(ignore_subscribe_messages=True)
-                await self._pubsub.psubscribe(cache_service.namespaced_key("ws", "user", "*"))
-                await self._pubsub.subscribe(cache_service.websocket_broadcast_channel())
+                pubsub = client.pubsub(ignore_subscribe_messages=True)
+                self._pubsub = pubsub
+                await pubsub.psubscribe(cache_service.namespaced_key("ws", "user", "*"))
+                await pubsub.subscribe(cache_service.websocket_broadcast_channel())
                 logger.info("ws_pubsub_listener_started")
 
-                async for message in self._pubsub.listen():
+                async for message in pubsub.listen():
                     if message.get("type") not in {"message", "pmessage"}:
                         continue
                     try:

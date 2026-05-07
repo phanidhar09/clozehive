@@ -1,0 +1,19 @@
+# Align with current api-gateway style; tighten over time.
+[flake8]
+max-line-length = 120
+extend-ignore =
+    E501,
+    W503,
+    E203,
+    E241,
+    E221,
+    E202,
+    W391,
+    E302,
+    E731,
+    E702,
+    E712,
+    F401,
+    F841,
+    F824,
+    F821,

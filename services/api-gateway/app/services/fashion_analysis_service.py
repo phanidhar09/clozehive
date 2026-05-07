@@ -57,6 +57,20 @@ def _get_client() -> AsyncOpenAI:
     return _client
 
 
+def _build_name(raw: dict[str, Any]) -> str:
+    """Build a human-friendly item name from vision metadata."""
+    ai_name = raw.get("name")
+    if ai_name and str(ai_name).lower() not in ("unknown", "null", "none", ""):
+        return str(ai_name).strip()
+    parts: list[str] = []
+    color = raw.get("primary_color")
+    if color and str(color).lower() not in ("unknown", "null", "none"):
+        parts.append(str(color).title())
+    sub = raw.get("subcategory") or raw.get("category") or "Item"
+    parts.append(str(sub).title())
+    return " ".join(parts) if parts else "Clothing Item"
+
+
 def _clean_json(text: str) -> str:
     text = text.strip()
     if text.startswith("```"):

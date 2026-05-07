@@ -445,7 +445,7 @@ def _minimal_packing_fallback(
             "available_in_closet": False,
         }]
 
-    take_from_closet = [
+    take_from_closet: list[dict[str, Any]] = [
         {
             "item_id": item.get("id"),
             "name": item.get("name") or "Wardrobe item",

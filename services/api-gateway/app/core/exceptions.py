@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Optional
 
 from fastapi import HTTPException, Request, status
+from fastapi.responses import JSONResponse
 
 from app.core.error_response import json_error
 

@@ -91,14 +91,14 @@ async def _build_group_response(
 
     for m in members:
         uid = UUID(m["user_id"])
-        u = user_map.get(uid)
-        if not u:
+        member_user = user_map.get(uid)
+        if member_user is None:
             continue
         members_resp.append(GroupMemberResponse(
-            user_id=u.id,
-            username=u.username,
-            name=u.name,
-            avatar_url=u.avatar_url,
+            user_id=member_user.id,
+            username=member_user.username,
+            name=member_user.name,
+            avatar_url=member_user.avatar_url,
             role=m["role"],
             joined_at=m["joined_at"],
         ))

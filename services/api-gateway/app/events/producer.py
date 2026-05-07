@@ -44,8 +44,11 @@ async def stop() -> None:
 async def publish(topic: str, event: EventEnvelope) -> None:
     if not settings.kafka_enabled:
         raise RuntimeError("Kafka producer is disabled")
+    global _producer
     if _producer is None:
         await start()
+    if _producer is None:
+        raise RuntimeError("Kafka producer failed to start")
     await _producer.send_and_wait(topic, key=event.kafka_key(), value=event.kafka_value())
     logger.info(
         "kafka_event_published",

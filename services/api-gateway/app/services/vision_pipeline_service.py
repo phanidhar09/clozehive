@@ -33,7 +33,7 @@ import io
 import json
 import math
 import time
-from typing import Any
+from typing import Any, cast
 
 from PIL import Image
 
@@ -335,7 +335,8 @@ async def run_pipeline(
     from app.services.fashion_analysis_service import _crop_item  # type: ignore[attr-defined]
 
     async def _process_item(raw: dict[str, Any]) -> VisionAnalysisItem:
-        bbox = raw.get("bbox") if isinstance(raw.get("bbox"), dict) else {}
+        bbox_raw = raw.get("bbox") if isinstance(raw.get("bbox"), dict) else {}
+        bbox = cast(dict[str, float], bbox_raw)
         try:
             crop_bytes = _crop_item(image_bytes, bbox)
         except Exception:
