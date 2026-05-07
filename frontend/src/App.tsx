@@ -87,6 +87,8 @@ function AnimatedRoutes() {
           <Route path="closet"     element={<PageBoundary><Closet /></PageBoundary>} />
           <Route path="outfit-builder" element={<PageBoundary><OutfitBuilder /></PageBoundary>} />
           <Route path="upload"     element={<PageBoundary><Upload /></PageBoundary>} />
+          {/* Redirect old /fashion-analysis deep-links to unified Add to Closet hub */}
+          <Route path="fashion-analysis" element={<Navigate to="/upload" replace />} />
           <Route
             path="ai-stylist"
             element={

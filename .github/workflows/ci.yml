@@ -72,7 +72,7 @@ jobs:
       JWT_SECRET: ci-test-secret-with-at-least-thirty-two-characters
       GOOGLE_CLIENT_ID: ci-google-client-id
       GOOGLE_CLIENT_SECRET: ci-google-client-secret
-      ANTHROPIC_API_KEY: sk-ant-ci-placeholder
+      OPENAI_API_KEY: sk-ci-placeholder
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

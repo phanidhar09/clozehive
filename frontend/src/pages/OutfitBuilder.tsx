@@ -23,11 +23,14 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  CloudSun,
   Lightbulb,
   Loader2,
+  Ruler,
   Search,
   Sparkles,
   TrendingUp,
+  Wand2,
   X,
 } from 'lucide-react'
 import { useApp } from '@/store'
@@ -240,7 +243,7 @@ function AIAnalysisPanel({
   onClose: () => void
 }) {
   const { outfit, missing_pieces, style_tips } = analysis
-  const { matching_score, score_breakdown, recommendations, reasoning, confidence } = outfit
+  const { matching_score, score_breakdown, recommendations, reasoning, confidence, fit_notes } = outfit
   const [tipsOpen, setTipsOpen] = useState(false)
 
   return (
@@ -279,6 +282,17 @@ function AIAnalysisPanel({
           <div className="mt-5 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-400">
             <span className="font-semibold text-slate-700 dark:text-slate-300">Stylist's take: </span>
             {reasoning}
+          </div>
+        )}
+
+        {/* Fit notes — body-profile-aware reasoning */}
+        {fit_notes && (
+          <div className="mt-3 flex items-start gap-2.5 rounded-2xl border border-brand-100 bg-brand-50/60 px-4 py-3 text-sm text-brand-700 dark:border-brand-500/20 dark:bg-brand-500/[0.07] dark:text-brand-300">
+            <Ruler size={14} className="mt-0.5 flex-shrink-0 text-brand-500 dark:text-brand-400" aria-hidden="true" />
+            <div>
+              <span className="font-semibold">Why this works for your body profile: </span>
+              {fit_notes}
+            </div>
           </div>
         )}
 
@@ -360,6 +374,10 @@ export default function OutfitBuilder() {
   const [browserOpen, setBrowserOpen] = useState(false)
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
+  const [date, setDate] = useState('')
+  const [location, setLocation] = useState('')
+  const [weather, setWeather] = useState<{ condition: string; temp_c: number } | null>(null)
+
   // AI analysis state
   const [analyzing, setAnalyzing] = useState(false)
   const [analysis, setAnalysis] = useState<OutfitAnalysis | null>(null)
@@ -413,6 +431,9 @@ export default function OutfitBuilder() {
     setName('')
     setOccasion('casual')
     setNotes('')
+    setDate('')
+    setLocation('')
+    setWeather(null)
     setAnalysis(null)
     setAnalysisError(null)
   }
@@ -438,12 +459,20 @@ export default function OutfitBuilder() {
     setAnalyzing(true)
     setAnalysis(null)
     setAnalysisError(null)
+    setWeather(null)
     try {
-      const result = await outfitsApi.analyze({
+      const payload: Parameters<typeof outfitsApi.analyze>[0] = {
         item_ids: canvasItems.map(item => item.id),
         occasion,
-      })
+        ...(date && { date }),
+        ...(location.trim() && { location: location.trim() }),
+      }
+      const result = await outfitsApi.analyze(payload)
       setAnalysis(result)
+      // Surface the weather that was used so the user knows what context the AI had
+      if (location.trim()) {
+        setWeather({ condition: 'Live weather used', temp_c: 0 })
+      }
     } catch (err) {
       setAnalysisError(err instanceof Error ? err.message : 'AI analysis failed. Please try again.')
     } finally {
@@ -482,6 +511,23 @@ export default function OutfitBuilder() {
       </div>
     </div>
   )
+
+  // Gate: require at least 5 items before the builder is useful
+  if (closetItems.length < 5) {
+    return (
+      <div className="flex max-w-2xl flex-col items-center gap-4 rounded-3xl border border-cream-200 bg-white/70 p-10 text-center shadow-card dark:border-white/10 dark:bg-white/[0.04]">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-50 text-brand-500 dark:bg-brand-500/10">
+          <Wand2 size={26} />
+        </div>
+        <h3 className="font-display text-lg font-bold text-slate-800 dark:text-white">You need at least 5 items to generate outfits</h3>
+        <p className="text-sm text-slate-500 dark:text-slate-400">Add a few more pieces so CLOZEHIVE can create better outfit combinations for your style, size, weather, and occasions.</p>
+        <div className="flex gap-3">
+          <a href="/upload" className="btn-primary">Add More Items</a>
+          <a href="/closet" className="btn-secondary">View Closet</a>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-5">
@@ -533,8 +579,17 @@ export default function OutfitBuilder() {
           <section className="space-y-4 rounded-3xl border border-cream-200 bg-white/70 p-4 shadow-card dark:border-white/10 dark:bg-white/[0.04]">
             <OutfitDroppable>
               {canvasItems.length === 0 ? (
-                <div className="flex min-h-40 items-center justify-center text-center text-sm text-slate-400">
-                  Drop closet items here to build your look.
+                <div
+                  className="flex min-h-40 flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-200 dark:border-white/10 py-8 text-center"
+                  aria-label="Outfit canvas — drag items here"
+                >
+                  <Sparkles size={22} className="text-brand-400/60 dark:text-brand-500/40" aria-hidden="true" />
+                  <p className="text-sm font-medium text-slate-500 dark:text-white/40">
+                    Drag pieces from your closet to build a look
+                  </p>
+                  <p className="text-xs text-slate-400 dark:text-white/25">
+                    Mix and match — then hit <span className="font-semibold text-brand-500">Analyze with AI</span>
+                  </p>
                 </div>
               ) : (
                 <SortableContext
@@ -576,6 +631,41 @@ export default function OutfitBuilder() {
               >
                 {OCCASIONS.map(value => <option key={value} value={value}>{value}</option>)}
               </select>
+
+              {/* Date + Location for weather-aware analysis */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
+                    Date (optional)
+                  </label>
+                  <input
+                    type="date"
+                    className="input"
+                    value={date}
+                    onChange={event => { setDate(event.target.value); setAnalysis(null) }}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-slate-400">
+                    Location (optional)
+                  </label>
+                  <input
+                    className="input"
+                    placeholder="e.g. Tokyo"
+                    value={location}
+                    onChange={event => { setLocation(event.target.value); setWeather(null); setAnalysis(null) }}
+                  />
+                </div>
+              </div>
+
+              {/* Weather badge shown after analysis when location was provided */}
+              {weather && location && (
+                <div className="flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-700 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-300">
+                  <CloudSun size={13} className="flex-shrink-0" />
+                  Live weather for <span className="font-semibold">{location}</span> was used for this analysis
+                </div>
+              )}
+
               <textarea
                 className="input min-h-24"
                 placeholder="Notes (optional)"

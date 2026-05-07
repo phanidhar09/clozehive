@@ -8,6 +8,18 @@ const OAUTH_ERRORS: Record<string, string> = {
   oauth_cancelled: 'Google sign-in was cancelled.',
   oauth_failed: 'Google sign-in failed. Please try again.',
   oauth_invalid_state: 'Invalid sign-in session. Please try again.',
+  oauth_redis_unavailable:
+    'Sign-in is temporarily unavailable: the server could not store your session (check Redis is running and REDIS_URL matches the API).',
+  oauth_redirect_mismatch:
+    'Google OAuth redirect URL does not match. In Google Cloud Console, set the redirect URI to exactly: your API host + /api/v1/auth/google/callback (same as GOOGLE_REDIRECT_URI in .env).',
+}
+
+const OAUTH_REASON_HINTS: Record<string, string> = {
+  redirect_uri_mismatch:
+    'Fix: Google Cloud Console → Credentials → your OAuth client → Authorized redirect URIs must include the same URL as GOOGLE_REDIRECT_URI.',
+  invalid_client: 'Fix: Check GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in your API .env.',
+  token_exchange:
+    'Fix: Ensure GOOGLE_REDIRECT_URI in .env exactly matches a redirect URI authorized in Google Cloud (including http vs https and port).',
 }
 
 const BRAND_ITEMS = [
@@ -31,7 +43,13 @@ export default function Login() {
 
   useEffect(() => {
     const err = searchParams.get('error')
-    if (err) setError(OAUTH_ERRORS[err] ?? 'Sign-in failed. Please try again.')
+    const reason = searchParams.get('reason')
+    if (!err) return
+    let msg = OAUTH_ERRORS[err] ?? 'Sign-in failed. Please try again.'
+    if (err === 'oauth_failed' && reason && OAUTH_REASON_HINTS[reason]) {
+      msg = `${msg} ${OAUTH_REASON_HINTS[reason]}`
+    }
+    setError(msg)
   }, [searchParams])
 
   const handleSubmit = async (e: FormEvent) => {

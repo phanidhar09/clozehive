@@ -1,11 +1,18 @@
 # ClozeHive
 
-ClozeHive is a wardrobe intelligence app with a React frontend, a FastAPI API
-gateway, LangGraph-based AI orchestration, Kafka-backed async processing, and
-small MCP services for weather, vision, outfit, and packing tools.
+ClozeHive is a wardrobe intelligence app: digital closet, outfit building, travel
+and packing ideas, analytics, and an AI stylist backed by your own items. The
+stack is a **React + Vite** frontend, a **FastAPI** API gateway (auth, closet,
+embeddings, outfits, trips, analytics, smart ingest), **LangGraph**-style AI
+orchestration in the **ai-agent** service, optional **Kafka / Redpanda** for
+async AI jobs via **ai-worker**, and small **MCP** tool services (weather,
+vision, outfit, packing) that can still be run under a Docker profile for
+legacy setups.
 
-The local folder may still be named `closetiq-integrated`; `ClozeHive` is the
-product/repository name used in documentation.
+**Repository:** [github.com/phanidhar09/clozehive](https://github.com/phanidhar09/clozehive)
+
+The local folder may still be named `closetiq-integrated`; **ClozeHive** is the
+product name used in docs and env templates.
 
 ## Architecture
 
@@ -25,19 +32,25 @@ flowchart LR
   VisionMcp --> OpenAI[OpenAI]
 ```
 
-## Service Responsibilities
+Much of the weather / vision / outfit / packing logic can also run **inside the
+API gateway** as Python services; the standalone MCP containers are optional
+(see Docker Compose `legacy-mcp` profile).
 
-- `frontend`: React + Vite app served on host port `3001` in Docker.
-- `services/api-gateway`: public FastAPI boundary, auth, closet APIs, database access, Redis cache, and Kafka event production.
-- `services/ai-agent`: FastAPI + LangGraph orchestration over MCP tools and vector retrieval.
-- `services/ai-worker`: async Kafka consumer for background AI request processing.
-- `services/mcp`: independent MCP tool services for weather, vision, outfit suggestions, and packing.
-- `infra`: local infrastructure configuration for Postgres, Redpanda/Kafka, and Nginx.
+## Service responsibilities
 
-Legacy stacks are archived under `archive/legacy-2026-04-28`. Duplicate cleanup
-copies are archived under `archive/legacy-2026-04-28-repo-cleanup`.
+| Area | Role |
+|------|------|
+| `frontend` | React app; Vite dev server or static build. In **Docker**, host port defaults to **3001** → container **3000** (`FRONTEND_HOST_PORT`). |
+| `services/api-gateway` | Public API: JWT + Google OAuth, closet CRUD, vector search, outfits, trips, analytics, health, rate limiting, security headers, Kafka producers, optional Firestore paths. |
+| `services/ai-agent` | FastAPI + agent orchestration, MCP tools, pgvector retrieval. |
+| `services/ai-worker` | Kafka consumer for background AI request handling. |
+| `services/mcp/*` | Optional MCP microservices (weather, vision, outfit, packing). |
+| `nginx/` | Reverse proxy / TLS-oriented config for production-style hosting. |
+| `infra/` | Postgres init, Kafka topic scripts, local infra glue. |
 
-## Local Setup With Docker
+Legacy stacks, if present, live under `archive/`.
+
+## Local setup with Docker
 
 1. Copy the environment template and fill in secrets:
 
@@ -45,78 +58,114 @@ copies are archived under `archive/legacy-2026-04-28-repo-cleanup`.
    cp .env.example .env
    ```
 
+   For frontend-only overrides (e.g. `VITE_API_URL`, feature flags), you can use
+   `frontend/.env.example` → `frontend/.env`.
+
 2. Start the stack:
 
    ```sh
    make up
    ```
 
-3. Check health:
+   Or: `docker compose up --build` (add `-d` to detach).
+
+3. Run migrations (if the `migrate` service has not already applied them):
+
+   ```sh
+   make migrate
+   ```
+
+4. Check health:
 
    ```sh
    make health
    ```
 
-Useful URLs:
+### Useful URLs (default Docker / local)
 
-- Frontend: `http://localhost:3001`
-- API gateway: `http://localhost:8000/health`, `/live`, `/ready`
-- AI agent health: `http://localhost:8001/health`
-- Redpanda Console: `http://localhost:8080`
+| Service | URL |
+|---------|-----|
+| Frontend | `http://localhost:3001` (override with `FRONTEND_HOST_PORT`) |
+| API gateway | `http://localhost:8000` — `/health`, `/live`, `/ready` |
+| OpenAPI docs | `http://localhost:8000/docs` |
+| AI agent | `http://localhost:8001/health` |
+| Redpanda Console | `http://localhost:8080` |
 
-## Local Setup Without Docker
+**Port note:** `.env.example` uses `FRONTEND_PORT=3000` and `VITE_API_URL` for
+**host-side** Vite dev; the **Compose** frontend mapping defaults to **3001** on
+the host so it does not clash with other tools. Align `VITE_API_URL` and
+`ALLOWED_ORIGINS` with whichever origin you actually use.
 
-Start Postgres, Redis, and Redpanda first, then install local dependencies:
+### Optional legacy MCP stack
+
+Standalone MCP containers are behind the `legacy-mcp` profile:
 
 ```sh
-npm install
+docker compose --profile legacy-mcp up -d
+```
+
+## Production-oriented compose
+
+For a slimmer deployment (nginx, API gateway, Postgres, Redis, Certbot-oriented
+pieces), see `docker-compose.prod.yml` and `nginx/nginx.conf`. Adjust env vars
+for your provider; helper scripts live under `scripts/` (e.g. deploy, backup,
+restore, LetsEncrypt init). Production compose disables Kafka by default
+(`KAFKA_ENABLED: "false"` in that file)—enable and wire brokers if you need
+async workers in prod.
+
+## Local setup without Docker
+
+Start Postgres (with pgvector), Redis, and Redpanda, then:
+
+```sh
 npm --prefix frontend install
 python3 -m venv .venv
-. .venv/bin/activate
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r services/api-gateway/requirements-dev.txt
 pip install -r services/ai-agent/requirements.txt
 ```
 
-Run app services in separate terminals:
+Run services in separate terminals:
 
 ```sh
-npm run dev:api
-npm run dev:agent
-npm run dev:frontend
+make dev-api        # API gateway :8000
+make dev-agent      # AI agent :8001
+make dev-frontend   # Vite (see frontend/package.json for port)
 ```
 
-## Environment Variables
+## Environment variables
 
-Use `.env.example` as the source of truth for local values. The most commonly
-changed settings are:
+Use **`.env.example`** as the source of truth. Commonly customized values:
 
-- `OPENAI_API_KEY`: required for vision and AI agent flows.
-- `JWT_SECRET`: replace the development value before sharing an environment.
-- `DATABASE_URL`: host development defaults to Postgres on port `5433`.
-- `REDIS_URL`: host development defaults to Redis on port `6380`.
-- `KAFKA_BOOTSTRAP_SERVERS`: use `redpanda:9092` inside Docker and `localhost:19092` from the host.
-- `ALLOWED_ORIGINS`: include the frontend origins used by Docker and Vite.
+- **`OPENAI_API_KEY`** — direct stylist chat/streaming, image analysis (vision), and embeddings.
+- **`OPENAI_MODEL`** / **`OPENAI_MAX_TOKENS`** — chat and vision model defaults (`gpt-4o`, `1024`).
+- **`JWT_SECRET`** — use a long random value; never ship the dev default.
+- **`DATABASE_URL`** — host dev often uses Postgres on **`5433`** (see example).
+- **`REDIS_URL`** — host dev often uses **`6382`** (Compose default; override with **`REDIS_HOST_PORT`**).
+- **`KAFKA_BOOTSTRAP_SERVERS`** — `redpanda:9092` inside Docker, `localhost:19092` from the host.
+- **`ALLOWED_ORIGINS`** — must include your real frontend origin(s).
+- **Google OAuth** — `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`.
+- **Frontend** — `VITE_API_URL`, **`VITE_HIDE_NON_MVP`** (toggle non-MVP nav).
+- **Optional** — OpenWeather, Sentry, Firebase / Firestore.
 
 Never commit a real `.env` file.
 
-## Common Commands
+## Common commands
 
 ```sh
-make help             # list Makefile commands
-make up               # build and start Docker services
-make stop             # stop services without removing volumes
-make down             # stop services and remove volumes
-make logs             # follow all Compose logs
-make migrate          # run Alembic migrations
-make test-api         # run API tests with local Python deps
-make build-frontend   # type-check and build the frontend
-make smoke            # validate Compose config and health endpoints
-make clean            # remove generated artifacts and caches
+make help             # list Makefile targets
+make up               # build and start Docker services (detached)
+make stop             # compose down (keep volumes)
+make down             # compose down and remove volumes
+make logs             # tail service logs
+make migrate          # Alembic via migrate container
+make test-api         # pytest in services/api-gateway
+make build-frontend   # production build
+make smoke            # compose config + health checks
+make clean            # clean generated artifacts (see scripts/clean-artifacts.sh)
 ```
 
 ## Verification
-
-Run these before handing off changes:
 
 ```sh
 docker compose config --quiet
@@ -133,12 +182,11 @@ pip install pip-audit && pip-audit -r services/api-gateway/requirements.txt
 
 ### API health endpoints
 
-- `GET /live` — process is up (Docker liveness)
-- `GET /ready` — database and Redis (when `REDIS_CHECK_ON_READY=true`)
-- `GET /health` — aggregate JSON status for operators
+- **`GET /live`** — process is up (liveness).
+- **`GET /ready`** — DB and Redis when `REDIS_CHECK_ON_READY=true`.
+- **`GET /health`** — aggregate JSON for operators.
 
-For API tests, install dev dependencies locally or run them in a disposable
-container with a writable dependency location:
+### Tests
 
 ```sh
 cd services/api-gateway
@@ -147,8 +195,11 @@ python -m pytest tests/ -v --tb=short
 
 ## Troubleshooting
 
-- Missing OpenAI features: confirm `OPENAI_API_KEY` is set in `.env`, then restart `ai-agent` and `mcp-vision`.
-- Redpanda startup issues: run `docker compose ps` and check `docker compose logs redpanda kafka-topics`.
-- API cannot reach AI agent: confirm `AI_AGENT_URL` is `http://ai-agent:8001` inside Docker.
-- Frontend cannot reach API: confirm `VITE_API_URL` points to `http://localhost:8000` for browser-based local development.
-- Stale generated files: run `make clean`, then rebuild only what you need.
+- **OpenAI errors** — Confirm `OPENAI_API_KEY` in `.env`; restart `ai-agent` (and
+  vision MCP if you use it).
+- **Redpanda** — `docker compose ps` and `docker compose logs redpanda kafka-topics`.
+- **API → AI agent** — In Compose, `AI_AGENT_URL` should be `http://ai-agent:8001`.
+- **Browser → API** — `VITE_API_URL` should match reachable host URL (often
+  `http://localhost:8000`).
+- **CORS** — Ensure `ALLOWED_ORIGINS` includes the exact frontend origin.
+- **Stale build output** — `make clean`, then rebuild what you need.

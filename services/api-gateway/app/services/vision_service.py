@@ -1,11 +1,11 @@
-"""Consolidated vision service for garment image analysis."""
+"""Consolidated vision service for garment image analysis (OpenAI vision)."""
 
 from __future__ import annotations
 
 import base64
 import json
 
-import anthropic
+from openai import APIError, AsyncOpenAI
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
@@ -13,13 +13,13 @@ from app.core.logging import get_logger
 settings = get_settings()
 logger = get_logger("vision_service")
 
-_client: anthropic.AsyncAnthropic | None = None
+_client: AsyncOpenAI | None = None
 
 
-def _get_client() -> anthropic.AsyncAnthropic:
+def _get_client() -> AsyncOpenAI:
     global _client
     if _client is None:
-        _client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+        _client = AsyncOpenAI(api_key=settings.openai_api_key)
     return _client
 
 
@@ -74,30 +74,37 @@ def _bulk_fallback(reason: str) -> dict:
 # ── Standard single-item analysis (used by /upload, /bulk-upload) ─────────────
 
 async def analyze_image(image_bytes: bytes, media_type: str = "image/jpeg") -> dict:
-    if not settings.anthropic_api_key:
-        return _fallback("ANTHROPIC_API_KEY not set")
+    if not settings.openai_api_key:
+        return _fallback(
+            "No OpenAI credentials — add OPENAI_API_KEY to your `.env` and restart the API server"
+        )
 
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+    data_url = f"data:{media_type};base64,{image_b64}"
     prompt = (
         "Analyse this clothing item and return ONLY valid JSON with fields: "
         "name, category (tops, bottoms, shoes, outerwear, dresses, accessories, other), "
         "color, brand, material, pattern, occasion array, tags array, eco_score, confidence, notes."
     )
     try:
-        response = await _get_client().messages.create(
-            model=settings.anthropic_model,
+        response = await _get_client().chat.completions.create(
+            model=settings.openai_model,
             max_tokens=800,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": image_b64}},
-                    {"type": "text", "text": prompt},
-                ],
-            }],
+            timeout=30.0,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url", "image_url": {"url": data_url}},
+                        {"type": "text", "text": prompt},
+                    ],
+                }
+            ],
         )
-        text = "".join(block.text for block in response.content if getattr(block, "type", None) == "text").strip()
+        msg = response.choices[0].message
+        text = (msg.content or "").strip()
         return json.loads(_clean_json(text))
-    except (anthropic.APIError, json.JSONDecodeError, Exception) as exc:
+    except BaseException as exc:
         logger.error("vision_analysis_failed", error=str(exc))
         return _fallback(str(exc))
 
@@ -139,29 +146,34 @@ async def analyze_for_bulk(image_bytes: bytes, media_type: str = "image/jpeg") -
     Why separate function: avoids changing the existing analyze_image() contract
     which other endpoints depend on. Extension over modification.
     """
-    if not settings.anthropic_api_key:
-        return _bulk_fallback("ANTHROPIC_API_KEY not set")
+    if not settings.openai_api_key:
+        return _bulk_fallback(
+            "No OpenAI credentials — add OPENAI_API_KEY to your `.env` and restart the API server"
+        )
 
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+    data_url = f"data:{media_type};base64,{image_b64}"
     try:
-        response = await _get_client().messages.create(
-            model=settings.anthropic_model,
+        response = await _get_client().chat.completions.create(
+            model=settings.openai_model,
             max_tokens=1200,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": image_b64}},
-                    {"type": "text", "text": _BULK_PROMPT},
-                ],
-            }],
+            timeout=45.0,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url", "image_url": {"url": data_url}},
+                        {"type": "text", "text": _BULK_PROMPT},
+                    ],
+                }
+            ],
         )
-        text = "".join(
-            block.text for block in response.content if getattr(block, "type", None) == "text"
-        ).strip()
+        msg = response.choices[0].message
+        text = (msg.content or "").strip()
         data = json.loads(_clean_json(text))
         if not isinstance(data, dict):
             raise ValueError("Response is not a JSON object")
         return data
-    except (anthropic.APIError, json.JSONDecodeError, Exception) as exc:
+    except BaseException as exc:
         logger.error("bulk_vision_analysis_failed", error=str(exc))
         return _bulk_fallback(str(exc))

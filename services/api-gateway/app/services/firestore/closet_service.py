@@ -93,13 +93,13 @@ class FirestoreClosetService:
         per_page: int = 50,
     ) -> ClosetListResponse:
         uid = str(user_id)
-        is_unfiltered = not section and not category and not season
-
-        # Try cache for unfiltered first page
-        if is_unfiltered and page == 1:
-            cached = await cache_service.get(cache_service.closet_key(uid))
-            if cached:
-                return ClosetListResponse(**cached)
+        cache_key = cache_service.build_closet_cache_key(
+            uid,
+            {"category": category, "page": page, "per_page": per_page, "season": season, "section": section},
+        )
+        cached = await cache_service.get(cache_key)
+        if cached:
+            return ClosetListResponse(**cached)
 
         db = get_db()
         query = (
@@ -128,10 +128,9 @@ class FirestoreClosetService:
 
         response = ClosetListResponse(items=items, total=total, page=page, per_page=per_page)
 
-        if is_unfiltered and page == 1:
-            from app.core.config import get_settings
-            ttl = get_settings().cache_ttl_closet
-            await cache_service.set(cache_service.closet_key(uid), response.model_dump(mode="json"), ttl)
+        from app.core.config import get_settings
+        ttl = get_settings().cache_ttl_closet
+        await cache_service.set(cache_key, response.model_dump(mode="json"), ttl)
 
         return response
 
@@ -182,7 +181,7 @@ class FirestoreClosetService:
         doc_data.setdefault("tags", [])
 
         await db.collection(_COLLECTION).document(str(item_id)).set(doc_data)
-        await cache_service.delete(cache_service.closet_key(str(user_id)))
+        await cache_service.invalidate_closet_list_cache(str(user_id))
         logger.info("closet_item_created", user_id=str(user_id), item_id=str(item_id))
         return _to_response(doc_data)
 
@@ -218,7 +217,7 @@ class FirestoreClosetService:
         if doc.to_dict().get("user_id") != str(user_id):
             raise ForbiddenError("Item does not belong to you")
         await ref.delete()
-        await cache_service.delete(cache_service.closet_key(str(user_id)))
+        await cache_service.invalidate_closet_list_cache(str(user_id))
         logger.info("closet_item_deleted", user_id=str(user_id), item_id=str(item_id))
 
     # ── Wear log ──────────────────────────────────────────────────────────────
@@ -242,7 +241,7 @@ class FirestoreClosetService:
             "updated_at": _now(),
         }
         await ref.update(updates)
-        await cache_service.delete(cache_service.closet_key(str(user_id)))
+        await cache_service.invalidate_closet_list_cache(str(user_id))
 
         merged = {**stored, **updates}
         return _to_response(merged)

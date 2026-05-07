@@ -154,14 +154,30 @@ async def logout_all(user_id: CurrentUser, svc: AuthService = Depends(_svc)):
 @limiter.limit("10/minute")
 async def google_login(request: Request):
     """Redirect the browser to Google's OAuth consent screen."""
-    if not settings.google_client_id:
+    if not settings.google_client_id or settings.google_client_id.strip().startswith(
+        ("your-", "replace", "REPLACE")
+    ):
         from fastapi.responses import JSONResponse
+
         return JSONResponse(
             status_code=501,
-            content={"error": "OAUTH_NOT_CONFIGURED", "message": "Google OAuth is not configured"},
+            content={
+                "error": "OAUTH_NOT_CONFIGURED",
+                "message": "Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in the API .env",
+            },
         )
+    frontend = settings.frontend_url.rstrip("/")
     state = secrets.token_urlsafe(32)
-    await cache_service.set(_OAUTH_STATE_PREFIX + state, {"v": 1}, _OAUTH_STATE_TTL)
+    stored = await cache_service.set(_OAUTH_STATE_PREFIX + state, {"v": 1}, _OAUTH_STATE_TTL)
+    if not stored:
+        logger.error(
+            "oauth_state_redis_failed",
+            hint="OAuth requires Redis — check REDIS_URL and that Redis is reachable from the API",
+        )
+        return RedirectResponse(
+            url=f"{frontend}/login?error=oauth_redis_unavailable",
+            status_code=302,
+        )
     return RedirectResponse(url=build_google_auth_url(state), status_code=302)
 
 
@@ -175,7 +191,7 @@ async def google_callback(
     error_description: Optional[str] = Query(default=None),
 ):
     """Handle Google's redirect after OAuth consent. Issues JWT and redirects to the frontend."""
-    frontend = settings.frontend_url
+    frontend = settings.frontend_url.rstrip("/")
 
     # Diagnostics without OAuth codes in URLs
     logger.info(
@@ -229,7 +245,16 @@ async def google_callback(
                 },
             )
         if token_resp.status_code != 200:
-            raise ValueError(f"Google token exchange failed ({token_resp.status_code})")
+            try:
+                detail = token_resp.json()
+            except Exception:
+                detail = token_resp.text[:500]
+            logger.error(
+                "google_token_exchange_failed",
+                status_code=token_resp.status_code,
+                detail=str(detail),
+            )
+            raise ValueError(f"Google token exchange failed ({token_resp.status_code}): {detail}")
 
         google_access_token = token_resp.json()["access_token"]
 
@@ -263,8 +288,20 @@ async def google_callback(
         )
 
     except Exception as exc:
-        logger.error("google_oauth_callback_error", error=str(exc))
+        logger.error(
+            "google_oauth_callback_error",
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
+        hint = ""
+        err_lower = str(exc).lower()
+        if "redirect_uri_mismatch" in err_lower:
+            hint = "&reason=redirect_uri_mismatch"
+        elif "invalid_client" in err_lower:
+            hint = "&reason=invalid_client"
+        elif "failed" in err_lower and "token" in err_lower:
+            hint = "&reason=token_exchange"
         return RedirectResponse(
-            url=f"{frontend}/login?error=oauth_failed",
+            url=f"{frontend}/login?error=oauth_failed{hint}",
             status_code=302,
         )

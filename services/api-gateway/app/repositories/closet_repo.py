@@ -34,7 +34,9 @@ class ClosetRepository(BaseRepository[ClosetItem]):
         if category:
             conditions.append(ClosetItem.category == category)
         if season:
-            conditions.append(ClosetItem.season == season)
+            # season is now ARRAY(String); use @> (contains) to match items that
+            # include the requested season value anywhere in their seasons list.
+            conditions.append(ClosetItem.season.contains([season]))
 
         result = await self.session.execute(
             select(ClosetItem)

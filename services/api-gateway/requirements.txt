@@ -25,7 +25,7 @@ passlib>=1.7.4
 # ── HTTP client ───────────────────────────────────────────────────────────────
 httpx>=0.27.0
 tenacity>=8.3.0
-anthropic>=0.25.0
+openai>=1.40.0
 
 # ── Validation ────────────────────────────────────────────────────────────────
 pydantic>=2.7.0
@@ -46,3 +46,15 @@ firebase-admin>=6.5.0
 python-dotenv>=1.0.0
 orjson>=3.10.0
 pillow>=10.3.0
+
+# ── Gemini AI ─────────────────────────────────────────────────────────────────
+google-generativeai>=0.8.0
+
+# ── Google Cloud Storage (persistent image storage) ───────────────────────────
+google-cloud-storage>=2.16.0
+
+# ── Background removal — rembg handles any background (studio, outdoors, etc) ─
+# Downloads ~170 MB ONNX U2Net model on first use (cached in container layer).
+# Falls back to PIL corner-sampling if rembg import fails.
+rembg>=2.0.50
+onnxruntime>=1.18.0

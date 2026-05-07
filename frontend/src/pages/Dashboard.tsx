@@ -1,26 +1,248 @@
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useState, type CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Upload, Plane, Shirt, ArrowRight,
   Leaf, TrendingUp, Sun, BarChart3, Wand2,
+  Sparkles, RefreshCw, Loader2, Check, CloudSun,
+  Bookmark, AlertCircle,
 } from 'lucide-react'
 import { useApp } from '@/store'
-import { weatherApi, type CurrentWeatherResponse } from '@/lib/api'
+import { outfitsApi, type OutfitOfDayResponse } from '@/lib/api'
 import GlassCard from '@/components/ui/GlassCard'
+import EmptyState from '@/components/ui/EmptyState'
 import { useCursorGlow } from '@/hooks/useCursorGlow'
+import type { ClosetItem, OutfitSuggestion } from '@/types'
+
 const QUICK_ACTIONS = [
-  { label: 'Smart Closet Scan', desc: 'Bulk upload items',      icon: Upload, to: '/upload',    gradient: 'from-emerald-500 to-teal-600' },
-  { label: 'My Closet',         desc: 'View all pieces',        icon: Shirt,  to: '/closet',    gradient: 'from-rose-500 to-pink-600' },
+  { label: 'Smart Closet Scan', desc: 'Bulk upload items',      icon: Upload, to: '/upload',        gradient: 'from-emerald-500 to-teal-600' },
+  { label: 'My Closet',         desc: 'View all pieces',        icon: Shirt,  to: '/closet',        gradient: 'from-rose-500 to-pink-600' },
   { label: 'Outfit Builder',    desc: 'Drag-and-drop looks',    icon: Wand2,  to: '/outfit-builder', gradient: 'from-pink-500 to-rose-600' },
-  { label: 'Travel Packing',    desc: 'Plan your trip',        icon: Plane,  to: '/travel',    gradient: 'from-sky-500 to-blue-600' },
-  { label: 'Closet Insights',   desc: 'View your analytics',   icon: BarChart3, to: '/analytics', gradient: 'from-violet-500 to-purple-600' },
+  { label: 'Travel Packing',    desc: 'Plan your trip',         icon: Plane,  to: '/travel',        gradient: 'from-sky-500 to-blue-600' },
+  { label: 'Closet Insights',   desc: 'View your analytics',    icon: BarChart3, to: '/analytics',  gradient: 'from-violet-500 to-purple-600' },
 ]
+
+// ── Outfit-of-the-Day card ────────────────────────────────────────────────────
+
+function OutfitOfDayCard({ closetItems }: { closetItems: ClosetItem[] }) {
+  const [data, setData] = useState<OutfitOfDayResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    setSaved(false)
+    try {
+      const result = await outfitsApi.getOutfitOfDay()
+      setData(result)
+    } catch {
+      setError('Could not generate today\'s outfit. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  // Cross-reference outfit items with closet to get image_url
+  const resolvedItems = (data?.outfit?.items ?? []).map(oi => {
+    const full = closetItems.find(ci => ci.id === oi.id)
+    return full ?? oi as Partial<ClosetItem>
+  })
+
+  const saveOutfit = async (outfit: OutfitSuggestion) => {
+    const itemIds = (outfit.item_ids ?? resolvedItems.map(i => i.id).filter(Boolean)) as string[]
+    if (!itemIds.length) return
+    setSaving(true)
+    try {
+      await outfitsApi.create({
+        name: outfit.name || `Outfit of the Day — ${new Date().toLocaleDateString()}`,
+        item_ids: itemIds,
+        occasion: data?.occasion ?? 'casual',
+        notes: outfit.style_notes ?? undefined,
+      })
+      setSaved(true)
+    } catch {
+      /* ignore */
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const weatherChip = data?.weather && (
+    <div className="flex items-center gap-1.5 rounded-full border border-sky-200/60 bg-sky-50/80 px-3 py-1 text-xs font-medium text-sky-700 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-300">
+      <CloudSun size={12} className="flex-shrink-0" />
+      {data.weather.condition} · {Math.round(data.weather.temp_c)}°C
+      {data.weather.location_label ? ` · ${data.weather.location_label}` : ''}
+    </div>
+  )
+
+  return (
+    <div className="relative overflow-hidden rounded-3xl border border-violet-200/60 bg-gradient-to-br from-violet-50 via-fuchsia-50 to-rose-50 shadow-card dark:border-violet-500/20 dark:from-violet-950/40 dark:via-fuchsia-950/30 dark:to-rose-950/30">
+      {/* Decorative background blob */}
+      <div className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-violet-300/20 blur-3xl dark:bg-violet-500/10" />
+
+      <div className="relative p-5 lg:p-6">
+        {/* Header row */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500 shadow">
+              <Sparkles size={16} className="text-white" />
+            </div>
+            <div>
+              <h3 className="font-display text-base font-bold text-slate-800 dark:text-white">
+                Outfit of the Day
+              </h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                AI-picked from your closet
+                {data?.occasion ? ` · ${data.occasion}` : ''}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {weatherChip}
+            <button
+              onClick={load}
+              disabled={loading}
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-violet-600 disabled:opacity-40 dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10"
+              title="Regenerate"
+            >
+              <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+            </button>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="mt-5">
+          {loading && (
+            <div className="flex flex-col items-center gap-3 py-10">
+              <Loader2 size={28} className="animate-spin text-violet-500" />
+              <p className="text-sm text-slate-500 dark:text-slate-400">Curating your look…</p>
+            </div>
+          )}
+
+          {!loading && error && (
+            <div className="flex items-center gap-2 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+              <AlertCircle size={14} className="flex-shrink-0" />
+              {error}
+            </div>
+          )}
+
+          {!loading && !error && data?.outfit && (
+            <>
+              {/* Outfit name + style notes */}
+              <div className="mb-4">
+                <p className="font-display text-lg font-semibold text-slate-800 dark:text-white">
+                  {data.outfit.name}
+                </p>
+                {data.outfit.style_notes && (
+                  <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{data.outfit.style_notes}</p>
+                )}
+                {data.outfit.weather_suitability && (
+                  <p className="mt-0.5 text-xs text-violet-600 dark:text-violet-400">
+                    {data.outfit.weather_suitability}
+                  </p>
+                )}
+              </div>
+
+              {/* Item grid */}
+              <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-5">
+                {resolvedItems.slice(0, 5).map((item, i) => (
+                  <div
+                    key={item.id ?? i}
+                    className="group flex flex-col overflow-hidden rounded-2xl border border-white/80 bg-white shadow-card dark:border-white/10 dark:bg-slate-900"
+                  >
+                    <div className="aspect-square overflow-hidden bg-slate-100 dark:bg-slate-800">
+                      {item.image_url ? (
+                        <img
+                          src={item.image_url}
+                          alt={item.name ?? ''}
+                          className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-2xl">👕</div>
+                      )}
+                    </div>
+                    <div className="px-2 py-1.5">
+                      <p className="truncate text-xs font-semibold text-slate-700 dark:text-white">{item.name}</p>
+                      <p className="truncate text-[10px] capitalize text-slate-400 dark:text-slate-500">{item.category}</p>
+                    </div>
+                  </div>
+                ))}
+
+                {resolvedItems.length === 0 && (
+                  <p className="col-span-full text-sm text-slate-400">No items matched your closet.</p>
+                )}
+              </div>
+
+              {/* Style tips */}
+              {(data.style_tips ?? []).length > 0 && (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {data.style_tips.slice(0, 3).map((tip, i) => (
+                    <span
+                      key={i}
+                      className="rounded-full border border-violet-200 bg-white/70 px-3 py-1 text-xs text-violet-700 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300"
+                    >
+                      ✦ {tip}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Save button */}
+              <div className="mt-4 flex items-center gap-3">
+                <button
+                  onClick={() => saveOutfit(data.outfit!)}
+                  disabled={saving || saved || resolvedItems.length === 0}
+                  className={`flex items-center gap-2 rounded-2xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                    saved
+                      ? 'border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300'
+                      : 'bg-gradient-to-r from-violet-600 to-fuchsia-500 text-white shadow hover:opacity-90'
+                  }`}
+                >
+                  {saving ? (
+                    <><Loader2 size={13} className="animate-spin" /> Saving…</>
+                  ) : saved ? (
+                    <><Check size={13} /> Saved to outfits</>
+                  ) : (
+                    <><Bookmark size={13} /> Save this look</>
+                  )}
+                </button>
+                <Link
+                  to="/outfit-builder"
+                  className="text-xs font-medium text-violet-600 hover:underline dark:text-violet-400"
+                >
+                  Customize in Builder →
+                </Link>
+              </div>
+            </>
+          )}
+
+          {!loading && !error && !data?.outfit && closetItems.length === 0 && (
+            <div className="py-6 text-center">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
+                Add items to your closet to get a personalised outfit suggestion each day.
+              </p>
+              <Link to="/upload" className="mt-3 inline-block text-sm font-semibold text-violet-600 hover:underline dark:text-violet-400">
+                Add your first item →
+              </Link>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
   const { closetItems, closetLoading, currentUser } = useApp()
   const { containerRef, glowRef } = useCursorGlow({ lerpFactor: 0.08, orbitRadius: 320 })
   const [hour] = useState(new Date().getHours())
-  const [weather, setWeather] = useState<CurrentWeatherResponse | null>(null)
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
 
   const totalItems = closetItems.length
@@ -34,15 +256,6 @@ export default function Dashboard() {
     { label: 'Categories', value: categories, icon: TrendingUp, color: 'from-violet-500 to-purple-500' },
     { label: 'Eco Score', value: typeof avgEco === 'string' ? avgEco : avgEco.toFixed(1), icon: Leaf, color: 'from-emerald-500 to-teal-500' },
   ]
-
-  useEffect(() => {
-    if (!currentUser?.permissions?.location) return
-    let cancelled = false
-    weatherApi.current()
-      .then(data => { if (!cancelled) setWeather(data) })
-      .catch(() => { if (!cancelled) setWeather(null) })
-    return () => { cancelled = true }
-  }, [currentUser?.permissions?.location])
 
   return (
     <div className="space-y-6 max-w-6xl">
@@ -95,18 +308,9 @@ export default function Dashboard() {
             {closetLoading
               ? 'Loading your wardrobe…'
               : totalItems > 0
-                ? `You have ${totalItems} curated piece${totalItems === 1 ? '' : 's'}. Start planning your next trip or get closet insights!`
+                ? `You have ${totalItems} curated piece${totalItems === 1 ? '' : 's'}. Your AI stylist has picked today's look below.`
                 : 'Start by scanning your closet to build your digital wardrobe.'}
           </p>
-
-          {weather && (
-            <div className="mb-5 inline-flex flex-wrap items-center gap-3 rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm backdrop-blur-md">
-              <span className="text-lg">☁️</span>
-              <span className="font-semibold">{Math.round(weather.temp_c)}°C</span>
-              <span className="text-white/75">{weather.condition}</span>
-              <span className="text-white/60">Perfect day for weather-aware styling.</span>
-            </div>
-          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {stats.map(({ label, value, icon: Icon, color }) => (
@@ -125,6 +329,11 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* ── Outfit of the Day ─────────────────────────────────────────────── */}
+      {!closetLoading && (
+        <OutfitOfDayCard closetItems={closetItems} />
+      )}
 
       {/* ── Quick actions ─────────────────────────────────────────────────── */}
       <div>
@@ -184,16 +393,14 @@ export default function Dashboard() {
 
       {/* ── Empty state ───────────────────────────────────────────────────── */}
       {totalItems === 0 && !closetLoading && (
-        <div className="rounded-2xl border border-dashed border-slate-300 dark:border-white/10 p-8 text-center">
-          <Shirt size={40} className="text-slate-300 dark:text-white/20 mx-auto mb-3" />
-          <h3 className="font-semibold text-slate-700 dark:text-white mb-2">Your closet is empty</h3>
-          <p className="text-sm text-slate-500 dark:text-white/40 mb-4">
-            Scan your closet to add your first items and unlock closet insights and travel packing features.
-          </p>
-          <Link to="/upload" className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 text-white hover:bg-brand-700 transition-colors text-sm font-medium">
-            <Upload size={16} /> Start Smart Closet Scan
-          </Link>
-        </div>
+        <EmptyState
+          icon={<Shirt />}
+          title="Add your first item to see outfit suggestions"
+          description="Upload a clothing photo and CLOZEHIVE will start building personalized outfit ideas from your wardrobe."
+          primaryAction={{ label: 'Add First Item', href: '/upload' }}
+          secondaryAction={{ label: 'View Closet', href: '/closet' }}
+          variant="card"
+        />
       )}
     </div>
   )

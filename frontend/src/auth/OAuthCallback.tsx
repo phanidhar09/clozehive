@@ -1,19 +1,24 @@
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Sparkles, Loader2 } from 'lucide-react'
 import { tokenStorage, authApi } from '@/lib/api'
 import { useApp } from '@/store'
 
+const INFLIGHT_KEY = 'ch_oauth_inflight'
+
+/**
+ * Completes Google OAuth: tokens arrive as query params on /oauth/callback.
+ *
+ * React 18 Strict Mode runs effects twice in development. We must not call
+ * `history.replaceState` (which strips the query) before both runs have had
+ * a chance to read `access_token` / `refresh_token`, or the second run sees an
+ * empty URL and sends the user to "Google sign-in failed".
+ */
 export default function OAuthCallback() {
   const navigate = useNavigate()
   const { login } = useApp()
-  const ran = useRef(false)
 
   useEffect(() => {
-    // Guard against React 18 strict-mode double-invoke
-    if (ran.current) return
-    ran.current = true
-
     const params = new URLSearchParams(window.location.search)
     const accessToken = params.get('access_token')
     const refreshToken = params.get('refresh_token')
@@ -23,10 +28,17 @@ export default function OAuthCallback() {
       return
     }
 
-    // Remove tokens from browser history immediately
-    window.history.replaceState({}, '', '/oauth/callback')
+    if (sessionStorage.getItem(INFLIGHT_KEY) === '1') {
+      return
+    }
+    sessionStorage.setItem(INFLIGHT_KEY, '1')
 
     tokenStorage.set(accessToken, refreshToken)
+
+    const finish = () => {
+      sessionStorage.removeItem(INFLIGHT_KEY)
+      window.history.replaceState({}, '', '/oauth/callback')
+    }
 
     authApi
       .getMe()
@@ -34,10 +46,12 @@ export default function OAuthCallback() {
         login(user, accessToken, refreshToken)
         navigate('/profile?onboarding=1', { replace: true })
       })
-      .catch(() => {
+      .catch(err => {
+        console.error('[OAuth] getMe failed after Google redirect', err)
         tokenStorage.clear()
         navigate('/login?error=oauth_failed', { replace: true })
       })
+      .finally(finish)
   }, [])
 
   return (

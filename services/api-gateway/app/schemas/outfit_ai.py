@@ -43,6 +43,10 @@ class ScoredOutfit(BaseModel):
     matching_score: int = Field(ge=0, le=100)
     confidence: float = Field(ge=0.0, le=1.0, default=0.8)
     score_breakdown: ScoreBreakdown
+    fit_notes: str = Field(
+        default="",
+        description="How this outfit suits the user's body profile and preferred fit.",
+    )
     recommendations: OutfitRecommendations
     reasoning: str = ""
 
@@ -63,6 +67,8 @@ class AnalyzeOutfitRequest(BaseModel):
     weather: str = Field("mild", max_length=100)
     temperature: Optional[float] = Field(None, ge=-30, le=55)
     user_profile: Optional[dict] = None
+    date: Optional[str] = Field(None, description="ISO date for weather lookup (YYYY-MM-DD)")
+    location: Optional[str] = Field(None, max_length=200, description="City/location for real-time weather")
 
 
 # ── Response schemas ───────────────────────────────────────────────────────────

@@ -8,16 +8,17 @@ import type { SocialUser } from '@/types'
 import { hideNonMvpUi } from '@/config/features'
 
 const TITLES: Record<string, string> = {
-  '/dashboard':  'Dashboard',
-  '/closet':     'My Closet',
-  '/outfit-builder': 'Outfit Builder',
-  '/upload':     'Upload Item',
-  '/ai-stylist': 'AI Stylist',
-  '/travel':     'Travel Planner',
-  '/avatar':     'Avatar Builder',
-  '/analytics':  'Analytics',
-  '/groups':     'Groups',
-  '/profile':    'Profile',
+  '/dashboard':        'Dashboard',
+  '/closet':           'My Closet',
+  '/outfit-builder':   'Outfit Builder',
+  '/upload':           'Add to Your Closet',
+  '/fashion-analysis': 'Add to Your Closet',
+  '/ai-stylist':       'AI Stylist',
+  '/travel':           'Travel Planner',
+  '/avatar':           'Avatar Builder',
+  '/analytics':        'Analytics',
+  '/groups':           'Groups',
+  '/profile':          'Profile',
 }
 
 /* ── User dropdown ─────────────────────────────────────────────────────────── */

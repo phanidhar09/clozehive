@@ -63,8 +63,23 @@ export interface PackingItem {
   item_id?: string
 }
 
+export interface PackingItemDetailed {
+  item_id?: string | null
+  name: string
+  category: string
+  reason?: string
+  recommended_days?: string[]
+}
+
+export interface PackingItemNeeded {
+  name: string
+  category: string
+  reason?: string
+}
+
 export interface DailyOutfitPlan {
   date: string
+  day_label?: string
   weather?: {
     date: string
     condition: string
@@ -75,6 +90,7 @@ export interface DailyOutfitPlan {
   outfit_suggestion?: string
   outfit_name?: string
   items?: string[]
+  item_ids?: string[]
   items_needed?: string[]
 }
 
@@ -100,6 +116,10 @@ export interface PackingResult {
   daily_plans?: DailyOutfitPlan[]
   alerts: string[]
   summary?: string
+  // Personalised sections
+  take_from_your_closet?: PackingItemDetailed[]
+  you_might_still_need?: PackingItemNeeded[]
+  closet_hint?: string | null
 }
 
 export interface ChatMessage {
@@ -130,6 +150,7 @@ export interface AuthUser {
   preferences?: UserPreferences | null
   permissions?: UserPermissions | null
   avatar_config?: AvatarConfig | null
+  onboarding_completed?: boolean
 }
 
 // ── Personalization sub-types — mirror api-gateway/app/schemas/auth.py ───────
@@ -190,8 +211,44 @@ export interface Trip {
   end_date: string      // ISO date
   purpose: string
   notes?: string | null
+  is_saved: boolean
   created_at: string
   updated_at: string
+}
+
+export interface PackingPlan {
+  id: string
+  trip_id: string
+  user_id: string
+  take_from_your_closet: PackingItemDetailed[]
+  you_might_still_need: PackingItemNeeded[]
+  daily_plan: DailyOutfitPlan[]
+  weather_summary?: PackingResult['weather_summary']
+  packing_list: PackingItem[]
+  missing_items: PackingItem[]
+  summary?: string | null
+  closet_hint?: string | null
+  alerts: string[]
+  is_saved: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface CreateTripResponse {
+  trip: Trip
+  packing_plan?: PackingPlan | null
+  packing_error?: string | null
+}
+
+export interface SavePlannerResponse {
+  message: string
+  trip: Trip
+  packing_plan: PackingPlan
+}
+
+export interface TripListResponse {
+  trips: Trip[]
+  total: number
 }
 
 // ── Analytics ────────────────────────────────────────────────────────────────
@@ -382,6 +439,7 @@ export interface ScoredOutfit {
   matching_score: number
   confidence: number
   score_breakdown: ScoreBreakdown
+  fit_notes?: string
   recommendations: OutfitRecommendations
   reasoning: string
 }
@@ -390,6 +448,36 @@ export interface OutfitAnalysis {
   outfit: ScoredOutfit
   missing_pieces: string[]
   style_tips: string[]
+}
+
+// ── Vision pipeline ──────────────────────────────────────────────────────────
+
+export interface VisionAnalyzeResponse {
+  items: Array<{
+    item_id: string
+    name: string
+    category: string
+    color?: string
+    brand?: string
+    image_base64?: string
+    [key: string]: unknown
+  }>
+  scan_id?: string
+}
+
+export interface SaveItemRequest {
+  item_id: string
+  name: string
+  category: string
+  color?: string
+  brand?: string
+  image_base64?: string
+  [key: string]: unknown
+}
+
+export interface SaveAnalyzedItemsResponse {
+  created: ClosetItem[]
+  failed: string[]
 }
 
 // ── UI helpers ────────────────────────────────────────────────────────────────

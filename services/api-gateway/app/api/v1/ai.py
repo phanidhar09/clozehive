@@ -7,6 +7,7 @@ Postgres session is only needed for async routes that track requests via create_
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any, Optional
 from uuid import UUID, uuid4
 
@@ -16,7 +17,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from app.core.deps import CurrentUser, DbSession
-from app.core.exceptions import AppError
+from app.core.exceptions import AppError, ServiceUnavailableError
 from app.core.logging import get_logger
 from app.core.config import get_settings
 from app.core.redis import get_redis
@@ -24,7 +25,7 @@ from app.events import producer as event_producer, topics
 from app.events.schemas import AsyncAcceptedResponse, EventEnvelope
 from app.models.closet import ClosetItem
 from app.repositories.user_repo import UserRepository
-from app.services import ai_client, ai_service, cache_service, outfit_service, packing_service, weather_service
+from app.services import ai_service, cache_service, outfit_service, packing_service, vision_service, weather_service
 from app.services.ai_request_service import create_request
 from app.services.upload_service import read_validated_image
 
@@ -248,6 +249,8 @@ async def chat_stream(body: ChatRequest, user_id: CurrentUser, session: DbSessio
 
 @router.post("/chat/async", response_model=AsyncAcceptedResponse, status_code=status.HTTP_202_ACCEPTED)
 async def chat_async(body: ChatRequest, user_id: CurrentUser, session: DbSession):
+    if not settings.kafka_enabled:
+        raise ServiceUnavailableError("Async processing requires Kafka — not available in this deployment")
     """Publish an async AI chat job; tokens are delivered through ai_response_stream events."""
     request_id = uuid4()
     user_uuid = UUID(user_id)
@@ -283,6 +286,8 @@ async def outfit(body: OutfitRequest, user_id: CurrentUser, session: DbSession):
 
 @router.post("/outfit/async", response_model=AsyncAcceptedResponse, status_code=status.HTTP_202_ACCEPTED)
 async def outfit_async(body: OutfitRequest, user_id: CurrentUser, session: DbSession):
+    if not settings.kafka_enabled:
+        raise ServiceUnavailableError("Async processing requires Kafka — not available in this deployment")
     """Publish an outfit generation job and return immediately."""
     request_id = uuid4()
     user_uuid = UUID(user_id)
@@ -326,6 +331,38 @@ async def outfit_stream(body: OutfitRequest, user_id: CurrentUser, session: DbSe
     return StreamingResponse(events(), media_type="text/event-stream", headers=_STREAM_HEADERS)
 
 
+# ── Outfit of the Day ────────────────────────────────────────────────────────
+
+@router.get("/outfit-of-day")
+async def outfit_of_day(user_id: CurrentUser, session: DbSession):
+    """
+    Return a single AI-generated outfit for today based on the user's closet,
+    current weather at their saved location, and day-of-week occasion.
+    """
+    uid = UUID(user_id)
+    closet = await _get_closet_as_dicts(session, uid)
+    weather = await _resolve_weather_context(session, uid)
+    profile = await _resolve_user_profile(session, uid, None)
+
+    # Weekdays lean business-casual; weekends lean casual
+    weekday = datetime.utcnow().weekday()  # 0=Mon … 6=Sun
+    occasion = "business" if weekday < 5 else "casual"
+
+    weather_str = weather.get("condition", "mild") if weather else "mild"
+    temp = float(weather.get("temp_c", 20.0)) if weather else 20.0
+
+    result = await outfit_service.generate_outfits(
+        closet, occasion, weather_str, temp, user_profile=profile,
+    )
+    outfits = result.get("outfits") or []
+    return {
+        "outfit": outfits[0] if outfits else None,
+        "weather": weather,
+        "occasion": occasion,
+        "style_tips": result.get("style_tips") or [],
+    }
+
+
 # ── Packing ───────────────────────────────────────────────────────────────────
 
 @router.post("/packing")
@@ -339,6 +376,8 @@ async def packing(body: PackingRequest, user_id: CurrentUser, session: DbSession
 
 @router.post("/packing/async", response_model=AsyncAcceptedResponse, status_code=status.HTTP_202_ACCEPTED)
 async def packing_async(body: PackingRequest, user_id: CurrentUser, session: DbSession):
+    if not settings.kafka_enabled:
+        raise ServiceUnavailableError("Async processing requires Kafka — not available in this deployment")
     """Publish a trip planning/packing job and return immediately."""
     request_id = uuid4()
     user_uuid = UUID(user_id)
@@ -389,7 +428,7 @@ async def packing_stream(body: PackingRequest, user_id: CurrentUser, session: Db
 
 @router.post("/vision/analyze")
 async def vision_analyze(user_id: CurrentUser, file: UploadFile = File(...)):
-    """Analyse a garment image with GPT-4o Vision."""
+    """Analyse a garment image with Claude Vision."""
     logger.info("vision_analyze_request", user_id=user_id)
     image_bytes, content_type = await read_validated_image(file)
-    return await ai_client.analyze_image(image_bytes, content_type)
+    return await vision_service.analyze_image(image_bytes, content_type)

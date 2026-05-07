@@ -53,18 +53,29 @@ class Settings(BaseSettings):
     # ── AI Agent Service ──────────────────────────────────────────────────────
     ai_agent_url: str = "http://ai-agent:8001"
     ai_timeout_seconds: int = 60
-    anthropic_api_key: str = ""
-    anthropic_model: str = "claude-sonnet-4-6"
-    anthropic_max_tokens: int = 1024
     openweather_api_key: str = ""
     ai_cache_enabled: bool = True
     ai_cache_ttl: int = 600
     embedding_model: str = "text-embedding-ada-002"
     openai_api_key: str = ""
+    openai_model: str = "gpt-4o"
+    openai_max_tokens: int = 1024
+
+    # ── Gemini AI ─────────────────────────────────────────────────────────────
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-1.5-flash-latest"
 
     # ── File Upload ───────────────────────────────────────────────────────────
     upload_dir: str = "./uploads"
     max_upload_size_mb: int = 10
+
+    # ── Google Cloud Storage (persistent image storage) ───────────────────────
+    # When gcs_bucket_name is set, uploads go to GCS and return public HTTPS URLs.
+    # Leave blank to use local disk (development only — not persistent across deploys).
+    gcs_bucket_name: str = ""
+    gcs_project_id: str = ""
+    # Service account JSON string. Leave empty to use ADC / GOOGLE_APPLICATION_CREDENTIALS.
+    gcs_credentials_json: str = ""
 
     # ── CORS ──────────────────────────────────────────────────────────────────
     allowed_origins: str = "http://localhost:3000,http://localhost:5173"
@@ -121,6 +132,10 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
+
+    @property
+    def gcs_enabled(self) -> bool:
+        return bool(self.gcs_bucket_name)
 
     @property
     def origins_list(self) -> list[str]:

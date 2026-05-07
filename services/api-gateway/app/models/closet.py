@@ -49,7 +49,7 @@ class ClosetItem(Base):
     color: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     fabric: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     pattern: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
-    season: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    season: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String), nullable=True)
     occasion: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String), nullable=True)
     eco_score: Mapped[Optional[float]] = mapped_column(Numeric(3, 1), nullable=True)
     tags: Mapped[Optional[list[str]]] = mapped_column(ARRAY(String), nullable=True)
@@ -62,6 +62,15 @@ class ClosetItem(Base):
     wear_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_worn: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     is_archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    # ── Vision pipeline fields (added in migration 008) ───────────────────────
+    original_image_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    processed_image_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    background_removed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    background_removal_status: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    analysis_source: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    confidence_score: Mapped[Optional[float]] = mapped_column(Numeric(4, 2), nullable=True)
+    scan_batch_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
     )

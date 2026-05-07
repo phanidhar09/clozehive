@@ -402,9 +402,10 @@ async def approve_items(
 
     await session.commit()
 
-    # Invalidate closet cache so the Closet page reloads
+    # Invalidate AI suggestion cache and all closet list pages so the UI reloads
     redis = await get_redis()
     await cache_service.invalidate_user_ai_cache(redis, user_id)
+    await cache_service.invalidate_closet_list_cache(user_id)
 
     logger.info(
         "smart_ingest_approved",

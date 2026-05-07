@@ -54,7 +54,7 @@ services:
       --maxmemory ${REDIS_MAXMEMORY:-512mb}
       --maxmemory-policy allkeys-lru
     ports:
-      - "${REDIS_HOST_PORT:-6380}:6379"
+      - "${REDIS_HOST_PORT:-6382}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -310,6 +310,8 @@ services:
       context: ./services/api-gateway
       dockerfile: Dockerfile
     command: alembic upgrade head
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     depends_on:

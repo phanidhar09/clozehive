@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
-from typing import Optional, Literal
+from typing import Any, Optional, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -45,6 +45,7 @@ class TripResponse(BaseModel):
     end_date: date
     purpose: str
     notes: Optional[str] = None
+    is_saved: bool = False
     created_at: str
     updated_at: str
 
@@ -55,3 +56,42 @@ class TripResponse(BaseModel):
 class TripListResponse(BaseModel):
     trips: list[TripResponse]
     total: int
+
+
+# ── Packing plan schemas ───────────────────────────────────────────────────────
+
+class PackingPlanResponse(BaseModel):
+    """Stored packing plan returned alongside a trip."""
+    id: UUID
+    trip_id: UUID
+    user_id: UUID
+    take_from_your_closet: list[dict[str, Any]] = []
+    you_might_still_need: list[dict[str, Any]] = []
+    daily_plan: list[Any] = []
+    weather_summary: Optional[dict[str, Any]] = None
+    # Full backward-compatible packing result for the frontend
+    packing_list: list[dict[str, Any]] = []
+    missing_items: list[dict[str, Any]] = []
+    summary: Optional[str] = None
+    closet_hint: Optional[str] = None
+    alerts: list[str] = []
+    is_saved: bool = False
+    created_at: str
+    updated_at: str
+
+    class Config:
+        from_attributes = True
+
+
+class CreateTripResponse(BaseModel):
+    """Response for POST /trips — always includes the trip; packing_plan is best-effort."""
+    trip: TripResponse
+    packing_plan: Optional[PackingPlanResponse] = None
+    packing_error: Optional[str] = None
+
+
+class SavePlannerResponse(BaseModel):
+    """Response for POST /trips/{trip_id}/save-planner."""
+    message: str
+    trip: TripResponse
+    packing_plan: PackingPlanResponse

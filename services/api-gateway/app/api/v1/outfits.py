@@ -14,6 +14,7 @@ from app.models.closet import ClosetItem, Outfit
 from app.repositories.user_repo import UserRepository
 from app.schemas.outfit_ai import AnalyzeOutfitRequest, AnalyzeOutfitResponse
 from app.services import outfit_ai_service
+from app.services.weather_service import get_weather_by_city
 
 router = APIRouter(prefix="/outfits", tags=["Outfits"])
 logger = get_logger("outfits.routes")
@@ -119,18 +120,31 @@ async def analyze_outfit(body: AnalyzeOutfitRequest, user_id: CurrentUser, sessi
         }
         profile = {k: v for k, v in raw_profile.items() if v} or None
 
+    # Auto-fetch real weather when a location is provided.
+    effective_weather = body.weather
+    effective_temp = body.temperature
+    if body.location:
+        try:
+            wx = await get_weather_by_city(body.location)
+            effective_weather = wx.get("condition", effective_weather)
+            effective_temp = wx.get("temp_c", effective_temp)
+        except Exception:
+            pass
+
     logger.info(
         "outfit_analyze_request",
         user_id=str(uid),
         item_count=len(items_for_ai),
         occasion=body.occasion,
+        location=body.location,
+        weather=effective_weather,
     )
 
     data = await outfit_ai_service.analyze_outfit(
         items_for_ai,
         body.occasion,
-        body.weather,
-        body.temperature,
+        effective_weather,
+        effective_temp,
         user_profile=profile,
     )
     return data

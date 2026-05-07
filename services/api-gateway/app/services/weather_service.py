@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import math
-from collections import Counter
-from datetime import date, timedelta
+from collections import Counter, defaultdict
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -95,6 +95,79 @@ def summarise_weather(days: list[dict[str, Any]]) -> dict[str, Any]:
         "recommendation": recommendation,
         "days": days,
     }
+
+
+async def fetch_weather_async(destination: str, start_date: str, end_date: str) -> list[dict[str, Any]]:
+    """
+    Fetch per-day weather for a date range.
+    Uses OWM 5-day/3-hour forecast when the API key is set and dates fall within range.
+    Falls back to the static profile model for out-of-range or keyless requests.
+    """
+    if not settings.openweather_api_key:
+        return fetch_weather(destination, start_date, end_date)
+
+    start = date.fromisoformat(start_date)
+    end = date.fromisoformat(end_date)
+    today = date.today()
+    forecast_limit = today + timedelta(days=5)
+
+    # For dates fully beyond the 5-day window, use static profiles
+    if start > forecast_limit:
+        return fetch_weather(destination, start_date, end_date)
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(
+                "https://api.openweathermap.org/data/2.5/forecast",
+                params={
+                    "q": destination,
+                    "appid": settings.openweather_api_key,
+                    "units": "metric",
+                    "cnt": 40,
+                },
+            )
+            resp.raise_for_status()
+            forecast_data = resp.json()
+
+        # Aggregate 3-hourly slots into daily summaries
+        daily: dict[str, dict[str, Any]] = defaultdict(lambda: {"highs": [], "lows": [], "conditions": []})
+        for item in forecast_data.get("list", []):
+            dt = datetime.fromtimestamp(item["dt"])
+            day_key = dt.date().isoformat()
+            daily[day_key]["highs"].append(item["main"].get("temp_max", item["main"]["temp"]))
+            daily[day_key]["lows"].append(item["main"].get("temp_min", item["main"]["temp"]))
+            daily[day_key]["conditions"].append(item["weather"][0]["description"].title())
+
+        result: list[dict[str, Any]] = []
+        current = start
+        while current <= end:
+            day_key = current.isoformat()
+            if day_key in daily:
+                d = daily[day_key]
+                condition = Counter(d["conditions"]).most_common(1)[0][0]
+                high = round(max(d["highs"]), 1)
+                low = round(min(d["lows"]), 1)
+            else:
+                # Beyond forecast window — use static profile for remaining days
+                base_cond, base_high, base_low = _profile(destination)
+                i = (current - start).days
+                condition = base_cond if i % 3 == 0 else _CONDITION_CYCLE[i % len(_CONDITION_CYCLE)]
+                variation = math.sin(i * 0.7) * 2.0
+                high = round(base_high + variation, 1)
+                low = round(base_low + variation * 0.6, 1)
+            result.append({
+                "date": day_key,
+                "condition": condition,
+                "temp_high": high,
+                "temp_low": low,
+                "description": _description(condition, high, low),
+            })
+            current += timedelta(days=1)
+
+        return result
+
+    except Exception:
+        return fetch_weather(destination, start_date, end_date)
 
 
 async def get_weather_by_city(city_name: str) -> dict[str, Any]:

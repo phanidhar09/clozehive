@@ -381,7 +381,7 @@ arch_data = [
     ["MCP Tools", "Outfit MCP", "FastMCP SSE, GPT-4o outfit generation", "8012"],
     ["MCP Tools", "Packing MCP", "FastMCP SSE, daily plan + recommendations", "8013"],
     ["Data", "PostgreSQL + pgvector", "pgvector/pgvector:pg16, vector similarity search", "5433"],
-    ["Data", "Redis", "redis:7-alpine, cache + Pub/Sub fan-out", "6380"],
+    ["Data", "Redis", "redis:7-alpine, cache + Pub/Sub fan-out", "6382"],
     ["Messaging", "Redpanda", "Kafka-compatible, 6 topics, 6 partitions each", "19092"],
     ["Observability", "LangSmith", "Distributed tracing for all LangGraph runs", "Cloud"],
     ["Observability", "Redpanda Console", "Kafka topic browser UI", "8080"],
@@ -891,7 +891,7 @@ story.append(Paragraph("Docker Compose Services", sub_header))
 docker_svcs = [
     ["Service",           "Image / Build",               "Ports",         "Health Check Strategy"],
     ["postgres",          "pgvector/pgvector:pg16",      "5433:5432",     "pg_isready -U clozehive"],
-    ["redis",             "redis:7-alpine",              "6380:6379",     "redis-cli ping"],
+    ["redis",             "redis:7-alpine",              "6382:6379",     "redis-cli ping"],
     ["redpanda",          "redpandadata/redpanda:v24.2.9","19092, 19644", "rpk cluster info"],
     ["kafka-topics",      "redpandadata/redpanda",        "—",            "One-shot init container (restart:no)"],
     ["redpanda-console",  "redpandadata/console:v2.7.2", "8080",         "Depends on redpanda healthy"],

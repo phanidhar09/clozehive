@@ -4,7 +4,7 @@ import pytest
 @pytest.mark.asyncio
 async def test_generate_outfits_falls_back_when_ai_raises(monkeypatch):
     async def boom(*_a, **_kw):
-        raise RuntimeError("anthropic unavailable")
+        raise RuntimeError("openai unavailable")
 
     monkeypatch.setattr("app.services.ai_service.chat", boom)
     from app.services.outfit_service import generate_outfits

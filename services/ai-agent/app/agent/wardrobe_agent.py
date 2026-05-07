@@ -71,6 +71,25 @@ def _safe_truncate(data: Any, max_len: int = 200) -> str:
         return str(data)[:max_len]
 
 
+def _exception_causes(exc: BaseException, max_depth: int = 8) -> list[str]:
+    """Flatten ExceptionGroup / TaskGroup failures for logs."""
+    lines: list[str] = []
+    if max_depth <= 0:
+        return lines
+    if isinstance(exc, BaseExceptionGroup):
+        for sub in exc.exceptions:
+            lines.extend(_exception_causes(sub, max_depth - 1))
+        if not lines:
+            lines.append(str(exc))
+        return lines
+    lines.append(str(exc))
+    if exc.__cause__ is not None:
+        lines.extend(_exception_causes(exc.__cause__, max_depth - 1))
+    elif exc.__context__ is not None and not isinstance(exc.__context__, BaseExceptionGroup):
+        lines.extend(_exception_causes(exc.__context__, max_depth - 1))
+    return lines
+
+
 def _validate_chat_input(message: str, history: list[dict]) -> None:
     if not message or not message.strip():
         raise ValueError("Message cannot be empty")
@@ -93,19 +112,39 @@ class WardrobeAgent:
         self._ready = False
 
     async def start(self) -> None:
+        """
+        Connect to MCP tool servers when available.
+
+        Default Docker Compose does not start MCP containers (they use profile
+        ``legacy-mcp``). Connecting to missing hosts makes ``get_tools()`` raise
+        ExceptionGroup("unhandled errors in a TaskGroup"). We degrade to an LLM-only
+        agent so the service still starts and /health can be ready.
+        """
         logger.info("agent_starting", mcp_servers=list(settings.mcp_server_config.keys()))
+        self._client = None
+        self._tools = []
+
         try:
-            # langchain-mcp-adapters 0.1+: no async context manager — load tools with await.
             self._client = MultiServerMCPClient(settings.mcp_server_config)
             raw_tools = await self._client.get_tools()
-            # LangGraph's tool binding requires bare BaseTool instances (it inspects
-            # ``__name__`` / pydantic args_schema). The wrapper ToolCallLogger breaks
-            # that contract, so we keep the raw tools — MCP servers still log every
-            # invocation on their side.
             self._tools = list(raw_tools)
+            logger.info(
+                "mcp_tools_loaded",
+                count=len(self._tools),
+                names=[t.name for t in self._tools],
+            )
+        except BaseException as exc:
+            causes = _exception_causes(exc)
+            logger.warning(
+                "mcp_tool_load_skipped",
+                summary=str(exc),
+                causes=causes[:12],
+                hint="Start MCP with: docker compose --profile legacy-mcp up -d ; or run without tools (LLM-only).",
+            )
+            self._client = None
+            self._tools = []
 
-            logger.info("mcp_tools_loaded", count=len(self._tools), names=[t.name for t in self._tools])
-
+        try:
             model = ChatOpenAI(
                 model=settings.openai_model,
                 temperature=settings.agent_temperature,
@@ -119,7 +158,7 @@ class WardrobeAgent:
                 prompt=WARDROBE_AGENT_SYSTEM_PROMPT,
             )
             self._ready = True
-            logger.info("agent_ready")
+            logger.info("agent_ready", tool_count=len(self._tools))
 
         except Exception as exc:
             logger.error("agent_start_failed", error=str(exc))

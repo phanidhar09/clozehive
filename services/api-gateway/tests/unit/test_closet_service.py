@@ -28,7 +28,7 @@ def closet_item(user_id, category="tops", name="Oxford Shirt"):
         brand=None,
         image_url=None,
         occasion=["casual"],
-        season="spring",
+        season=["spring"],
         tags=[],
         eco_score=None,
         notes=None,

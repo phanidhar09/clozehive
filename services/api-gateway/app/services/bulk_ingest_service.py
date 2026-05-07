@@ -8,7 +8,7 @@ Flow
 2. FastAPI BackgroundTask calls ``process_job()`` which:
       for each image:
         a. Load bytes from disk
-        b. Call vision_service.analyze_for_bulk()  (Claude Vision)
+        b. Call vision_service.analyze_for_bulk()  (OpenAI vision)
         c. Call background_removal_service.remove_background()  (PIL)
         d. persist_upload() the processed PNG
         e. Build a ReviewItem record → append to Redis
@@ -39,6 +39,7 @@ Only the final approved items cross into PostgreSQL (closet_items).
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from datetime import datetime, timezone
@@ -48,7 +49,7 @@ from app.core.logging import get_logger
 from app.core.redis import get_redis
 from app.services import vision_service
 from app.services.background_removal_service import remove_background
-from app.services.upload_service import persist_upload
+from app.services.upload_service import persist_upload, read_upload_bytes
 
 logger = get_logger("bulk_ingest_service")
 
@@ -298,9 +299,8 @@ async def process_job(
         )
 
         try:
-            # 1. Load raw bytes from disk
-            import pathlib
-            raw_bytes = pathlib.Path(file_path).read_bytes()
+            # 1. Load raw bytes from GCS or local disk
+            raw_bytes = await asyncio.to_thread(read_upload_bytes, original_url)
 
             # 2. Claude Vision analysis (async)
             vision = await vision_service.analyze_for_bulk(raw_bytes, content_type)

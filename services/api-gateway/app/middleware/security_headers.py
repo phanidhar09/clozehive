@@ -25,7 +25,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "style-src 'self' 'unsafe-inline'; "
             "img-src 'self' data: https: blob:; "
             "font-src 'self' data:; "
-            "connect-src 'self' https://api.anthropic.com; "
+            "connect-src 'self' https://api.openai.com; "
             "frame-ancestors 'none'; "
             "base-uri 'self'; "
             "form-action 'self'"

@@ -8,6 +8,8 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import AsyncIterator
+from datetime import date, datetime
+from enum import Enum
 from typing import Optional, Any
 
 import redis.asyncio as aioredis
@@ -53,12 +55,21 @@ async def get(key: str) -> Any | None:
         return None
 
 
-async def set(key: str, value: Any, ttl: int) -> None:
+async def set(key: str, value: Any, ttl: int) -> bool:
+    """
+    Set a JSON value with TTL.
+
+    Returns True if Redis acknowledged the write, False if Redis failed or rejected.
+    Callers can use the return value for flows that cannot proceed without caching
+    (e.g. OAuth CSRF state).
+    """
     try:
         client = await get_redis()
-        await client.setex(key, ttl, json.dumps(value, default=str))
+        ok = await client.setex(key, ttl, json.dumps(value, default=str))
+        return bool(ok)
     except Exception as exc:
         logger.warning("cache_set_error", key=key, error=str(exc))
+        return False
 
 
 async def delete(key: str) -> None:
@@ -120,6 +131,83 @@ def user_profile_key(user_id: str) -> str:
 
 def closet_key(user_id: str) -> str:
     return namespaced_key("closet", user_id)
+
+
+# ── Closet list cache key helpers ─────────────────────────────────────────────
+
+def _normalize_filter_value(value: Any) -> Any:
+    """Recursively normalise a single filter value to a stable, JSON-serialisable form."""
+    if value is None:
+        return None
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, str):
+        cleaned = value.strip()
+        return cleaned if cleaned else None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, dict):
+        return {
+            str(k): _normalize_filter_value(v)
+            for k, v in sorted(value.items(), key=lambda item: str(item[0]))
+            if _normalize_filter_value(v) is not None
+        }
+    if isinstance(value, (list, tuple, set)):
+        normalized_items = [_normalize_filter_value(item) for item in value]
+        normalized_items = [item for item in normalized_items if item is not None]
+        try:
+            return sorted(
+                normalized_items,
+                key=lambda item: json.dumps(item, sort_keys=True, default=str),
+            )
+        except TypeError:
+            return normalized_items
+    return str(value)
+
+
+def normalize_closet_filters(filters: dict) -> dict:
+    """Return a stable, sorted dict of non-None filter values ready for hashing."""
+    normalized: dict[str, Any] = {}
+    for key, value in filters.items():
+        normalized_value = _normalize_filter_value(value)
+        if normalized_value is not None:
+            normalized[str(key)] = normalized_value
+    return dict(sorted(normalized.items()))
+
+
+def build_closet_cache_key(user_id: str, filters: dict) -> str:
+    """Build a per-user, per-filter-combination Redis key for the closet list.
+
+    Key format: ``clozehive:v1:closet:{user_id}:{sha256[:16]}``
+
+    The hash is derived from the normalised filter dict so that semantically
+    identical filter sets (e.g. different key ordering, whitespace in strings)
+    always map to the same key.
+    """
+    normalized_filters = normalize_closet_filters(filters)
+    payload = json.dumps(
+        normalized_filters,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+    return f"{closet_key(user_id)}:{digest}"
+
+
+async def invalidate_closet_list_cache(user_id: str) -> None:
+    """Delete every cached closet-list page for a user across all filter combinations.
+
+    Covers both the new keyed format ``closet_key(user_id):{hash}`` and the
+    legacy unkeyed format ``closet_key(user_id)`` so deployments that straddle
+    both code versions don't serve stale data.
+    """
+    await delete_pattern(f"{closet_key(user_id)}:*")
+    await delete(closet_key(user_id))
 
 
 def weather_key(destination: str, start: str, end: str) -> str:

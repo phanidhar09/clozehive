@@ -48,11 +48,13 @@ class ClosetService:
         page: int = 1,
         per_page: int = 50,
     ) -> ClosetListResponse:
-        cache_key = cache_service.closet_key(str(user_id))
-        if not section and not category and not season:
-            cached = await cache_service.get(cache_key)
-            if cached:
-                return ClosetListResponse(**cached)
+        cache_key = cache_service.build_closet_cache_key(
+            str(user_id),
+            {"category": category, "page": page, "per_page": per_page, "season": season, "section": section},
+        )
+        cached = await cache_service.get(cache_key)
+        if cached:
+            return ClosetListResponse(**cached)
 
         offset = (page - 1) * per_page
         items = await self.repo.get_by_user(
@@ -66,9 +68,7 @@ class ClosetService:
             per_page=per_page,
         )
 
-        if not section and not category and not season:
-            await cache_service.set(cache_key, response.model_dump(mode="json"), _CACHE_TTL)
-
+        await cache_service.set(cache_key, response.model_dump(mode="json"), _CACHE_TTL)
         return response
 
     async def get_item(self, item_id: UUID, user_id: UUID) -> ClosetItemResponse:
@@ -79,7 +79,7 @@ class ClosetService:
 
     async def create_item(self, user_id: UUID, data: ClosetItemCreate) -> ClosetItemResponse:
         item = await self.repo.create(user_id=user_id, **data.model_dump())
-        await cache_service.delete(cache_service.closet_key(str(user_id)))
+        await cache_service.invalidate_closet_list_cache(str(user_id))
         logger.info("closet_item_created", user_id=str(user_id), item_id=str(item.id))
         return _to_response(item)
 
@@ -91,7 +91,7 @@ class ClosetService:
             raise NotFoundError(f"Item {item_id} not found")
 
         updated = await self.repo.update(item, **data.model_dump(exclude_none=True))
-        await cache_service.delete(cache_service.closet_key(str(user_id)))
+        await cache_service.invalidate_closet_list_cache(str(user_id))
         return _to_response(updated)
 
     async def delete_item(self, item_id: UUID, user_id: UUID) -> None:
@@ -99,7 +99,7 @@ class ClosetService:
         if not item:
             raise NotFoundError(f"Item {item_id} not found")
         await self.repo.delete(item)
-        await cache_service.delete(cache_service.closet_key(str(user_id)))
+        await cache_service.invalidate_closet_list_cache(str(user_id))
         logger.info("closet_item_deleted", user_id=str(user_id), item_id=str(item_id))
 
     async def log_wear(self, item_id: UUID, user_id: UUID, worn_date: date | None = None) -> ClosetItemResponse:
@@ -111,5 +111,5 @@ class ClosetService:
             wear_count=item.wear_count + 1,
             last_worn=worn_date or date.today(),
         )
-        await cache_service.delete(cache_service.closet_key(str(user_id)))
+        await cache_service.invalidate_closet_list_cache(str(user_id))
         return _to_response(updated)

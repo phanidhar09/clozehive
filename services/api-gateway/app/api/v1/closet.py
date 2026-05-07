@@ -73,7 +73,7 @@ def _item_from_vision(
         color=str(vision["color"]) if vision.get("color") else None,
         fabric=str(vision["material"]) if vision.get("material") else None,
         pattern=str(vision["pattern"]) if vision.get("pattern") else None,
-        season=str(vision["season"]) if vision.get("season") else None,
+        season=vision.get("season"),  # schema validator normalises str/list → list[str]
         occasion=list(vision["occasion"]) if isinstance(vision.get("occasion"), list) else [],
         eco_score=float(vision["eco_score"]) if vision.get("eco_score") is not None else None,
         tags=list(vision["tags"]) if isinstance(vision.get("tags"), list) else None,
