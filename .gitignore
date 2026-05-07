@@ -54,6 +54,8 @@ eggs/
 .eggs/
 lib/
 lib64/
+# Frontend src/lib is source code, not a Python venv — never ignore it
+!frontend/src/lib/
 parts/
 sdist/
 var/
