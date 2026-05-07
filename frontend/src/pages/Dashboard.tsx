@@ -74,7 +74,8 @@ function OutfitOfDayCard({ closetItems }: { closetItems: ClosetItem[] }) {
   const weatherChip = data?.weather && (
     <div className="flex items-center gap-1.5 rounded-full border border-sky-200/60 bg-sky-50/80 px-3 py-1 text-xs font-medium text-sky-700 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-300">
       <CloudSun size={12} className="flex-shrink-0" />
-      {data.weather.condition} · {Math.round(data.weather.temp_c)}°C
+      {data.weather.condition}
+      {data.weather.temp_c != null ? ` · ${Math.round(data.weather.temp_c)}°C` : ''}
       {data.weather.location_label ? ` · ${data.weather.location_label}` : ''}
     </div>
   )
