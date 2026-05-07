@@ -7,6 +7,8 @@
 .env
 .env.local
 .env.*.local
+# Root file `env` is sometimes used as a mistaken copy of .env — never commit
+/env
 
 # .env.example files are safe templates — always commit them
 !.env.example
