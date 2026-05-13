@@ -14,6 +14,8 @@ legacy setups.
 The local folder may still be named `closetiq-integrated`; **ClozeHive** is the
 product name used in docs and env templates.
 
+**Environment variables, Docker, GCP, migrations, tests, troubleshooting:** see **[docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)**.
+
 ## Architecture
 
 ```mermaid
@@ -21,20 +23,11 @@ flowchart LR
   Browser[Frontend] --> ApiGateway[API Gateway]
   ApiGateway --> Postgres[(Postgres + pgvector)]
   ApiGateway --> Redis[(Redis)]
-  ApiGateway --> AiAgent[AI Agent]
-  ApiGateway --> Redpanda[(Redpanda)]
-  Redpanda --> AiWorker[AI Worker]
-  AiWorker --> AiAgent
-  AiAgent --> WeatherMcp[Weather MCP]
-  AiAgent --> VisionMcp[Vision MCP]
-  AiAgent --> OutfitMcp[Outfit MCP]
-  AiAgent --> PackingMcp[Packing MCP]
-  VisionMcp --> OpenAI[OpenAI]
+  ApiGateway --> OpenAI[OpenAI / Weather APIs]
 ```
 
-Much of the weather / vision / outfit / packing logic can also run **inside the
-API gateway** as Python services; the standalone MCP containers are optional
-(see Docker Compose `legacy-mcp` profile).
+**Phase 1 default `docker compose up`** runs only the gateway stack above.
+Optional Compose profiles add **Redpanda**, **ai-agent**, **ai-worker**, and/or **legacy MCP** services when you need LangGraph tools or Kafka async jobs (see [Local setup with Docker](#local-setup-with-docker)).
 
 ## Service responsibilities
 
@@ -42,7 +35,7 @@ API gateway** as Python services; the standalone MCP containers are optional
 |------|------|
 | `frontend` | React app; Vite dev server or static build. In **Docker**, host port defaults to **3001** → container **3000** (`FRONTEND_HOST_PORT`). |
 | `services/api-gateway` | Public API: JWT + Google OAuth, closet CRUD, vector search, outfits, trips, analytics, health, rate limiting, security headers, Kafka producers, optional Firestore paths. |
-| `services/ai-agent` | FastAPI + agent orchestration, MCP tools, pgvector retrieval. |
+| `services/ai-agent` | FastAPI + LangGraph agent; MCP tools **optional** (`ENABLE_MCP_TOOLS`, default off in Compose). Chat works LLM-only without mcp-* containers. |
 | `services/ai-worker` | Kafka consumer for background AI request handling. |
 | `services/mcp/*` | Optional MCP microservices (weather, vision, outfit, packing). |
 | `nginx/` | Reverse proxy / TLS-oriented config for production-style hosting. |
@@ -61,13 +54,37 @@ Legacy stacks, if present, live under `archive/`.
    For frontend-only overrides (e.g. `VITE_API_URL`, feature flags), you can use
    `frontend/.env.example` → `frontend/.env`.
 
-2. Start the stack:
+2. Start the stack (**MVP — postgres, redis, api-gateway, frontend, nginx, migrate**):
 
    ```sh
    make up
    ```
 
    Or: `docker compose up --build` (add `-d` to detach).
+
+   **Optional AI stack** (Redpanda, Kafka topics, Redpanda Console, ai-agent). Set `KAFKA_ENABLED=true` in `.env` when you need the gateway to publish Kafka events. Ai-agent defaults to **LLM-only chat** (`ENABLE_MCP_TOOLS=false`); no mcp-* containers required:
+
+   ```sh
+   docker compose --profile ai up --build
+   ```
+
+   For **MCP-backed** routes on ai-agent (`/api/v1/agent/outfit`, `/packing`, `/vision/analyze`), set **`ENABLE_MCP_TOOLS=true`** and start legacy MCP (tool hosts must resolve):
+
+   ```sh
+   docker compose --profile ai --profile legacy-mcp up --build
+   ```
+
+   **Background worker** (pulls in Redpanda + ai-agent automatically):
+
+   ```sh
+   docker compose --profile worker up --build
+   ```
+
+   **Legacy MCP** containers (for ai-agent tool URLs `http://mcp-*` — combine with `--profile ai` when testing the agent):
+
+   ```sh
+   docker compose --profile legacy-mcp up --build
+   ```
 
 3. Run migrations (if the `migrate` service has not already applied them):
 
@@ -88,8 +105,8 @@ Legacy stacks, if present, live under `archive/`.
 | Frontend | `http://localhost:3001` (override with `FRONTEND_HOST_PORT`) |
 | API gateway | `http://localhost:8000` — `/health`, `/live`, `/ready` |
 | OpenAPI docs | `http://localhost:8000/docs` |
-| AI agent | `http://localhost:8001/health` |
-| Redpanda Console | `http://localhost:8080` |
+| AI agent | `http://localhost:8001/health` (only with `--profile ai` or `--profile worker`) |
+| Redpanda Console | `http://localhost:8080` (same) |
 
 **Port note:** `.env.example` uses `FRONTEND_PORT=3000` and `VITE_API_URL` for
 **host-side** Vite dev; the **Compose** frontend mapping defaults to **3001** on
@@ -98,10 +115,12 @@ the host so it does not clash with other tools. Align `VITE_API_URL` and
 
 ### Optional legacy MCP stack
 
-Standalone MCP containers are behind the `legacy-mcp` profile:
+Standalone MCP containers are behind the `legacy-mcp` profile. The **ai-agent**
+service is behind `--profile ai` / `--profile worker`; MCP hostnames only resolve
+when that profile (and usually `legacy-mcp`) is active:
 
 ```sh
-docker compose --profile legacy-mcp up -d
+docker compose --profile ai --profile legacy-mcp up -d
 ```
 
 ## Production-oriented compose
@@ -142,13 +161,41 @@ Use **`.env.example`** as the source of truth. Commonly customized values:
 - **`JWT_SECRET`** — use a long random value; never ship the dev default.
 - **`DATABASE_URL`** — host dev often uses Postgres on **`5433`** (see example).
 - **`REDIS_URL`** — host dev often uses **`6382`** (Compose default; override with **`REDIS_HOST_PORT`**).
-- **`KAFKA_BOOTSTRAP_SERVERS`** — `redpanda:9092` inside Docker, `localhost:19092` from the host.
+- **`ENABLE_MCP_TOOLS`** — ai-agent only; default **false** in Compose. Set **true** with legacy MCP for direct tool HTTP routes on the agent.
+- **`KAFKA_BOOTSTRAP_SERVERS`** — `redpanda:9092` inside Docker, `localhost:19092` from the host (only when Redpanda profile is enabled).
 - **`ALLOWED_ORIGINS`** — must include your real frontend origin(s).
 - **Google OAuth** — `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`.
 - **Frontend** — `VITE_API_URL`, **`VITE_HIDE_NON_MVP`** (toggle non-MVP nav).
 - **Optional** — OpenWeather, Sentry, Firebase / Firestore.
 
 Never commit a real `.env` file.
+
+## Testing (Phase 1 / MVP regression)
+
+**API gateway** tests use **in-memory SQLite**, **fake Redis**, an **in-memory cache**
+(for closet preview sessions), and **stubbed** `ai_client.generate_packing_list` (no
+HTTP to ai-agent, **no OpenAI**, **no GCS**, **no weather**). Embeddings are no-ops.
+
+```sh
+cd services/api-gateway
+python3 -m venv .venv && source .venv/bin/activate   # or use repo-root .venv
+pip install -r requirements-dev.txt
+python3 -m pytest tests/ -v --tb=short
+```
+
+From repo root: `make test-api`.
+
+**Frontend** (Vitest + Testing Library):
+
+```sh
+cd frontend && npm ci && npm run test
+```
+
+From repo root: `make test-frontend`. Run both: `make test`.
+
+Coverage includes auth (register / login / refresh), closet CRUD + ownership +
+preview/confirm flow, and trips + packing persistence. See `tests/conftest.py` and
+`tests/integration/` in `services/api-gateway`.
 
 ## Common commands
 
@@ -159,7 +206,9 @@ make stop             # compose down (keep volumes)
 make down             # compose down and remove volumes
 make logs             # tail service logs
 make migrate          # Alembic via migrate container
-make test-api         # pytest in services/api-gateway
+make test-api         # pytest in services/api-gateway (SQLite + mocks; no cloud)
+make test-frontend    # Vitest in frontend/
+make test             # test-api + test-frontend
 make build-frontend   # production build
 make smoke            # compose config + health checks
 make clean            # clean generated artifacts (see scripts/clean-artifacts.sh)
@@ -168,6 +217,7 @@ make clean            # clean generated artifacts (see scripts/clean-artifacts.s
 ## Verification
 
 ```sh
+docker compose config
 docker compose config --quiet
 make smoke
 make build-frontend
@@ -195,10 +245,9 @@ python -m pytest tests/ -v --tb=short
 
 ## Troubleshooting
 
-- **OpenAI errors** — Confirm `OPENAI_API_KEY` in `.env`; restart `ai-agent` (and
-  vision MCP if you use it).
-- **Redpanda** — `docker compose ps` and `docker compose logs redpanda kafka-topics`.
-- **API → AI agent** — In Compose, `AI_AGENT_URL` should be `http://ai-agent:8001`.
+- **OpenAI errors** — Confirm `OPENAI_API_KEY` in `.env`; if you use **`--profile ai`**, restart `ai-agent` (and vision MCP with `legacy-mcp` if you use it).
+- **Redpanda** — Only started with `--profile ai` or `--profile worker`; `docker compose ps` and `docker compose logs redpanda kafka-topics`.
+- **API → AI agent** — Optional: with profiles enabled, `AI_AGENT_URL` should be `http://ai-agent:8001`. Without ai-agent, trip packing falls back to the gateway.
 - **Browser → API** — `VITE_API_URL` should match reachable host URL (often
   `http://localhost:8000`).
 - **CORS** — Ensure `ALLOWED_ORIGINS` includes the exact frontend origin.

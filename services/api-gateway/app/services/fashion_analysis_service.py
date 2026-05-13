@@ -38,10 +38,12 @@ import uuid
 from typing import Any
 
 from PIL import Image
+from langsmith import traceable
 from openai import APIError, AsyncOpenAI
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
+from app.core.openai_tracing import make_openai_client, wrap_openai_client
 from app.services.background_removal_service import remove_background
 
 settings = get_settings()
@@ -53,7 +55,9 @@ _client: AsyncOpenAI | None = None
 def _get_client() -> AsyncOpenAI:
     global _client
     if _client is None:
-        _client = AsyncOpenAI(api_key=settings.openai_api_key)
+        _client = wrap_openai_client(
+            make_openai_client(settings.openai_api_key, base_url=settings.openai_api_base_url)
+        )
     return _client
 
 
@@ -280,6 +284,7 @@ def _fallback_item(reason: str) -> dict[str, Any]:
 
 # ── Detection-only (used by vision pipeline — avoids duplicate OpenAI + enrich) ─
 
+@traceable(name="gateway_fashion_detect_items", run_type="chain")
 async def detect_fashion_items(
     image_bytes: bytes,
     media_type: str = "image/jpeg",
@@ -335,6 +340,7 @@ async def detect_fashion_items(
 
 # ── Main public function ────────────────────────────────────────────────────────
 
+@traceable(name="gateway_fashion_analyze_image", run_type="chain")
 async def analyze_fashion_image(
     image_bytes: bytes,
     media_type: str = "image/jpeg",

@@ -5,21 +5,25 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Any
 
-from openai import APIError, AsyncOpenAI
+from langsmith import traceable
+from openai import APIError
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
+from app.core.openai_tracing import make_openai_client, wrap_openai_client
 
 settings = get_settings()
 logger = get_logger("ai_service")
 
-_client: AsyncOpenAI | None = None
+_client = None
 
 
-def _get_client() -> AsyncOpenAI:
+def _get_client():
     global _client
     if _client is None:
-        _client = AsyncOpenAI(api_key=settings.openai_api_key)
+        _client = wrap_openai_client(
+            make_openai_client(settings.openai_api_key, base_url=settings.openai_api_base_url),
+        )
     return _client
 
 
@@ -63,6 +67,7 @@ async def stream_chat(messages: list[dict[str, Any]], system_prompt: str) -> Asy
         yield "The AI stylist is temporarily unavailable. Please try again shortly."
 
 
+@traceable(name="gateway_openai_stylist_chat", run_type="chain")
 async def chat(messages: list[dict[str, Any]], system_prompt: str) -> str:
     """Return a complete model response while preserving the streaming implementation."""
     parts: list[str] = []

@@ -138,7 +138,7 @@ async def test_mark_as_saved_sets_is_saved():
 
     session = MagicMock()
     session.execute = AsyncMock(side_effect=side_effect)
-    session.commit = AsyncMock()
+    session.flush = AsyncMock()
     session.refresh = AsyncMock()
 
     result = await TripsService(session).mark_as_saved(t.id, user_id)
@@ -147,6 +147,7 @@ async def test_mark_as_saved_sets_is_saved():
     assert plan.is_saved is True
     assert result.trip.is_saved is True
     assert result.packing_plan.is_saved is True
+    session.flush.assert_awaited()
 
 
 @pytest.mark.asyncio

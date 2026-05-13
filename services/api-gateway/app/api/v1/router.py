@@ -2,12 +2,13 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import admin, ai, analytics, auth, closet, health, outfits, smart_ingest, trips, vision_pipeline, weather
+from app.api.v1 import admin, ai, analytics, auth, closet, health, outfits, profile, smart_ingest, trips, vision_pipeline, weather
 # from app.api.v1 import social  # Non-MVP: re-enable for Phase 2 social features
 # from app.api.v1 import ws     # Non-MVP: re-enable for Phase 2 real-time notifications
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(auth.router)
+api_router.include_router(profile.router)
 api_router.include_router(closet.router)
 api_router.include_router(outfits.router)
 api_router.include_router(trips.router)

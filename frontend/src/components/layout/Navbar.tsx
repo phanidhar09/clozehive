@@ -35,8 +35,9 @@ function UserMenu({ onClose }: { onClose: () => void }) {
     return () => document.removeEventListener('mousedown', handler)
   }, [onClose])
 
-  const initials = currentUser?.display_name
-    ? currentUser.display_name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
+  const nameLabel = currentUser?.display_name || currentUser?.username || 'User'
+  const initials = nameLabel !== 'User'
+    ? nameLabel.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
     : 'U'
 
   return (
@@ -61,7 +62,7 @@ function UserMenu({ onClose }: { onClose: () => void }) {
           </div>
           <div className="min-w-0">
             <p className="text-sm font-semibold text-slate-800 dark:text-white truncate">
-              {currentUser?.display_name ?? 'User'}
+              {nameLabel}
             </p>
             <p className="text-[11px] text-slate-400 dark:text-white/40 truncate">
               @{currentUser?.username ?? '—'}
@@ -191,7 +192,7 @@ function UserSearch() {
           )}
           {!loading && results.length === 0 && query.trim() && (
             <div className="py-6 text-center text-xs text-slate-400 dark:text-white/40">
-              No users match "{query.trim()}"
+              No users match &ldquo;{query.trim()}&rdquo;
             </div>
           )}
           {!loading && results.map(u => {
@@ -243,8 +244,9 @@ export default function Navbar() {
   const [showMenu, setShowMenu] = useState(false)
 
   const title = TITLES[location.pathname] ?? 'ClozéHive'
-  const initials = currentUser?.display_name
-    ? currentUser.display_name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
+  const navNameLabel = currentUser?.display_name || currentUser?.username || ''
+  const initials = navNameLabel
+    ? navNameLabel.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
     : 'U'
 
   return (
@@ -275,7 +277,7 @@ export default function Navbar() {
           <span className="hidden md:block text-sm text-slate-400 dark:text-white/40 mr-1">
             Welcome,{' '}
             <span className="font-semibold text-slate-700 dark:text-white/80">
-              {currentUser.display_name}
+              {navNameLabel}
             </span>
           </span>
         )}

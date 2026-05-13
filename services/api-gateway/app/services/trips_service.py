@@ -61,7 +61,7 @@ class TripsService:
         plan.updated_at = datetime.now(timezone.utc)
         trip.updated_at = datetime.now(timezone.utc)
 
-        await self.session.commit()
+        await self.session.flush()
         await self.session.refresh(trip)
         await self.session.refresh(plan)
 
@@ -92,7 +92,7 @@ class TripsService:
             notes=data.notes,
         )
         self.session.add(trip)
-        await self.session.commit()
+        await self.session.flush()
         await self.session.refresh(trip)
         return self._to_response(trip)
 
@@ -111,7 +111,7 @@ class TripsService:
         trip.purpose = data.purpose
         trip.notes = data.notes
 
-        await self.session.commit()
+        await self.session.flush()
         await self.session.refresh(trip)
         return self._to_response(trip)
 
@@ -123,7 +123,7 @@ class TripsService:
             raise NotFoundError(f"Trip {trip_id} not found")
 
         await self.session.delete(trip)
-        await self.session.commit()
+        await self.session.flush()
 
     async def save_packing_plan(
         self,
@@ -160,7 +160,7 @@ class TripsService:
             )
             self.session.add(plan)
 
-        await self.session.commit()
+        await self.session.flush()
         await self.session.refresh(plan)
         return self._plan_to_response(plan, packing_result)
 

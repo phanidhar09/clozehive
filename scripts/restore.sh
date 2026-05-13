@@ -25,9 +25,9 @@ if [ "$CONFIRM" != "yes" ]; then
   exit 0
 fi
 
-DB_CONTAINER="${DB_CONTAINER:-closetiq-db-1}"
-DB_NAME="${POSTGRES_DB:-closetiq}"
-DB_USER="${POSTGRES_USER:-postgres}"
+DB_CONTAINER="${DB_CONTAINER:-clozehive-postgres-1}"
+DB_NAME="${POSTGRES_DB:-clozehive}"
+DB_USER="${POSTGRES_USER:-clozehive}"
 
 echo "Restoring database..."
 gunzip -c "$BACKUP_FILE" | docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" "$DB_NAME"

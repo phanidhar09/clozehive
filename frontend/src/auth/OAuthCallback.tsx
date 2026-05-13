@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Sparkles, Loader2 } from 'lucide-react'
-import { tokenStorage, authApi } from '@/lib/api'
+import { tokenStorage, authApi, profileApi } from '@/lib/api'
 import { useApp } from '@/store'
 
 const INFLIGHT_KEY = 'ch_oauth_inflight'
@@ -42,9 +42,18 @@ export default function OAuthCallback() {
 
     authApi
       .getMe()
-      .then(user => {
+      .then(async user => {
         login(user, accessToken, refreshToken)
-        navigate('/profile?onboarding=1', { replace: true })
+        try {
+          const st = await profileApi.getOnboardingStatus()
+          if (!st.onboarding_completed) {
+            navigate('/onboarding/style-profile', { replace: true })
+            return
+          }
+        } catch {
+          /* continue */
+        }
+        navigate('/dashboard', { replace: true, state: { fromLogin: true } })
       })
       .catch(err => {
         console.error('[OAuth] getMe failed after Google redirect', err)
@@ -52,7 +61,7 @@ export default function OAuthCallback() {
         navigate('/login?error=oauth_failed', { replace: true })
       })
       .finally(finish)
-  }, [])
+  }, [login, navigate])
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center gap-6 bg-white dark:bg-slate-900">

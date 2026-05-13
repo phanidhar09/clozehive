@@ -25,14 +25,21 @@ from app.core.exceptions import BadRequestError
 from app.events import producer as event_producer, topics
 from app.events.schemas import AsyncAcceptedResponse, EventEnvelope
 from app.schemas.closet import (
+    BulkAnalyzePreviewFileResult,
+    BulkAnalyzePreviewResponse,
+    BulkPreviewFailure,
+    ClosetAnalyzePreviewResponse,
+    ClosetConfirmRequest,
+    ClosetConfirmResponse,
     ClosetItemCreate,
     ClosetItemResponse,
     ClosetItemUpdate,
     ClosetListResponse,
     ClosetUploadResponse,
     LogWearRequest,
+    coerce_closet_category,
 )
-from app.services import cache_service, similarity_service, vision_service
+from app.services import cache_service, closet_preview_service, similarity_service, vision_service
 from app.services.ai_request_service import create_request
 from app.services.closet_service import ClosetService
 from app.services.upload_service import persist_upload, read_validated_image
@@ -53,10 +60,24 @@ class BulkUploadResponse(BaseModel):
     failed: list[BulkUploadFailure] = Field(default_factory=list)
 
 
-def _normalise_category(category: Optional[str]) -> str:
-    if not category:
-        return "uncategorised"
-    return category.strip().lower()
+def _occasion_from_vision(vision: dict[str, Any]) -> list[str]:
+    occ = vision.get("occasion")
+    if isinstance(occ, list) and occ:
+        return [str(x) for x in occ if x]
+    occ = vision.get("occasions")
+    if isinstance(occ, list) and occ:
+        return [str(x) for x in occ if x]
+    return []
+
+
+def _notes_from_vision(vision: dict[str, Any]) -> str | None:
+    n = vision.get("notes")
+    if n is not None and str(n).strip():
+        return str(n).strip()
+    d = vision.get("description")
+    if d is not None and str(d).strip():
+        return str(d).strip()
+    return None
 
 
 def _item_from_vision(
@@ -65,20 +86,21 @@ def _item_from_vision(
     name: Optional[str] = None,
     category: Optional[str] = None,
 ) -> ClosetItemCreate:
+    garment_notes = _notes_from_vision(vision)
     return ClosetItemCreate(
         name=name or str(vision.get("name") or "Clothing Item"),
-        category=_normalise_category(
+        category=coerce_closet_category(
             category or (str(vision["category"]) if vision.get("category") else None)
         ),
         color=str(vision["color"]) if vision.get("color") else None,
         fabric=str(vision["material"]) if vision.get("material") else None,
         pattern=str(vision["pattern"]) if vision.get("pattern") else None,
         season=vision.get("season"),  # schema validator normalises str/list → list[str]
-        occasion=list(vision["occasion"]) if isinstance(vision.get("occasion"), list) else [],
+        occasion=_occasion_from_vision(vision) or None,
         eco_score=float(vision["eco_score"]) if vision.get("eco_score") is not None else None,
         tags=list(vision["tags"]) if isinstance(vision.get("tags"), list) else None,
         image_url=image_url,
-        notes=str(vision["notes"]) if vision.get("notes") else None,
+        notes=garment_notes,
         brand=str(vision["brand"]) if vision.get("brand") else None,
     )
 
@@ -143,15 +165,99 @@ async def create_item(
     svc = _get_svc(session)
     item = await svc.create_item(UUID(user_id), body)
     await cache_service.invalidate_user_ai_cache(await get_redis(), user_id)
-    background_tasks.add_task(similarity_service.update_item_embedding, session, str(item.id))
+    background_tasks.add_task(similarity_service.update_item_embedding_job, str(item.id))
     return item
+
+
+@router.post(
+    "/analyze-preview",
+    response_model=ClosetAnalyzePreviewResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Analyze image and stage a preview session (no closet row yet)",
+)
+async def analyze_preview_endpoint(
+    user_id: CurrentUser,
+    file: UploadFile = File(...),
+):
+    image_bytes, content_type = await read_validated_image(file)
+    return await closet_preview_service.analyze_preview(
+        UUID(user_id),
+        image_bytes=image_bytes,
+        content_type=content_type,
+        filename=file.filename,
+    )
+
+
+@router.post(
+    "/confirm",
+    response_model=ClosetConfirmResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Persist selected preview slots as closet items",
+)
+async def confirm_closet_preview(
+    user_id: CurrentUser,
+    body: ClosetConfirmRequest,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_session),
+):
+    svc = _get_svc(session)
+    saved = await closet_preview_service.confirm_preview(
+        UUID(user_id),
+        preview_session_id=body.preview_session_id,
+        items=body.items,
+        create_item=svc.create_item,
+    )
+    if saved:
+        await cache_service.invalidate_user_ai_cache(await get_redis(), user_id)
+        for item in saved:
+            background_tasks.add_task(similarity_service.update_item_embedding_job, str(item.id))
+    return ClosetConfirmResponse(saved=saved, total_saved=len(saved))
+
+
+@router.post(
+    "/bulk-analyze-preview",
+    response_model=BulkAnalyzePreviewResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Analyze up to 20 images — each file returns its own preview session",
+)
+async def bulk_analyze_preview(
+    user_id: CurrentUser,
+    files: list[UploadFile] = File(...),
+):
+    if len(files) > MAX_BULK_UPLOAD_FILES:
+        raise BadRequestError("Maximum 20 files per bulk upload.")
+
+    user_uuid = UUID(user_id)
+    results: list[BulkAnalyzePreviewFileResult] = []
+    failed: list[BulkPreviewFailure] = []
+
+    for file in files:
+        filename = file.filename or "upload"
+        try:
+            image_bytes, content_type = await read_validated_image(file)
+            preview = await closet_preview_service.analyze_preview(
+                user_uuid,
+                image_bytes=image_bytes,
+                content_type=content_type,
+                filename=file.filename,
+            )
+            results.append(BulkAnalyzePreviewFileResult(filename=filename, preview=preview))
+        except Exception as exc:
+            failed.append(BulkPreviewFailure(filename=filename, error=str(exc)))
+
+    return BulkAnalyzePreviewResponse(results=results, failed=failed)
 
 
 @router.post(
     "/upload",
     response_model=ClosetUploadResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Upload garment image + auto-detect attributes via AI Vision",
+    summary="[Legacy] Upload garment image + auto-save after AI Vision",
+    deprecated=True,
+    description=(
+        "Creates a `closet_items` row immediately. Prefer `POST /closet/analyze-preview` "
+        "followed by `POST /closet/confirm` so users can review before saving."
+    ),
 )
 async def upload_item(
     user_id: CurrentUser,
@@ -177,7 +283,7 @@ async def upload_item(
     svc = _get_svc(session)
     item = await svc.create_item(UUID(user_id), item_data)
     await cache_service.invalidate_user_ai_cache(await get_redis(), user_id)
-    background_tasks.add_task(similarity_service.update_item_embedding, session, str(item.id))
+    background_tasks.add_task(similarity_service.update_item_embedding_job, str(item.id))
     return ClosetUploadResponse(item=item, vision_analysis=vision)
 
 
@@ -185,7 +291,12 @@ async def upload_item(
     "/bulk-upload",
     response_model=BulkUploadResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Upload and analyse up to 20 garment images",
+    summary="[Legacy] Upload and auto-save up to 20 garment images",
+    deprecated=True,
+    description=(
+        "Creates rows immediately per file. Prefer `POST /closet/bulk-analyze-preview` "
+        "then `POST /closet/confirm` per staged session."
+    ),
 )
 async def bulk_upload_items(
     user_id: CurrentUser,
@@ -212,7 +323,7 @@ async def bulk_upload_items(
         try:
             item = await svc.create_item(user_uuid, _item_from_vision(vision, image_url))
             created.append(item)
-            background_tasks.add_task(similarity_service.update_item_embedding, session, str(item.id))
+            background_tasks.add_task(similarity_service.update_item_embedding_job, str(item.id))
         except Exception as exc:
             failed.append(BulkUploadFailure(filename=filename, error=str(exc)))
 
@@ -258,6 +369,7 @@ async def upload_item_async(
         request_type=topics.IMAGE_UPLOADED,
         input_payload=payload,
     )
+    # Commit before Kafka so the upload worker reads a committed ai_requests row.
     await session.commit()
     await event_producer.publish(
         topics.IMAGE_UPLOADED,
@@ -281,7 +393,7 @@ async def upload_item_async(
 async def update_item(item_id: UUID, body: ClosetItemUpdate, user_id: CurrentUser, session: AsyncSession = Depends(get_session)):
     svc = _get_svc(session)
     item = await svc.update_item(item_id, UUID(user_id), body)
-    await similarity_service.update_item_embedding(session, str(item.id))
+    await similarity_service.update_item_embedding_in_request(session, str(item.id))
     return item
 
 

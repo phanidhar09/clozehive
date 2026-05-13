@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Eye, Leaf } from 'lucide-react'
 import type { ClosetItem } from '@/types'
 import { categoryIcon, cn } from '@/lib/utils'
@@ -22,9 +22,16 @@ function fallbackIcon(category?: string) {
 
 export default function RevealCard({ item, onOpen, className }: RevealCardProps) {
   const [revealed, setRevealed] = useState(false)
+  const [imgFailed, setImgFailed] = useState(false)
   const occasions = item.occasion?.filter(Boolean) ?? []
 
   const toggleReveal = () => setRevealed(value => !value)
+
+  const showImage = Boolean(item.image_url) && !imgFailed
+
+  useEffect(() => {
+    setImgFailed(false)
+  }, [item.id, item.image_url])
 
   return (
     <article
@@ -45,11 +52,12 @@ export default function RevealCard({ item, onOpen, className }: RevealCardProps)
       aria-pressed={revealed}
       aria-label={`Reveal details for ${item.name}`}
     >
-      {item.image_url ? (
+      {showImage ? (
         <img
           src={item.image_url}
           alt={item.name}
           loading="lazy"
+          onError={() => setImgFailed(true)}
           className={cn(
             'h-full w-full object-cover transition-transform duration-300 ease-out',
             'group-hover:scale-105',

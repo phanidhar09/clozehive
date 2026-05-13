@@ -1,4 +1,4 @@
-import { Heart, Leaf, Calendar, Tag, Shirt, Trash2 } from 'lucide-react'
+import { Heart, Leaf, Tag, Shirt, Trash2 } from 'lucide-react'
 import type { ClosetItem } from '@/types'
 import Modal from '@/components/ui/Modal'
 import Badge from '@/components/ui/Badge'

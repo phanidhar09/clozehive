@@ -3,20 +3,37 @@
 from __future__ import annotations
 
 import json
-import os
 from collections import defaultdict
 from datetime import date, timedelta
 from typing import Any
 
-import httpx
+from langsmith import traceable
+from openai import AsyncOpenAI
 
+from app.core.config import get_settings
 from app.core.logging import get_logger
+from app.core.openai_tracing import make_openai_client, wrap_openai_client
 from app.services.weather_service import fetch_weather_async, summarise_weather
 
 logger = get_logger("packing_service")
+settings = get_settings()
 
-_OPENAI_URL = "https://api.openai.com/v1/chat/completions"
-_OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+_packing_llm: AsyncOpenAI | None = None
+
+
+def _packing_openai_client() -> AsyncOpenAI | None:
+    global _packing_llm
+    if not settings.openai_api_key:
+        return None
+    if _packing_llm is None:
+        _packing_llm = wrap_openai_client(
+            make_openai_client(settings.openai_api_key, base_url=settings.openai_api_base_url),
+        )
+    return _packing_llm
+
+
+def _packing_chat_model() -> str:
+    return settings.openai_model
 
 _PURPOSE_CATEGORIES: dict[str, list[str]] = {
     "business":  ["tops", "bottoms", "shoes", "outerwear", "accessories"],
@@ -65,6 +82,19 @@ def _format_closet_for_prompt(closet_items: list[dict[str, Any]]) -> str:
 
 # ── AI recommendation call ────────────────────────────────────────────────────
 
+def _per_day_weather_table(weather_days: list[dict[str, Any]]) -> str:
+    """Compact per-day weather table for the AI prompt."""
+    if not weather_days:
+        return ""
+    lines = ["Per-day weather forecast:"]
+    for i, wd in enumerate(weather_days[:14], 1):
+        lines.append(
+            f"  Day {i} ({wd.get('date', '?')}): {wd.get('condition', '?')} | "
+            f"High {wd.get('temp_high', '?')}°C / Low {wd.get('temp_low', '?')}°C"
+        )
+    return "\n".join(lines)
+
+
 async def _ai_packing_recommendations(
     destination: str,
     start_date: str,
@@ -74,13 +104,15 @@ async def _ai_packing_recommendations(
     closet_items: list[dict[str, Any]],
     weather_summary: dict[str, Any],
     notes: str | None,
+    style_profile_context_text: str | None = None,
+    weather_days: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     """
     Ask the LLM which wardrobe items to pack and what else is needed.
     Returns parsed dict or None when AI is unavailable.
     """
-    api_key = os.getenv("OPENAI_API_KEY", "")
-    if not api_key:
+    client = _packing_openai_client()
+    if not client:
         return None
 
     weather_text = (
@@ -89,7 +121,15 @@ async def _ai_packing_recommendations(
         f"low {weather_summary.get('avg_low', 10):.0f}°C, "
         f"{weather_summary.get('rainy_days', 0)} rainy day(s)"
     )
+    per_day_block = _per_day_weather_table(weather_days or weather_summary.get("days", []))
     closet_text = _format_closet_for_prompt(closet_items) if closet_items else "[]"
+
+    style_block = ""
+    if style_profile_context_text and style_profile_context_text.strip():
+        style_block = (
+            "\nPersonalisation (respect fit, sizes, preferred colors, climate comfort):\n"
+            f"{style_profile_context_text.strip()}\n\n"
+        )
 
     prompt = (
         "You are a professional travel stylist. Help pack for this trip.\n\n"
@@ -97,39 +137,39 @@ async def _ai_packing_recommendations(
         f"- Destination: {destination}\n"
         f"- Dates: {start_date} to {end_date} ({trip_days} days)\n"
         f"- Purpose: {purpose}\n"
-        f"- Weather: {weather_text}\n"
-        f"- Notes: {notes or 'None'}\n\n"
+        f"- Weather summary: {weather_text}\n"
+        f"{per_day_block}\n"
+        f"- Notes: {notes or 'None'}\n"
+        f"{style_block}"
         f"User's wardrobe:\n{closet_text}\n\n"
         "From the user's wardrobe, which of these items would you recommend for this trip?\n\n"
         "Return ONLY valid JSON with this exact structure:\n"
         '{"take_from_your_closet": [{"item_id": "<id from wardrobe>", "name": "<exact name>", '
-        '"category": "<category>", "reason": "<why it suits this trip>", '
+        '"category": "<category>", "reason": "<why it suits this trip and its weather>", '
         '"recommended_days": ["Day 1", "Day 2"]}], '
         '"you_might_still_need": [{"name": "<item>", "category": "<category>", '
-        '"reason": "<why needed>"}]}\n\n'
+        '"reason": "<why needed — mention weather if relevant>"}]}\n\n'
         "Rules:\n"
         "- Only include items from the provided wardrobe in take_from_your_closet.\n"
         "- Do not invent wardrobe items not listed above.\n"
-        "- For you_might_still_need: list items the user does NOT own but would help.\n"
+        "- For you_might_still_need: list items the user does NOT own but would help — "
+        "include weather-specific gear (rain jacket for rainy days, thermal layers for cold days, "
+        "breathable tops for hot/sunny days, etc.).\n"
+        "- Assign recommended_days based on the per-day forecast: waterproof items on rainy days, "
+        "light breathable items on hot days, warm layers on cold days.\n"
         "- Prefer versatile items reusable across multiple days.\n"
-        "- Consider weather, destination, purpose, and trip duration.\n"
         "- Keep recommendations practical and specific."
     )
 
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                _OPENAI_URL,
-                json={
-                    "model": _OPENAI_MODEL,
-                    "max_tokens": 2000,
-                    "response_format": {"type": "json_object"},
-                    "messages": [{"role": "user", "content": prompt}],
-                },
-                headers={"Authorization": f"Bearer {api_key}"},
-            )
-            resp.raise_for_status()
-        content = resp.json()["choices"][0]["message"]["content"]
+        resp = await client.chat.completions.create(
+            model=_packing_chat_model(),
+            max_tokens=2000,
+            response_format={"type": "json_object"},
+            messages=[{"role": "user", "content": prompt}],
+            timeout=30.0,
+        )
+        content = resp.choices[0].message.content
         return json.loads(content) if isinstance(content, str) else content
     except Exception as exc:
         logger.warning("ai_packing_error", error=str(exc))
@@ -255,20 +295,110 @@ def _rule_based_packing_sections(
                 "reason": f"You have no {category} in your closet — consider purchasing.",
             })
 
-    if weather_summary.get("rainy_days", 0) >= 1:
+    avg_high = weather_summary.get("avg_high", 20)
+    avg_low = weather_summary.get("avg_low", 10)
+    rainy_days = weather_summary.get("rainy_days", 0)
+    dominant = (weather_summary.get("dominant_condition") or "").lower()
+
+    if rainy_days >= 1:
         still_need.append({
             "name": "Compact umbrella",
             "category": "accessories",
-            "reason": "Rain is expected during the trip.",
+            "reason": f"Rain expected on {rainy_days} day(s) of the trip.",
         })
-    if weather_summary.get("avg_high", 20) >= 28 or purpose == "beach":
+        still_need.append({
+            "name": "Waterproof jacket / rain mac",
+            "category": "outerwear",
+            "reason": "Keeps you dry on rainy days.",
+        })
+
+    if avg_high >= 28 or purpose == "beach":
         still_need.append({
             "name": "Sunscreen SPF 50+",
             "category": "essentials",
             "reason": "Sun protection for warm/beach conditions.",
         })
+        still_need.append({
+            "name": "Sunglasses",
+            "category": "accessories",
+            "reason": "Eye protection in bright sunny conditions.",
+        })
+        still_need.append({
+            "name": "Sun hat",
+            "category": "accessories",
+            "reason": "Head protection against strong sun.",
+        })
+
+    if avg_high <= 12 or any(w in dominant for w in ("cold", "snow", "freez", "frost")):
+        still_need.append({
+            "name": "Thermal base layer",
+            "category": "essentials",
+            "reason": f"Cold temperatures expected (avg high {avg_high:.0f}°C).",
+        })
+        still_need.append({
+            "name": "Beanie / warm hat",
+            "category": "accessories",
+            "reason": "Head warmth for cold weather.",
+        })
+        still_need.append({
+            "name": "Gloves",
+            "category": "accessories",
+            "reason": "Hand warmth in cold conditions.",
+        })
+
+    if avg_low < 0 or "snow" in dominant or "freez" in dominant:
+        still_need.append({
+            "name": "Heavy insulated coat",
+            "category": "outerwear",
+            "reason": f"Sub-zero or snowy conditions expected (avg low {avg_low:.0f}°C).",
+        })
+        still_need.append({
+            "name": "Thermal leggings",
+            "category": "essentials",
+            "reason": "Extra insulation for freezing temperatures.",
+        })
+
+    if "wind" in dominant or avg_high < 18:
+        still_need.append({
+            "name": "Windbreaker / light jacket",
+            "category": "outerwear",
+            "reason": "Windy or cool conditions — a windbreaker adds comfort.",
+        })
+
+    if purpose == "beach":
+        still_need.append({
+            "name": "Swimwear",
+            "category": "essentials",
+            "reason": "Beach trip essential.",
+        })
 
     return take_from_closet, still_need
+
+
+# ── Weather alert builder ─────────────────────────────────────────────────────
+
+def _weather_alerts(weather_summary: dict[str, Any], trip_days: int) -> list[str]:
+    alerts: list[str] = []
+    avg_high = weather_summary.get("avg_high", 20)
+    avg_low = weather_summary.get("avg_low", 10)
+    rainy_days = weather_summary.get("rainy_days", 0)
+    dominant = (weather_summary.get("dominant_condition") or "").lower()
+
+    if rainy_days >= trip_days // 2:
+        alerts.append(f"Rain expected on {rainy_days}/{trip_days} days — waterproof layers are essential.")
+    elif rainy_days >= 1:
+        alerts.append(f"Rain expected on {rainy_days} day(s) — pack an umbrella and light waterproof layer.")
+    if avg_high >= 35:
+        alerts.append(f"Extreme heat expected ({avg_high:.0f}°C) — pack breathable fabrics and stay hydrated.")
+    elif avg_high >= 28:
+        alerts.append(f"Warm weather ({avg_high:.0f}°C) — prioritise light, breathable clothing and sun protection.")
+    if avg_low < 0:
+        alerts.append(f"Sub-zero nights ({avg_low:.0f}°C) — thermal layers and insulated footwear are a must.")
+    elif avg_high <= 12:
+        alerts.append(f"Cold conditions (avg high {avg_high:.0f}°C) — bring warm layers and outerwear.")
+    if "snow" in dominant:
+        alerts.append("Snow forecast — waterproof boots and heavy insulation recommended.")
+    return alerts
 
 
 # ── Daily outfit plan builder ─────────────────────────────────────────────────
@@ -280,14 +410,13 @@ def _build_daily_plan(
     weather_days: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """
-    Build a per-day outfit plan by grouping take_from_closet items by recommended_days.
-    Includes per-day weather data when provided.
-    Only produces an entry for a day when at least one item is assigned to it.
-    Caps at 14 days to avoid enormous lists.
+    Build a per-day outfit plan. Every day gets an entry with weather context;
+    closet items are slotted in based on their recommended_days labels.
+    Days without AI-assigned items fall back to a round-robin suggestion.
+    Caps at 14 days.
     """
     start = date.fromisoformat(start_date)
     day_map: dict[str, list[dict[str, Any]]] = {}
-
     for item in take_from_closet:
         for label in (item.get("recommended_days") or []):
             day_map.setdefault(label, []).append(item)
@@ -297,29 +426,57 @@ def _build_daily_plan(
         for wd in weather_days:
             weather_by_date[wd["date"]] = wd
 
+    # Round-robin fallback pool when no specific items are assigned
+    fallback_pool = take_from_closet or []
+
     plan: list[dict[str, Any]] = []
     for i in range(min(trip_days, 14)):
         label = f"Day {i + 1}"
-        items_for_day = day_map.get(label, [])
-        if not items_for_day:
-            continue
         day_date = (start + timedelta(days=i)).isoformat()
+        weather = weather_by_date.get(day_date)
+
+        items_for_day = day_map.get(label, [])
+        if not items_for_day and fallback_pool:
+            # Rotate through available items so each day has something suggested
+            items_for_day = [fallback_pool[i % len(fallback_pool)]]
+
         entry: dict[str, Any] = {
             "date": day_date,
             "day_label": label,
-            "outfit_name": f"{label} outfit",
+            "outfit_name": (
+                f"{label} — {weather['condition']} Look" if weather else f"{label} outfit"
+            ),
             "items": [it["name"] for it in items_for_day],
             "item_ids": [it["item_id"] for it in items_for_day if it.get("item_id")],
         }
-        if day_date in weather_by_date:
-            entry["weather"] = weather_by_date[day_date]
+        if weather:
+            entry["weather"] = weather
+            entry["weather_note"] = _weather_outfit_note(weather)
         plan.append(entry)
 
     return plan
 
 
+def _weather_outfit_note(weather_day: dict[str, Any]) -> str:
+    """Short styling tip based on the day's forecast."""
+    condition = (weather_day.get("condition") or "").lower()
+    high = weather_day.get("temp_high", 20)
+    if "rain" in condition or "shower" in condition or "drizzle" in condition:
+        return "Rainy day — wear waterproof outer layer and waterproof footwear."
+    if "snow" in condition or "freez" in condition:
+        return "Snowy/freezing — insulated coat, thermal layers, waterproof boots essential."
+    if high >= 30:
+        return f"Hot day ({high}°C) — light breathable fabrics, sun hat and sunscreen."
+    if high <= 10:
+        return f"Cold day ({high}°C) — layer up: thermal base + warm mid-layer + coat."
+    if "wind" in condition:
+        return "Windy — a windbreaker or fitted jacket will add comfort."
+    return f"Mild conditions ({high}°C) — versatile layers work well."
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
+@traceable(name="gateway_packing_generate_list", run_type="chain")
 async def generate_packing_list(
     destination: str,
     start_date: str,
@@ -327,6 +484,9 @@ async def generate_packing_list(
     purpose: str,
     closet_items: list[dict[str, Any]],
     notes: str | None = None,
+    *,
+    style_profile_context_text: str | None = None,
+    user_style_profile: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     try:
         start = date.fromisoformat(start_date)
@@ -334,6 +494,13 @@ async def generate_packing_list(
         trip_days = max(1, (end - start).days + 1)
         weather_days = await fetch_weather_async(destination, start_date, end_date)
         weather_summary = summarise_weather(weather_days)
+        if weather_summary.get("data_source") != "live":
+            logger.warning(
+                "packing_weather_fallback",
+                destination=destination,
+                data_source=weather_summary.get("data_source"),
+                hint="Weather is estimated from static profiles — packing list may not reflect actual forecast.",
+            )
 
         # ── Backward-compatible packing_list (rule-based) ─────────────────────
         by_category: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -368,15 +535,33 @@ async def generate_packing_list(
                     "available_in_closet": False,
                 })
 
+        avg_high = weather_summary.get("avg_high", 20)
+        avg_low = weather_summary.get("avg_low", 10)
+        dominant = (weather_summary.get("dominant_condition") or "").lower()
+
         if weather_summary["rainy_days"]:
             packing_list.append({"name": "Compact umbrella", "category": "accessories", "quantity": 1, "reason": "Rain protection", "available_in_closet": False})
-        if weather_summary["avg_high"] >= 28 or purpose == "beach":
+            packing_list.append({"name": "Waterproof jacket", "category": "outerwear", "quantity": 1, "reason": "Stay dry on rainy days", "available_in_closet": False})
+        if avg_high >= 28 or purpose == "beach":
             packing_list.append({"name": "Sunscreen SPF 50+", "category": "essentials", "quantity": 1, "reason": "Sun protection", "available_in_closet": False})
+            packing_list.append({"name": "Sunglasses", "category": "accessories", "quantity": 1, "reason": "Eye protection in strong sun", "available_in_closet": False})
+        if avg_high <= 12 or any(w in dominant for w in ("cold", "snow", "freez")):
+            packing_list.append({"name": "Thermal base layer", "category": "essentials", "quantity": 2, "reason": f"Cold weather (avg high {avg_high:.0f}°C)", "available_in_closet": False})
+            packing_list.append({"name": "Warm hat & gloves", "category": "accessories", "quantity": 1, "reason": "Head and hand warmth in cold", "available_in_closet": False})
+        if avg_low < 0 or "snow" in dominant:
+            packing_list.append({"name": "Heavy insulated coat", "category": "outerwear", "quantity": 1, "reason": f"Sub-zero/snowy conditions (avg low {avg_low:.0f}°C)", "available_in_closet": False})
+        if purpose == "beach":
+            packing_list.append({"name": "Swimwear", "category": "essentials", "quantity": 2, "reason": "Beach trip essential", "available_in_closet": False})
 
         # ── New personalised sections ─────────────────────────────────────────
+        merged_ctx = style_profile_context_text
+        if merged_ctx is None and user_style_profile:
+            merged_ctx = user_style_profile.get("style_profile_context_text")
         ai_data = await _ai_packing_recommendations(
             destination, start_date, end_date, purpose, trip_days,
             closet_items, weather_summary, notes,
+            style_profile_context_text=merged_ctx,
+            weather_days=weather_days,
         )
 
         if ai_data:
@@ -388,6 +573,9 @@ async def generate_packing_list(
 
         daily_plan = _build_daily_plan(take_from_closet, start_date, trip_days, weather_days)
 
+        weather_alerts = _weather_alerts(weather_summary, trip_days)
+        missing_alerts = [f"Missing: {', '.join({i['category'] for i in missing_items})}"] if missing_items else []
+
         return {
             "destination": destination,
             "start_date": start_date,
@@ -395,15 +583,18 @@ async def generate_packing_list(
             "purpose": purpose,
             "duration_days": trip_days,
             "weather_summary": weather_summary,
+            "weather_forecast": weather_days,
             # ── Existing fields (backward-compatible) ─────────────────────────
             "packing_list": packing_list,
             "items": packing_list,
             "missing_items": missing_items,
             "daily_plan": daily_plan,
-            "alerts": [f"Missing: {', '.join({i['category'] for i in missing_items})}"] if missing_items else [],
+            "alerts": missing_alerts + weather_alerts,
             "summary": (
                 f"Packing list for your {purpose} trip to {destination}. "
-                f"Expect {weather_summary['dominant_condition'].lower()} conditions."
+                f"Expect {weather_summary['dominant_condition'].lower()} conditions "
+                f"(avg {weather_summary['avg_high']:.0f}°C / {weather_summary['avg_low']:.0f}°C). "
+                f"{weather_summary.get('recommendation', '')}"
             ),
             "notes": notes,
             # ── New personalised fields ───────────────────────────────────────

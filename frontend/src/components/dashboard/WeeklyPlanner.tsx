@@ -38,7 +38,7 @@ export default function WeeklyPlanner() {
       .then(d => { if (!cancelled) setWeather(d) })
       .catch(e => { if (!cancelled) setWeatherErr(e instanceof Error ? e.message : 'Weather unavailable') })
     return () => { cancelled = true }
-  }, [coords?.lat, coords?.lon])
+  }, [coords])
 
   const generatePlan = useCallback(async () => {
     if (!weather) return

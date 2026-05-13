@@ -1,8 +1,38 @@
-# ─────────────────────────────────────────────────────────────────────────────
-#  CLOZEHIVE — Local Development Docker Compose
-#  Start: docker compose up --build
-#  Stop:  docker compose down -v
-# ─────────────────────────────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+#  CLOZEHIVE — Hybrid AI Architecture
+#
+#  ── Default stack ──────────────────────────────────────────────────────────────
+#  Starts: postgres, redis, api-gateway, ai-agent, mcp-weather, mcp-outfit,
+#          mcp-packing, frontend, nginx, migrate
+#  Command:
+#    docker compose up --build
+#
+#  Architecture:
+#    Frontend → nginx → api-gateway (auth/CRUD)
+#                    └→ api-gateway /ai/* → ai-agent → MCP tools
+#
+#  The api-gateway handles auth, closet, trips, and profile CRUD.
+#  Chat/outfit generation use OpenAI from the gateway; WebSocket chat and trip packing
+#  call ai-agent (MCP tools). Host .env may set AI_AGENT_URL=localhost — the gateway
+#  service below forces http://ai-agent:8001 so Docker networking is never wrong.
+#  ai-agent MCP tools:
+#    - mcp-weather  :8010  weather forecasts
+#    - mcp-outfit   :8012  outfit suggestions
+#    - mcp-packing  :8013  trip packing lists
+#  The api-gateway falls back to in-gateway packing_service if ai-agent is down.
+#
+#  ── Optional: Kafka async stack ───────────────────────────────────────────────
+#  Command:
+#    docker compose --profile worker up --build
+#  Set KAFKA_ENABLED=true in .env to enable async /ai/* routes and ai-worker.
+#
+#  ── Optional: Vision MCP (GPU / high-memory) ──────────────────────────────────
+#  Command:
+#    docker compose --profile vision up --build
+#
+#  Stop / reset volumes:
+#    docker compose down -v
+# ═══════════════════════════════════════════════════════════════════════════════
 
 x-restart: &restart
   restart: unless-stopped
@@ -19,10 +49,14 @@ x-python-env: &python-env
   OPENAI_API_KEY: ${OPENAI_API_KEY}
   ENVIRONMENT: ${ENVIRONMENT:-development}
   DEBUG: ${DEBUG:-false}
+  LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}
+  LANGSMITH_ENDPOINT: ${LANGSMITH_ENDPOINT:-https://api.smith.langchain.com}
+  LANGSMITH_API_KEY: ${LANGSMITH_API_KEY}
+  LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-clozehive1}
 
 services:
 
-  # ── Infrastructure ──────────────────────────────────────────────────────────
+  # ── Infrastructure (MVP default) ──────────────────────────────────────────
 
   postgres:
     image: pgvector/pgvector:pg16
@@ -63,7 +97,10 @@ services:
       timeout: 3s
       retries: 5
 
+  # ── Kafka (optional — profiles ai + worker) ─────────────────────────────────
+
   redpanda:
+    profiles: ["worker"]
     image: redpandadata/redpanda:v24.2.9
     <<: [*restart, *logging]
     command:
@@ -95,6 +132,7 @@ services:
       retries: 10
 
   kafka-topics:
+    profiles: ["worker"]
     image: redpandadata/redpanda:v24.2.9
     depends_on:
       redpanda:
@@ -110,6 +148,7 @@ services:
     restart: "no"
 
   redpanda-console:
+    profiles: ["worker"]
     image: redpandadata/console:v2.7.2
     <<: [*restart, *logging]
     environment:
@@ -120,12 +159,12 @@ services:
       redpanda:
         condition: service_healthy
 
-  # ── MCP Microservices ───────────────────────────────────────────────────────
+  # ── MCP Tool Servers (default — core AI features) ────────────────────────
+  #
+  # These are called exclusively by ai-agent via LangChain MCP adapters (SSE).
+  # The api-gateway never calls them directly; it sends all AI requests to ai-agent.
 
-  # CONSOLIDATED: logic moved to api-gateway/app/services/
-  # Remove this block after verifying the consolidated version works.
   mcp-weather:
-    profiles: ["legacy-mcp"]
     build:
       context: ./services/mcp
       dockerfile: weather/Dockerfile
@@ -133,6 +172,7 @@ services:
     environment:
       <<: *python-env
       WEATHER_PORT: "8010"
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
     ports:
       - "8010:8010"
     healthcheck:
@@ -142,10 +182,45 @@ services:
       start_period: 15s
       retries: 3
 
-  # CONSOLIDATED: logic moved to api-gateway/app/services/
-  # Remove this block after verifying the consolidated version works.
+  mcp-outfit:
+    build:
+      context: ./services/mcp
+      dockerfile: outfit/Dockerfile
+    <<: [*restart, *logging]
+    environment:
+      <<: *python-env
+      OUTFIT_PORT: "8012"
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
+    ports:
+      - "8012:8012"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket,sys; s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1',8012)); s.close()\""]
+      interval: 20s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  mcp-packing:
+    build:
+      context: ./services/mcp
+      dockerfile: packing/Dockerfile
+    <<: [*restart, *logging]
+    environment:
+      <<: *python-env
+      PACKING_PORT: "8013"
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
+    ports:
+      - "8013:8013"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket,sys; s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1',8013)); s.close()\""]
+      interval: 20s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  # ── Vision MCP (optional — higher resource usage) ───────────────────────────
   mcp-vision:
-    profiles: ["legacy-mcp"]
+    profiles: ["vision", "legacy-mcp"]
     build:
       context: ./services/mcp
       dockerfile: vision/Dockerfile
@@ -153,6 +228,7 @@ services:
     environment:
       <<: *python-env
       VISION_PORT: "8011"
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
     ports:
       - "8011:8011"
     healthcheck:
@@ -162,35 +238,7 @@ services:
       start_period: 15s
       retries: 3
 
-  # CONSOLIDATED: logic moved to api-gateway/app/services/
-  # Remove this block after verifying the consolidated version works.
-  mcp-outfit:
-    profiles: ["legacy-mcp"]
-    build:
-      context: ./services/mcp
-      dockerfile: outfit/Dockerfile
-    <<: [*restart, *logging]
-    environment:
-      <<: *python-env
-      OUTFIT_PORT: "8012"
-    ports:
-      - "8012:8012"
-
-  # CONSOLIDATED: logic moved to api-gateway/app/services/
-  # Remove this block after verifying the consolidated version works.
-  mcp-packing:
-    profiles: ["legacy-mcp"]
-    build:
-      context: ./services/mcp
-      dockerfile: packing/Dockerfile
-    <<: [*restart, *logging]
-    environment:
-      <<: *python-env
-      PACKING_PORT: "8013"
-    ports:
-      - "8013:8013"
-
-  # ── AI Agent ────────────────────────────────────────────────────────────────
+  # ── AI Agent (default — hybrid AI layer) ─────────────────────────────────────
 
   ai-agent:
     build:
@@ -204,16 +252,28 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       VECTOR_STORE: pgvector
       OPENAI_MODEL: gpt-4o
-      LANGSMITH_TRACING: ${LANGSMITH_TRACING:-false}
-      LANGSMITH_ENDPOINT: ${LANGSMITH_ENDPOINT:-https://api.smith.langchain.com}
-      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY}
-      LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-clozehive}
+      # MCP tools are ON by default — mcp-weather, mcp-outfit, mcp-packing always start.
+      ENABLE_MCP_TOOLS: ${ENABLE_MCP_TOOLS:-true}
+      ENABLE_MCP_VISION: ${ENABLE_MCP_VISION:-false}
+      MCP_WEATHER_URL: ${MCP_WEATHER_URL:-http://mcp-weather:8010/sse}
+      MCP_OUTFIT_URL: ${MCP_OUTFIT_URL:-http://mcp-outfit:8012/sse}
+      MCP_PACKING_URL: ${MCP_PACKING_URL:-http://mcp-packing:8013/sse}
+      MCP_VISION_URL: ${MCP_VISION_URL:-http://mcp-vision:8011/sse}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
+      # Pin official OpenAI API in containers; override with compose.override.yml for Azure/other bases.
+      OPENAI_API_BASE_URL: https://api.openai.com/v1
     ports:
       - "8001:8001"
     depends_on:
       redis:
         condition: service_healthy
       postgres:
+        condition: service_healthy
+      mcp-weather:
+        condition: service_healthy
+      mcp-outfit:
+        condition: service_healthy
+      mcp-packing:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health')\""]
@@ -222,13 +282,16 @@ services:
       start_period: 60s
       retries: 3
 
-  # ── API Gateway ─────────────────────────────────────────────────────────────
+  # ── API Gateway (MVP default) ────────────────────────────────────────────────
 
   api-gateway:
     build:
       context: ./services/api-gateway
       dockerfile: Dockerfile
     <<: [*restart, *logging]
+    # Load repo-root `.env` into the container (same file Compose uses for ${VAR} substitution).
+    env_file:
+      - .env
     environment:
       <<: *python-env
       PORT: "8000"
@@ -238,15 +301,15 @@ services:
       DB_POOL_RECYCLE: ${DB_POOL_RECYCLE:-300}
       REDIS_URL: redis://redis:6379/0
       REDIS_CHECK_ON_READY: ${REDIS_CHECK_ON_READY:-true}
+      # Must be the Compose service name, not localhost from .env (host dev uses localhost).
       AI_AGENT_URL: http://ai-agent:8001
-      KAFKA_ENABLED: "true"
-      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
-      FAISS_ENABLED: "true"
-      FAISS_DIMENSION: "1536"
-      FAISS_INDEX_PATH: "/app/data/faiss/index.bin"
-      FAISS_ID_MAP_PATH: "/app/data/faiss/id_map.json"
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
+      # Override stale OPENAI_* proxy URLs from .env for predictable behavior in Compose.
+      OPENAI_API_BASE_URL: https://api.openai.com/v1
+      KAFKA_ENABLED: ${KAFKA_ENABLED:-false}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-redpanda:9092}
       JWT_SECRET: ${JWT_SECRET}
-      ALLOWED_ORIGINS: http://localhost:3000,http://localhost:3001,http://localhost:5173
+      ALLOWED_ORIGINS: http://localhost,http://localhost:80,http://localhost:3000,http://localhost:3001,http://localhost:5173
       # Google OAuth — set these in your .env file
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
@@ -256,6 +319,11 @@ services:
       # or mount a credentials file and set GOOGLE_APPLICATION_CREDENTIALS to its path
       FIREBASE_CREDENTIALS_JSON: ${FIREBASE_CREDENTIALS_JSON:-}
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      # Google Cloud Storage — must be passed explicitly (container does not load repo-root .env).
+      GCS_BUCKET_NAME: ${GCS_BUCKET_NAME:-}
+      GCS_PROJECT_ID: ${GCS_PROJECT_ID:-}
+      GCS_CREDENTIALS_JSON: ${GCS_CREDENTIALS_JSON:-}
+      GCS_CREDENTIALS_FILE: ${GCS_CREDENTIALS_FILE:-}
     ports:
       - "8000:8000"
     depends_on:
@@ -263,24 +331,24 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      redpanda:
-        condition: service_healthy
       ai-agent:
         condition: service_started
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/live"]
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/live')\""]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
     volumes:
       - ./services/api-gateway/app:/app/app  # live code mount — no rebuild needed for Python changes
-      - faiss_data:/app/data/faiss
       - uploads:/app/uploads
+      # Real GCP key JSON at repo root (see .env GCS_CREDENTIALS_FILE). Create from IAM → Keys → JSON.
+      - ./gcp-sa.json:/run/secrets/gcp-sa.json:ro
 
-  # ── AI Worker ───────────────────────────────────────────────────────────────
+  # ── AI Worker (optional — profile worker) ───────────────────────────────────
 
   ai-worker:
+    profiles: ["worker"]
     build:
       context: ./services/ai-worker
       dockerfile: Dockerfile
@@ -303,7 +371,7 @@ services:
     volumes:
       - uploads:/app/uploads
 
-  # ── DB Migrations ────────────────────────────────────────────────────────────
+  # ── DB Migrations (MVP default — run-once container) ───────────────────────
 
   migrate:
     build:
@@ -319,21 +387,23 @@ services:
         condition: service_healthy
     restart: "no"
 
-  # ── Frontend ─────────────────────────────────────────────────────────────────
+  # ── Frontend (MVP default) ──────────────────────────────────────────────────
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        # Empty = browser calls same origin; frontend container nginx proxies `/api` + `/uploads` → api-gateway.
+        # Set a full URL only if you build a static bundle meant for a separate API host.
+        VITE_API_URL: ${VITE_API_URL:-}
     <<: [*restart, *logging]
-    environment:
-      VITE_API_URL: http://localhost:8000
     ports:
       - "${FRONTEND_HOST_PORT:-3001}:3000"
     depends_on:
       - api-gateway
 
-  # ── Nginx Reverse Proxy ───────────────────────────────────────────────────
+  # ── Nginx Reverse Proxy (MVP default) ───────────────────────────────────────
 
   nginx:
     image: nginx:alpine
@@ -350,5 +420,4 @@ volumes:
   postgres_data:
   redis_data:
   redpanda_data:
-  faiss_data:
   uploads:

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   Plane, Calendar, MapPin, Loader2, ArrowLeft, CheckCircle2,
   ShoppingCart, Shirt, Star, BookmarkCheck, BookmarkPlus, Bookmark,
@@ -10,8 +10,33 @@ import Badge from '@/components/ui/Badge'
 import GlassCard from '@/components/ui/GlassCard'
 import { useApp } from '@/store'
 import { tripsApi, outfitsApi } from '@/lib/api'
-import { useAsyncError } from '@/hooks/useAsyncError'
 import type { DailyOutfitPlan, PackingItem, PackingItemDetailed, PackingItemNeeded, PackingPlan, Trip } from '@/types'
+
+function tripApiErr(err: unknown, fallback: string): string {
+  type ApiErr = {
+    response?: {
+      data?: {
+        message?: string
+        error?: string
+        detail?: string | Array<{ loc?: (string | number)[]; msg?: string }>
+      }
+    }
+  }
+  const d = (err as ApiErr)?.response?.data
+  let msg: string | undefined
+  if (typeof d?.detail === 'string') msg = d.detail
+  else if (Array.isArray(d?.detail)) {
+    msg = d.detail
+      .map(e => {
+        const field = Array.isArray(e.loc) ? e.loc.slice(1).join('.') : ''
+        return field ? `${field}: ${e.msg ?? ''}` : (e.msg ?? '')
+      })
+      .filter(Boolean)
+      .join(' · ')
+  }
+  msg = msg ?? d?.message ?? d?.error ?? (err instanceof Error ? err.message : undefined)
+  return msg?.trim() ? msg : fallback
+}
 
 const PURPOSE_OPTIONS = [
   { value: 'leisure', label: '🌴 Leisure / Holiday' },
@@ -362,13 +387,15 @@ function PackingResult({
 
 export default function TravelPlanner() {
   const { closetItems } = useApp()
-  const throwAsyncError = useAsyncError()
 
   // ── Create trip flow ──────────────────────────────────────────────────────
   const [form, setForm] = useState({ destination: '', start_date: '', end_date: '', purpose: 'leisure', notes: '' })
   const [loading, setLoading] = useState(false)
   const [trip, setTrip] = useState<Trip | null>(null)
   const [trips, setTrips] = useState<Trip[]>([])
+  const [tripsLoadError, setTripsLoadError] = useState<string | null>(null)
+  const [tripsLoading, setTripsLoading] = useState(false)
+  const [tripDeleteError, setTripDeleteError] = useState<string | null>(null)
   const [packingList, setPackingList] = useState<PackingPlan | null>(null)
   const [packingError, setPackingError] = useState<string | null>(null)
   const [packingLoading, setPackingLoading] = useState(false)
@@ -395,14 +422,19 @@ export default function TravelPlanner() {
   const [savedSavedOutfits, setSavedSavedOutfits] = useState<Record<string, boolean>>({})
   const [savedSavingOutfit, setSavedSavingOutfit] = useState<Record<string, boolean>>({})
 
-  const loadTrips = async () => {
+  const loadTrips = useCallback(async () => {
+    setTripsLoadError(null)
+    setTripsLoading(true)
     try {
       const list = await tripsApi.list()
       setTrips(list)
-    } catch (err) {
-      throwAsyncError(err instanceof Error ? err : new Error('Failed to load trips'))
+    } catch (err: unknown) {
+      setTrips([])
+      setTripsLoadError(tripApiErr(err, 'Could not load trips. Check your connection and try again.'))
+    } finally {
+      setTripsLoading(false)
     }
-  }
+  }, [])
 
   const loadSavedTrips = async () => {
     setSavedTripsLoading(true)
@@ -418,8 +450,8 @@ export default function TravelPlanner() {
 
   // Load trips list on mount so existing trips are visible after login/refresh
   useEffect(() => {
-    loadTrips()
-  }, [])
+    void loadTrips()
+  }, [loadTrips])
 
   useEffect(() => {
     if (activeTab === 'saved') loadSavedTrips()
@@ -470,8 +502,8 @@ export default function TravelPlanner() {
         }
       }
       await loadTrips()
-    } catch (err) {
-      throwAsyncError(err instanceof Error ? err : new Error('Failed to create trip'))
+    } catch (err: unknown) {
+      setFormError(tripApiErr(err, 'Failed to create trip. Please try again.'))
     } finally {
       setLoading(false)
     }
@@ -489,8 +521,8 @@ export default function TravelPlanner() {
       // Refresh saved trips list silently
       const saved = await tripsApi.listSaved()
       setSavedTrips(saved)
-    } catch (err) {
-      setSaveError(err instanceof Error ? err.message : 'Failed to save planner. Please try again.')
+    } catch (err: unknown) {
+      setSaveError(tripApiErr(err, 'Failed to save planner. Please try again.'))
     } finally {
       setSavingPlanner(false)
     }
@@ -534,9 +566,10 @@ export default function TravelPlanner() {
   }
 
   const handleDeleteTrip = async (tripId: string) => {
+    setTripDeleteError(null)
     try {
       await tripsApi.delete(tripId)
-      setTrips(trips.filter(t => t.id !== tripId))
+      setTrips(prev => prev.filter(t => t.id !== tripId))
       if (trip?.id === tripId) {
         setTrip(null)
         setPackingList(null)
@@ -544,8 +577,8 @@ export default function TravelPlanner() {
         setShowForm(true)
         setPlannerSaved(false)
       }
-    } catch (err) {
-      throwAsyncError(err instanceof Error ? err : new Error('Failed to delete trip'))
+    } catch (err: unknown) {
+      setTripDeleteError(tripApiErr(err, 'Could not delete trip. Please try again.'))
     }
   }
 
@@ -658,6 +691,46 @@ export default function TravelPlanner() {
       {/* ── NEW TRIP TAB ─────────────────────────────────────────────────── */}
       {activeTab === 'new' && (
         <>
+          {tripsLoading && trips.length === 0 && !tripsLoadError && (
+            <div className="card p-4 flex items-center gap-3 text-slate-500 dark:text-white/40 text-sm">
+              <Loader2 size={18} className="animate-spin flex-shrink-0" /> Loading your trips…
+            </div>
+          )}
+
+          {tripsLoadError && (
+            <div className="card p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm flex flex-col sm:flex-row sm:items-center gap-3">
+              <div className="flex items-start gap-2 flex-1 min-w-0">
+                <AlertCircle size={18} className="flex-shrink-0 mt-0.5" />
+                <span>{tripsLoadError}</span>
+              </div>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => void loadTrips()}
+                disabled={tripsLoading}
+                className="flex items-center justify-center gap-2 sm:flex-shrink-0"
+              >
+                {tripsLoading ? <><Loader2 size={14} className="animate-spin" /> Retrying…</> : 'Retry'}
+              </Button>
+            </div>
+          )}
+
+          {tripDeleteError && (
+            <div className="card p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200 text-sm flex items-start justify-between gap-3">
+              <span className="flex items-start gap-2">
+                <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
+                {tripDeleteError}
+              </span>
+              <button
+                type="button"
+                onClick={() => setTripDeleteError(null)}
+                className="text-xs font-medium underline flex-shrink-0"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
           {closetItems.length === 0 && (
             <div className="card p-6 text-center space-y-3">
               <Plane size={32} className="mx-auto text-slate-300 dark:text-white/20" />
@@ -996,7 +1069,7 @@ export default function TravelPlanner() {
                   <div>
                     <p className="font-semibold text-slate-700 dark:text-white">No saved planners yet</p>
                     <p className="text-sm text-slate-500 dark:text-white/40 mt-1 max-w-xs mx-auto">
-                      Generate a trip packing planner and click "Save Complete Planner" to access it here later.
+                      Generate a trip packing planner and click &ldquo;Save Complete Planner&rdquo; to access it here later.
                     </p>
                   </div>
                   <button

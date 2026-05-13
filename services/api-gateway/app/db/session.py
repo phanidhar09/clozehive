@@ -1,6 +1,34 @@
 """
 Async SQLAlchemy session factory + connection pool.
-Use get_session() as a FastAPI dependency to get a per-request session.
+
+Transaction policy
+------------------
+``get_session()`` is the **single owner** of commit/rollback for normal HTTP
+handlers that depend on it:
+
+- Handlers and services should use ``session.add`` / ``session.delete``,
+  ``await session.flush()`` when IDs are needed before commit, and
+  ``await session.refresh(obj)`` after flush when returning ORM objects.
+- **Do not** call ``session.commit()`` from services or from routes except
+  for documented exceptions below.
+
+Exceptions (explicit commit **before** out-of-process side effects)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Some routes **must** commit so other connections (Kafka consumers, workers)
+see rows immediately. In those cases commit in the route **after** DB writes
+and **before** ``publish``::
+
+    await create_request(session, ...)
+    await session.commit()  # required: consumer reads ai_requests
+    await event_producer.publish(...)
+
+A second commit at the end of the request (from ``get_session``) is harmless:
+the session begins a new transaction after an explicit commit, and an empty
+commit is a no-op.
+
+Background tasks that run **after** the response must not rely on the request
+session lifecycle; use :func:`app.services.similarity_service.update_item_embedding_job`
+or open a new ``AsyncSessionLocal`` scope there.
 """
 
 from __future__ import annotations
@@ -47,7 +75,7 @@ AsyncSessionLocal = async_sessionmaker(
 # ── FastAPI dependency ────────────────────────────────────────────────────────
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
-    """Yield a database session; rolls back on error, always closes."""
+    """Yield a request-scoped session; commit on success, rollback on errors."""
     async with AsyncSessionLocal() as session:
         try:
             yield session

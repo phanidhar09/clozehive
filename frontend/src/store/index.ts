@@ -6,7 +6,7 @@ import { tokenStorage, authApi, closetApi } from '@/lib/api'
 //  Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface AppState {
+export interface AppState {
   // ── Theme ──────────────────────────────────────────────────────────────────
   colorScheme: ColorScheme
   toggleColorScheme: () => void
@@ -83,7 +83,13 @@ export function initColorSchemeBeforeRender(): ColorScheme {
 function loadPersistedUser(): AuthUser | null {
   try {
     const raw = localStorage.getItem(USER_KEY)
-    return raw ? (JSON.parse(raw) as AuthUser) : null
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    // Migrate: legacy format stored 'name', current format uses 'display_name'
+    if (!parsed.display_name && parsed.name) {
+      parsed.display_name = parsed.name
+    }
+    return parsed as unknown as AuthUser
   } catch {
     return null
   }
@@ -101,7 +107,8 @@ function clearPersistedUser() {
 //  State factory (called inside a React component / Provider)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function createAppState(): AppState {
+/** Full app hook bundle — called once from {@link AppProvider}. Named `use*` for react-hooks/rules-of-hooks. */
+export function useCreateAppState(): AppState {
 
   // ── Theme ──────────────────────────────────────────────────────────────────
 

@@ -29,7 +29,15 @@ def trip_payload(destination: str = "Paris") -> dict:
 
 
 async def create_trip(async_client: AsyncClient, headers: dict[str, str], destination: str = "Paris") -> dict:
+    """Returns the ``trip`` object from :class:`CreateTripResponse` JSON."""
     response = await async_client.post("/api/v1/trips/", headers=headers, json=trip_payload(destination))
+    assert response.status_code == 201
+    return response.json()["trip"]
+
+
+async def create_trip_response(async_client: AsyncClient, headers: dict[str, str]) -> dict:
+    """Full POST /trips/ body (``trip``, ``packing_plan``, ``packing_error``)."""
+    response = await async_client.post("/api/v1/trips/", headers=headers, json=trip_payload())
     assert response.status_code == 201
     return response.json()
 
@@ -39,7 +47,9 @@ async def test_create_trip_returns_201(async_client: AsyncClient, auth_headers: 
     response = await async_client.post("/api/v1/trips/", headers=auth_headers, json=trip_payload())
 
     assert response.status_code == 201
-    assert response.json()["id"]
+    body = response.json()
+    assert body["trip"]["id"]
+    assert body.get("packing_plan") is not None
 
 
 @pytest.mark.asyncio
@@ -99,79 +109,134 @@ async def test_trip_has_is_saved_false_by_default(async_client: AsyncClient, aut
     response = await async_client.post("/api/v1/trips/", headers=auth_headers, json=trip_payload())
     assert response.status_code == 201
     data = response.json()
-    assert "is_saved" in data
-    assert data["is_saved"] is False
+    assert data["trip"]["is_saved"] is False
 
 
 @pytest.mark.asyncio
-async def test_save_planner_requires_packing_plan(async_client: AsyncClient, auth_headers: dict[str, str]):
-    """save-planner returns 404 when no packing plan exists for the trip."""
-    # Create trip without packing (we can't fully control AI in integration,
-    # but if packing_plan is None the endpoint should 404)
+async def test_save_planner_requires_packing_plan(
+    async_client: AsyncClient, auth_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch,
+):
+    """save-planner returns 404 when no packing plan row exists for the trip."""
+
+    async def _fail_packing(*_a, **_kw):
+        raise RuntimeError("forced packing failure for test")
+
+    monkeypatch.setattr("app.api.v1.trips._generate_trip_packing", _fail_packing)
+
     response = await async_client.post("/api/v1/trips/", headers=auth_headers, json=trip_payload())
     assert response.status_code == 201
     data = response.json()
-    trip_id = data["id"]
-    # Only test save endpoint if packing_plan is absent
-    if data.get("packing_plan") is None:
-        save = await async_client.post(f"/api/v1/trips/{trip_id}/save-planner", headers=auth_headers)
-        assert save.status_code == 404
+    assert data.get("packing_plan") is None
+    trip_id = data["trip"]["id"]
+
+    save = await async_client.post(f"/api/v1/trips/{trip_id}/save-planner", headers=auth_headers)
+    assert save.status_code == 404
 
 
 @pytest.mark.asyncio
 async def test_list_saved_trips_only_returns_saved(async_client: AsyncClient):
     headers_a = await headers_for(async_client, "savedusera")
-    # Create a trip — packing plan may or may not be generated (AI mocked)
-    trip_resp = await async_client.post("/api/v1/trips/", headers=headers_a, json=trip_payload())
-    assert trip_resp.status_code == 201
-    trip_data = trip_resp.json()
-    trip_id = trip_data["id"]
+    trip_data = await create_trip_response(async_client, headers_a)
+    trip_id = trip_data["trip"]["id"]
 
-    # Before saving: saved list should be empty
     saved_before = await async_client.get("/api/v1/trips/saved", headers=headers_a)
     assert saved_before.status_code == 200
     assert saved_before.json()["total"] == 0
 
-    # If a packing plan was created, save the planner
-    if trip_data.get("packing_plan"):
-        save = await async_client.post(f"/api/v1/trips/{trip_id}/save-planner", headers=headers_a)
-        assert save.status_code == 200
-        assert save.json()["trip"]["is_saved"] is True
-        assert save.json()["packing_plan"]["is_saved"] is True
+    assert trip_data.get("packing_plan") is not None
+    save = await async_client.post(f"/api/v1/trips/{trip_id}/save-planner", headers=headers_a)
+    assert save.status_code == 200
+    assert save.json()["trip"]["is_saved"] is True
+    assert save.json()["packing_plan"]["is_saved"] is True
 
-        saved_after = await async_client.get("/api/v1/trips/saved", headers=headers_a)
-        assert saved_after.status_code == 200
-        assert saved_after.json()["total"] == 1
-        assert saved_after.json()["trips"][0]["id"] == trip_id
+    saved_after = await async_client.get("/api/v1/trips/saved", headers=headers_a)
+    assert saved_after.status_code == 200
+    assert saved_after.json()["total"] == 1
+    assert saved_after.json()["trips"][0]["id"] == trip_id
 
 
 @pytest.mark.asyncio
 async def test_save_planner_is_idempotent(async_client: AsyncClient):
     headers = await headers_for(async_client, "idempotentuser")
-    trip_resp = await async_client.post("/api/v1/trips/", headers=headers, json=trip_payload())
-    assert trip_resp.status_code == 201
-    data = trip_resp.json()
+    data = await create_trip_response(async_client, headers)
+    assert data.get("packing_plan") is not None
+    trip_id = data["trip"]["id"]
+    save1 = await async_client.post(f"/api/v1/trips/{trip_id}/save-planner", headers=headers)
+    save2 = await async_client.post(f"/api/v1/trips/{trip_id}/save-planner", headers=headers)
+    assert save1.status_code == 200
+    assert save2.status_code == 200
+    assert save2.json()["trip"]["is_saved"] is True
 
-    if data.get("packing_plan"):
-        trip_id = data["id"]
-        save1 = await async_client.post(f"/api/v1/trips/{trip_id}/save-planner", headers=headers)
-        save2 = await async_client.post(f"/api/v1/trips/{trip_id}/save-planner", headers=headers)
-        assert save1.status_code == 200
-        assert save2.status_code == 200
-        # Both calls should return is_saved=True without duplicating
-        assert save2.json()["trip"]["is_saved"] is True
-
-        saved = await async_client.get("/api/v1/trips/saved", headers=headers)
-        assert saved.json()["total"] == 1
+    saved = await async_client.get("/api/v1/trips/saved", headers=headers)
+    assert saved.json()["total"] == 1
 
 
 @pytest.mark.asyncio
 async def test_cannot_save_other_users_planner(async_client: AsyncClient):
     headers_a = await headers_for(async_client, "plannerownera")
     headers_b = await headers_for(async_client, "plannerownerb")
-    trip_resp = await async_client.post("/api/v1/trips/", headers=headers_a, json=trip_payload())
-    assert trip_resp.status_code == 201
-    trip_id = trip_resp.json()["id"]
+    trip_data = await create_trip_response(async_client, headers_a)
+    trip_id = trip_data["trip"]["id"]
 
     response = await async_client.post(f"/api/v1/trips/{trip_id}/save-planner", headers=headers_b)
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_trip_returns_detail(async_client: AsyncClient, auth_headers: dict[str, str]):
+    created = await create_trip(async_client, auth_headers)
+    res = await async_client.get(f"/api/v1/trips/{created['id']}", headers=auth_headers)
+    assert res.status_code == 200
+    assert res.json()["id"] == created["id"]
+    assert res.json()["destination"] == "Paris"
+
+
+@pytest.mark.asyncio
+async def test_update_trip(async_client: AsyncClient, auth_headers: dict[str, str]):
+    created = await create_trip(async_client, auth_headers)
+    new_payload = trip_payload("Tokyo")
+    res = await async_client.patch(
+        f"/api/v1/trips/{created['id']}",
+        headers=auth_headers,
+        json=new_payload,
+    )
+    assert res.status_code == 200
+    assert res.json()["destination"] == "Tokyo"
+
+
+@pytest.mark.asyncio
+async def test_packing_plan_reflects_user_closet_items(async_client: AsyncClient):
+    """Packing ``take_from_your_closet`` includes items the user actually owns."""
+    headers = await headers_for(async_client, "packingclosetuser")
+    distinctive = "MVP-Regression-Denim-001"
+    create_item = await async_client.post(
+        "/api/v1/closet/",
+        headers=headers,
+        json={"name": distinctive, "category": "bottoms", "color": "indigo"},
+    )
+    assert create_item.status_code == 201
+
+    trip_data = await create_trip_response(async_client, headers)
+    plan = trip_data["packing_plan"]
+    assert plan is not None
+    take = plan.get("take_from_your_closet") or []
+    names = {str(x.get("name") or "") for x in take}
+    assert distinctive in names
+
+
+@pytest.mark.asyncio
+async def test_get_packing_plan_after_save(async_client: AsyncClient):
+    """GET /trips/{id}/packing-plan returns the stored plan after save-planner."""
+    headers = await headers_for(async_client, "packingpersistuser")
+    trip_data = await create_trip_response(async_client, headers)
+    trip_id = trip_data["trip"]["id"]
+    assert trip_data.get("packing_plan")
+
+    save = await async_client.post(f"/api/v1/trips/{trip_id}/save-planner", headers=headers)
+    assert save.status_code == 200
+
+    persisted = await async_client.get(f"/api/v1/trips/{trip_id}/packing-plan", headers=headers)
+    assert persisted.status_code == 200
+    body = persisted.json()
+    assert str(body.get("trip_id")) == str(trip_id)
+    assert body.get("is_saved") is True

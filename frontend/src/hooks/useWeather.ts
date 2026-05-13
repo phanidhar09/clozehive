@@ -87,7 +87,7 @@ export function useWeather(coords: { lat: number; lon: number } | null) {
       .catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : 'Weather unavailable') })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [coords?.lat, coords?.lon])
+  }, [coords])
 
   return { data, loading, error }
 }

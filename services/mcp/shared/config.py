@@ -18,6 +18,9 @@ class Settings(BaseSettings):
 
     llm_provider: str = "openai"
 
+    # When non-empty, MCP servers reject requests missing this bearer token.
+    internal_service_token: str = ""
+
     # New ports (services/mcp layout)
     weather_host: str = "0.0.0.0"
     weather_port: int = 8010

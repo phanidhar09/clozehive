@@ -1,25 +1,18 @@
 import { useCallback, useEffect, useState, type CSSProperties } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate, useLocation } from 'react-router-dom'
 import {
-  Upload, Plane, Shirt, ArrowRight,
-  Leaf, TrendingUp, Sun, BarChart3, Wand2,
+  Shirt, ArrowRight,
+  Leaf, TrendingUp, Sun,
   Sparkles, RefreshCw, Loader2, Check, CloudSun,
   Bookmark, AlertCircle,
 } from 'lucide-react'
 import { useApp } from '@/store'
-import { outfitsApi, type OutfitOfDayResponse } from '@/lib/api'
+import { outfitsApi, profileApi, type OutfitOfDayResponse } from '@/lib/api'
 import GlassCard from '@/components/ui/GlassCard'
 import EmptyState from '@/components/ui/EmptyState'
 import { useCursorGlow } from '@/hooks/useCursorGlow'
+import { DASHBOARD_QUICK_ACTIONS } from '@/features/dashboard/quickActions'
 import type { ClosetItem, OutfitSuggestion } from '@/types'
-
-const QUICK_ACTIONS = [
-  { label: 'Smart Closet Scan', desc: 'Bulk upload items',      icon: Upload, to: '/upload',        gradient: 'from-emerald-500 to-teal-600' },
-  { label: 'My Closet',         desc: 'View all pieces',        icon: Shirt,  to: '/closet',        gradient: 'from-rose-500 to-pink-600' },
-  { label: 'Outfit Builder',    desc: 'Drag-and-drop looks',    icon: Wand2,  to: '/outfit-builder', gradient: 'from-pink-500 to-rose-600' },
-  { label: 'Travel Packing',    desc: 'Plan your trip',         icon: Plane,  to: '/travel',        gradient: 'from-sky-500 to-blue-600' },
-  { label: 'Closet Insights',   desc: 'View your analytics',    icon: BarChart3, to: '/analytics',  gradient: 'from-violet-500 to-purple-600' },
-]
 
 // ── Outfit-of-the-Day card ────────────────────────────────────────────────────
 
@@ -241,9 +234,39 @@ function OutfitOfDayCard({ closetItems }: { closetItems: ClosetItem[] }) {
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
+  const navigate = useNavigate()
+  const location = useLocation()
   const { closetItems, closetLoading, currentUser } = useApp()
   const { containerRef, glowRef } = useCursorGlow({ lerpFactor: 0.08, orbitRadius: 320 })
   const [hour] = useState(new Date().getHours())
+  const [showStyleReminder, setShowStyleReminder] = useState(false)
+
+  const locationState = location.state as Record<string, unknown> | null
+
+  useEffect(() => {
+    // Hard redirect happens only once at login time (Login.tsx / Signup.tsx / OAuthCallback.tsx).
+    // On any subsequent visit — including page reloads — we never force the user back to
+    // onboarding. We only show a soft reminder banner so they can reach the dashboard freely.
+    let cancelled = false
+    profileApi
+      .getOnboardingStatus()
+      .then(st => {
+        if (cancelled) return
+        // Show the reminder banner if the profile is incomplete or was skipped.
+        // Redirect ONLY when navigating here fresh from login (state flag set by login handlers).
+        const fromLogin = Boolean(locationState?.fromLogin)
+        if (!st.onboarding_completed && fromLogin) {
+          navigate('/onboarding/style-profile', { replace: true })
+          return
+        }
+        if (!st.onboarding_completed || st.onboarding_skipped) {
+          setShowStyleReminder(true)
+        }
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [navigate, locationState?.fromLogin])
+
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
 
   const totalItems = closetItems.length
@@ -260,6 +283,18 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6 max-w-6xl">
+
+      {showStyleReminder && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+          <span>Complete your Style Profile for better outfit recommendations.</span>
+          <Link
+            to="/onboarding/style-profile"
+            className="font-semibold text-amber-800 underline hover:no-underline dark:text-amber-200"
+          >
+            Continue setup
+          </Link>
+        </div>
+      )}
 
       {/* ── Hero ──────────────────────────────────────────────────────────── */}
       <div
@@ -343,7 +378,7 @@ export default function Dashboard() {
           Quick actions
         </h3>
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 stagger">
-          {QUICK_ACTIONS.map(({ label, desc, icon: Icon, to, gradient }, idx) => (
+          {DASHBOARD_QUICK_ACTIONS.map(({ label, desc, icon: Icon, to, gradient }, idx) => (
             <Link key={to} to={to} style={{ '--i': idx } as CSSProperties}>
               <GlassCard hover glow padding="md" className="group h-full">
                 <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${gradient}

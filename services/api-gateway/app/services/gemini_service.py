@@ -38,10 +38,11 @@ Return shape (same contract as fashion_analysis_service.analyze_fashion_image):
 
 from __future__ import annotations
 
-import asyncio
 import json
 import re
 from typing import Any
+
+from langsmith import traceable
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
@@ -178,10 +179,20 @@ def _clean_json(text: str) -> str:
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def is_available() -> bool:
-    """True when GEMINI_API_KEY is configured."""
-    return bool(settings.gemini_api_key)
+    """True only when GEMINI_API_KEY looks like a real developer key (.env placeholders skipped)."""
+    k = settings.gemini_api_key.strip()
+    if len(k) < 24:
+        return False
+    low = k.lower().replace("-", "").replace("_", "")
+    # Copy-paste artefacts from `.env.example`
+    if "yourgeminiapikey" in low or "yourgeminikey" in low:
+        return False
+    if "placeholder" in low or low.startswith("replace"):
+        return False
+    return True
 
 
+@traceable(name="gemini_detect_and_classify", run_type="llm")
 async def detect_and_classify(image_bytes: bytes, media_type: str) -> dict[str, Any]:
     """
     Send image to Gemini 1.5 Flash for combined detection + metadata.

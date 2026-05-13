@@ -308,6 +308,7 @@ async def approve_items(
     body: ApproveRequest,
     user_id: CurrentUser,
     session: DbSession,
+    background_tasks: BackgroundTasks,
 ) -> ApproveResponse:
     """
     Writes approved ReviewItems into the closet_items table.
@@ -383,13 +384,9 @@ async def approve_items(
             await session.flush()   # get the DB-assigned id
             created_ids.append(str(new_item.id))
 
-            # Fire-and-forget embedding generation
-            from fastapi import BackgroundTasks as _BT
-            # We can't use BackgroundTasks here (we're already in a route handler
-            # without access to that object).  Use asyncio instead.
-            import asyncio
-            asyncio.ensure_future(
-                similarity_service.update_item_embedding(session, str(new_item.id))
+            background_tasks.add_task(
+                similarity_service.update_item_embedding_job,
+                str(new_item.id),
             )
 
         except Exception as exc:
@@ -400,7 +397,7 @@ async def approve_items(
             )
             failed += 1
 
-    await session.commit()
+    # Request-scoped session commits in get_session; do not commit here.
 
     # Invalidate AI suggestion cache and all closet list pages so the UI reloads
     redis = await get_redis()

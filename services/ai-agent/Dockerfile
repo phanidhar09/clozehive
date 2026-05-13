@@ -21,4 +21,6 @@ EXPOSE 8001
 HEALTHCHECK --interval=30s --timeout=15s --start-period=60s --retries=3 \
     CMD python -c "import httpx; httpx.get('http://localhost:8001/health').raise_for_status()"
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001", "--no-access-log", "--proxy-headers", "--forwarded-allow-ips=*"]
+# --loop asyncio: uvloop's libc-ares resolver cannot resolve Docker container
+# names in the lifespan context; standard asyncio (thread-pool getaddrinfo) works.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001", "--loop", "asyncio", "--no-access-log", "--proxy-headers", "--forwarded-allow-ips=*"]

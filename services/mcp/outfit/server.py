@@ -119,7 +119,11 @@ async def get_outfit_style_tips(
 
 
 if __name__ == "__main__":
+    import uvicorn
+    from shared.auth import BearerTokenMiddleware
+
     logger.info("outfit_server_starting", port=settings.outfit_port)
-    mcp.settings.host = settings.outfit_host
-    mcp.settings.port = settings.outfit_port
-    mcp.run(transport="sse")
+    app = mcp.sse_app()
+    if settings.internal_service_token:
+        app = BearerTokenMiddleware(app, settings.internal_service_token)
+    uvicorn.run(app, host=settings.outfit_host, port=settings.outfit_port)

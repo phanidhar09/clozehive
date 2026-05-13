@@ -234,10 +234,28 @@ def build_closet_hash(closet_items: list[dict[str, Any]]) -> str:
     return hashlib.sha256(json.dumps(ids, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
-def build_cache_key(user_id: str, messages: list, closet_hash: str) -> str:
+def build_profile_hash(profile: dict | None) -> str:
+    """Stable hash of style profile fields that affect AI responses."""
+    if not profile:
+        return ""
+    fields = {
+        "style_summary": profile.get("style_summary") or "",
+        "body_types": sorted(profile.get("body_types") or []),
+        "fit_preferences": sorted(profile.get("fit_preferences") or []),
+        "favorite_colors": sorted(profile.get("favorite_colors") or []),
+        "style_preferences": sorted(profile.get("style_preferences") or []),
+    }
+    return hashlib.sha256(
+        json.dumps(fields, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:16]
+
+
+def build_cache_key(user_id: str, messages: list, closet_hash: str, profile_hash: str = "") -> str:
     recent = messages[-3:]
     messages_json = json.dumps(recent, sort_keys=True, separators=(",", ":"), default=str)
-    digest = hashlib.sha256(f"{user_id}:{messages_json}:{closet_hash}".encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(
+        f"{user_id}:{messages_json}:{closet_hash}:{profile_hash}".encode("utf-8")
+    ).hexdigest()
     return f"ai_cache:{user_id}:{digest}"
 
 

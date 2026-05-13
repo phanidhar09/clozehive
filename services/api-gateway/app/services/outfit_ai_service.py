@@ -82,6 +82,15 @@ You are ClozeHive AI, an expert fashion AI for ClosetIQ.
 The user has hand-picked specific items and placed them together as an outfit. \
 Analyse this exact combination, score it rigorously, and provide actionable feedback.
 
+USER STYLE PROFILE:
+The JSON payload includes user_profile which may contain style_profile_context_text and \
+user_style_profile. Use them to assess fit, size alignment, color likes/dislikes, and climate \
+preferences. If profile data is missing, fall back to the wardrobe items and occasion only. \
+Never make judgmental or negative comments about the user's body — keep language positive, neutral, \
+and focused on styling, comfort, and fit. Do not recommend fits (tight, cropped, bodycon, etc.) \
+unless they appear in the user's fit preferences. Avoid colours the user dislikes. Prefer favourite \
+colours when sensible.
+
 SCORING FORMULA — score_breakdown values must sum EXACTLY to matching_score (integer 0–100):
   color      max 25  Color Compatibility: harmony, contrast, palette cohesion
   occasion   max 25  Occasion Match: suitability for stated occasion
@@ -98,7 +107,13 @@ STRICT RULES:
 5. styling_tips: 3–5 practical tips for exactly this combination (tuck, belt, layer, accessorise).
 6. missing_pieces: list category names that would complete the look (e.g. "outerwear", "belt").
 7. confidence: 0.0–1.0 — how certain the AI is about the scoring.
-8. Return ONLY valid JSON — no markdown fences, no prose outside JSON.
+8. fit_confidence: integer 0–100 — confidence that silhouettes and sizes work for this user's profile.
+9. occasion_match, style_match: one of "High", "Medium", "Low".
+10. size_profile_match: one of "High", "Medium", "Low", "Unknown".
+11. body_profile_notes: short positive note on why silhouettes work for this user's stated preferences.
+12. why_it_works: one succinct sentence; may overlap reasoning.
+13. what_to_improve: 0–4 bullet strings for quick wins (can duplicate improvements).
+14. Return ONLY valid JSON — no markdown fences, no prose outside JSON.
 
 EXACT RESPONSE SCHEMA:
 {
@@ -112,15 +127,23 @@ EXACT RESPONSE SCHEMA:
     },
     "matching_score": 84,
     "confidence": 0.89,
+    "fit_confidence": 82,
     "score_breakdown": {
       "color": 21, "occasion": 22, "fit": 17, "style": 12, "weather": 8, "preference": 4
     },
+    "occasion_match": "High",
+    "style_match": "Medium",
+    "size_profile_match": "High",
     "recommendations": {
       "improvements": ["..."],
       "issues": ["..."],
       "styling_tips": ["..."]
     },
-    "reasoning": "One-paragraph explanation of the outfit's strengths and weaknesses."
+    "fit_notes": "Positive note on fit relative to user profile (may mirror body_profile_notes).",
+    "body_profile_notes": "Positive explanation referencing preferences only.",
+    "reasoning": "One-paragraph explanation of the outfit's strengths and weaknesses.",
+    "why_it_works": "Short punchy sentence.",
+    "what_to_improve": ["Quick win 1", "Quick win 2"]
   },
   "missing_pieces": ["outerwear", "belt"],
   "style_tips": ["General tip 1", "General tip 2"]
@@ -137,6 +160,69 @@ def _clean_json(text: str) -> str:
         if "```" in text:
             text = text[: text.index("```")]
     return text.strip()
+
+
+def _normalize_analyze_output(data: dict[str, Any]) -> dict[str, Any]:
+    """Coerce common LLM quirks so the response validates against ScoredOutfit."""
+    outfit = data.get("outfit")
+    if not isinstance(outfit, dict):
+        return data
+
+    rec = outfit.get("recommendations")
+    if not isinstance(rec, dict):
+        outfit["recommendations"] = {
+            "improvements": [],
+            "issues": [],
+            "styling_tips": [],
+        }
+    else:
+        rec.setdefault("improvements", [])
+        rec.setdefault("issues", [])
+        rec.setdefault("styling_tips", [])
+
+    def _match(val: Any, allowed: set[str]) -> str | None:
+        if val is None:
+            return None
+        t = str(val).strip().title()
+        if t == "Unkown":
+            t = "Unknown"
+        return t if t in allowed else None
+
+    outfit["occasion_match"] = _match(outfit.get("occasion_match"), {"High", "Medium", "Low"})
+    outfit["style_match"] = _match(outfit.get("style_match"), {"High", "Medium", "Low"})
+    outfit["size_profile_match"] = _match(
+        outfit.get("size_profile_match"),
+        {"High", "Medium", "Low", "Unknown"},
+    )
+
+    fit_notes = str(outfit.get("fit_notes") or "")
+    body_notes = str(outfit.get("body_profile_notes") or "")
+    if body_notes and not fit_notes:
+        outfit["fit_notes"] = body_notes
+    elif fit_notes and not body_notes:
+        outfit["body_profile_notes"] = fit_notes
+
+    fc = outfit.get("fit_confidence")
+    if fc is None and outfit.get("confidence") is not None:
+        try:
+            outfit["fit_confidence"] = int(round(float(outfit["confidence"]) * 100))
+        except (TypeError, ValueError):
+            outfit["fit_confidence"] = None
+    elif fc is not None:
+        try:
+            outfit["fit_confidence"] = max(0, min(100, int(round(float(fc)))))
+        except (TypeError, ValueError):
+            outfit["fit_confidence"] = None
+
+    if not outfit.get("why_it_works") and outfit.get("reasoning"):
+        outfit["why_it_works"] = str(outfit["reasoning"])[:400]
+
+    if not outfit.get("what_to_improve"):
+        rec = outfit.get("recommendations") or {}
+        if isinstance(rec, dict) and isinstance(rec.get("improvements"), list):
+            outfit["what_to_improve"] = [str(x) for x in rec["improvements"][:6]]
+
+    return data
 
 
 def _categorize_items(items: list[dict[str, Any]]) -> dict[str, Any]:
@@ -206,24 +292,32 @@ def _mock_generate(closet_items: list[dict[str, Any]], occasion: str) -> dict[st
 
 
 def _mock_analyze(selected_items: list[dict[str, Any]], occasion: str) -> dict[str, Any]:
-    return {
+    return _normalize_analyze_output({
         "outfit": {
             "items": _categorize_items(selected_items),
             "matching_score": 70,
             "confidence": 0.5,
+            "fit_confidence": 50,
             "score_breakdown": {
                 "color": 18, "occasion": 17, "fit": 14, "style": 10, "weather": 7, "preference": 4,
             },
+            "occasion_match": "Medium",
+            "style_match": "Medium",
+            "size_profile_match": "Unknown",
             "recommendations": {
                 "improvements": ["Review the color palette for better tonal harmony."],
                 "issues": [],
                 "styling_tips": ["Ensure the outfit matches the occasion you have in mind."],
             },
+            "fit_notes": "We could not reach the AI scorer; this is a neutral placeholder.",
+            "body_profile_notes": "We could not reach the AI scorer; this is a neutral placeholder.",
             "reasoning": "AI scoring is temporarily unavailable. This is a placeholder analysis — try again shortly.",
+            "why_it_works": "Balanced basics — refine when AI is available.",
+            "what_to_improve": ["Try again shortly for a personalised score."],
         },
         "missing_pieces": [],
-        "style_tips": ["Complete your closet profile to get personalised tips."],
-    }
+        "style_tips": ["Complete your Style Profile for more personalised tips."],
+    })
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
@@ -297,7 +391,7 @@ async def analyze_outfit(
         )
         data = json.loads(_clean_json(raw))
         if isinstance(data, dict) and "outfit" in data:
-            return data
+            return _normalize_analyze_output(data)
     except json.JSONDecodeError:
         logger.warning("outfit_ai_analyze_bad_json", occasion=occasion)
     except Exception as exc:

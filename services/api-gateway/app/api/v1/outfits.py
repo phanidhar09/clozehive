@@ -6,18 +6,44 @@ from uuid import UUID
 
 from fastapi import APIRouter, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, desc
 
 from app.core.deps import CurrentUser, DbSession
+from app.core.exceptions import BadRequestError
 from app.core.logging import get_logger
 from app.models.closet import ClosetItem, Outfit
-from app.repositories.user_repo import UserRepository
+from app.services.style_profile_context import load_merged_user_profile_for_ai
 from app.schemas.outfit_ai import AnalyzeOutfitRequest, AnalyzeOutfitResponse
 from app.services import outfit_ai_service
 from app.services.weather_service import get_weather_by_city
 
 router = APIRouter(prefix="/outfits", tags=["Outfits"])
 logger = get_logger("outfits.routes")
+
+
+# ── List saved outfits ─────────────────────────────────────────────────────────
+
+@router.get("/")
+async def list_outfits(user_id: CurrentUser, session: DbSession):
+    result = await session.execute(
+        select(Outfit)
+        .where(Outfit.user_id == UUID(user_id))
+        .order_by(desc(Outfit.created_at))
+    )
+    outfits = result.scalars().all()
+    return [
+        {
+            "id": str(o.id),
+            "name": o.name,
+            "item_ids": o.item_ids or [],
+            "occasion": o.occasion or "",
+            "ai_explanation": o.explanation or "",
+            "style_score": o.style_score,
+            "is_saved": True,
+            "created_at": o.created_at.isoformat() if o.created_at else None,
+        }
+        for o in outfits
+    ]
 
 
 # ── Save outfit ────────────────────────────────────────────────────────────────
@@ -31,15 +57,37 @@ class OutfitCreate(BaseModel):
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
 async def create_outfit(body: OutfitCreate, user_id: CurrentUser, session: DbSession):
+    uid = UUID(user_id)
+    item_uuids: list[UUID] = []
+    for raw_id in body.item_ids:
+        try:
+            item_uuids.append(UUID(raw_id))
+        except ValueError:
+            raise BadRequestError(f"Invalid closet item id: {raw_id}")
+
+    unique_ids = set(item_uuids)
+    owned = await session.execute(
+        select(ClosetItem.id).where(
+            ClosetItem.user_id == uid,
+            ClosetItem.id.in_(unique_ids),
+            ClosetItem.is_archived == False,  # noqa: E712
+        )
+    )
+    found = {row[0] for row in owned.all()}
+    if found != unique_ids:
+        raise BadRequestError(
+            "One or more items were not found, are archived, or do not belong to your closet."
+        )
+
     outfit = Outfit(
-        user_id=UUID(user_id),
+        user_id=uid,
         name=body.name,
         item_ids=body.item_ids,
         occasion=body.occasion,
         explanation=body.notes,
     )
     session.add(outfit)
-    await session.commit()
+    await session.flush()
     await session.refresh(outfit)
     return {
         "id": str(outfit.id),
@@ -109,16 +157,8 @@ async def analyze_outfit(body: AnalyzeOutfitRequest, user_id: CurrentUser, sessi
         for item in db_items
     ]
 
-    # Resolve user personalization profile.
-    user_obj = await UserRepository(session).get(uid)
-    profile: dict | None = None
-    if user_obj:
-        raw_profile = {
-            "body_profile":  user_obj.body_profile,
-            "style_profile": user_obj.style_profile,
-            "preferences":   user_obj.preferences,
-        }
-        profile = {k: v for k, v in raw_profile.items() if v} or None
+    merged = await load_merged_user_profile_for_ai(session, uid, None)
+    profile: dict | None = merged if merged else None
 
     # Auto-fetch real weather when a location is provided.
     effective_weather = body.weather

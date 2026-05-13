@@ -91,7 +91,11 @@ async def get_weather_summary(destination: str, start_date: str, end_date: str) 
 
 
 if __name__ == "__main__":
+    import uvicorn
+    from shared.auth import BearerTokenMiddleware
+
     logger.info("weather_server_starting", port=settings.weather_port)
-    mcp.settings.host = settings.weather_host
-    mcp.settings.port = settings.weather_port
-    mcp.run(transport="sse")
+    app = mcp.sse_app()
+    if settings.internal_service_token:
+        app = BearerTokenMiddleware(app, settings.internal_service_token)
+    uvicorn.run(app, host=settings.weather_host, port=settings.weather_port)

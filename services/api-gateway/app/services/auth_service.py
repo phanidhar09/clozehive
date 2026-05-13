@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from typing import Optional
 
-import re
 import secrets
 from datetime import timezone, datetime, timedelta
 from uuid import UUID
@@ -37,6 +36,8 @@ from app.repositories.user_repo import (
     UserRepository,
 )
 from app.schemas.auth import AuthResponse, SignupRequest, TokenResponse, UserResponse
+from app.services.style_profile_service import create_default_profile_row
+from app.utils.username import generate_unique_username
 
 logger = get_logger("auth_service")
 settings = get_settings()
@@ -58,11 +59,13 @@ def _user_response(user: User) -> UserResponse:
         role=user.role,
         is_active=user.is_active,
         is_verified=user.is_verified,
+        auth_provider=user.auth_provider,
     )
 
 
 class AuthService:
     def __init__(self, session: AsyncSession) -> None:
+        self.session = session
         self.users = UserRepository(session)
         self.creds = CredentialRepository(session)
         self.tokens = RefreshTokenRepository(session)
@@ -70,20 +73,31 @@ class AuthService:
     async def signup(self, data: SignupRequest) -> AuthResponse:
         if await self.users.email_exists(data.email):
             raise ConflictError("Email already registered")
-        if await self.users.username_exists(data.username):
-            raise ConflictError("Username already taken")
+
+        # Resolve username: use provided value or auto-generate from name / email
+        if data.username:
+            if await self.users.username_exists(data.username):
+                raise ConflictError("Username already taken")
+            resolved_username = data.username.lower()
+        else:
+            resolved_username = await generate_unique_username(
+                self.session, data.name, data.email
+            )
 
         user = await self.users.create(
             email=data.email.lower(),
-            username=data.username.lower(),
+            username=resolved_username,
             name=data.name,
             role="user",
+            auth_provider="local",
         )
 
         await self.creds.create(
             user_id=user.id,
             password_hash=hash_password(data.password),
         )
+
+        await create_default_profile_row(self.session, user.id)
 
         access, refresh_raw = _build_tokens(str(user.id), user.role)
         await self._store_refresh(user.id, refresh_raw)
@@ -111,6 +125,9 @@ class AuthService:
 
         if not verify_password(password, cred.password_hash):
             raise AuthenticationError("Invalid credentials")
+
+        # Ensure a style-profile row exists (idempotent — skips if already present)
+        await create_default_profile_row(self.session, user.id)
 
         access, refresh_raw = _build_tokens(str(user.id), user.role)
         await self._store_refresh(user.id, refresh_raw)
@@ -191,23 +208,44 @@ class AuthService:
             # Try linking to an existing account by email
             user = await self.users.get_by_email(email.lower())
             if user:
-                await self.users.update(user, google_id=google_id)
+                # Link existing account to Google — repair any missing fields
+                updates: dict = {"google_id": google_id, "auth_provider": "google"}
+
+                # Repair missing / empty name from Google data
+                if not user.name and name:
+                    updates["name"] = name
+
+                # Repair missing / empty username — must never be blank
+                if not user.username:
+                    updates["username"] = await generate_unique_username(
+                        self.session, name or user.name, email
+                    )
+
+                # Set avatar only when the user has none
                 if avatar_url and not user.avatar_url:
-                    await self.users.update(user, avatar_url=avatar_url)
+                    updates["avatar_url"] = avatar_url
+
+                await self.users.update(user, **updates)
+                # Reload so the returned object reflects repaired fields
+                await self.session.refresh(user)
             else:
                 # Brand-new user via Google
-                username = await self._generate_unique_username(name, email)
+                username = await generate_unique_username(self.session, name, email)
                 user = await self.users.create(
                     email=email.lower(),
                     username=username,
-                    name=name,
+                    name=name or email.split("@")[0],
                     google_id=google_id,
                     avatar_url=avatar_url,
                     role="user",
                     is_verified=True,
+                    auth_provider="google",
                 )
                 # No password — OAuth-only account
                 await self.creds.create(user_id=user.id, password_hash=None)
+
+        # Ensure a style-profile row exists for every user (idempotent — skips if already present)
+        await create_default_profile_row(self.session, user.id)
 
         if not user.is_active:
             raise AuthenticationError("Account is disabled")
@@ -223,19 +261,6 @@ class AuthService:
         )
 
     # ── Internal helpers ──────────────────────────────────────────────────────
-
-    async def _generate_unique_username(self, name: str, email: str) -> str:
-        """Derive a unique username from Google name or email."""
-        base = re.sub(r"[^a-z0-9_]", "", name.lower().replace(" ", "_"))[:40]
-        if not base:
-            base = re.sub(r"[^a-z0-9_]", "", email.split("@")[0].lower())[:40]
-        if not base:
-            base = "user"
-        username, counter = base, 0
-        while await self.users.username_exists(username):
-            counter += 1
-            username = f"{base}{counter}"
-        return username
 
     async def _store_refresh(self, user_id: UUID, raw_token: str) -> RefreshToken:
         expires_at = datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days)

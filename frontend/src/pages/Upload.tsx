@@ -1,12 +1,13 @@
-import { useState, useRef, useCallback } from 'react'
-import { Upload as UploadIcon, Image, Sparkles, CheckCircle, X, Leaf, Loader2, AlertTriangle } from 'lucide-react'
+import { useState, useRef, useCallback, useMemo } from 'react'
+import { Image, Sparkles, CheckCircle, X } from 'lucide-react'
 import Button from '@/components/ui/Button'
 import Input, { Select } from '@/components/ui/Input'
 import Badge from '@/components/ui/Badge'
 import { useApp } from '@/store'
-import { closetApi } from '@/lib/api'
-import { cn, ecoScoreBg } from '@/lib/utils'
-import type { ClosetItem } from '@/types'
+import { closetApi, resolveUploadUrl, type ClosetPreviewItem } from '@/lib/api'
+import { cn } from '@/lib/utils'
+import { InlineError } from '@/components/system/InlineError'
+import { LoadingSpinner } from '@/components/system/LoadingSpinner'
 
 const CATEGORY_OPTIONS = [
   { value: 'tops', label: 'Tops' },
@@ -15,50 +16,101 @@ const CATEGORY_OPTIONS = [
   { value: 'outerwear', label: 'Outerwear' },
   { value: 'dresses', label: 'Dresses' },
   { value: 'accessories', label: 'Accessories' },
+  { value: 'other', label: 'Other' },
 ]
 
-interface VisionResult {
-  garment_type?: string
-  fabric?: string
-  color_primary?: string
-  pattern?: string
-  season?: string
-  occasion?: string[]
-  care_instructions?: string[]
-  wearing_tips?: string[]
-  eco_score?: number
-}                                                                                                                                                             
-                        
+function parseCommaList(s: string): string[] {
+  return s
+    .split(/[,;]/)
+    .map(p => p.trim())
+    .filter(Boolean)
+}
+
+function draftsFromPreviewItems(items: ClosetPreviewItem[] | null | undefined): ItemDraft[] {
+  return (items ?? []).map(it => ({
+    slot_index: it.slot_index,
+    temp_id: it.temp_id,
+    selected: true,
+    name: it.name,
+    category: it.category,
+    color: it.color ?? '',
+    subcategory: it.subcategory ?? '',
+    material: it.material ?? '',
+    pattern: it.pattern ?? '',
+    seasonStr: (it.season ?? []).join(', '),
+    occasionStr: (it.occasions ?? []).join(', '),
+    notes: it.description ?? '',
+    brand: it.brand ?? '',
+    size: '',
+    priceStr: '',
+    preview_image_url: it.preview_image_url,
+    confidence: it.confidence,
+    background_removed: it.background_removed,
+    bg_status: it.background_removal_status ?? undefined,
+  }))
+}
+
+type ItemDraft = {
+  slot_index: number
+  temp_id: string
+  selected: boolean
+  name: string
+  category: string
+  subcategory: string
+  color: string
+  material: string
+  pattern: string
+  seasonStr: string
+  occasionStr: string
+  notes: string
+  brand: string
+  size: string
+  priceStr: string
+  preview_image_url: string
+  confidence: number
+  background_removed: boolean
+  bg_status?: string
+}
+
+type PreviewGroup = {
+  filename: string
+  sessionId: string
+  drafts: ItemDraft[]
+  saved?: boolean
+}
+
 export default function Upload() {
-  const { addClosetItem } = useApp()
+  const { fetchClosetItems } = useApp()
   const [dragging, setDragging] = useState(false)
   const [files, setFiles] = useState<File[]>([])
   const [preview, setPreview] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<string | null>(null)
-  const [bulkSummary, setBulkSummary] = useState<{ added: number; failed: Array<{ filename: string; error: string }> } | null>(null)
-  const [vision, setVision] = useState<VisionResult | null>(null)
-  const [createdItem, setCreatedItem] = useState<ClosetItem | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
+  const [previewGroups, setPreviewGroups] = useState<PreviewGroup[]>([])
+  const [analyzeFailures, setAnalyzeFailures] = useState<{ filename: string; error: string }[]>([])
+  const [savingSessionId, setSavingSessionId] = useState<string | null>(null)
+  const [saveOkMessage, setSaveOkMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [form, setForm] = useState({
-    name: '', brand: '', size: '', price: '', notes: '',
-    category: 'tops',
-  })
   const inputRef = useRef<HTMLInputElement>(null)
+
+  const inPreview = previewGroups.length > 0
+  const hasFailures = analyzeFailures.length > 0
+
+  const totalDetections = useMemo(
+    () => previewGroups.reduce((n, g) => n + g.drafts.length, 0),
+    [previewGroups],
+  )
 
   const handleFiles = useCallback((selected: File[]) => {
     const images = selected.filter(f => f.type.startsWith('image/')).slice(0, 20)
     setFiles(images)
+    if (preview) URL.revokeObjectURL(preview)
     setPreview(images[0] ? URL.createObjectURL(images[0]) : null)
-    setSaved(false)
-    setVision(null)
-    setCreatedItem(null)
-    setBulkSummary(null)
-    setUploadProgress(null)
+    setPreviewGroups([])
+    setAnalyzeFailures([])
+    setSaveOkMessage(null)
     setError(null)
-  }, [])
+  }, [preview])
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -66,132 +118,183 @@ export default function Upload() {
     handleFiles(Array.from(e.dataTransfer.files))
   }, [handleFiles])
 
-  // Step 1: Upload image → backend → vision AI analysis → item created in DB
-  const analyse = async () => {
+  const resetAll = useCallback(() => {
+    setFiles([])
+    if (preview) URL.revokeObjectURL(preview)
+    setPreview(null)
+    setPreviewGroups([])
+    setAnalyzeFailures([])
+    setUploadProgress(null)
+    setSaveOkMessage(null)
+    setError(null)
+  }, [preview])
+
+  const extractErr = (err: unknown): string => {
+    type ApiErr = {
+      response?: {
+        data?: {
+          message?: string
+          error?: string
+          detail?: string | Array<{ loc?: (string | number)[]; msg?: string }>
+        }
+      }
+    }
+    const d = (err as ApiErr)?.response?.data
+    let msg: string | undefined
+    if (typeof d?.detail === 'string') msg = d.detail
+    else if (Array.isArray(d?.detail)) {
+      msg = d.detail
+        .map(e => {
+          const field = Array.isArray(e.loc) ? e.loc.slice(1).join('.') : ''
+          return field ? `${field}: ${e.msg ?? ''}` : (e.msg ?? '')
+        })
+        .filter(Boolean)
+        .join(' · ')
+    }
+    msg = msg ?? d?.message ?? d?.error ?? (err instanceof Error ? err.message : 'Request failed')
+    return msg
+  }
+
+  const analyze = async () => {
     if (files.length === 0) return
     setUploading(true)
     setError(null)
-    setUploadProgress(`Analyzing file 1 of ${files.length}...`)
-    let progressIndex = 1
-    const progressTimer = window.setInterval(() => {
-      progressIndex = Math.min(progressIndex + 1, files.length)
-      setUploadProgress(`Analyzing file ${progressIndex} of ${files.length}...`)
-    }, 800)
+    setSaveOkMessage(null)
+    setAnalyzeFailures([])
+    setPreviewGroups([])
+    setUploadProgress(files.length > 1 ? `Analyzing ${files.length} photos…` : 'Analyzing…')
     try {
       if (files.length > 1) {
-        const result = await closetApi.bulkUpload(files)
-        result.created.forEach(addClosetItem)
-        setBulkSummary({ added: result.created.length, failed: result.failed })
-        setCreatedItem(result.created[0] ?? null)
-        setSaved(result.created.length > 0)
+        const { results, failed } = await closetApi.bulkAnalyzePreview(files)
+        setAnalyzeFailures(failed)
+        setPreviewGroups(
+          results.flatMap(r => {
+            const p = r.preview
+            if (!p?.preview_session_id) return []
+            return [
+              {
+                filename: r.filename,
+                sessionId: p.preview_session_id,
+                drafts: draftsFromPreviewItems(p.items),
+              },
+            ]
+          }),
+        )
+        if (results.length === 0 && failed.length > 0) {
+          setError('Could not analyze any files. Check errors below.')
+        }
         return
       }
 
-      const fd = new FormData()
-      fd.append('file', files[0])
-      if (form.category) fd.append('category', form.category)
-      if (form.name) fd.append('name', form.name)
-
-      const { item, vision_analysis } = await closetApi.upload(fd)
-
-      setCreatedItem(item)
-      addClosetItem(item)
-
-      const v = vision_analysis as VisionResult
-      setVision(v)
-
-      // Auto-fill form from AI results + item
-      setForm(f => ({
-        ...f,
-        name: item.name || f.name,
-        category: item.category || f.category,
-        brand: item.brand || f.brand || '',
-        size: item.size || f.size || '',
-        price: item.price != null ? String(item.price) : f.price,
-        notes: item.notes || f.notes || '',
-      }))
+      const res = await closetApi.analyzePreview(files[0])
+      setPreviewGroups([
+        {
+          filename: files[0].name || 'upload',
+          sessionId: res.preview_session_id,
+          drafts: draftsFromPreviewItems(res.items),
+        },
+      ])
+      if (!res.items.length) {
+        setError(
+          'No items detected. Confirm the api-gateway is rebuilt/restarted, OPENAI_API_KEY is set for it, and Redis (closet preview) is up — then try again. You can still fill details manually after saving.',
+        )
+      }
     } catch (err: unknown) {
-      type ApiErr = {
-        response?: {
-          data?: {
-            message?: string
-            error?: string
-            detail?: string | Array<{ loc?: (string | number)[]; msg?: string }>
-          }
-        }
-      }
-      const d = (err as ApiErr)?.response?.data
-      let msg: string | undefined
-      if (typeof d?.detail === 'string') msg = d.detail
-      else if (Array.isArray(d?.detail)) {
-        msg = d.detail
-          .map(e => {
-            const field = Array.isArray(e.loc) ? e.loc.slice(1).join('.') : ''
-            return field ? `${field}: ${e.msg ?? ''}` : (e.msg ?? '')
-          })
-          .filter(Boolean)
-          .join(' · ')
-      }
-      msg = msg ?? d?.message ?? d?.error ?? (err instanceof Error ? err.message : 'Upload failed')
-      setError(`Upload failed: ${msg}`)
-      console.error('Upload error:', err)
+      setError(`Analysis failed: ${extractErr(err)}`)
+      console.error(err)
     } finally {
-      window.clearInterval(progressTimer)
       setUploadProgress(null)
       setUploading(false)
     }
   }
 
-  // Step 2: Save updated form details via PATCH
-  const save = async () => {
-    if (!createdItem) return
-    setSaving(true)
+  const updateDraft = (
+    sessionId: string,
+    slotIndex: number,
+    patch: Partial<ItemDraft>,
+  ) => {
+    setPreviewGroups(groups =>
+      groups.map(g => {
+        if (g.sessionId !== sessionId) return g
+        return {
+          ...g,
+          drafts: g.drafts.map(d => (d.slot_index === slotIndex ? { ...d, ...patch } : d)),
+        }
+      }),
+    )
+  }
+
+  const confirmGroup = async (group: PreviewGroup) => {
+    setSavingSessionId(group.sessionId)
     setError(null)
+    setSaveOkMessage(null)
+    const selected = group.drafts.filter(d => d.selected)
+    if (selected.length === 0) {
+      setError('Select at least one item to save.')
+      setSavingSessionId(null)
+      return
+    }
     try {
-      await closetApi.update(createdItem.id, {
-        name: form.name || createdItem.name,
-        category: form.category,
-        brand: form.brand || undefined,
-        size: form.size || undefined,
-        notes: form.notes || undefined,
+      const priceNum = (s: string): number | undefined => {
+        const t = s.trim()
+        if (!t) return undefined
+        const n = Number(t)
+        return Number.isFinite(n) ? n : undefined
+      }
+      const { saved, total_saved } = await closetApi.confirmPreview({
+        preview_session_id: group.sessionId,
+        items: group.drafts.map(d => ({
+          slot_index: d.slot_index,
+          selected: d.selected,
+          name: d.name.trim() || 'Clothing Item',
+          category: d.category,
+          color: d.color.trim() || undefined,
+          fabric: d.material.trim() || undefined,
+          material: d.material.trim() || undefined,
+          pattern: d.pattern.trim() || undefined,
+          season: parseCommaList(d.seasonStr),
+          occasion: parseCommaList(d.occasionStr).length ? parseCommaList(d.occasionStr) : undefined,
+          notes: d.notes.trim() || undefined,
+          brand: d.brand.trim() || undefined,
+          size: d.size.trim() || undefined,
+          price: priceNum(d.priceStr),
+        })),
       })
-      setSaved(true)
+      await fetchClosetItems()
+      setSaveOkMessage(`Saved ${total_saved} item(s) to your closet.`)
+      setPreviewGroups(gs => gs.map(g => (g.sessionId === group.sessionId ? { ...g, saved: true } : g)))
+      if (saved.length) {
+        /* keep preview visible with saved badge; user can discard to upload more */
+      }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Save failed'
-      setError(`Could not update item: ${msg}`)
+      setError(`Save failed: ${extractErr(err)}`)
     } finally {
-      setSaving(false)
+      setSavingSessionId(null)
     }
   }
 
-  const reset = () => {
-    setFiles([])
-    setPreview(null)
-    setUploadProgress(null)
-    setBulkSummary(null)
-    setVision(null)
-    setCreatedItem(null)
-    setSaved(false)
-    setError(null)
-    setForm({ name: '', brand: '', size: '', price: '', notes: '', category: 'tops' })
+  const discardPreview = () => {
+    resetAll()
   }
 
   return (
     <div className="max-w-3xl space-y-6">
       <div>
         <h2 className="font-display font-bold text-xl text-slate-800 dark:text-slate-100">Upload Clothing Item</h2>
-        <p className="text-sm text-slate-400 mt-0.5">AI will automatically detect fabric, color, pattern and more</p>
+        <p className="text-sm text-slate-400 mt-0.5">
+          AI analyzes your photo — review and confirm before anything is added to your closet
+        </p>
       </div>
 
-      {error && (
-        <div className="card p-3 bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm flex items-start gap-2">
-          <AlertTriangle size={15} className="flex-shrink-0 mt-0.5" />
-          <span>{error}</span>
+      {error && <InlineError message={error} className="mb-4" />}
+      {saveOkMessage && (
+        <div className="card p-3 bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 text-emerald-800 dark:text-emerald-200 text-sm flex items-center gap-2">
+          <CheckCircle size={16} />
+          {saveOkMessage}
         </div>
       )}
 
       <div className="grid md:grid-cols-2 gap-6">
-        {/* Drop zone */}
         <div className="space-y-4">
           <div
             className={cn(
@@ -202,24 +305,20 @@ export default function Upload() {
             onDragOver={e => { e.preventDefault(); setDragging(true) }}
             onDragLeave={() => setDragging(false)}
             onDrop={onDrop}
-            onClick={() => !preview && inputRef.current?.click()}
+            onClick={() => !inPreview && !preview && inputRef.current?.click()}
           >
             {preview ? (
               <>
                 <img src={preview} alt="preview" className="w-full h-full object-cover rounded-2xl" />
-                {!createdItem && (
+                {!inPreview && (
                   <div className="absolute inset-0 rounded-2xl bg-black/30 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
                     <button
-                      onClick={e => { e.stopPropagation(); reset() }}
+                      type="button"
+                      onClick={e => { e.stopPropagation(); resetAll() }}
                       className="p-2 rounded-full bg-white/20 hover:bg-white/30 transition-colors"
                     >
                       <X size={18} className="text-white" />
                     </button>
-                  </div>
-                )}
-                {createdItem && (
-                  <div className="absolute top-2 right-2">
-                    <Badge variant="green">✓ Saved</Badge>
                   </div>
                 )}
               </>
@@ -236,159 +335,216 @@ export default function Upload() {
               </div>
             )}
           </div>
-          <input ref={inputRef} type="file" accept="image/*" multiple className="hidden" onChange={e => handleFiles(Array.from(e.target.files ?? []))} />
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={e => handleFiles(Array.from(e.target.files ?? []))}
+          />
 
-          {files.length > 0 && (
+          {files.length > 0 && !inPreview && (
             <p className="text-xs font-medium text-slate-500 dark:text-slate-400 text-center">
               {files.length} of 20 files selected
             </p>
           )}
 
           {uploadProgress && (
-            <div className="card p-3 bg-brand-50 dark:bg-brand-900/20 border-brand-200 dark:border-brand-800 text-brand-700 dark:text-brand-300 text-sm">
-              {uploadProgress}
+            <div className="card p-3 bg-brand-50 dark:bg-brand-900/20 border-brand-200 dark:border-brand-800 text-brand-700 dark:text-brand-300 text-sm flex items-center gap-3">
+              {uploading && <LoadingSpinner size="sm" />}
+              <span>{uploadProgress}</span>
             </div>
           )}
 
-          {bulkSummary && (
-            <div className="card p-3 bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800 text-sm space-y-2">
-              <p className="font-semibold text-emerald-700 dark:text-emerald-300">
-                {bulkSummary.added} items added, {bulkSummary.failed.length} failed
-              </p>
-              {bulkSummary.failed.length > 0 && (
-                <div className="space-y-1">
-                  {bulkSummary.failed.map(f => (
-                    <p key={f.filename} className="text-xs text-red-600 dark:text-red-300">
-                      {f.filename}: {f.error}
-                    </p>
-                  ))}
-                </div>
-              )}
+          {hasFailures && (
+            <div className="card p-3 bg-red-50 dark:bg-red-900/20 border-red-200 text-sm space-y-1">
+              <p className="font-semibold text-red-700 dark:text-red-300">Some files failed analysis</p>
+              {analyzeFailures.map(f => (
+                <p key={f.filename} className="text-xs text-red-600 dark:text-red-400">
+                  {f.filename}: {f.error}
+                </p>
+              ))}
             </div>
           )}
 
-          {/* Analyse button — shown when image selected but not yet uploaded */}
-          {files.length > 0 && !createdItem && (
-            <Button className="w-full" disabled={uploading} icon={<Sparkles size={15} />} onClick={analyse}>
-              {uploading ? 'Analyzing selected files…' : files.length > 1 ? 'Analyze Closet Scan' : 'Analyse with Vision AI'}
+          {files.length > 0 && !inPreview && (
+            <Button className="w-full" disabled={uploading} icon={<Sparkles size={15} />} onClick={analyze}>
+              {uploading ? 'Analyzing…' : files.length > 1 ? 'Analyze photos (preview)' : 'Analyze with Vision AI'}
             </Button>
           )}
 
-          {/* Add another item */}
-          {saved && (
-            <Button className="w-full" variant="secondary" onClick={reset}>
-              + Add another item
-            </Button>
+          {inPreview && (
+            <div className="flex flex-col gap-2">
+              <Button
+                className="w-full"
+                variant="secondary"
+                onClick={() => {
+                  setPreviewGroups([])
+                  setAnalyzeFailures([])
+                  setSaveOkMessage(null)
+                  setError(null)
+                }}
+              >
+                Back — adjust photos & analyze again
+              </Button>
+              <Button className="w-full" variant="secondary" onClick={discardPreview} icon={<X size={15} />}>
+                Discard & start over
+              </Button>
+            </div>
           )}
         </div>
 
-        {/* Form + Vision result */}
         <div className="space-y-4">
-          {/* AI Vision result */}
-          {vision && Object.keys(vision).length > 0 && (
-            <div className="card p-4 bg-brand-50 dark:bg-brand-900/20 border-brand-200 dark:border-brand-800 space-y-3">
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-semibold text-brand-700 dark:text-brand-300 uppercase tracking-wide flex items-center gap-1.5">
-                  <Sparkles size={11} /> AI Detection results
+          {!inPreview && files.length === 0 && (
+            <div className="card p-6 text-center text-slate-500 dark:text-slate-400 text-sm">
+              Choose one or more photos to see AI-detected items. Nothing is saved until you confirm.
+            </div>
+          )}
+
+          {inPreview && (
+            <>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                  {totalDetections} detected item{totalDetections === 1 ? '' : 's'} — edit, uncheck to skip, then save
                 </p>
-                <Badge variant="purple">Auto-filled</Badge>
+                {previewGroups.some(g => g.saved) && (
+                  <Badge variant="green">Saved</Badge>
+                )}
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { label: 'Type', value: vision.garment_type },
-                  { label: 'Fabric', value: vision.fabric },
-                  { label: 'Color', value: vision.color_primary },
-                  { label: 'Pattern', value: vision.pattern },
-                ].filter(a => a.value).map(a => (
-                  <div key={a.label} className="bg-white dark:bg-slate-800 rounded-lg p-2">
-                    <p className="text-[10px] text-slate-400 uppercase font-medium">{a.label}</p>
-                    <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 capitalize">{a.value}</p>
+
+              {previewGroups.map(group => (
+                <div key={group.sessionId} className="card p-4 space-y-4 border border-cream-200 dark:border-slate-700">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{group.filename}</p>
+                    {group.saved && <Badge variant="green">In closet</Badge>}
                   </div>
-                ))}
-              </div>
 
-              {vision.eco_score != null && (
-                <div className="flex items-center gap-2">
-                  <Leaf size={13} className="text-emerald-500" />
-                  <span className="text-xs font-medium text-slate-600 dark:text-slate-300">Eco score:</span>
-                  <span className={`badge text-xs ${ecoScoreBg(vision.eco_score)}`}>{vision.eco_score}/10</span>
-                </div>
-              )}
+                  {group.drafts.length === 0 && (
+                    <p className="text-sm text-amber-600 dark:text-amber-400">No items for this file.</p>
+                  )}
 
-              {vision.care_instructions && vision.care_instructions.length > 0 && (
-                <div>
-                  <p className="text-[10px] text-slate-400 uppercase font-medium mb-1.5">Care instructions</p>
-                  <div className="flex gap-1 flex-wrap">
-                    {vision.care_instructions.map(c => <Badge key={c} variant="gray">{c}</Badge>)}
-                  </div>
-                </div>
-              )}
+                  {group.drafts.map(d => {
+                    const imgSrc = resolveUploadUrl(d.preview_image_url) ?? d.preview_image_url
+                    return (
+                      <div
+                        key={`${group.sessionId}-${d.temp_id}`}
+                        className="rounded-xl border border-slate-200 dark:border-slate-600 p-3 space-y-3 bg-white/50 dark:bg-slate-900/40"
+                      >
+                        <label className="flex items-start gap-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            className="mt-1 rounded border-slate-300"
+                            checked={d.selected}
+                            onChange={e => updateDraft(group.sessionId, d.slot_index, { selected: e.target.checked })}
+                          />
+                          <div className="flex gap-3 flex-1 min-w-0">
+                            {imgSrc && (
+                              <img
+                                src={imgSrc}
+                                alt=""
+                                className="w-20 h-24 object-cover rounded-lg shrink-0 bg-slate-100 dark:bg-slate-800"
+                              />
+                            )}
+                            <div className="space-y-1 min-w-0">
+                              <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{d.name}</p>
+                              <div className="flex flex-wrap gap-1">
+                                <Badge variant="purple">{d.category}</Badge>
+                                {d.subcategory.trim() ? <Badge variant="gray">{d.subcategory}</Badge> : null}
+                                {d.background_removed && <Badge variant="gray">BG removed</Badge>}
+                                <span className="text-[10px] text-slate-400">conf {(d.confidence * 100).toFixed(0)}%</span>
+                              </div>
+                              {d.bg_status && d.bg_status !== 'success_rembg' && d.bg_status !== 'success_pil' && (
+                                <p className="text-[10px] text-slate-400">BG: {d.bg_status}</p>
+                              )}
+                            </div>
+                          </div>
+                        </label>
 
-              {vision.wearing_tips && vision.wearing_tips.length > 0 && (
-                <div>
-                  <p className="text-[10px] text-slate-400 uppercase font-medium mb-1.5">Wearing tips</p>
-                  {vision.wearing_tips.map(t => (
-                    <p key={t} className="text-xs text-slate-600 dark:text-slate-300 flex items-start gap-1.5 mb-1">
-                      <span className="text-brand-400 mt-0.5">•</span>{t}
-                    </p>
-                  ))}
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <Input
+                            label="Name"
+                            value={d.name}
+                            onChange={e => updateDraft(group.sessionId, d.slot_index, { name: e.target.value })}
+                          />
+                          <Select
+                            label="Category"
+                            options={CATEGORY_OPTIONS}
+                            value={d.category}
+                            onChange={e => updateDraft(group.sessionId, d.slot_index, { category: e.target.value })}
+                          />
+                          <Input
+                            label="Color"
+                            value={d.color}
+                            onChange={e => updateDraft(group.sessionId, d.slot_index, { color: e.target.value })}
+                          />
+                          <Input
+                            label="Material"
+                            value={d.material}
+                            onChange={e => updateDraft(group.sessionId, d.slot_index, { material: e.target.value })}
+                          />
+                          <Input
+                            label="Pattern"
+                            value={d.pattern}
+                            onChange={e => updateDraft(group.sessionId, d.slot_index, { pattern: e.target.value })}
+                          />
+                          <Input
+                            label="Season (comma-separated)"
+                            value={d.seasonStr}
+                            onChange={e => updateDraft(group.sessionId, d.slot_index, { seasonStr: e.target.value })}
+                            placeholder="spring, summer"
+                          />
+                          <Input
+                            label="Occasion (comma-separated)"
+                            value={d.occasionStr}
+                            onChange={e => updateDraft(group.sessionId, d.slot_index, { occasionStr: e.target.value })}
+                            placeholder="casual, work"
+                          />
+                          <Input
+                            label="Brand"
+                            value={d.brand}
+                            onChange={e => updateDraft(group.sessionId, d.slot_index, { brand: e.target.value })}
+                          />
+                          <Input
+                            label="Size"
+                            value={d.size}
+                            onChange={e => updateDraft(group.sessionId, d.slot_index, { size: e.target.value })}
+                          />
+                          <Input
+                            label="Price"
+                            value={d.priceStr}
+                            onChange={e => updateDraft(group.sessionId, d.slot_index, { priceStr: e.target.value })}
+                            type="number"
+                            step="0.01"
+                          />
+                        </div>
+                        <div>
+                          <label className="label">Description</label>
+                          <textarea
+                            rows={2}
+                            className="input resize-none w-full"
+                            value={d.notes}
+                            onChange={e => updateDraft(group.sessionId, d.slot_index, { notes: e.target.value })}
+                          />
+                        </div>
+                      </div>
+                    )
+                  })}
+
+                  {!group.saved && (
+                    <Button
+                      className="w-full"
+                      loading={savingSessionId === group.sessionId}
+                      icon={<CheckCircle size={15} />}
+                      onClick={() => confirmGroup(group)}
+                    >
+                      Save selected items from this photo
+                    </Button>
+                  )}
                 </div>
-              )}
-            </div>
+              ))}
+            </>
           )}
-
-          {/* No vision result notice */}
-          {createdItem && (!vision || Object.keys(vision).length === 0) && (
-            <div className="card p-3 bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 text-xs flex items-center gap-2">
-              <AlertTriangle size={13} />
-              Vision AI unavailable — item saved without auto-detection. Fill in details manually.
-            </div>
-          )}
-
-          {/* Manual form */}
-          <div className="card p-4 space-y-3">
-            <p className="text-sm font-semibold text-slate-700 dark:text-slate-300">Item details</p>
-            <Input
-              label="Item name"
-              value={form.name}
-              onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-              placeholder="e.g. White Oxford Shirt"
-            />
-            <div className="grid grid-cols-2 gap-3">
-              <Select label="Category" options={CATEGORY_OPTIONS} value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Input label="Brand" value={form.brand} onChange={e => setForm(f => ({ ...f, brand: e.target.value }))} placeholder="e.g. Uniqlo" />
-              <Input label="Size" value={form.size} onChange={e => setForm(f => ({ ...f, size: e.target.value }))} placeholder="e.g. M / 32" />
-            </div>
-            <Input label="Price" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} placeholder="0.00" type="number" />
-            <div>
-              <label className="label">Notes</label>
-              <textarea
-                rows={2}
-                className="input resize-none"
-                value={form.notes}
-                onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-                placeholder="Care instructions, notes…"
-              />
-            </div>
-
-            {saved ? (
-              <div className="flex items-center gap-2 text-emerald-600 font-semibold text-sm py-2 justify-center">
-                <CheckCircle size={18} /> Item saved to wardrobe!
-              </div>
-            ) : createdItem ? (
-              /* Item exists in DB → update metadata */
-              <Button className="w-full" loading={saving} onClick={save} icon={<CheckCircle size={15} />}>
-                {saving ? 'Saving details…' : 'Save details'}
-              </Button>
-            ) : (
-              /* No item yet → prompt to upload */
-              <Button className="w-full" onClick={() => inputRef.current?.click()} disabled={files.length > 0} icon={<UploadIcon size={15} />}>
-                {files.length > 0 ? 'Click "Analyse" above first' : 'Choose photos to start'}
-              </Button>
-            )}
-          </div>
         </div>
       </div>
     </div>

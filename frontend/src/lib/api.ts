@@ -2,7 +2,12 @@
  * HTTP client + API helpers for the FastAPI gateway (/api/v1).
  */
 
-import axios, { type AxiosInstance } from 'axios'
+import axios, {
+  AxiosHeaders,
+  type AxiosError,
+  type AxiosInstance,
+  type InternalAxiosRequestConfig,
+} from 'axios'
 import type {
   AuthUser,
   ClosetAnalytics,
@@ -10,6 +15,7 @@ import type {
   CreateTripResponse,
   Group,
   GroupMember,
+  OnboardingStatus,
   OutfitAnalysis,
   OutfitSuggestion,
   PackingPlan,
@@ -17,58 +23,91 @@ import type {
   SocialUser,
   Trip,
   TripListResponse,
+  UserStyleProfile,
+  VisionPreviewItem,
 } from '@/types'
+
+import { skipRefreshOn401 } from './authUrlGuards'
+import { apiOrigin, isLoopbackHostname, isNonPublicApiHostname, uploadsOrigin } from './apiOrigin'
+import { refreshAccessToken } from './refreshAccessToken'
+import { tokenStorage } from './tokenStorage'
+
+export { apiOrigin } from './apiOrigin'
+export { tokenStorage } from './tokenStorage'
 
 // ── Base URL ───────────────────────────────────────────────────────────────
 
-function apiOrigin(): string {
-  const raw = import.meta.env.VITE_API_URL as string | undefined
-  return (raw?.replace(/\/$/, '') || 'http://localhost:8000')
+/**
+ * Closet image URLs are `/uploads/...` (gateway static) or GCS HTTPS.
+ * - Same-origin SPA (empty ``apiOrigin()``): force uploads through the page host so
+ *   nginx/Vite can proxy ``/uploads`` (fixes JSON that still says ``http://localhost:8000/uploads/...``
+ *   while the user only opens :3001 / :80).
+ * - Tolerate ``uploads/...`` without a leading slash.
+ */
+export function resolveUploadUrl(url: string | undefined | null): string | undefined {
+  if (url == null || typeof url !== 'string') return undefined
+  let u = url.trim()
+  if (!u) return undefined
+  if (/^uploads\//i.test(u)) u = `/${u}`
+
+  if (u.startsWith('data:') || u.startsWith('blob:')) {
+    return u
+  }
+  if (u.startsWith('http://') || u.startsWith('https://')) {
+    try {
+      const parsed = new URL(u)
+      const path = `${parsed.pathname}${parsed.search}`
+      if (path.startsWith('/uploads/') && typeof window !== 'undefined') {
+        if (isNonPublicApiHostname(parsed.hostname)) {
+          return `${window.location.origin}${path}`
+        }
+        if (!apiOrigin() && isLoopbackHostname(parsed.hostname)) {
+          return `${window.location.origin}${path}`
+        }
+      }
+    } catch {
+      return u
+    }
+    return u
+  }
+  if (u.startsWith('/uploads/')) {
+    if (typeof window === 'undefined') {
+      const o = apiOrigin()
+      return o ? `${o}${u}` : u
+    }
+    const base = uploadsOrigin()
+    const origin = base || window.location.origin
+    return `${origin}${u}`
+  }
+  return u
 }
 
-// ── Tokens ──────────────────────────────────────────────────────────────────
-
-const ACCESS_KEY = 'ch_access_token'
-const REFRESH_KEY = 'ch_refresh_token'
-
-export const tokenStorage = {
-  getAccess(): string | null {
-    try {
-      return localStorage.getItem(ACCESS_KEY)
-    } catch {
-      return null
-    }
-  },
-  getRefresh(): string | null {
-    try {
-      return localStorage.getItem(REFRESH_KEY)
-    } catch {
-      return null
-    }
-  },
-  set(access: string, refresh: string): void {
-    try {
-      localStorage.setItem(ACCESS_KEY, access)
-      localStorage.setItem(REFRESH_KEY, refresh)
-    } catch {
-      /* ignore */
-    }
-  },
-  clear(): void {
-    try {
-      localStorage.removeItem(ACCESS_KEY)
-      localStorage.removeItem(REFRESH_KEY)
-    } catch {
-      /* ignore */
-    }
-  },
+function mapVisionPreviewItemUrls(items: VisionPreviewItem[] | undefined): VisionPreviewItem[] {
+  return (items ?? []).map(it => ({
+    ...it,
+    original_image_url: resolveUploadUrl(it.original_image_url) ?? it.original_image_url,
+    preview_image_url: resolveUploadUrl(it.preview_image_url) ?? it.preview_image_url,
+    processed_image_url:
+      it.processed_image_url != null
+        ? (resolveUploadUrl(it.processed_image_url) ?? it.processed_image_url)
+        : it.processed_image_url,
+  }))
 }
 
-// ── Axios ─────────────────────────────────────────────────────────────────
+function normalizeOutfitSuggestion(outfit: OutfitSuggestion | null): OutfitSuggestion | null {
+  if (!outfit) return null
+  return {
+    ...outfit,
+    items: (outfit.items ?? []).map(it => ({
+      ...it,
+      image_url: resolveUploadUrl(it.image_url),
+    })),
+  }
+}
+
 
 const api: AxiosInstance = axios.create({
   baseURL: `${apiOrigin()}/api/v1`,
-  headers: { 'Content-Type': 'application/json' },
   timeout: 120_000,
 })
 
@@ -77,16 +116,68 @@ api.interceptors.request.use(cfg => {
   if (t) {
     cfg.headers.Authorization = `Bearer ${t}`
   }
+  // FormData must use multipart boundary set by the browser. A global JSON Content-Type
+  // (or manual multipart/form-data without boundary) breaks uploads and surfaces as "Network Error".
+  if (typeof FormData !== 'undefined' && cfg.data instanceof FormData) {
+    delete cfg.headers['Content-Type']
+  } else if (
+    cfg.data != null
+    && typeof cfg.data === 'object'
+    && !(cfg.data instanceof FormData)
+    && !(cfg.data instanceof ArrayBuffer)
+    && typeof cfg.data !== 'string'
+    && cfg.headers['Content-Type'] == null
+  ) {
+    cfg.headers['Content-Type'] = 'application/json'
+  }
   return cfg
 })
 
+function dispatchUnauthenticated(): void {
+  tokenStorage.clear()
+  window.dispatchEvent(new Event('ch:unauthenticated'))
+}
+
+type RequestConfigWithRetry = InternalAxiosRequestConfig & { _chRetry?: boolean }
+
 api.interceptors.response.use(
   res => res,
-  err => {
-    if (err.response?.status === 401) {
-      window.dispatchEvent(new Event('ch:unauthenticated'))
+  async (err: AxiosError) => {
+    const original = err.config as RequestConfigWithRetry | undefined
+    const status = err.response?.status
+
+    if (status !== 401 || !original) {
+      return Promise.reject(err)
     }
-    return Promise.reject(err)
+
+    if (skipRefreshOn401(original.url)) {
+      dispatchUnauthenticated()
+      return Promise.reject(err)
+    }
+
+    if (original._chRetry) {
+      dispatchUnauthenticated()
+      return Promise.reject(err)
+    }
+    original._chRetry = true
+
+    if (!tokenStorage.getRefresh()) {
+      dispatchUnauthenticated()
+      return Promise.reject(err)
+    }
+
+    try {
+      const access = await refreshAccessToken()
+      const hdr = original.headers
+        ? AxiosHeaders.from(original.headers as Record<string, string>)
+        : new AxiosHeaders()
+      hdr.set('Authorization', `Bearer ${access}`)
+      original.headers = hdr
+      return api.request(original)
+    } catch {
+      dispatchUnauthenticated()
+      return Promise.reject(err)
+    }
   },
 )
 
@@ -101,6 +192,7 @@ function mapUserResponse(raw: Record<string, unknown>): AuthUser {
     bio: (raw.bio as string | null | undefined) ?? null,
     avatar_url: (raw.avatar_url as string | null | undefined) ?? null,
     role: (raw.role === 'admin' ? 'admin' : 'user') as 'user' | 'admin',
+    auth_provider: (raw.auth_provider === 'google' ? 'google' : 'local') as 'local' | 'google',
     follower_count: raw.follower_count != null ? Number(raw.follower_count) : undefined,
     following_count: raw.following_count != null ? Number(raw.following_count) : undefined,
     created_at: raw.created_at != null ? String(raw.created_at) : undefined,
@@ -113,11 +205,62 @@ function mapUserResponse(raw: Record<string, unknown>): AuthUser {
   }
 }
 
+function mapUserStyleProfile(raw: Record<string, unknown>): UserStyleProfile {
+  const sp = raw.size_profile
+  let size_profile: Record<string, string> = {}
+  if (typeof sp === 'object' && sp !== null && !Array.isArray(sp)) {
+    size_profile = Object.fromEntries(
+      Object.entries(sp as Record<string, unknown>).map(([k, v]) => [String(k), String(v ?? '')]),
+    )
+  }
+  const strList = (v: unknown) => (Array.isArray(v) ? v.map(x => String(x)) : [])
+
+  return {
+    id: String(raw.id ?? ''),
+    user_id: String(raw.user_id ?? ''),
+    gender: (raw.gender as UserStyleProfile['gender']) ?? null,
+    custom_gender: (raw.custom_gender as string | null | undefined) ?? null,
+    height_value: raw.height_value != null ? Number(raw.height_value) : null,
+    height_unit: (raw.height_unit as UserStyleProfile['height_unit']) ?? null,
+    weight_value: raw.weight_value != null ? Number(raw.weight_value) : null,
+    weight_unit: (raw.weight_unit as UserStyleProfile['weight_unit']) ?? null,
+    age_range: (raw.age_range as string | null | undefined) ?? null,
+    body_types: strList(raw.body_types),
+    custom_body_type: (raw.custom_body_type as string | null | undefined) ?? null,
+    fit_preferences: strList(raw.fit_preferences),
+    custom_fit_notes: (raw.custom_fit_notes as string | null | undefined) ?? null,
+    size_profile,
+    custom_size_notes: (raw.custom_size_notes as string | null | undefined) ?? null,
+    style_preferences: strList(raw.style_preferences),
+    favorite_colors: strList(raw.favorite_colors),
+    avoided_colors: strList(raw.avoided_colors),
+    neutral_color_preference:
+      raw.neutral_color_preference === null || raw.neutral_color_preference === undefined
+        ? null
+        : Boolean(raw.neutral_color_preference),
+    bold_color_preference:
+      raw.bold_color_preference === null || raw.bold_color_preference === undefined
+        ? null
+        : Boolean(raw.bold_color_preference),
+    occasion_preferences: strList(raw.occasion_preferences),
+    climate_preferences: strList(raw.climate_preferences),
+    onboarding_completed: Boolean(raw.onboarding_completed),
+    onboarding_skipped: Boolean(raw.onboarding_skipped),
+    created_at: raw.created_at != null ? String(raw.created_at) : null,
+    updated_at: raw.updated_at != null ? String(raw.updated_at) : null,
+  }
+}
+
 function mapClosetItem(raw: Record<string, unknown>): ClosetItem {
   const seasonRaw = raw.season
   let season: string | undefined
   if (Array.isArray(seasonRaw)) season = seasonRaw.join(', ')
   else if (typeof seasonRaw === 'string') season = seasonRaw
+
+  const image_url =
+    resolveUploadUrl(raw.image_url as string | undefined)
+    ?? resolveUploadUrl(raw.processed_image_url as string | undefined)
+    ?? resolveUploadUrl(raw.original_image_url as string | undefined)
 
   return {
     id: String(raw.id),
@@ -130,7 +273,7 @@ function mapClosetItem(raw: Record<string, unknown>): ClosetItem {
     brand: raw.brand as string | undefined,
     size: raw.size as string | undefined,
     price: raw.price != null ? Number(raw.price) : undefined,
-    image_url: raw.image_url as string | undefined,
+    image_url,
     tags: Array.isArray(raw.tags) ? (raw.tags as string[]) : [],
     wear_count: Number(raw.wear_count ?? 0),
     last_worn: raw.last_worn != null ? String(raw.last_worn) : undefined,
@@ -180,7 +323,7 @@ function mapGroup(raw: Record<string, unknown>): Group {
     id: String(raw.id),
     name: String(raw.name ?? ''),
     description: (raw.description as string | undefined) ?? null,
-    is_public: raw.is_private != null ? !Boolean(raw.is_private) : true,
+    is_public: raw.is_private != null ? !raw.is_private : true,
     invite_code: String(raw.invite_code ?? ''),
     member_count: Number(raw.member_count ?? members.length),
     members,
@@ -272,6 +415,79 @@ export const authApi = {
   },
 }
 
+export const profileApi = {
+  async getOnboardingStatus(): Promise<OnboardingStatus> {
+    const { data } = await api.get<OnboardingStatus>('/profile/onboarding-status')
+    return data
+  },
+
+  async getStyleProfile(): Promise<UserStyleProfile | null> {
+    try {
+      const { data } = await api.get<Record<string, unknown>>('/profile/style')
+      return mapUserStyleProfile(data)
+    } catch (e: unknown) {
+      const s = (e as { response?: { status?: number } })?.response?.status
+      if (s === 404) return null
+      throw e
+    }
+  },
+
+  async patchStyleProfile(
+    patch: Partial<UserStyleProfile> & Record<string, unknown>,
+  ): Promise<UserStyleProfile> {
+    const { data } = await api.patch<Record<string, unknown>>('/profile/style', patch)
+    return mapUserStyleProfile(data)
+  },
+
+  async completeOnboarding(skipped: boolean): Promise<UserStyleProfile> {
+    const { data } = await api.post<Record<string, unknown>>('/profile/style/complete', { skipped })
+    return mapUserStyleProfile(data)
+  },
+}
+
+export type ClosetPreviewItem = VisionPreviewItem
+
+export type ClosetAnalyzePreviewResponse = {
+  preview_session_id: string
+  items: VisionPreviewItem[]
+  scan_id?: string | null
+  pipeline_cached?: boolean
+}
+
+export type ClosetConfirmItemPayload = {
+  slot_index: number
+  selected: boolean
+  name: string
+  category: string
+  color?: string
+  fabric?: string
+  material?: string
+  pattern?: string
+  season?: string[]
+  occasion?: string[]
+  notes?: string
+  brand?: string
+  size?: string
+  price?: number
+  tags?: string[]
+  eco_score?: number
+}
+
+export type ClosetConfirmRequest = {
+  preview_session_id: string
+  items: ClosetConfirmItemPayload[]
+}
+
+export type BulkAnalyzePreviewFileResult = {
+  filename: string
+  preview: ClosetAnalyzePreviewResponse
+}
+
+export type BulkAnalyzePreviewResponse = {
+  results: BulkAnalyzePreviewFileResult[]
+  failed: { filename: string; error: string }[]
+}
+
 // ── Closet ──────────────────────────────────────────────────────────────────
 
 export const closetApi = {
@@ -286,13 +502,48 @@ export const closetApi = {
     await api.delete(`/closet/${id}`)
   },
 
+  async analyzePreview(file: File): Promise<ClosetAnalyzePreviewResponse> {
+    const fd = new FormData()
+    fd.append('file', file)
+    const { data } = await api.post<ClosetAnalyzePreviewResponse>('/closet/analyze-preview', fd)
+    return {
+      ...(data ?? {}),
+      items: mapVisionPreviewItemUrls(data?.items),
+    }
+  },
+
+  async bulkAnalyzePreview(files: File[]): Promise<BulkAnalyzePreviewResponse> {
+    const form = new FormData()
+    for (const f of files) form.append('files', f)
+    const { data } = await api.post<BulkAnalyzePreviewResponse>('/closet/bulk-analyze-preview', form)
+    return {
+      results: (data.results ?? []).map(r => ({
+        ...r,
+        preview: r.preview
+          ? { ...r.preview, items: mapVisionPreviewItemUrls(r.preview.items) }
+          : r.preview,
+      })),
+      failed: data.failed ?? [],
+    }
+  },
+
+  async confirmPreview(body: ClosetConfirmRequest): Promise<{ saved: ClosetItem[]; total_saved: number }> {
+    const { data } = await api.post<{ saved: Record<string, unknown>[]; total_saved: number }>(
+      '/closet/confirm',
+      body,
+    )
+    return {
+      saved: (data.saved ?? []).map(mapClosetItem),
+      total_saved: data.total_saved ?? 0,
+    }
+  },
+
   async bulkUpload(files: File[]): Promise<{ created: ClosetItem[]; failed: { filename: string; error: string }[] }> {
     const form = new FormData()
     for (const f of files) form.append('files', f)
     const { data } = await api.post<{ created: Record<string, unknown>[]; failed: { filename: string; error: string }[] }>(
       '/closet/bulk-upload',
       form,
-      { headers: { 'Content-Type': 'multipart/form-data' } },
     )
     return {
       created: (data.created ?? []).map(mapClosetItem),
@@ -304,7 +555,6 @@ export const closetApi = {
     const { data } = await api.post<{ item: Record<string, unknown>; vision_analysis: Record<string, unknown> }>(
       '/closet/upload',
       form,
-      { headers: { 'Content-Type': 'multipart/form-data' } },
     )
     return { item: mapClosetItem(data.item), vision_analysis: data.vision_analysis ?? {} }
   },
@@ -320,7 +570,10 @@ export const closetApi = {
 export const outfitsApi = {
   async getOutfitOfDay(): Promise<OutfitOfDayResponse> {
     const { data } = await api.get<OutfitOfDayResponse>('/ai/outfit-of-day')
-    return data
+    return {
+      ...data,
+      outfit: normalizeOutfitSuggestion(data.outfit),
+    }
   },
 
   async create(body: {
@@ -358,7 +611,11 @@ export async function generateOutfitOnce(body: {
   } | null
 }): Promise<{ outfits?: OutfitSuggestion[]; style_tips?: string[] }> {
   const { data } = await api.post('/ai/outfit', body)
-  return data as { outfits?: OutfitSuggestion[]; style_tips?: string[] }
+  const parsed = data as { outfits?: OutfitSuggestion[]; style_tips?: string[] }
+  return {
+    ...parsed,
+    outfits: parsed.outfits?.map(o => normalizeOutfitSuggestion(o)!),
+  }
 }
 
 // ── Trips ───────────────────────────────────────────────────────────────────
@@ -381,7 +638,9 @@ export const tripsApi = {
     purpose: string
     notes?: string
   }): Promise<CreateTripResponse> {
-    const { data } = await api.post<CreateTripResponse>('/trips/', body)
+    // Packing generation calls OpenAI + optional ai-agent; give it more time than
+    // the default 120 s global timeout in case the backend is under load.
+    const { data } = await api.post<CreateTripResponse>('/trips/', body, { timeout: 90_000 })
     return {
       trip: mapTrip(data.trip as unknown as Record<string, unknown>),
       packing_plan: (data.packing_plan ?? null) as CreateTripResponse['packing_plan'],
@@ -390,7 +649,7 @@ export const tripsApi = {
   },
 
   async getPackingList(tripId: string): Promise<unknown> {
-    const { data } = await api.get(`/trips/${tripId}/packing-list`)
+    const { data } = await api.get(`/trips/${tripId}/packing-list`, { timeout: 90_000 })
     return data
   },
 
@@ -513,8 +772,8 @@ export async function streamChat(
     onError: (message: string) => void
   },
 ): Promise<void> {
-  const token = tokenStorage.getAccess()
-  if (!token) {
+  let accessToken = tokenStorage.getAccess()
+  if (!accessToken) {
     handlers.onError('Not authenticated')
     handlers.onDone()
     return
@@ -528,15 +787,38 @@ export async function streamChat(
     }
   }
 
-  try {
-    const res = await fetch(`${apiOrigin()}/api/v1/ai/chat/stream`, {
+  const openStream = (bearer: string) =>
+    fetch(`${apiOrigin()}/api/v1/ai/chat/stream`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
+        Authorization: `Bearer ${bearer}`,
       },
       body: JSON.stringify({ message, history: [], include_closet: true }),
     })
+
+  try {
+    let res = await openStream(accessToken)
+
+    if (res.status === 401) {
+      if (!tokenStorage.getRefresh()) {
+        tokenStorage.clear()
+        window.dispatchEvent(new Event('ch:unauthenticated'))
+        handlers.onError('Session expired — please sign in again')
+        finish()
+        return
+      }
+      try {
+        accessToken = await refreshAccessToken()
+        res = await openStream(accessToken)
+      } catch {
+        tokenStorage.clear()
+        window.dispatchEvent(new Event('ch:unauthenticated'))
+        handlers.onError('Session expired — please sign in again')
+        finish()
+        return
+      }
+    }
 
     if (!res.ok || !res.body) {
       handlers.onError(`Request failed (${res.status})`)

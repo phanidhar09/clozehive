@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useSearchParams, useNavigate, Link } from 'react-router-dom'
 import {
   Search, Users, UserCheck, Loader2, Edit3, Check, Shirt,
@@ -7,7 +7,7 @@ import {
 import { useApp } from '@/store'
 import { socialApi, authApi } from '@/lib/api'
 import type {
-  AvatarConfig, BodyProfile, ClosetItem, SocialUser,
+  AuthUser, AvatarConfig, BodyProfile, ClosetItem, SocialUser,
   StyleProfile, StyleTag, UserPermissions, UserPreferences,
 } from '@/types'
 import UserCard from '@/components/ui/UserCard'
@@ -61,28 +61,27 @@ export default function Profile() {
       .finally(() => setProfileLoading(false))
   }, [currentUser])
 
+  const profileDisplayLabel = currentUser?.display_name || currentUser?.username || ''
   const initials = useMemo(() => {
-    return currentUser?.display_name
-      ? currentUser.display_name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
+    return profileDisplayLabel
+      ? profileDisplayLabel.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
       : 'U'
-  }, [currentUser?.display_name])
+  }, [profileDisplayLabel])
 
   const insight = useMemo(() => analyzeCloset(closetItems), [closetItems])
 
-  const allTabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: 'overview', label: 'Overview',    icon: <UserIcon size={14} /> },
-    { id: 'avatar',   label: 'Avatar',      icon: <Sparkles size={14} /> },
-    { id: 'body',     label: 'Body & Size', icon: <Ruler size={14} /> },
-    { id: 'style',    label: 'Style',       icon: <Palette size={14} /> },
-    { id: 'insights', label: 'Insights',    icon: <Brain size={14} /> },
-    { id: 'social',   label: 'Social',      icon: <Users size={14} /> },
-    { id: 'settings', label: 'Settings',    icon: <Edit3 size={14} /> },
-  ]
-
-  const TABS = useMemo(
-    () => (hideNonMvpUi() ? allTabs.filter(t => t.id !== 'social' && t.id !== 'avatar') : allTabs),
-    [],
-  )
+  const TABS = useMemo(() => {
+    const tabs: { id: Tab; label: string; icon: ReactNode }[] = [
+      { id: 'overview', label: 'Overview',    icon: <UserIcon size={14} /> },
+      { id: 'avatar',   label: 'Avatar',      icon: <Sparkles size={14} /> },
+      { id: 'body',     label: 'Body & Size', icon: <Ruler size={14} /> },
+      { id: 'style',    label: 'Style',       icon: <Palette size={14} /> },
+      { id: 'insights', label: 'Insights',    icon: <Brain size={14} /> },
+      { id: 'social',   label: 'Social',      icon: <Users size={14} /> },
+      { id: 'settings', label: 'Settings',    icon: <Edit3 size={14} /> },
+    ]
+    return hideNonMvpUi() ? tabs.filter(t => t.id !== 'social' && t.id !== 'avatar') : tabs
+  }, [])
 
   if (!currentUser) {
     return <div className="p-8 text-slate-400">Sign in to view your profile.</div>
@@ -135,7 +134,9 @@ export default function Profile() {
           </div>
 
           <div className="space-y-0.5 mb-3">
-            <h2 className="font-display font-bold text-xl text-slate-900 dark:text-white">{currentUser.display_name}</h2>
+            <h2 className="font-display font-bold text-xl text-slate-900 dark:text-white">
+              {currentUser.display_name || currentUser.username}
+            </h2>
             <p className="text-sm text-slate-400 dark:text-white/50">@{currentUser.username}</p>
             <p className="text-sm text-slate-500 dark:text-white/60 mt-1">
               {currentUser.bio || <span className="italic">No bio yet</span>}
@@ -186,7 +187,7 @@ export default function Profile() {
       {/* ── Tab content ──────────────────────────────────────── */}
 
       {activeTab === 'overview' && (
-        <OverviewTab profile={profile} closetItems={closetItems} insight={insight} onJump={setActiveTab} />
+        <OverviewTab profile={profile} closetItems={closetItems} insight={insight} onJump={setActiveTab} currentUser={currentUser} />
       )}
 
       {activeTab === 'avatar' && (
@@ -270,15 +271,29 @@ export default function Profile() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function OverviewTab({
-  profile, closetItems, insight, onJump,
+  profile, closetItems, insight, onJump, currentUser,
 }: {
   profile: SocialUser | null
   closetItems: ClosetItem[]
   insight: ReturnType<typeof analyzeCloset>
   onJump: (t: Tab) => void
+  currentUser: AuthUser
 }) {
   const dominant = insight.dominantStyle
   const navigate = useNavigate()
+
+  const hasBodyProfile = Boolean(
+    currentUser.body_profile?.body_type
+    || currentUser.body_profile?.height_cm
+    || currentUser.body_profile?.shirt_size
+    || currentUser.body_profile?.pant_size
+    || currentUser.body_profile?.shoe_size
+  )
+  const hasStyleProfile = Boolean(
+    (currentUser.style_profile?.selected_styles?.length ?? 0) > 0
+    || currentUser.onboarding_completed
+  )
+  const hasLocation = Boolean(currentUser.permissions?.location)
 
   return (
     <div className="grid md:grid-cols-2 gap-4 animate-fade-in">
@@ -287,10 +302,10 @@ function OverviewTab({
           <Brain size={14} className="text-indigo-500" /> Personalization status
         </h3>
         <ul className="space-y-2 text-sm">
-          <StatusRow label="Avatar"          done={false /* always editable */} cta="Edit" onAction={() => onJump('avatar')} optional />
-          <StatusRow label="Body & sizes"    done={false} cta="Add" onAction={() => onJump('body')} />
-          <StatusRow label="Style preferences" done={false} cta="Choose" onAction={() => onJump('style')} />
-          <StatusRow label="Location access" done={false} cta="Enable" onAction={() => onJump('settings')} optional />
+          <StatusRow label="Avatar"          done={false} cta="Edit" onAction={() => onJump('avatar')} optional />
+          <StatusRow label="Body & sizes"    done={hasBodyProfile} cta={hasBodyProfile ? 'Edit' : 'Add'} onAction={() => onJump('body')} />
+          <StatusRow label="Style Profile (AI)" done={hasStyleProfile} cta="Edit" onAction={() => navigate('/onboarding/style-profile')} />
+          <StatusRow label="Location access" done={hasLocation} cta={hasLocation ? 'Change' : 'Enable'} onAction={() => onJump('settings')} optional />
         </ul>
       </GlassCard>
 
@@ -422,7 +437,7 @@ function BodyTab({
       <div>
         <h3 className="font-semibold text-base text-slate-800 dark:text-white">Body & sizes</h3>
         <p className="text-xs text-slate-500 dark:text-white/50 mt-1">
-          The AI uses this to match items that genuinely fit you. Skip anything you don't want to share.
+          The AI uses this to match items that genuinely fit you. Skip anything you don&apos;t want to share.
         </p>
       </div>
 
@@ -736,7 +751,9 @@ function SocialTab({
     if (!searchQuery.trim()) { setSearchResults([]); return }
     const t = setTimeout(async () => {
       setSearchLoading(true)
-      try { setSearchResults(await socialApi.searchUsers(searchQuery)) } catch {}
+      try { setSearchResults(await socialApi.searchUsers(searchQuery)) } catch {
+        /* debounced search: ignore transient errors */
+      }
       finally { setSearchLoading(false) }
     }, 400)
     return () => clearTimeout(t)
@@ -835,6 +852,8 @@ function SettingsTab({
   })
   const [savingPrefs, setSavingPrefs] = useState(false)
 
+  useEffect(() => { if (!savingBio) setEditName(name) }, [name, savingBio])
+  useEffect(() => { if (!savingBio) setEditBio(bio) }, [bio, savingBio])
   useEffect(() => setPerms(permissions ?? { location: false, calendar: false }), [permissions])
   useEffect(() => setPrefs(preferences ?? { occasion_focus: [], avoid_categories: [], notes: '' }), [preferences])
 

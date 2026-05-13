@@ -6,7 +6,7 @@ import re
 from typing import Optional, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, computed_field, field_validator
 
 from app.schemas.validators import strip_string
 
@@ -14,7 +14,8 @@ from app.schemas.validators import strip_string
 class SignupRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=60)
     email: EmailStr = Field(..., max_length=254)
-    username: str = Field(..., min_length=3, max_length=30)
+    # username is optional — the service auto-generates one from name/email if omitted
+    username: Optional[str] = Field(None, min_length=3, max_length=30)
     password: str = Field(..., min_length=8, max_length=128)
 
     @field_validator("name", mode="before")
@@ -29,7 +30,9 @@ class SignupRequest(BaseModel):
 
     @field_validator("username")
     @classmethod
-    def username_alphanumeric(cls, v: str) -> str:
+    def username_alphanumeric(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
         if not re.match(r"^[a-zA-Z0-9_]+$", v):
             raise ValueError("Username may only contain letters, numbers, and underscores")
         return v.lower()
@@ -121,6 +124,7 @@ class UserResponse(BaseModel):
     role: str
     is_active: bool
     is_verified: bool
+    auth_provider: str = "local"
     body_profile: Optional[dict[str, Any]] = None
     style_profile: Optional[dict[str, Any]] = None
     preferences: Optional[dict[str, Any]] = None
@@ -128,6 +132,12 @@ class UserResponse(BaseModel):
     avatar_config: Optional[dict[str, Any]] = None
 
     model_config = {"from_attributes": True}
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def display_name(self) -> str:
+        """Alias for name — lets the frontend use a consistent field name."""
+        return self.name or self.username
 
 
 class AuthResponse(BaseModel):
@@ -139,6 +149,7 @@ class AuthResponse(BaseModel):
 
 class UpdateProfileRequest(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=60)
+    username: Optional[str] = Field(None, min_length=3, max_length=30)
     bio: Optional[str] = Field(None, max_length=500)
     avatar_url: Optional[str] = None
     # Personalization sections — clients send only the keys they want to update.
@@ -152,6 +163,15 @@ class UpdateProfileRequest(BaseModel):
     @classmethod
     def strip_profile_strings(cls, v: str | None) -> str | None:
         return strip_string(v) if v is not None else v
+
+    @field_validator("username")
+    @classmethod
+    def username_alphanumeric(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        if not re.match(r"^[a-zA-Z0-9_]+$", v):
+            raise ValueError("Username may only contain letters, numbers, and underscores")
+        return v.lower()
 
 
 class ChangePasswordRequest(BaseModel):

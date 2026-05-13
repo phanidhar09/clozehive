@@ -2,7 +2,7 @@ import { useState, FormEvent, useEffect } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Eye, EyeOff, Sparkles, ArrowRight, Loader2, AlertCircle } from 'lucide-react'
 import { useApp } from '@/store'
-import { authApi } from '@/lib/api'
+import { authApi, profileApi } from '@/lib/api'
 
 const OAUTH_ERRORS: Record<string, string> = {
   oauth_cancelled: 'Google sign-in was cancelled.',
@@ -63,7 +63,16 @@ export default function Login() {
         password,
       })
       login(user, access_token, refresh_token)
-      navigate('/dashboard', { replace: true })
+      try {
+        const st = await profileApi.getOnboardingStatus()
+        if (!st.onboarding_completed) {
+          navigate('/onboarding/style-profile', { replace: true })
+          return
+        }
+      } catch {
+        /* if status fails, continue to dashboard */
+      }
+      navigate('/dashboard', { replace: true, state: { fromLogin: true } })
     } catch (err: unknown) {
       type ApiErr = {
         response?: {
@@ -143,7 +152,7 @@ export default function Login() {
         {/* Bottom quote */}
         <div className="relative">
           <blockquote className="text-white/50 text-sm italic border-l-2 border-white/20 pl-4">
-            "Getting dressed has never been this effortless."
+            &ldquo;Getting dressed has never been this effortless.&rdquo;
           </blockquote>
         </div>
       </div>
@@ -272,7 +281,7 @@ export default function Login() {
 
           {/* Sign up link */}
           <p className="text-center text-sm text-slate-500 dark:text-slate-400 mt-6">
-            Don't have an account?{' '}
+            Don&apos;t have an account?{' '}
             <Link to="/signup" className="font-semibold text-brand-600 dark:text-brand-400 hover:underline">
               Create one free
             </Link>

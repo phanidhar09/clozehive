@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, cast
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
@@ -11,6 +11,67 @@ from pydantic import BaseModel, Field, field_validator
 from app.schemas.validators import strip_string
 
 ClosetCategory = Literal["tops", "bottoms", "shoes", "outerwear", "dresses", "accessories", "other"]
+
+_CANONICAL_CATEGORIES = frozenset({
+    "tops", "bottoms", "shoes", "outerwear", "dresses", "accessories", "other",
+})
+
+_CATEGORY_ALIASES: dict[str, ClosetCategory] = {
+    "top": "tops",
+    "shirt": "tops",
+    "blouse": "tops",
+    "t-shirt": "tops",
+    "tee": "tops",
+    "sweater": "tops",
+    "hoodie": "tops",
+    "cardigan": "tops",
+    "tank": "tops",
+    "polo": "tops",
+    "bottom": "bottoms",
+    "pants": "bottoms",
+    "jeans": "bottoms",
+    "trousers": "bottoms",
+    "shorts": "bottoms",
+    "skirt": "bottoms",
+    "leggings": "bottoms",
+    "shoe": "shoes",
+    "sneakers": "shoes",
+    "boots": "shoes",
+    "heels": "shoes",
+    "sandals": "shoes",
+    "loafers": "shoes",
+    "coat": "outerwear",
+    "jacket": "outerwear",
+    "blazer": "outerwear",
+    "parka": "outerwear",
+    "vest": "outerwear",
+    "dress": "dresses",
+    "gown": "dresses",
+    "jumpsuit": "dresses",
+    "bag": "accessories",
+    "belt": "accessories",
+    "hat": "accessories",
+    "scarf": "accessories",
+    "jewelry": "accessories",
+    "watch": "accessories",
+    "sunglasses": "accessories",
+    "uncategorised": "other",
+    "uncategorized": "other",
+    "unknown": "other",
+    "general": "other",
+    "misc": "other",
+    "clothing": "other",
+}
+
+
+def coerce_closet_category(category: Optional[str]) -> ClosetCategory:
+    """Normalise vision or form input into a valid closet category."""
+    if not category or not str(category).strip():
+        return "other"
+    c = str(category).strip().lower()
+    if c in _CANONICAL_CATEGORIES:
+        return cast(ClosetCategory, c)
+    return _CATEGORY_ALIASES.get(c, "other")
 
 
 # ── Shared season normalizer ─────────────────────────────────────────────────
@@ -66,7 +127,27 @@ class ClosetItemCreate(BaseModel):
     size: Optional[str] = Field(None, max_length=20)
     price: Optional[float] = Field(None, ge=0, le=99999.99)
 
-    @field_validator("name", "color", "fabric", "pattern", "image_url", "notes", "brand", "size", mode="before")
+    original_image_url: Optional[str] = None
+    processed_image_url: Optional[str] = None
+    background_removed: bool = False
+    background_removal_status: Optional[str] = Field(None, max_length=20)
+    analysis_source: Optional[str] = Field(None, max_length=50)
+    confidence_score: Optional[float] = Field(None, ge=0)
+    scan_batch_id: Optional[str] = Field(None, max_length=36)
+
+    @field_validator(
+        "name",
+        "color",
+        "fabric",
+        "pattern",
+        "image_url",
+        "original_image_url",
+        "processed_image_url",
+        "notes",
+        "brand",
+        "size",
+        mode="before",
+    )
     @classmethod
     def strip_strings(cls, v: str | None) -> str | None:
         return strip_string(v) if v is not None else v
@@ -191,6 +272,140 @@ class ClosetUploadResponse(BaseModel):
 
     item: ClosetItemResponse
     vision_analysis: dict[str, Any] = Field(default_factory=dict)
+
+
+# ── Preview → confirm upload flow (no DB rows until POST /closet/confirm) ─────
+
+class ClosetPreviewItem(BaseModel):
+    """One detected item from analyze-preview — canonical, frontend-stable shape."""
+
+    slot_index: int = Field(..., ge=0)
+    temp_id: str = Field(..., description="Stable id for this detection within the session (alias of legacy item_id).")
+    name: str
+    category: str
+    subcategory: Optional[str] = None
+    color: Optional[str] = None
+    brand: Optional[str] = None
+    material: Optional[str] = None
+    pattern: Optional[str] = None
+    season: list[str] = Field(default_factory=list)
+    occasions: list[str] = Field(default_factory=list)
+    description: Optional[str] = None
+    confidence: float = Field(0.0, ge=0.0, le=1.0)
+    original_image_url: str
+    preview_image_url: str
+    processed_image_url: Optional[str] = None
+    background_removed: bool = False
+    background_removal_status: Optional[str] = None
+    style_tags: list[str] = Field(default_factory=list)
+
+    @field_validator("name", "category", "subcategory", "color", "brand", "material", "pattern", "description", mode="before")
+    @classmethod
+    def strip_prev_strings(cls, v: str | None) -> str | None:
+        return strip_string(v) if v is not None else v
+
+    @field_validator("season", mode="before")
+    @classmethod
+    def prev_season(cls, v: Any) -> list[str]:
+        return _coerce_str_list(v)
+
+    @field_validator("occasions", mode="before")
+    @classmethod
+    def prev_occ(cls, v: Any) -> list[str]:
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return [s.strip() for s in v.replace(";", ",").split(",") if s.strip()]
+        if isinstance(v, (list, tuple)):
+            return [str(x).strip() for x in v if x and str(x).strip()]
+        return []
+
+    @field_validator("style_tags", mode="before")
+    @classmethod
+    def prev_tags(cls, v: Any) -> list[str]:
+        if v is None:
+            return []
+        if isinstance(v, str):
+            t = v.strip()
+            return [t] if t else []
+        if isinstance(v, (list, tuple)):
+            return [str(x).strip() for x in v if x and str(x).strip()]
+        return []
+
+
+class ClosetAnalyzePreviewResponse(BaseModel):
+    preview_session_id: UUID
+    items: list[ClosetPreviewItem]
+    scan_id: Optional[str] = None
+    pipeline_cached: bool = False
+
+
+class ClosetConfirmItemPayload(BaseModel):
+    slot_index: int = Field(..., ge=0)
+    selected: bool = True
+    name: str = Field(..., min_length=1, max_length=200)
+    category: ClosetCategory
+    color: Optional[str] = Field(None, max_length=50)
+    fabric: Optional[str] = Field(None, max_length=100)
+    material: Optional[str] = Field(None, max_length=100)
+    pattern: Optional[str] = Field(None, max_length=100)
+    season: list[str] = Field(default_factory=list)
+    occasion: Optional[list[str]] = Field(None, max_length=10)
+    notes: Optional[str] = Field(None, max_length=1000)
+    brand: Optional[str] = Field(None, max_length=100)
+    size: Optional[str] = Field(None, max_length=20)
+    price: Optional[float] = Field(None, ge=0, le=99999.99)
+    tags: Optional[list[str]] = Field(None, max_length=20)
+    eco_score: Optional[float] = Field(None, ge=0, le=10)
+
+    @field_validator("name", "color", "fabric", "material", "pattern", "notes", "brand", "size", mode="before")
+    @classmethod
+    def strip_strings(cls, v: str | None) -> str | None:
+        return strip_string(v) if v is not None else v
+
+    @field_validator("season", mode="before")
+    @classmethod
+    def coerce_season(cls, v: Any) -> list[str]:
+        return _coerce_str_list(v)
+
+    @field_validator("tags", "occasion", mode="before")
+    @classmethod
+    def strip_string_lists(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return v
+        return [strip_string(item) for item in v if strip_string(item)]
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, v: list[str] | None) -> list[str] | None:
+        if v and any(len(tag) > 50 for tag in v):
+            raise ValueError("Each tag must be 50 characters or fewer")
+        return v
+
+
+class ClosetConfirmRequest(BaseModel):
+    preview_session_id: UUID
+    items: list[ClosetConfirmItemPayload]
+
+
+class ClosetConfirmResponse(BaseModel):
+    saved: list[ClosetItemResponse]
+    total_saved: int
+
+
+class BulkPreviewFailure(BaseModel):
+    filename: str
+    error: str
+
+
+class BulkAnalyzePreviewFileResult(BaseModel):
+    filename: str
+    preview: ClosetAnalyzePreviewResponse
+
+
+class BulkAnalyzePreviewResponse(BaseModel):
+    results: list[BulkAnalyzePreviewFileResult]
+    failed: list[BulkPreviewFailure] = Field(default_factory=list)
 
 
 # ── Vision Pipeline schemas ───────────────────────────────────────────────────

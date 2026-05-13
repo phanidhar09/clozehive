@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 
@@ -38,6 +38,10 @@ class OutfitRecommendations(BaseModel):
     styling_tips: list[str] = Field(default_factory=list)
 
 
+OccasionStyleMatch = Literal["High", "Medium", "Low"]
+SizeProfileMatch = Literal["High", "Medium", "Low", "Unknown"]
+
+
 class ScoredOutfit(BaseModel):
     items: OutfitItemSlots
     matching_score: int = Field(ge=0, le=100)
@@ -47,8 +51,20 @@ class ScoredOutfit(BaseModel):
         default="",
         description="How this outfit suits the user's body profile and preferred fit.",
     )
+    fit_confidence: Optional[int] = Field(
+        None, ge=0, le=100, description="0–100 fit/size confidence distinct from overall confidence."
+    )
+    occasion_match: Optional[OccasionStyleMatch] = None
+    style_match: Optional[OccasionStyleMatch] = None
+    size_profile_match: Optional[SizeProfileMatch] = None
+    body_profile_notes: str = Field(
+        default="",
+        description="Positive, supportive notes referencing fit and silhouette — never judgmental.",
+    )
     recommendations: OutfitRecommendations
     reasoning: str = ""
+    why_it_works: str = ""
+    what_to_improve: list[str] = Field(default_factory=list)
 
 
 class UnusedItem(BaseModel):

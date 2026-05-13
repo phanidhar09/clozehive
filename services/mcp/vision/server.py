@@ -91,7 +91,11 @@ async def analyze_clothing_from_bytes(
 
 
 if __name__ == "__main__":
+    import uvicorn
+    from shared.auth import BearerTokenMiddleware
+
     logger.info("vision_server_starting", port=settings.vision_port)
-    mcp.settings.host = settings.vision_host
-    mcp.settings.port = settings.vision_port
-    mcp.run(transport="sse")
+    app = mcp.sse_app()
+    if settings.internal_service_token:
+        app = BearerTokenMiddleware(app, settings.internal_service_token)
+    uvicorn.run(app, host=settings.vision_host, port=settings.vision_port)

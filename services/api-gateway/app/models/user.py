@@ -38,6 +38,7 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     google_id: Mapped[Optional[str]] = mapped_column(String(255), unique=True, nullable=True)
+    auth_provider: Mapped[str] = mapped_column(String(20), nullable=False, default="local")  # local | google
 
     # ── Personalization profile (JSONB; nullable for backwards compat) ────────
     # body_profile  — height/weight/body_type/preferred_fit/sizes

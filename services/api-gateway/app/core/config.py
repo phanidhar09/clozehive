@@ -8,12 +8,31 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
+import logging
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # config.py lives at services/api-gateway/app/core/config.py — 5 levels up is the project root
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
 _ENV_FILE = _PROJECT_ROOT / ".env"
+
+_CFG_LOG = logging.getLogger("clozehive.config")
+
+
+def sanitize_openai_api_base(url: str) -> str:
+    """Rewrite risky OpenAI-compat proxy URLs (e.g. local :4000 gateways) to the official API."""
+    official = "https://api.openai.com/v1"
+    raw = (url or "").strip() or official
+    low = raw.lower().rstrip("/")
+    risky = False
+    if ":4000" in raw:
+        risky = "/v1" in low or low.endswith(":4000")
+    elif "localhost:4000" in low or "127.0.0.1:4000" in low:
+        risky = True
+    if risky:
+        _CFG_LOG.warning("openai_api_base_url_reset: was %s; using api.openai.com", raw[:80])
+        return official
+    return raw
 
 
 class Settings(BaseSettings):
@@ -43,6 +62,8 @@ class Settings(BaseSettings):
     cache_ttl_closet: int = 120       # 2 min
     cache_ttl_weather: int = 3600     # 1 hour
     cache_ttl_social: int = 60        # 1 min
+    # Staged closet upload preview (analyze → confirm); Redis-backed session TTL.
+    closet_preview_ttl_seconds: int = 3600
 
     # ── JWT ───────────────────────────────────────────────────────────────────
     jwt_secret: str
@@ -52,18 +73,27 @@ class Settings(BaseSettings):
 
     # ── AI Agent Service ──────────────────────────────────────────────────────
     ai_agent_url: str = "http://ai-agent:8001"
-    ai_timeout_seconds: int = 60
+    # Budget for a single ai-agent read. connect timeout is always 5 s (see ai_client.py).
+    ai_timeout_seconds: int = 30
+    # Shared secret sent as X-Internal-Token on every api-gateway → ai-agent request.
+    internal_service_token: str = ""
     openweather_api_key: str = ""
     ai_cache_enabled: bool = True
     ai_cache_ttl: int = 600
     embedding_model: str = "text-embedding-ada-002"
     openai_api_key: str = ""
+    # Base URL passed explicitly to AsyncOpenAI (SDK ignores stray OS OPENAI_BASE_URL).
+    # Use for Azure/other OpenAI-compatible gateways; leave default for api.openai.com.
+    openai_api_base_url: str = "https://api.openai.com/v1"
     openai_model: str = "gpt-4o"
     openai_max_tokens: int = 1024
-
     # ── Gemini AI ─────────────────────────────────────────────────────────────
     gemini_api_key: str = ""
     gemini_model: str = "gemini-1.5-flash-latest"
+
+    # Closet POST /closet/analyze-preview: skip per-item BG removal + second OpenAI pass on each crop.
+    # Much faster; detection metadata still comes from the first vision call. Set false for max quality.
+    vision_preview_fast: bool = True
 
     # ── File Upload ───────────────────────────────────────────────────────────
     upload_dir: str = "./uploads"
@@ -74,8 +104,21 @@ class Settings(BaseSettings):
     # Leave blank to use local disk (development only — not persistent across deploys).
     gcs_bucket_name: str = ""
     gcs_project_id: str = ""
-    # Service account JSON string. Leave empty to use ADC / GOOGLE_APPLICATION_CREDENTIALS.
+    # Service account JSON string. Leave empty if using gcs_credentials_file or ADC.
     gcs_credentials_json: str = ""
+    # Path to service-account JSON inside the container (recommended for Docker — mount a file).
+    gcs_credentials_file: str = ""
+
+    @field_validator("gcs_credentials_json", mode="before")
+    @classmethod
+    def _strip_gcs_json_wrapper(cls, v: object) -> object:
+        """Docker / shell quotes sometimes wrap the JSON string in extra ' or "."""
+        if not isinstance(v, str):
+            return v
+        s = v.strip()
+        if len(s) >= 2 and ((s[0] == s[-1]) and s[0] in ("'", '"')):
+            return s[1:-1]
+        return s
 
     # ── CORS ──────────────────────────────────────────────────────────────────
     allowed_origins: str = "http://localhost:3000,http://localhost:5173"
@@ -86,8 +129,8 @@ class Settings(BaseSettings):
     rate_limit_ai: str = "20/minute"
 
     # ── OAuth ─────────────────────────────────────────────────────────────────
-    google_client_id: str
-    google_client_secret: str
+    google_client_id: str = ""
+    google_client_secret: str = ""
     google_redirect_uri: str = "http://localhost:8000/api/v1/auth/google/callback"
     frontend_url: str = "http://localhost:3000"
 
@@ -104,7 +147,7 @@ class Settings(BaseSettings):
     sentry_dsn: str = ""
 
     # ── Kafka / Redpanda ──────────────────────────────────────────────────────
-    kafka_enabled: bool = True
+    kafka_enabled: bool = False
     kafka_bootstrap_servers: str = "redpanda:9092"
     kafka_client_id: str = "clozehive-api-gateway"
     kafka_result_group_id: str = "clozehive-api-gateway-results"
@@ -120,7 +163,7 @@ class Settings(BaseSettings):
     @field_validator("database_url", mode="before")
     @classmethod
     def _normalise_db_url(cls, v: str) -> str:
-        """Render (and Heroku) supply ``postgres://`` URLs — rewrite to the async driver."""
+        """Heroku-style and some managed DBs supply ``postgres://`` URLs — rewrite for asyncpg."""
         if not isinstance(v, str):
             return v
         if v.startswith("postgres://"):
@@ -148,7 +191,10 @@ class Settings(BaseSettings):
         return p
 
     @model_validator(mode="after")
-    def _validate_production_config(self):
+    def _sanitize_openai_base_url_and_validate_production(self):
+        """Normalize risky proxy base URLs toward the official OpenAI API."""
+        self.openai_api_base_url = sanitize_openai_api_base(self.openai_api_base_url)
+
         if self.is_production:
             if len(self.jwt_secret) < 32:
                 raise ValueError("JWT_SECRET must be a strong production secret")

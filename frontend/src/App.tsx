@@ -1,17 +1,19 @@
 import { Suspense, lazy, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AnimatePresence } from 'framer-motion'
-import { AppContext, createAppState, useApp } from '@/store'
+import { AppContext, useCreateAppState, useApp } from '@/store'
 import Layout from '@/components/layout/Layout'
 import ProtectedRoute from '@/components/auth/ProtectedRoute'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import PageTransition from '@/components/PageTransition'
+import { PageLoadingState } from '@/components/system/PageLoadingState'
 import { hideNonMvpUi } from '@/config/features'
 
 // Auth pages (no layout wrapper)
 const Login = lazy(() => import('@/auth/Login'))
 const Signup = lazy(() => import('@/auth/Signup'))
 const OAuthCallback = lazy(() => import('@/auth/OAuthCallback'))
+const StyleProfileOnboarding = lazy(() => import('@/pages/onboarding/StyleProfileOnboarding'))
 
 // App pages
 const Dashboard = lazy(() => import('@/pages/Dashboard'))
@@ -35,7 +37,7 @@ function DataLoader() {
 }
 
 function AppProvider({ children }: { children: React.ReactNode }) {
-  const state = createAppState()
+  const state = useCreateAppState()
   return <AppContext.Provider value={state}>{children}</AppContext.Provider>
 }
 
@@ -47,8 +49,8 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
 function RouteFallback() {
   return (
-    <div className="min-h-screen flex items-center justify-center text-sm text-slate-500 dark:text-slate-400">
-      Loading...
+    <div className="min-h-screen flex items-center justify-center p-8">
+      <PageLoadingState title="Loading page…" description="Hang tight while we open this screen." className="w-full max-w-md" />
     </div>
   )
 }
@@ -75,6 +77,16 @@ function AnimatedRoutes() {
           <AuthGuard><Signup /></AuthGuard>
         } />
         <Route path="/oauth/callback" element={<OAuthCallback />} />
+        <Route
+          path="/onboarding/style-profile"
+          element={
+            <ProtectedRoute>
+              <Suspense fallback={<RouteFallback />}>
+                <StyleProfileOnboarding />
+              </Suspense>
+            </ProtectedRoute>
+          }
+        />
 
         {/* ── Protected app routes (with Layout) ──────────── */}
         <Route path="/" element={

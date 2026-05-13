@@ -29,7 +29,10 @@ from tenacity import (
     wait_exponential,
 )
 
-from app.agent.prompts import WARDROBE_AGENT_SYSTEM_PROMPT
+from app.agent.prompts import (
+    WARDROBE_AGENT_LLM_ONLY_SYSTEM_PROMPT,
+    WARDROBE_AGENT_SYSTEM_PROMPT,
+)
 from app.core.config import get_settings
 
 logger = structlog.get_logger("wardrobe_agent")
@@ -113,52 +116,122 @@ class WardrobeAgent:
 
     async def start(self) -> None:
         """
-        Connect to MCP tool servers when available.
+        Optionally connect to MCP tool servers (when ``enable_mcp_tools`` is True).
 
-        Default Docker Compose does not start MCP containers (they use profile
-        ``legacy-mcp``). Connecting to missing hosts makes ``get_tools()`` raise
-        ExceptionGroup("unhandled errors in a TaskGroup"). We degrade to an LLM-only
-        agent so the service still starts and /health can be ready.
+        When MCP is disabled (MVP default), skip network calls entirely — no
+        connection attempts to ``mcp-*`` hosts. The agent runs LLM-only with an
+        appropriate system prompt.
+
+        When MCP is enabled but servers are missing, degrade to LLM-only (empty tools),
+        same as today, without failing startup.
         """
-        logger.info("agent_starting", mcp_servers=list(settings.mcp_server_config.keys()))
         self._client = None
         self._tools = []
 
-        try:
-            self._client = MultiServerMCPClient(settings.mcp_server_config)
-            raw_tools = await self._client.get_tools()
-            self._tools = list(raw_tools)
+        if not settings.enable_mcp_tools:
             logger.info(
-                "mcp_tools_loaded",
-                count=len(self._tools),
-                names=[t.name for t in self._tools],
+                "mcp_tools_disabled_by_config",
+                enable_mcp_tools=False,
+                hint=(
+                    "Set ENABLE_MCP_TOOLS=true and start mcp-* (compose --profile legacy-mcp) "
+                    "to load LangChain MCP tools."
+                ),
             )
-        except BaseException as exc:
-            causes = _exception_causes(exc)
-            logger.warning(
-                "mcp_tool_load_skipped",
-                summary=str(exc),
-                causes=causes[:12],
-                hint="Start MCP with: docker compose --profile legacy-mcp up -d ; or run without tools (LLM-only).",
+        else:
+            logger.info(
+                "mcp_tools_enabled_connecting",
+                enable_mcp_tools=True,
+                endpoints=settings.mcp_endpoints_for_logging(),
             )
-            self._client = None
-            self._tools = []
+            # Brief initial pause: Docker's embedded DNS needs a moment to register
+            # newly started container names. Without this, the first connection
+            # attempt races against DNS propagation and gets NXDOMAIN.
+            await asyncio.sleep(5)
+
+            # Connect to each MCP server independently so one failure doesn't
+            # take down all tools.
+            all_tools: list = []
+            server_configs = settings.mcp_server_config
+            for server_name, server_cfg in server_configs.items():
+                _max_attempts = 3
+                _delay = 3.0
+                loaded = False
+                for _attempt in range(_max_attempts):
+                    try:
+                        client = MultiServerMCPClient({server_name: server_cfg})
+                        server_tools = await client.get_tools()
+                        all_tools.extend(server_tools)
+                        logger.info(
+                            "mcp_server_loaded",
+                            server=server_name,
+                            tools=[t.name for t in server_tools],
+                            attempt=_attempt + 1,
+                        )
+                        loaded = True
+                        break
+                    except BaseException as exc:
+                        if _attempt < _max_attempts - 1:
+                            logger.warning(
+                                "mcp_server_retrying",
+                                server=server_name,
+                                attempt=_attempt + 1,
+                                delay_s=_delay,
+                                error=str(exc)[:200],
+                            )
+                            await asyncio.sleep(_delay)
+                            _delay = min(_delay * 1.5, 10.0)
+                        else:
+                            logger.warning(
+                                "mcp_server_skipped",
+                                server=server_name,
+                                error=str(exc)[:200],
+                                hint="This server's tools will be unavailable this session.",
+                            )
+                if not loaded:
+                    continue  # skip — already warned above
+
+            self._tools = all_tools
+            if self._tools:
+                logger.info(
+                    "mcp_tools_loaded",
+                    count=len(self._tools),
+                    names=[t.name for t in self._tools],
+                )
+            else:
+                logger.warning(
+                    "mcp_tool_load_skipped",
+                    hint=(
+                        "All MCP servers unreachable — running LLM-only. "
+                        "Start MCP: docker compose --profile legacy-mcp up -d"
+                    ),
+                )
+
+        system_prompt = (
+            WARDROBE_AGENT_SYSTEM_PROMPT
+            if self._tools
+            else WARDROBE_AGENT_LLM_ONLY_SYSTEM_PROMPT
+        )
 
         try:
             model = ChatOpenAI(
                 model=settings.openai_model,
                 temperature=settings.agent_temperature,
-                api_key=settings.openai_api_key,
+                api_key=settings.openai_api_key or "no-key",
+                base_url=settings.openai_api_base_url,
                 streaming=True,
             )
 
             self._agent = create_react_agent(
                 model,
                 self._tools,
-                prompt=WARDROBE_AGENT_SYSTEM_PROMPT,
+                prompt=system_prompt,
             )
             self._ready = True
-            logger.info("agent_ready", tool_count=len(self._tools))
+            logger.info(
+                "agent_ready",
+                tool_count=len(self._tools),
+                llm_only=len(self._tools) == 0,
+            )
 
         except Exception as exc:
             logger.error("agent_start_failed", error=str(exc))

@@ -1,7 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
-  LayoutDashboard, Shirt, Plane, User,
+  LayoutDashboard, Shirt, Plane,
   BarChart3, X, Moon, Sun, LogOut, Wand2, PlusCircle,
   type LucideIcon,
 } from 'lucide-react'
@@ -30,8 +30,9 @@ export default function Sidebar() {
   const { colorScheme, toggleColorScheme } = useColorScheme()
   const navigate = useNavigate()
 
-  const initials = currentUser?.display_name
-    ? currentUser.display_name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
+  const displayLabel = currentUser?.display_name || currentUser?.username || ''
+  const initials = displayLabel
+    ? displayLabel.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
     : 'U'
 
   const handleLogout = () => {
@@ -156,7 +157,7 @@ export default function Sidebar() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-semibold text-slate-800 dark:text-white truncate">
-                    {currentUser.display_name}
+                    {currentUser.display_name || currentUser.username}
                   </div>
                   <div className="text-[11px] text-slate-400 dark:text-white/40 truncate">
                     @{currentUser.username}

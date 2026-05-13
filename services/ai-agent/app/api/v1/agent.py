@@ -16,6 +16,29 @@ from app.services.vector_store import search_closet_context
 router = APIRouter(prefix="/agent", tags=["Agent"])
 settings = get_settings()
 
+MCP_TOOLS_DISABLED_DETAIL = (
+    "Advanced MCP-backed agent tools are disabled (ENABLE_MCP_TOOLS=false). "
+    "Use the API gateway instead: outfit endpoints, trip/packing flows, and closet upload/vision. "
+    "Chat still works in LLM-only mode. To enable direct MCP tool routes here, set "
+    "ENABLE_MCP_TOOLS=true, configure MCP_*_URL if needed, and start the mcp-* services "
+    "(e.g. docker compose --profile legacy-mcp)."
+)
+
+MCP_TOOLS_ENABLED_BUT_UNAVAILABLE_DETAIL = (
+    "MCP tools are enabled but did not load (servers unreachable or misconfigured). "
+    "Start mcp-* services (docker compose --profile legacy-mcp) and verify MCP_*_URL; "
+    "see ai-agent logs for connection errors."
+)
+
+
+def _require_mcp_tool_routes() -> None:
+    """Raise when HTTP routes that directly invoke MCP tools cannot run."""
+    if not settings.enable_mcp_tools:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=MCP_TOOLS_DISABLED_DETAIL,
+        )
+
 
 def _mcp_output_to_str(raw: Any) -> str:
     """MCP tools may return a plain string or LangChain-style content blocks."""
@@ -87,6 +110,7 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     reply: str
+    mode: str = "full"  # "full" = MCP tools loaded, "llm_only" = no MCP tools
 
 
 class OutfitRequest(BaseModel):
@@ -104,6 +128,7 @@ class PackingRequest(BaseModel):
     purpose: str = "general"
     notes: str | None = None
     closet_items: list[dict[str, Any]] = Field(default_factory=list)
+    user_style_profile: dict[str, Any] | None = None
 
 
 class VisionRequest(BaseModel):
@@ -116,7 +141,9 @@ def _require_agent():
     if not agent.is_ready:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="AI agent not ready — MCP servers may be starting up",
+            detail=(
+                "AI agent is not ready. Check OPENAI_API_KEY, model configuration, and startup logs."
+            ),
         )
     return agent
 
@@ -156,7 +183,8 @@ async def chat(body: ChatRequest):
 
     try:
         reply = await agent.chat(message, history=body.history)
-        return ChatResponse(reply=reply)
+        mode = "full" if agent.available_tools else "llm_only"
+        return ChatResponse(reply=reply, mode=mode)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -181,12 +209,14 @@ async def chat_stream(body: ChatRequest):
         if vector_matches:
             message += f"\n\n[Relevant wardrobe memory]:\n{json.dumps(vector_matches, default=str)}"
 
+    mode = "full" if agent.available_tools else "llm_only"
+
     async def events():
         try:
-            yield _sse({"type": "status", "message": "Thinking..."})
+            yield _sse({"type": "status", "message": "Thinking...", "mode": mode})
             async for token in agent.stream_chat(message, history=body.history):
                 yield _sse({"type": "token", "content": token})
-            yield _sse({"type": "done"})
+            yield _sse({"type": "done", "mode": mode})
         except Exception as exc:
             yield _sse({"type": "error", "message": str(exc)})
 
@@ -204,10 +234,14 @@ async def chat_stream(body: ChatRequest):
 @router.post("/outfit")
 async def outfit(body: OutfitRequest):
     """Generate outfit suggestions via the outfit MCP tool."""
+    _require_mcp_tool_routes()
     agent = _require_agent()
     outfit_tool = next((t for t in agent._tools if "generate_outfit" in t.name), None)
     if not outfit_tool:
-        raise HTTPException(status_code=503, detail="Outfit tool unavailable")
+        raise HTTPException(
+            status_code=503,
+            detail=MCP_TOOLS_ENABLED_BUT_UNAVAILABLE_DETAIL,
+        )
 
     try:
         invoke_args: dict[str, Any] = {
@@ -231,13 +265,14 @@ async def outfit(body: OutfitRequest):
 @router.post("/packing")
 async def packing(body: PackingRequest):
     """Call weather MCP then packing MCP for a structured PackingResult JSON."""
+    _require_mcp_tool_routes()
     agent = _require_agent()
     weather_tool = next((t for t in agent._tools if "get_weather_summary" in t.name), None)
     packing_tool = next((t for t in agent._tools if "generate_trip_packing_list" in t.name), None)
     if not weather_tool or not packing_tool:
         raise HTTPException(
             status_code=503,
-            detail="Weather or packing MCP tool unavailable",
+            detail=MCP_TOOLS_ENABLED_BUT_UNAVAILABLE_DETAIL,
         )
 
     try:
@@ -251,18 +286,28 @@ async def packing(body: PackingRequest):
             raise HTTPException(status_code=502, detail=str(weather_data["error"]))
 
         weather_json = json.dumps(weather_data)
+        combined_notes = body.notes or ""
+        if body.user_style_profile:
+            ctx = body.user_style_profile.get("style_profile_context_text")
+            if isinstance(ctx, str) and ctx.strip():
+                combined_notes = f"{combined_notes}\n\n[USER STYLE PROFILE]\n{ctx.strip()}".strip()
         praw = await packing_tool.ainvoke({
             "destination": body.destination,
             "start_date": body.start_date,
             "end_date": body.end_date,
             "purpose": body.purpose,
-            "notes": body.notes or "",
+            "notes": combined_notes,
             "closet_items_json": json.dumps(body.closet_items),
             "weather_summary_json": weather_json,
         })
         result = _parse_json_mcp(praw)
         if isinstance(result, dict) and result.get("error"):
             raise HTTPException(status_code=502, detail=str(result["error"]))
+        if isinstance(result, dict) and isinstance(weather_data, dict) and not weather_data.get(
+            "error"
+        ):
+            # Match api-gateway packing_service shape for trips / TravelPlanner storage.
+            result.setdefault("weather_summary", weather_data)
         return result
     except HTTPException:
         raise
@@ -275,13 +320,17 @@ async def packing(body: PackingRequest):
 @router.post("/vision/analyze")
 async def vision_analyze(body: VisionRequest):
     """Analyze garment image via the vision MCP tool."""
+    _require_mcp_tool_routes()
     agent = _require_agent()
     vision_tool = next(
         (t for t in agent._tools if "analyze_clothing" in t.name and "from_bytes" not in t.name),
         None,
     )
     if not vision_tool:
-        raise HTTPException(status_code=503, detail="Vision tool unavailable")
+        raise HTTPException(
+            status_code=503,
+            detail=MCP_TOOLS_ENABLED_BUT_UNAVAILABLE_DETAIL,
+        )
 
     try:
         raw = await vision_tool.ainvoke({

@@ -7,8 +7,9 @@ from typing import Any
 
 import structlog
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.agent.wardrobe_agent import get_agent
 from app.api.v1.agent import router as agent_router
@@ -36,7 +37,13 @@ async def lifespan(app: FastAPI):
         cache_logger_on_first_use=True,
     )
 
-    logger.info("ai_agent_starting", mcp_servers=settings.mcp_server_config)
+    logger.info(
+        "ai_agent_starting",
+        enable_mcp_tools=settings.enable_mcp_tools,
+        mcp_endpoints_summary=(
+            settings.mcp_endpoints_for_logging() if settings.enable_mcp_tools else []
+        ),
+    )
 
     agent = get_agent()
     try:
@@ -53,6 +60,29 @@ async def lifespan(app: FastAPI):
     logger.info("ai_agent_shutdown")
 
 
+class InternalTokenMiddleware(BaseHTTPMiddleware):
+    """Reject requests that don't carry the shared internal service token.
+
+    Only enforced when ``internal_service_token`` is non-empty. Health and
+    docs endpoints are always allowed so Docker health-checks keep working.
+    """
+
+    _SKIP_PATHS = {"/health", "/docs", "/openapi.json", "/redoc"}
+
+    async def dispatch(self, request: Request, call_next) -> Response:
+        token = settings.internal_service_token
+        if not token or request.url.path in self._SKIP_PATHS:
+            return await call_next(request)
+
+        if request.headers.get("X-Internal-Token") != token:
+            return Response(
+                content='{"detail":"Forbidden — missing or invalid internal service token"}',
+                status_code=403,
+                media_type="application/json",
+            )
+        return await call_next(request)
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.app_name,
@@ -60,6 +90,10 @@ def create_app() -> FastAPI:
         docs_url="/docs" if not settings.is_production else None,
         lifespan=lifespan,
     )
+
+    # Internal token check must run before CORS so unauthenticated external
+    # callers get 403, not a CORS preflight success.
+    app.add_middleware(InternalTokenMiddleware)
 
     app.add_middleware(
         CORSMiddleware,
@@ -81,6 +115,8 @@ def create_app() -> FastAPI:
             "version": settings.app_version,
             "agent_ready": agent.is_ready,
             "openai_configured": settings.has_valid_openai_key,
+            "enable_mcp_tools": settings.enable_mcp_tools,
+            "mcp_tools_loaded_count": len(agent.available_tools),
             "tools": agent.available_tools,
         }
 

@@ -6,6 +6,7 @@ Postgres session is only needed for async routes that track requests via create_
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime
 from typing import Any, Optional
@@ -25,6 +26,7 @@ from app.events import producer as event_producer, topics
 from app.events.schemas import AsyncAcceptedResponse, EventEnvelope
 from app.models.closet import ClosetItem
 from app.repositories.user_repo import UserRepository
+from app.services.style_profile_context import load_merged_user_profile_for_ai
 from app.services import ai_service, cache_service, outfit_service, packing_service, vision_service, weather_service
 from app.services.ai_request_service import create_request
 from app.services.upload_service import read_validated_image
@@ -88,25 +90,10 @@ async def _resolve_user_profile(
     session, user_id: UUID, override: Optional[dict[str, Any]]
 ) -> dict[str, Any] | None:
     """
-    Build the personalization context passed to the AI agent.
-
-    Client-supplied `override` wins (lets the UI temporarily tune a request);
-    otherwise we read the persisted profile from Postgres. Returns None when
-    there is nothing useful to send so the agent can fall back to defaults.
+    Build personalization context for AI routes (legacy JSONB + dedicated style profile).
+    Client-supplied `override` wins so the UI can temporarily tune a request.
     """
-    if override:
-        return override
-    user = await UserRepository(session).get(user_id)
-    if user is None:
-        return None
-    profile = {
-        "body_profile":  user.body_profile,
-        "style_profile": user.style_profile,
-        "preferences":   user.preferences,
-    }
-    # Drop empty/null sections so the prompt stays compact.
-    profile = {k: v for k, v in profile.items() if v}
-    return profile or None
+    return await load_merged_user_profile_for_ai(session, user_id, override)
 
 
 def _sse(data: dict[str, Any]) -> str:
@@ -147,12 +134,22 @@ async def _resolve_weather_context(session, user_id: UUID) -> dict[str, Any] | N
     return None
 
 
-def _build_stylist_system_prompt(closet_items: list[dict[str, Any]], weather: dict[str, Any] | None = None) -> str:
+def _build_stylist_system_prompt(
+    closet_items: list[dict[str, Any]],
+    weather: dict[str, Any] | None = None,
+    user_profile: dict[str, Any] | None = None,
+) -> str:
+    profile_block = ""
+    if user_profile:
+        profile_context = user_profile.get("style_profile_context_text") or ""
+        if profile_context:
+            profile_block = f"\n\n[USER STYLE PROFILE]\n{profile_context}\n[END USER STYLE PROFILE]"
+
     if not closet_items:
         return (
             "You are a personal AI stylist for ClosetIQ. This user has not added any wardrobe items yet. "
             "Give general fashion advice and encourage them to upload their wardrobe items using the Smart "
-            f"Closet Scan feature.{_weather_prompt_block(weather)}"
+            f"Closet Scan feature.{profile_block}{_weather_prompt_block(weather)}"
         )
 
     lines = [f"USER'S WARDROBE ({len(closet_items)} items):"]
@@ -169,10 +166,11 @@ def _build_stylist_system_prompt(closet_items: list[dict[str, Any]], weather: di
 - Always refer to items by their EXACT name as listed
 - If the wardrobe lacks a suitable item for an outfit component, explicitly say so rather than inventing items
 - Consider the occasions listed for each item when making recommendations
+- Always factor in the user's style profile, body type, fit preferences, and color palette when present
 
 [WARDROBE CONTEXT]
 {closet_context}
-[END WARDROBE CONTEXT]{_weather_prompt_block(weather)}"""
+[END WARDROBE CONTEXT]{profile_block}{_weather_prompt_block(weather)}"""
 
 
 def _chat_messages(body: ChatRequest) -> list[dict[str, str]]:
@@ -193,9 +191,16 @@ async def chat(body: ChatRequest, user_id: CurrentUser, session: DbSession):
     """Send a message to the CLOZEHIVE wardrobe AI."""
     uid = UUID(user_id)
     closet = await _get_closet_as_dicts(session, uid) if body.include_closet else []
-    weather = await _resolve_weather_context(session, uid)
+    weather, user_profile = await asyncio.gather(
+        _resolve_weather_context(session, uid),
+        _resolve_user_profile(session, uid, None),
+    )
     messages = _chat_messages(body)
-    cache_key = cache_service.build_cache_key(user_id, messages, cache_service.build_closet_hash(closet))
+    cache_key = cache_service.build_cache_key(
+        user_id, messages,
+        cache_service.build_closet_hash(closet),
+        cache_service.build_profile_hash(user_profile),
+    )
     if settings.ai_cache_enabled:
         redis = await get_redis()
         cached = await cache_service.get_cached_response(redis, cache_key)
@@ -203,7 +208,7 @@ async def chat(body: ChatRequest, user_id: CurrentUser, session: DbSession):
             logger.info("AI cache hit", user_id=user_id, key=cache_key)
             return ChatResponse(reply=cached)
         logger.info("AI cache miss", user_id=user_id, key=cache_key)
-    reply = await ai_service.chat(messages, _build_stylist_system_prompt(closet, weather))
+    reply = await ai_service.chat(messages, _build_stylist_system_prompt(closet, weather, user_profile))
     if settings.ai_cache_enabled:
         await cache_service.cache_response(await get_redis(), cache_key, reply, settings.ai_cache_ttl)
     return ChatResponse(reply=reply)
@@ -219,9 +224,16 @@ async def chat_stream(body: ChatRequest, user_id: CurrentUser, session: DbSessio
             yield _sse({"type": "status", "message": "Thinking…"})
             uid = UUID(user_id)
             closet = await _get_closet_as_dicts(session, uid) if body.include_closet else []
-            weather = await _resolve_weather_context(session, uid)
+            weather, user_profile = await asyncio.gather(
+                _resolve_weather_context(session, uid),
+                _resolve_user_profile(session, uid, None),
+            )
             messages = _chat_messages(body)
-            cache_key = cache_service.build_cache_key(user_id, messages, cache_service.build_closet_hash(closet))
+            cache_key = cache_service.build_cache_key(
+                user_id, messages,
+                cache_service.build_closet_hash(closet),
+                cache_service.build_profile_hash(user_profile),
+            )
             if settings.ai_cache_enabled:
                 redis = await get_redis()
                 cached = await cache_service.get_cached_response(redis, cache_key)
@@ -232,7 +244,7 @@ async def chat_stream(body: ChatRequest, user_id: CurrentUser, session: DbSessio
                     return
                 logger.info("AI cache miss", user_id=user_id, key=cache_key)
             full_response = []
-            async for chunk in ai_service.stream_chat(messages, _build_stylist_system_prompt(closet, weather)):
+            async for chunk in ai_service.stream_chat(messages, _build_stylist_system_prompt(closet, weather, user_profile)):
                 full_response.append(chunk)
                 yield _sse({"type": "token", "content": chunk})
             if settings.ai_cache_enabled:
@@ -263,6 +275,7 @@ async def chat_async(body: ChatRequest, user_id: CurrentUser, session: DbSession
         request_type=topics.AI_CHAT_REQUESTED,
         input_payload=payload,
     )
+    # Commit before Kafka so workers read a committed ai_requests row (see app.db.session).
     await session.commit()
     await event_producer.publish(
         topics.AI_CHAT_REQUESTED,
@@ -301,6 +314,7 @@ async def outfit_async(body: OutfitRequest, user_id: CurrentUser, session: DbSes
         "user_profile": profile,
     }
     await create_request(session, request_id=request_id, user_id=user_uuid, request_type=topics.OUTFIT_REQUESTED, input_payload=payload)
+    # Commit before Kafka so workers read a committed ai_requests row (see app.db.session).
     await session.commit()
     await event_producer.publish(
         topics.OUTFIT_REQUESTED,
@@ -368,9 +382,17 @@ async def outfit_of_day(user_id: CurrentUser, session: DbSession):
 @router.post("/packing")
 async def packing(body: PackingRequest, user_id: CurrentUser, session: DbSession):
     """Generate a smart travel packing list matched against the user's closet."""
-    closet = await _get_closet_as_dicts(session, UUID(user_id))
+    uid = UUID(user_id)
+    closet = await _get_closet_as_dicts(session, uid)
+    prof = await load_merged_user_profile_for_ai(session, uid, None)
     return await packing_service.generate_packing_list(
-        body.destination, body.start_date, body.end_date, body.purpose, closet, notes=body.notes
+        body.destination,
+        body.start_date,
+        body.end_date,
+        body.purpose,
+        closet,
+        notes=body.notes,
+        user_style_profile=prof,
     )
 
 
@@ -391,6 +413,7 @@ async def packing_async(body: PackingRequest, user_id: CurrentUser, session: DbS
         "closet_items": closet,
     }
     await create_request(session, request_id=request_id, user_id=user_uuid, request_type=topics.TRIP_PLANNED, input_payload=payload)
+    # Commit before Kafka so workers read a committed ai_requests row (see app.db.session).
     await session.commit()
     await event_producer.publish(
         topics.TRIP_PLANNED,
@@ -404,9 +427,17 @@ async def packing_stream(body: PackingRequest, user_id: CurrentUser, session: Db
     async def events():
         try:
             yield _sse({"type": "status", "message": "Fetching weather…"})
-            closet = await _get_closet_as_dicts(session, UUID(user_id))
+            uid = UUID(user_id)
+            closet = await _get_closet_as_dicts(session, uid)
+            prof = await load_merged_user_profile_for_ai(session, uid, None)
             data = await packing_service.generate_packing_list(
-                body.destination, body.start_date, body.end_date, body.purpose, closet, notes=body.notes
+                body.destination,
+                body.start_date,
+                body.end_date,
+                body.purpose,
+                closet,
+                notes=body.notes,
+                user_style_profile=prof,
             )
             yield _sse({"type": "status", "message": "Matching wardrobe…"})
             summary = str(data.get("summary") or "") if isinstance(data, dict) else ""

@@ -6,6 +6,7 @@ import json
 import os
 
 import httpx
+from langsmith import traceable
 
 from shared.schemas import ClosetItem, OutfitResult, OutfitSuggestion
 from shared.logger import get_logger
@@ -111,6 +112,7 @@ def _mock_result(closet_items: list[ClosetItem], occasion: str) -> OutfitResult:
     )
 
 
+@traceable(name="mcp_outfit_generate_outfits", run_type="llm")
 async def generate_outfits(
     closet_items: list[ClosetItem],
     occasion: str,
@@ -188,6 +190,7 @@ async def generate_outfits(
         return _mock_result(closet_items, occasion)
 
 
+@traceable(name="mcp_outfit_style_tips", run_type="llm")
 async def get_style_tips(occasion: str, weather: str, temperature: float | None) -> list[str]:
     """Return concise styling tips without full outfit generation."""
     api_key = os.getenv("OPENAI_API_KEY", "")

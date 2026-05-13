@@ -31,7 +31,7 @@ from uuid import uuid4
 from fastapi import UploadFile
 
 from app.core.config import get_settings
-from app.core.exceptions import BadRequestError
+from app.core.exceptions import BadRequestError, ServiceUnavailableError
 
 MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB
 
@@ -121,6 +121,56 @@ async def read_validated_image(file: UploadFile) -> tuple[bytes, str]:
 
 # ── GCS helpers ───────────────────────────────────────────────────────────────
 
+
+def _normalize_private_key_pem(pk: str) -> str:
+    """Fix .env / shell escaping and line endings in the PEM string."""
+    pk = pk.strip().strip("\ufeff")
+    pk = pk.replace("\\r\\n", "\n").replace("\r\n", "\n")
+    if "\\n" in pk:
+        pk = pk.replace("\\n", "\n")
+    return pk.strip()
+
+
+def _normalize_service_account_dict(data: dict) -> dict:
+    """Undo common .env / Docker mangling of the service-account JSON."""
+    out = dict(data)
+    pk = out.get("private_key")
+    if isinstance(pk, str):
+        out["private_key"] = _normalize_private_key_pem(pk)
+    return out
+
+
+def _service_account_dict_from_settings():
+    """Load and parse service account JSON from file (preferred) or env string."""
+    settings = get_settings()
+    raw: str | None = None
+    path_str = (settings.gcs_credentials_file or "").strip()
+    if path_str:
+        path = Path(path_str)
+        if not path.is_file():
+            raise ServiceUnavailableError(
+                "GCS_CREDENTIALS_FILE is set but the file is missing or not readable.",
+                detail=f"Expected a service-account JSON at {path_str} (mount it into the api-gateway container).",
+            )
+        raw = path.read_text(encoding="utf-8")
+    elif (settings.gcs_credentials_json or "").strip():
+        raw = (settings.gcs_credentials_json or "").strip()
+        if raw.startswith("\ufeff"):
+            raw = raw[1:]
+    if not raw:
+        return None
+    try:
+        return _normalize_service_account_dict(json.loads(raw))
+    except json.JSONDecodeError as exc:
+        raise ServiceUnavailableError(
+            "Google Cloud Storage credentials are not valid JSON.",
+            detail=(
+                "Use GCS_CREDENTIALS_FILE=/path/to/key.json inside the container, or one-line JSON from "
+                f"`jq -c . key.json`. Parse error: {exc}"
+            ),
+        ) from exc
+
+
 def _gcs_client():
     """Build a GCS Storage client from settings credentials or ADC."""
     try:
@@ -132,22 +182,40 @@ def _gcs_client():
         )
 
     settings = get_settings()
-    creds_json = settings.gcs_credentials_json
+    creds_dict = _service_account_dict_from_settings()
 
-    if creds_json:
+    if creds_dict:
         try:
             from google.oauth2 import service_account  # type: ignore[import-untyped]
 
-            creds_dict = json.loads(creds_json)
+            pk = creds_dict.get("private_key")
+            if not isinstance(pk, str) or (
+                "BEGIN PRIVATE KEY" not in pk and "BEGIN RSA PRIVATE KEY" not in pk
+            ):
+                raise ServiceUnavailableError(
+                    "Service account JSON is missing a valid private_key PEM.",
+                    detail=(
+                        "Download a new key from GCP (IAM → Service account → Keys → Add JSON). "
+                        "Do not edit or paste placeholder text. Prefer GCS_CREDENTIALS_FILE=/run/secrets/gcp-sa.json "
+                        "with the file mounted into the container."
+                    ),
+                )
             project = settings.gcs_project_id or creds_dict.get("project_id")
             credentials = service_account.Credentials.from_service_account_info(
                 creds_dict,
                 scopes=["https://www.googleapis.com/auth/cloud-platform"],
             )
             return storage.Client(project=project, credentials=credentials)
+        except ServiceUnavailableError:
+            raise
         except Exception as exc:
-            raise RuntimeError(
-                f"Failed to build GCS client from GCS_CREDENTIALS_JSON: {exc}"
+            raise ServiceUnavailableError(
+                "Google Cloud Storage is configured but credentials failed to load.",
+                detail=(
+                    "Use a real GCP service-account JSON. Tip: mount the file and set "
+                    "GCS_CREDENTIALS_FILE=/path/in/container (avoids .env corrupting long keys). "
+                    f"Details: {exc}"
+                ),
             ) from exc
 
     # Application Default Credentials (GOOGLE_APPLICATION_CREDENTIALS, workload identity, etc.)

@@ -5,6 +5,8 @@ MVP: Create, list, get, update trips for travel packing
 
 from __future__ import annotations
 
+import asyncio
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, status
@@ -13,14 +15,78 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import CurrentUser
 from app.core.exceptions import BadRequestError, NotFoundError
+from app.core.logging import get_logger
 from app.db.session import get_session
 from app.models.closet import ClosetItem
 from app.schemas.trips import CreateTripResponse, PackingPlanResponse, SavePlannerResponse, TripCreate, TripResponse, TripListResponse
-from app.services import packing_service
+from app.services import ai_client, packing_service
+from app.services.style_profile_context import load_merged_user_profile_for_ai
 from app.services.trips_service import TripsService
 
 
 router = APIRouter(prefix="/trips", tags=["Trips"])
+logger = get_logger("trips")
+
+
+async def _generate_trip_packing(
+    session: AsyncSession,
+    user_id: UUID,
+    destination: str,
+    start_date: str,
+    end_date: str,
+    purpose: str,
+    closet_items: list[dict[str, Any]],
+    notes: str | None = None,
+) -> dict[str, Any]:
+    """
+    Prefer ai-agent (LangChain + MCP) so LangSmith traces trip packing; fall back to
+    in-gateway packing_service if the agent is unavailable.
+
+    Hard wall-clock cap of 50 s so the HTTP handler never times out on the client side.
+    """
+    prof = await load_merged_user_profile_for_ai(session, user_id, None)
+
+    async def _run() -> dict[str, Any]:
+        try:
+            return await ai_client.generate_packing_list(
+                destination,
+                start_date,
+                end_date,
+                purpose,
+                closet_items,
+                notes=notes,
+                user_style_profile=prof,
+            )
+        except Exception as exc:
+            logger.warning(
+                "trip_packing_ai_agent_fallback",
+                error=str(exc),
+                destination=destination,
+            )
+            return await packing_service.generate_packing_list(
+                destination,
+                start_date,
+                end_date,
+                purpose,
+                closet_items,
+                notes=notes,
+                user_style_profile=prof,
+            )
+
+    try:
+        return await asyncio.wait_for(_run(), timeout=50.0)
+    except asyncio.TimeoutError:
+        logger.warning("trip_packing_total_timeout", destination=destination)
+        # Last-resort synchronous fallback — always returns something
+        return await packing_service.generate_packing_list(
+            destination,
+            start_date,
+            end_date,
+            purpose,
+            closet_items,
+            notes=notes,
+            user_style_profile=prof,
+        )
 
 
 def _get_svc(session: AsyncSession) -> TripsService:
@@ -86,7 +152,9 @@ async def get_packing_list(
         }
         for item in result.scalars().all()
     ]
-    return await packing_service.generate_packing_list(
+    return await _generate_trip_packing(
+        session,
+        UUID(user_id),
         trip.destination,
         trip.start_date.isoformat(),
         trip.end_date.isoformat(),
@@ -135,7 +203,9 @@ async def create_trip(
     packing_plan = None
     packing_error = None
     try:
-        packing_result = await packing_service.generate_packing_list(
+        packing_result = await _generate_trip_packing(
+            session,
+            UUID(user_id),
             trip.destination,
             trip.start_date.isoformat(),
             trip.end_date.isoformat(),

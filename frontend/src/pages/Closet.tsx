@@ -2,38 +2,27 @@ import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import {
   Search, SlidersHorizontal, Loader2, RefreshCw, Trash2, X,
-  Sparkles, Upload, ChevronRight, Star, Clock, TrendingUp,
+  Sparkles, Upload, ChevronRight, Clock, TrendingUp,
 } from 'lucide-react'
 import { useApp } from '@/store'
 import { closetApi } from '@/lib/api'
 import ItemDetailModal from '@/components/closet/ItemDetailModal'
-import Badge from '@/components/ui/Badge'
 import RevealCard from '@/components/ui/RevealCard'
+import { PageLoadingState } from '@/components/system/PageLoadingState'
+import { InlineError } from '@/components/system/InlineError'
+import { RetryButton } from '@/components/system/RetryButton'
 import type { ClosetItem, Category } from '@/types'
-import { categoryIcon, cn } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
-const CATEGORIES: { value: Category; label: string; emoji: string }[] = [
-  { value: 'all',        label: 'All',         emoji: '✨' },
-  { value: 'tops',       label: 'Tops',        emoji: '👕' },
-  { value: 'bottoms',    label: 'Bottoms',     emoji: '👖' },
-  { value: 'shoes',      label: 'Shoes',       emoji: '👟' },
-  { value: 'outerwear',  label: 'Outerwear',   emoji: '🧥' },
-  { value: 'dresses',    label: 'Dresses',     emoji: '👗' },
-  { value: 'accessories',label: 'Accessories', emoji: '👜' },
-]
-
-const SORT_OPTIONS = [
-  { value: 'recent', label: 'Recently added' },
-  { value: 'worn',   label: 'Most worn' },
-  { value: 'eco',    label: 'Eco score' },
-  { value: 'name',   label: 'Name A–Z' },
-]
-
-const SEASONS  = ['spring', 'summer', 'fall', 'winter']
-const OCCASIONS = ['casual', 'formal', 'work', 'sport', 'evening', 'travel']
-
+import {
+  CANONICAL_TAB_CATEGORIES,
+  CLOSET_CATEGORY_TABS,
+  CLOSET_OCCASIONS,
+  CLOSET_SEASONS,
+  CLOSET_SORT_OPTIONS,
+} from '@/features/closet/constants'
 // ── Grid helpers ───────────────────────────────────────────────────────────────
 
 function columnsForWidth(width: number) {
@@ -61,7 +50,7 @@ function useColumnCount(ref: RefObject<HTMLElement>) {
 
 function CategoryTab({
   cat, active, count, onClick,
-}: { cat: typeof CATEGORIES[0]; active: boolean; count: number; onClick: () => void }) {
+}: { cat: typeof CLOSET_CATEGORY_TABS[0]; active: boolean; count: number; onClick: () => void }) {
   return (
     <button
       onClick={onClick}
@@ -191,14 +180,32 @@ export default function Closet() {
 
   const filtered = useMemo(() => {
     let items = closetItems
-    if (category !== 'all') items = items.filter(i => i.category === category)
+    if (category !== 'all') {
+      if (category === 'other') {
+        items = items.filter(i =>
+          i.category === 'other'
+          || i.category === 'uncategorised'
+          || !CANONICAL_TAB_CATEGORIES.has(i.category),
+        )
+      } else {
+        items = items.filter(i => i.category === category)
+      }
+    }
     if (search)  items = items.filter(i =>
       i.name.toLowerCase().includes(search.toLowerCase()) ||
       (i.brand   || '').toLowerCase().includes(search.toLowerCase()) ||
       (i.color   || '').toLowerCase().includes(search.toLowerCase()),
     )
     if (colorFilter)    items = items.filter(i => (i.color || '').toLowerCase().includes(colorFilter.toLowerCase()))
-    if (seasonFilter)   items = items.filter(i => i.season?.toLowerCase() === seasonFilter)
+    if (seasonFilter) {
+      const want = seasonFilter.toLowerCase()
+      items = items.filter(i => {
+        const s = (i.season || '').toLowerCase()
+        if (!s) return false
+        if (s === want) return true
+        return s.split(',').some(part => part.trim() === want)
+      })
+    }
     if (occasionFilter) items = items.filter(i => i.occasion?.includes(occasionFilter))
     if (sort === 'worn') items = [...items].sort((a, b) => b.wear_count - a.wear_count)
     if (sort === 'eco')  items = [...items].sort((a, b) => (b.eco_score ?? 0) - (a.eco_score ?? 0))
@@ -236,12 +243,10 @@ export default function Closet() {
 
   if (closetLoading && closetItems.length === 0) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center space-y-3">
-          <Loader2 size={32} className="animate-spin text-brand-500 mx-auto" />
-          <p className="text-slate-500 dark:text-slate-400 text-sm">Loading your wardrobe…</p>
-        </div>
-      </div>
+      <PageLoadingState
+        title="Loading your wardrobe…"
+        description="Fetching your items from CLOZEHIVE."
+      />
     )
   }
 
@@ -289,19 +294,26 @@ export default function Closet() {
 
       {/* ── Error banner ── */}
       {closetError && (
-        <div className="card p-3 bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm flex items-center justify-between">
-          <span>⚠️ {closetError}</span>
-          <button onClick={fetchClosetItems} className="underline text-xs">Retry</button>
-        </div>
+        <InlineError message={closetError}>
+          <RetryButton onClick={() => { void fetchClosetItems() }} className="mt-2">
+            Try again
+          </RetryButton>
+        </InlineError>
       )}
 
       {/* ── Category tabs (horizontal scroll) ── */}
       <div className="relative">
         <div className="flex gap-2.5 overflow-x-auto pb-1 scrollbar-hide snap-x snap-mandatory">
-          {CATEGORIES.map(cat => {
+          {CLOSET_CATEGORY_TABS.map(cat => {
             const count = cat.value === 'all'
               ? closetItems.length
-              : closetItems.filter(i => i.category === cat.value).length
+              : cat.value === 'other'
+                ? closetItems.filter(i =>
+                    i.category === 'other'
+                    || i.category === 'uncategorised'
+                    || !CANONICAL_TAB_CATEGORIES.has(i.category),
+                  ).length
+                : closetItems.filter(i => i.category === cat.value).length
             return (
               <CategoryTab
                 key={cat.value}
@@ -336,7 +348,7 @@ export default function Closet() {
                 value={sort}
                 onChange={e => setSort(e.target.value)}
               >
-                {SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                {CLOSET_SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
 
@@ -379,7 +391,7 @@ export default function Closet() {
                 onChange={e => setSeasonFilter(e.target.value)}
               >
                 <option value="">All seasons</option>
-                {SEASONS.map(s => <option key={s} value={s} className="capitalize">{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
+                {CLOSET_SEASONS.map(s => <option key={s} value={s} className="capitalize">{s.charAt(0).toUpperCase() + s.slice(1)}</option>)}
               </select>
             </div>
 
@@ -391,7 +403,7 @@ export default function Closet() {
                 onChange={e => setOccasionFilter(e.target.value)}
               >
                 <option value="">All occasions</option>
-                {OCCASIONS.map(o => <option key={o} value={o} className="capitalize">{o.charAt(0).toUpperCase() + o.slice(1)}</option>)}
+                {CLOSET_OCCASIONS.map(o => <option key={o} value={o} className="capitalize">{o.charAt(0).toUpperCase() + o.slice(1)}</option>)}
               </select>
             </div>
 
@@ -481,7 +493,7 @@ export default function Closet() {
               <div className="flex items-center gap-2">
                 <TrendingUp size={15} className="text-brand-500" />
                 <h3 className="font-semibold text-sm text-slate-700 dark:text-slate-200">
-                  {category === 'all' ? 'All Items' : CATEGORIES.find(c => c.value === category)?.label ?? 'Items'}
+                  {category === 'all' ? 'All Items' : CLOSET_CATEGORY_TABS.find(c => c.value === category)?.label ?? 'Items'}
                 </h3>
               </div>
               <span className="text-[11px] text-slate-400">{filtered.length} items</span>

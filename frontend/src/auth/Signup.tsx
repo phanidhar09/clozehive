@@ -2,7 +2,7 @@ import { useState, FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Eye, EyeOff, Sparkles, ArrowRight, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { useApp } from '@/store'
-import { authApi } from '@/lib/api'
+import { authApi, profileApi } from '@/lib/api'
 
 function PasswordStrength({ password }: { password: string }) {
   const checks = [
@@ -80,7 +80,16 @@ export default function Signup() {
         password: form.password,
       })
       login(user, access_token, refresh_token)
-      navigate('/profile?onboarding=1', { replace: true })
+      try {
+        const st = await profileApi.getOnboardingStatus()
+        if (!st.onboarding_completed) {
+          navigate('/onboarding/style-profile', { replace: true })
+          return
+        }
+      } catch {
+        /* continue */
+      }
+      navigate('/dashboard', { replace: true, state: { fromLogin: true } })
     } catch (err: unknown) {
       type ApiErr = {
         response?: {
@@ -182,7 +191,7 @@ export default function Signup() {
               <input
                 type="text"
                 className="input w-full"
-                placeholder="Phanidhar Reddy"
+                placeholder="Alex Johnson"
                 value={form.name}
                 onChange={set('name')}
                 autoComplete="name"
@@ -213,7 +222,7 @@ export default function Signup() {
                 <input
                   type="text"
                   className="input w-full pl-7"
-                  placeholder="phanidhar_reddy"
+                  placeholder="alex_johnson"
                   value={form.username}
                   onChange={set('username')}
                   autoComplete="username"
@@ -262,7 +271,7 @@ export default function Signup() {
                 required
               />
               {form.confirm && form.confirm !== form.password && (
-                <p className="text-xs text-red-500">Passwords don't match</p>
+                <p className="text-xs text-red-500">Passwords don&apos;t match</p>
               )}
             </div>
 

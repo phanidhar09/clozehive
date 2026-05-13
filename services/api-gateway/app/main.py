@@ -79,14 +79,18 @@ async def lifespan(app: FastAPI):
     setup_logging()
     logger.info("startup", service=settings.app_name, version=settings.app_version, env=settings.environment)
 
-    # Database (Postgres — auth/users only)
+    # PostgreSQL — primary store for users, closet, trips, packing plans, outfits, etc.
     await db_connect()
 
-    # Firestore (closet, social, feeds)
+    # Optional Firestore (legacy / non-MVP paths only; Phase 1 closet + trips live in Postgres)
     try:
         _init_firestore()
     except Exception as exc:
-        logger.warning("firestore_unavailable", error=str(exc), msg="Running without Firestore — closet/social routes will fail")
+        logger.warning(
+            "firestore_unavailable",
+            error=str(exc),
+            msg="Running without Firestore — optional Firestore-backed features disabled",
+        )
 
     # Redis (best-effort)
     redis_ok = await cache_service.ping()
@@ -168,6 +172,25 @@ def create_app() -> FastAPI:
     app.add_exception_handler(Exception, unhandled_error_handler)
 
     # ── Routes ────────────────────────────────────────────────────────────────
+    @app.get("/", include_in_schema=False)
+    async def root() -> dict[str, str | dict[str, str]]:
+        """Browser-friendly index: there is no HTML landing page; API is under /api/v1."""
+        endpoints: dict[str, str] = {
+            "api_v1": "/api/v1",
+            "live": "/live",
+            "health": "/health",
+            "ready": "/ready",
+            "uploads": "/uploads",
+        }
+        if not settings.is_production:
+            endpoints["openapi_docs"] = "/docs"
+        return {
+            "service": settings.app_name,
+            "version": settings.app_version,
+            "message": "JSON API — use endpoints below (no HTML at /).",
+            "endpoints": endpoints,
+        }
+
     app.include_router(api_router)
     app.mount("/uploads", StaticFiles(directory=settings.upload_path), name="uploads")
 

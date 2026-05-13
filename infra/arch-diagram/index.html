@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>CLOZEHIVE — Architecture</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0b0d14;font-family:'Segoe UI',system-ui,sans-serif;padding:28px;min-height:100vh}
+header{text-align:center;margin-bottom:28px}
+header h1{font-size:26px;font-weight:800;letter-spacing:3px;background:linear-gradient(90deg,#a78bfa,#60a5fa,#34d399);-webkit-background-clip:text;-webkit-text-fill-color:transparent;text-transform:uppercase;margin-bottom:4px}
+header p{font-size:12px;color:#475569;letter-spacing:1.5px;text-transform:uppercase}
+.card{background:#111520;border:1px solid #1e2640;border-radius:16px;padding:28px 20px;box-shadow:0 12px 48px rgba(0,0,0,.6);overflow-x:auto}
+.mermaid svg{max-width:100%!important}
+.legend{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin-top:24px}
+.li{display:flex;align-items:center;gap:7px;font-size:11px;color:#64748b;letter-spacing:.5px}
+.dot{width:11px;height:11px;border-radius:3px;flex-shrink:0}
+</style>
+</head>
+<body>
+<header>
+  <h1>CLOZEHIVE</h1>
+  <p>Complete Application Architecture · Hybrid AI Stack · 2026</p>
+</header>
+<div class="card">
+<div class="mermaid">
+%%{init:{
+  "theme":"base",
+  "themeVariables":{
+    "background":"#111520",
+    "primaryColor":"#1e1145",
+    "primaryTextColor":"#e2e8f0",
+    "primaryBorderColor":"#7c3aed",
+    "lineColor":"#4f46e5",
+    "secondaryColor":"#0f1e3a",
+    "tertiaryColor":"#0a1f17",
+    "clusterBkg":"#13162a",
+    "clusterBorder":"#1e2640",
+    "titleColor":"#a78bfa",
+    "edgeLabelBackground":"#111520",
+    "fontFamily":"Segoe UI,system-ui,sans-serif",
+    "fontSize":"13px"
+  },
+  "flowchart":{"curve":"basis","useMaxWidth":true,"htmlLabels":true}
+}}%%
+
+flowchart TB
+
+%% ─── CLIENTS ────────────────────────────────────────────────────────────────
+subgraph CLIENTS["  EXTERNAL CLIENTS  "]
+  direction LR
+  BR["🌐 Browser\n Web App"]
+  MOB["📱 Mobile\n App"]
+  CLI["⌨️ CLI /\n Scripts"]
+end
+
+%% ─── NGINX ───────────────────────────────────────────────────────────────────
+NGX["🔀  Nginx  · :80\nReverse proxy · Rate limiting\n/* → Frontend   /api/* → Gateway"]
+
+%% ─── FRONTEND ────────────────────────────────────────────────────────────────
+subgraph FE["  FRONTEND  :3001  "]
+  direction LR
+  UI1["⚛️ React + Vite\nTypeScript"]
+  UI2["Pages: Wardrobe · Outfits\nTrips · AI Chat · Style Profile\nSocial Feed · Analytics"]
+end
+
+%% ─── API GATEWAY ─────────────────────────────────────────────────────────────
+subgraph GW["  API GATEWAY  :8000  · FastAPI + AsyncPG  "]
+  direction LR
+
+  subgraph GWAUTH["Auth"]
+    R1["🔑 /auth\nJWT · OAuth\nSignup · Login\nRefresh · Revoke"]
+  end
+  subgraph GWDATA["Data"]
+    R2["👗 /closet\nCRUD · Smart Ingest\nVision Pipeline\nBulk upload"]
+    R3["✈️ /trips\nTrip CRUD\nPacking plans"]
+    R4["👤 /profile\n/style-profile\nSettings · Onboarding\nStyle summary"]
+  end
+  subgraph GWAI["AI & Realtime"]
+    R5["🤖 /ai\nChat · Stream\nOutfit · Packing\nOutfit-of-day · Vision"]
+    R6["🌤️ /weather\nCurrent forecast"]
+    R7["💬 /social\nFeed · Likes · Follows"]
+    R8["📊 /analytics\nWear stats · Insights"]
+    R9["🔌 /ws\nWebSocket events"]
+  end
+end
+
+%% ─── AI AGENT ────────────────────────────────────────────────────────────────
+subgraph AGENT["  AI AGENT  :8001  · LangGraph  "]
+  WAG["🧠 Wardrobe Agent\nLangGraph ReAct loop\nChat · Outfit · Packing · Vision"]
+  MCP["🔌 MCP Client\nMultiServerMCPClient\nSSE transport"]
+end
+
+%% ─── MCP SERVERS ─────────────────────────────────────────────────────────────
+subgraph MCPS["  MCP TOOL SERVERS  (SSE)  "]
+  direction LR
+  MW["🌦️ mcp-weather\n:8010\nForecasts\nSummaries"]
+  MO["👔 mcp-outfit\n:8012\nOutfit suggestions\nStyle tips"]
+  MP["🧳 mcp-packing\n:8013\nTrip packing lists\nPer-day weather plan"]
+  MV["🔍 mcp-vision\n:8011  ★optional\nGarment analysis\n--profile vision"]
+end
+
+%% ─── KAFKA ───────────────────────────────────────────────────────────────────
+subgraph ASYNC["  ASYNC WORKER STACK  ★ --profile worker  "]
+  direction LR
+  RP["📨 Redpanda / Kafka\n:19092\nTopics: ai.chat\noutfit · trip.planned"]
+  AW["⚙️ AI Worker\nConsumes jobs\n→ forwards to ai-agent"]
+end
+
+%% ─── INFRA ───────────────────────────────────────────────────────────────────
+subgraph INFRA["  STATEFUL INFRASTRUCTURE  "]
+  direction LR
+  PG[("🐘 PostgreSQL 16\n+ pgvector  :5433\nUsers · Closet · Trips\nStyle profiles\nEmbedding vectors")]
+  RD[("🔴 Redis 7  :6382\nJWT revocation list\nAI response cache\nRate limits\nConversation memory")]
+end
+
+%% ─── EXTERNAL ────────────────────────────────────────────────────────────────
+subgraph EXT["  EXTERNAL SERVICES  "]
+  direction LR
+  subgraph LLM["LLM Providers"]
+    OAI["OpenAI\ngpt-4o\ngpt-4o-mini\nembeddings"]
+    ANT["Anthropic\nClaude\n★ optional"]
+    OLL["Ollama\nLocal LLM\n★ optional"]
+  end
+  subgraph CLOUD["Cloud & APIs"]
+    OWM["🌤️ OpenWeatherMap\nForecast API"]
+    GCS["🪣 Google Cloud\nStorage\nWardrobe images"]
+    FIRE["🔥 Firebase\nFirestore\nCloset · Social"]
+    GOA["🔑 Google\nOAuth 2.0\nSSO login"]
+  end
+end
+
+%% ─── EDGES ───────────────────────────────────────────────────────────────────
+
+BR & MOB & CLI -->|HTTPS| NGX
+NGX -->|"static /*"| UI1
+NGX -->|"/api/v1/*"| GW
+
+R1 -->|SSO callback| GOA
+R2 -->|images| GCS
+R2 & R7 -->|documents| FIRE
+R6 -->|forecast| OWM
+R4 & R5 -->|LLM calls| OAI
+R2 -->|vision + embed| OAI
+
+R5 -->|"POST  X-Internal-Token"| AGENT
+
+WAG --> MCP
+MCP -->|SSE| MW
+MCP -->|SSE| MO
+MCP -->|SSE| MP
+MCP -->|SSE| MV
+WAG -->|chat completions| OAI
+WAG -.->|pgvector search| PG
+WAG -.->|conv. memory| RD
+
+MW -->|forecast| OWM
+MP -->|trip summary AI| OAI
+MO -->|outfit AI| OAI
+
+R5 -.->|"KAFKA_ENABLED=true\nasync jobs"| RP
+RP --> AW
+AW -->|process job| AGENT
+
+GW -.->|queries| PG
+GW -.->|cache + sessions| RD
+
+%% ─── STYLES ──────────────────────────────────────────────────────────────────
+classDef client   fill:#0f2440,stroke:#3b82f6,color:#93c5fd,rx:8
+classDef proxy    fill:#151c2e,stroke:#334155,color:#94a3b8
+classDef fe       fill:#111e40,stroke:#6366f1,color:#a5b4fc
+classDef gw       fill:#1c1145,stroke:#7c3aed,color:#ddd6fe
+classDef mcp      fill:#0c2236,stroke:#0ea5e9,color:#7dd3fc
+classDef infra    fill:#141830,stroke:#4f46e5,color:#c7d2fe
+classDef ext      fill:#1a1a1a,stroke:#475569,color:#94a3b8
+classDef kafka    fill:#231800,stroke:#f59e0b,color:#fde68a
+
+class BR,MOB,CLI client
+class NGX proxy
+class UI1,UI2 fe
+class R1,R2,R3,R4,R5,R6,R7,R8,R9 gw
+class WAG,MCP agent
+class MW,MO,MP,MV mcp
+class PG,RD infra
+class OAI,ANT,OLL,OWM,GCS,FIRE,GOA ext
+class RP,AW kafka
+</div>
+</div>
+
+<div class="legend">
+  <div class="li"><div class="dot" style="background:#3b82f6"></div>External Clients</div>
+  <div class="li"><div class="dot" style="background:#7c3aed"></div>API Gateway (FastAPI)</div>
+  <div class="li"><div class="dot" style="background:#d946ef"></div>AI Agent (LangGraph)</div>
+  <div class="li"><div class="dot" style="background:#10b981"></div>OpenAI · Gemini (direct)</div>
+  <div class="li"><div class="dot" style="background:#0ea5e9"></div>MCP Tool Servers (SSE)</div>
+  <div class="li"><div class="dot" style="background:#4f46e5"></div>PostgreSQL + Redis</div>
+  <div class="li"><div class="dot" style="background:#f59e0b"></div>Async Worker (Kafka)</div>
+  <div class="li"><div class="dot" style="background:#6366f1"></div>Frontend (React)</div>
+  <div class="li"><div class="dot" style="background:#475569"></div>External Services</div>
+  <div class="li"><div class="dot" style="background:#334155;border:1px solid #4f46e5"></div>──── sync call</div>
+  <div class="li"><div class="dot" style="background:#334155;border:1px dashed #4f46e5"></div>- - - shared infra</div>
+</div>
+
+<script>
+mermaid.initialize({
+  startOnLoad:true,
+  theme:'base',
+  securityLevel:'loose',
+  flowchart:{useMaxWidth:true,htmlLabels:true,curve:'basis',rankSpacing:60,nodeSpacing:30}
+});
+</script>
+</body>
+</html>

@@ -37,7 +37,11 @@ import { useApp } from '@/store'
 import { outfitsApi } from '@/lib/api'
 import type { ClosetItem, OutfitAnalysis, ScoreBreakdown } from '@/types'
 
-const CATEGORIES = ['all', 'tops', 'bottoms', 'shoes', 'outerwear', 'accessories'] as const
+const CANONICAL_TAB_CATEGORIES = new Set([
+  'tops', 'bottoms', 'shoes', 'outerwear', 'dresses', 'accessories',
+])
+
+const CATEGORIES = ['all', 'tops', 'bottoms', 'shoes', 'outerwear', 'dresses', 'accessories', 'other'] as const
 const OCCASIONS = ['casual', 'business', 'formal', 'sport', 'beach', 'date-night']
 
 type CanvasItem = ClosetItem & { canvasId: string }
@@ -235,7 +239,7 @@ function RecommendationSection({
 
 // ── AI Analysis Panel ─────────────────────────────────────────────────────────
 
-function AIAnalysisPanel({
+export function AIAnalysisPanel({
   analysis,
   onClose,
 }: {
@@ -243,7 +247,21 @@ function AIAnalysisPanel({
   onClose: () => void
 }) {
   const { outfit, missing_pieces, style_tips } = analysis
-  const { matching_score, score_breakdown, recommendations, reasoning, confidence, fit_notes } = outfit
+  const {
+    matching_score,
+    score_breakdown,
+    recommendations,
+    reasoning,
+    confidence,
+    fit_notes,
+    fit_confidence,
+    occasion_match,
+    style_match,
+    size_profile_match,
+    body_profile_notes,
+    why_it_works,
+    what_to_improve,
+  } = outfit
   const [tipsOpen, setTipsOpen] = useState(false)
 
   return (
@@ -277,22 +295,71 @@ function AIAnalysisPanel({
           <ScoreBars breakdown={score_breakdown} />
         </div>
 
+        {(fit_confidence != null ||
+          occasion_match ||
+          style_match ||
+          size_profile_match) && (
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            {fit_confidence != null && (
+              <div className="rounded-2xl border border-slate-100 bg-white/80 px-4 py-3 text-sm dark:border-slate-800 dark:bg-slate-800/40">
+                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Fit confidence</span>
+                <p className="text-lg font-bold text-slate-800 dark:text-white">{fit_confidence}%</p>
+              </div>
+            )}
+            {occasion_match && (
+              <div className="rounded-2xl border border-slate-100 bg-white/80 px-4 py-3 text-sm dark:border-slate-800 dark:bg-slate-800/40">
+                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Occasion match</span>
+                <p className="font-semibold text-slate-800 dark:text-white">{occasion_match}</p>
+              </div>
+            )}
+            {style_match && (
+              <div className="rounded-2xl border border-slate-100 bg-white/80 px-4 py-3 text-sm dark:border-slate-800 dark:bg-slate-800/40">
+                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Style match</span>
+                <p className="font-semibold text-slate-800 dark:text-white">{style_match}</p>
+              </div>
+            )}
+            {size_profile_match && (
+              <div className="rounded-2xl border border-slate-100 bg-white/80 px-4 py-3 text-sm dark:border-slate-800 dark:bg-slate-800/40">
+                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Size profile match</span>
+                <p className="font-semibold text-slate-800 dark:text-white">{size_profile_match}</p>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Reasoning */}
         {reasoning && (
           <div className="mt-5 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-400">
-            <span className="font-semibold text-slate-700 dark:text-slate-300">Stylist's take: </span>
+            <span className="font-semibold text-slate-700 dark:text-slate-300">Stylist&rsquo;s take: </span>
             {reasoning}
           </div>
         )}
 
-        {/* Fit notes — body-profile-aware reasoning */}
-        {fit_notes && (
+        {(body_profile_notes || fit_notes) && (
           <div className="mt-3 flex items-start gap-2.5 rounded-2xl border border-brand-100 bg-brand-50/60 px-4 py-3 text-sm text-brand-700 dark:border-brand-500/20 dark:bg-brand-500/[0.07] dark:text-brand-300">
             <Ruler size={14} className="mt-0.5 flex-shrink-0 text-brand-500 dark:text-brand-400" aria-hidden="true" />
             <div>
-              <span className="font-semibold">Why this works for your body profile: </span>
-              {fit_notes}
+              <span className="font-semibold">Body profile notes: </span>
+              {body_profile_notes || fit_notes}
             </div>
+          </div>
+        )}
+
+        {why_it_works && (
+          <div className="mt-3 rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-600 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-300">
+            <span className="font-semibold text-slate-700 dark:text-slate-200">Why it works: </span>
+            {why_it_works}
+          </div>
+        )}
+
+        {what_to_improve && what_to_improve.length > 0 && (
+          <div className="mt-3">
+            <div className="mb-1 text-xs font-semibold text-slate-500 dark:text-slate-400">What to improve</div>
+            <ul className="list-inside list-disc text-sm text-slate-600 dark:text-slate-300">
+              {what_to_improve.map((w, i) => (
+                <li key={i}>{w}</li>
+              ))}
+            </ul>
           </div>
         )}
 
@@ -388,7 +455,17 @@ export default function OutfitBuilder() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     return closetItems.filter(item => {
-      const matchesCategory = category === 'all' || item.category === category
+      let matchesCategory = category === 'all'
+      if (!matchesCategory) {
+        if (category === 'other') {
+          matchesCategory =
+            item.category === 'other'
+            || item.category === 'uncategorised'
+            || !CANONICAL_TAB_CATEGORIES.has(item.category)
+        } else {
+          matchesCategory = item.category === category
+        }
+      }
       const matchesSearch = !q || item.name.toLowerCase().includes(q) || item.category.toLowerCase().includes(q)
       return matchesCategory && matchesSearch
     })

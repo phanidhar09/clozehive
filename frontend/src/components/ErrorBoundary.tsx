@@ -22,7 +22,9 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error('ErrorBoundary caught error:', error, info)
+    if (import.meta.env.DEV) {
+      console.error('ErrorBoundary caught error:', error, info)
+    }
   }
 
   private reset = () => {
@@ -44,7 +46,18 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
             <h2 className="font-display font-bold text-lg text-slate-800 dark:text-white">Something went wrong</h2>
             <p className="text-sm text-slate-500 dark:text-white/50 mt-1">This section failed to load. Try refreshing.</p>
           </div>
-          <Button variant="secondary" onClick={this.reset}>Try Again</Button>
+          <div className="flex flex-col sm:flex-row gap-2 justify-center">
+            <Button variant="secondary" onClick={this.reset}>Try Again</Button>
+            <Button
+              variant="primary"
+              type="button"
+              onClick={() => {
+                window.location.reload()
+              }}
+            >
+              Reload page
+            </Button>
+          </div>
         </GlassCard>
       </div>
     )

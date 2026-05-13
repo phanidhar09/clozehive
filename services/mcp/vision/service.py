@@ -7,6 +7,7 @@ import json
 import os
 
 import httpx
+from langsmith import traceable
 
 from shared.schemas import VisionAnalysisResult
 from shared.logger import get_logger
@@ -51,6 +52,7 @@ def _mock_result(reason: str = "") -> VisionAnalysisResult:
     )
 
 
+@traceable(name="mcp_vision_analyse_image", run_type="llm")
 async def analyse_image(image_base64: str, media_type: str = "image/jpeg") -> VisionAnalysisResult:
     """
     Send the image to GPT-4o Vision and parse the structured response.

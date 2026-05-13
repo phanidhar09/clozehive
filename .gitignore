@@ -10,6 +10,9 @@
 # Root file `env` is sometimes used as a mistaken copy of .env — never commit
 /env
 
+gcp-sa.json
+*-gcp-sa.json
+
 # .env.example files are safe templates — always commit them
 !.env.example
 !**/.env.example
@@ -108,5 +111,4 @@ ai-service/venv/
 *.temp
 clozehive-clean/
 Roo-Code/
-.claude/
-.cursor/
+.vercel

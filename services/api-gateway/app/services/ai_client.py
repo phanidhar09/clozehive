@@ -21,6 +21,43 @@ from app.core.logging import get_logger
 logger = get_logger("ai_client")
 settings = get_settings()
 
+
+def _enrich_agent_packing_for_trips(data: dict[str, Any]) -> dict[str, Any]:
+    """
+    MCP packing JSON is a PackingResult (packing_list, missing_items, …).
+    Trip routes expect take_from_your_closet / you_might_still_need like packing_service.
+    """
+    if not data.get("take_from_your_closet"):
+        take: list[dict[str, Any]] = []
+        for it in data.get("packing_list") or []:
+            if not isinstance(it, dict) or not it.get("available_in_closet"):
+                continue
+            take.append({
+                "item_id": it.get("closet_item_id"),
+                "name": str(it.get("name") or ""),
+                "category": str(it.get("category") or "general"),
+                "reason": str(it.get("reason") or "Recommended for this trip."),
+                "recommended_days": [],
+            })
+        data["take_from_your_closet"] = take
+
+    if not data.get("you_might_still_need"):
+        need: list[dict[str, Any]] = []
+        for it in data.get("missing_items") or []:
+            if not isinstance(it, dict):
+                continue
+            need.append({
+                "name": str(it.get("name") or ""),
+                "category": str(it.get("category") or "general"),
+                "reason": str(it.get("reason") or "Consider bringing this."),
+            })
+        data["you_might_still_need"] = need
+
+    if data.get("packing_list") is not None and data.get("items") is None:
+        data["items"] = data["packing_list"]
+
+    return data
+
 # ── Shared async HTTP client (lifecycle managed in main.py) ──────────────────
 
 _client: httpx.AsyncClient | None = None
@@ -31,8 +68,18 @@ def get_client() -> httpx.AsyncClient:
     if _client is None or _client.is_closed:
         _client = httpx.AsyncClient(
             base_url=settings.ai_agent_url,
-            timeout=httpx.Timeout(settings.ai_timeout_seconds),
-            headers={"Content-Type": "application/json"},
+            # connect timeout is short so an absent ai-agent fails fast;
+            # read timeout is the full budget for an active response.
+            timeout=httpx.Timeout(
+                connect=5.0,
+                read=float(settings.ai_timeout_seconds),
+                write=10.0,
+                pool=5.0,
+            ),
+            headers={
+            "Content-Type": "application/json",
+            **({"X-Internal-Token": settings.internal_service_token} if settings.internal_service_token else {}),
+        },
         )
     return _client
 
@@ -47,10 +94,13 @@ async def close_client() -> None:
 # ── Retry decorator ───────────────────────────────────────────────────────────
 
 def _retryable(func):
+    # Retry only on NetworkError (connection refused / reset) — NOT on TimeoutException.
+    # TimeoutException means the server IS reachable but slow; retrying wastes budget.
+    # Cap at 2 attempts so a down ai-agent never burns more than ~10 s before fallback.
     return retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
-        retry=retry_if_exception_type(httpx.TransportError),
+        stop=stop_after_attempt(2),
+        wait=wait_exponential(multiplier=1, min=1, max=4),
+        retry=retry_if_exception_type(httpx.NetworkError),
         reraise=True,
     )(func)
 
@@ -162,6 +212,7 @@ async def generate_packing_list(
     purpose: str,
     closet_items: list[dict[str, Any]],
     notes: str | None = None,
+    user_style_profile: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     payload = {
         "destination": destination,
@@ -170,6 +221,7 @@ async def generate_packing_list(
         "purpose": purpose,
         "notes": notes,
         "closet_items": closet_items,
+        "user_style_profile": user_style_profile,
     }
     try:
         resp = await get_client().post("/api/v1/agent/packing", json=payload)
@@ -177,6 +229,7 @@ async def generate_packing_list(
         data: dict[str, Any] = resp.json()
         # Enrich for frontend TravelPlanner (expects duration_days + trip_type).
         if isinstance(data, dict):
+            _enrich_agent_packing_for_trips(data)
             try:
                 s = date.fromisoformat(start_date)
                 e = date.fromisoformat(end_date)

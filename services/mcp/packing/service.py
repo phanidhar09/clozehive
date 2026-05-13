@@ -8,6 +8,7 @@ from collections import defaultdict
 from datetime import date, timedelta
 
 import httpx
+from langsmith import traceable
 
 from shared.schemas import (
     ClosetItem,
@@ -213,6 +214,7 @@ def _build_alerts(
     return alerts
 
 
+@traceable(name="mcp_packing_openai_summary", run_type="llm")
 async def _ai_summary(
     destination: str,
     purpose: str,

@@ -14,26 +14,18 @@ RUN rm -f package-lock.json && npm install --no-audit --no-fund --include=option
 
 # Copy source and build
 COPY . .
-ARG VITE_API_URL=http://localhost:8000
+# Empty = relative `/api` + `/uploads` in the browser; this image proxies them to api-gateway (see nginx.docker.conf).
+ARG VITE_API_URL=""
 ENV VITE_API_URL=${VITE_API_URL}
 RUN npm run build
 
-# ── Stage 2: serve ────────────────────────────────────────────────────────────
-FROM node:20-alpine AS runner
+# ── Stage 2: nginx (proxies /api and /uploads — `serve` cannot, and breaks vision upload) ─
+FROM nginx:1.27-alpine AS runner
 
-WORKDIR /app
-
-RUN npm install -g serve@14
-
-COPY --from=builder /app/dist ./dist
-
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
-USER appuser
+COPY --from=builder /app/dist /usr/share/nginx/html
+COPY nginx.docker.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget -qO- http://localhost:3000 || exit 1
-
-# serve with SPA fallback (--single) so React Router handles 404s
-CMD ["serve", "-s", "dist", "-l", "3000", "--single"]
+    CMD wget -qO- http://127.0.0.1:3000/ || exit 1

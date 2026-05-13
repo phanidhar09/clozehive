@@ -2,7 +2,7 @@
 #  CLOZEHIVE — Developer Makefile
 # ─────────────────────────────────────────────────────────────────────────────
 
-.PHONY: help up stop down build migrate test test-api build-frontend test-frontend lint clean smoke health logs shell-api shell-db
+.PHONY: help up stop down down-clean build migrate db-backup db-restore test test-api build-frontend test-frontend lint clean smoke health logs shell-api shell-db
 
 # Prefer repo-root .venv when present (see services/api-gateway/requirements-dev.txt).
 PYTHON := $(shell test -x $(CURDIR)/.venv/bin/python && echo $(CURDIR)/.venv/bin/python || echo python3)
@@ -12,14 +12,21 @@ help: ## Show this help
 
 # ── Docker Compose ────────────────────────────────────────────────────────────
 
-up: ## Start all services (detached)
+up: ## Start MVP stack (detached): postgres, redis, api-gateway, frontend, nginx
 	docker compose up -d --build
 
-stop: ## Stop all services without removing volumes
+stop: ## Stop containers, keep volumes intact  ← use this for daily dev
 	docker compose down
 
-down: ## Stop all services and remove volumes
+down: ## Stop containers, keep volumes intact  ← same as stop (safe alias)
+	docker compose down
+
+down-clean: ## ⚠️  DANGER: stop AND delete all volumes (all data gone). Run db-backup first!
+	@echo "⚠️  WARNING: This will DELETE all database data and uploaded images!"
+	@echo "   Run 'make db-backup' first to save a copy."
+	@read -p "   Type 'DELETE' to confirm: " CONFIRM && [ "$$CONFIRM" = "DELETE" ] || (echo "Cancelled." && exit 1)
 	docker compose down -v
+	@echo "✅ Volumes removed."
 
 build: ## Rebuild all Docker images
 	docker compose build --no-cache
@@ -50,10 +57,20 @@ migrate-create: ## Create a new migration (usage: make migrate-create MSG="add c
 migrate-down: ## Roll back one migration
 	docker compose exec api-gateway alembic downgrade -1
 
+db-backup: ## Dump the database to ./backups/clozehive_TIMESTAMP.sql.gz
+	@chmod +x scripts/backup.sh && ./scripts/backup.sh
+
+db-restore: ## Restore from backup (usage: make db-restore FILE=backups/clozehive_xxx.sql.gz)
+	@chmod +x scripts/restore.sh && ./scripts/restore.sh $(FILE)
+
+db-status: ## Show row counts for all tables
+	docker compose exec postgres psql -U clozehive -d clozehive -c \
+	  "SELECT schemaname, relname AS table, n_live_tup AS rows FROM pg_stat_user_tables ORDER BY n_live_tup DESC;"
+
 # ── Testing ───────────────────────────────────────────────────────────────────
 
-test: ## Run all tests
-	$(MAKE) test-api build-frontend
+test: ## Run backend pytest + frontend Vitest
+	$(MAKE) test-api test-frontend
 
 test-api: ## Run API gateway tests
 	cd services/api-gateway && $(PYTHON) -m pytest tests/ -v --tb=short
@@ -61,7 +78,8 @@ test-api: ## Run API gateway tests
 build-frontend: ## Build the frontend
 	cd frontend && npm run build
 
-test-frontend: build-frontend ## Alias for build-frontend until frontend tests exist
+test-frontend: ## Run frontend unit tests (Vitest)
+	cd frontend && npm run test
 
 # ── Linting ───────────────────────────────────────────────────────────────────
 

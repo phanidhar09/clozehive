@@ -9,9 +9,15 @@ import Badge from '@/components/ui/Badge'
 import GlassCard from '@/components/ui/GlassCard'
 import { analyticsApi } from '@/lib/api'
 import { useAsyncError } from '@/hooks/useAsyncError'
-import type { ClosetAnalytics, CategoryCoverageItem } from '@/types'
+import type { ClosetAnalytics, CategoryCoverageItem, ColorStats } from '@/types'
 
-const CustomTooltip = ({ active, payload, label }: any) => {
+type TooltipChartPayload = {
+  active?: boolean
+  payload?: Array<{ value?: number }>
+  label?: string
+}
+
+const CustomTooltip = ({ active, payload, label }: TooltipChartPayload) => {
   if (active && payload?.length) {
     return (
       <div className="bg-white dark:bg-slate-800 border border-cream-300 dark:border-slate-700 rounded-xl p-3 shadow-card text-sm">
@@ -55,7 +61,7 @@ export default function Analytics() {
       }
     }
     loadAnalytics()
-  }, [closetItems.length])
+  }, [closetItems.length, throwAsyncError])
 
   if (closetLoading && closetItems.length === 0) {
     return (
@@ -186,7 +192,7 @@ export default function Analytics() {
                     fill="#8884d8"
                     dataKey="percentage"
                   >
-                    {analytics.color_stats.map((entry: any, index: number) => (
+                    {analytics.color_stats.map((entry: ColorStats, index: number) => (
                       <Cell key={`cell-${index}`} fill={PALETTE[index % PALETTE.length]} />
                     ))}
                   </Pie>
@@ -198,7 +204,7 @@ export default function Analytics() {
 
           <div className="space-y-2">
             <h3 className="font-semibold text-slate-800 dark:text-white mb-3">Color Breakdown</h3>
-            {analytics.color_stats.map((stat: any) => (
+            {analytics.color_stats.map((stat: ColorStats) => (
               <div key={stat.color} className="flex items-center justify-between text-sm">
                 <div className="flex items-center gap-2">
                   <div className="w-3 h-3 rounded-full" style={{ backgroundColor: stat.color || '#999' }} />

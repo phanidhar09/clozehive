@@ -286,14 +286,12 @@ async def save_analyzed_items(
             saved_response = ClosetItemResponse.model_validate(new_item)
             saved.append(saved_response)
 
-            # Kick off embedding generation in the background
-            background_tasks.add_task(similarity_service.update_item_embedding, session, str(new_item.id))
+            # Embedding job uses its own session after this request commits.
+            background_tasks.add_task(similarity_service.update_item_embedding_job, str(new_item.id))
 
         except Exception as exc:
             logger.error("save_analyzed_item_failed", item_id=req.item_id, error=str(exc))
             failed.append({"item_id": req.item_id, "name": req.name, "error": str(exc)})
-
-    await session.commit()
 
     if saved:
         redis = await get_redis()
@@ -377,7 +375,6 @@ async def retry_remove_background(
         background_removal_status=bg_status,
         image_url=new_processed_url if bg_removed else (item.original_image_url or item.image_url),
     )
-    await session.commit()
 
     redis = await get_redis()
     await cache_service.invalidate_user_ai_cache(redis, user_id)

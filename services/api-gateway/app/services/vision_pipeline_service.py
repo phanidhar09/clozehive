@@ -33,6 +33,7 @@ import io
 import json
 import math
 import time
+from uuid import uuid4
 from typing import Any, cast
 
 from PIL import Image
@@ -50,7 +51,9 @@ logger = get_logger("vision_pipeline")
 # ── Tuning constants ───────────────────────────────────────────────────────────
 
 _MAX_DIMENSION  = 1500      # px — resize larger images before sending to AI
+_MAX_DIMENSION_PREVIEW_FAST = 1120  # smaller image → faster detection for closet preview-only path
 _JPEG_QUALITY   = 85        # JPEG quality for compressed version sent to AI
+_JPEG_QUALITY_FAST = 82    # preview_fast per-item thumbnails
 _CACHE_TTL      = 3_600     # 1 hour (Redis seconds)
 _VISION_TIMEOUT = 45.0      # seconds — OpenAI Vision call
 _BG_TIMEOUT     = 30.0      # seconds — per-item BG removal
@@ -63,18 +66,24 @@ _MIN_CONFIDENCE       = 0.35   # drop items below this detection confidence
 
 # ── Image compression ──────────────────────────────────────────────────────────
 
-def _compress_image(image_bytes: bytes, media_type: str) -> tuple[bytes, str]:
+def _compress_image(
+    image_bytes: bytes,
+    media_type: str,
+    *,
+    max_side: int | None = None,
+) -> tuple[bytes, str]:
     """
-    Resize to _MAX_DIMENSION on the longest side and re-encode as JPEG/PNG.
+    Resize to max_side (default _MAX_DIMENSION) on the longest side and re-encode as JPEG.
     Returns (compressed_bytes, effective_media_type).
 
     Preserves aspect ratio. Skips resize if already small enough.
     """
+    cap = _MAX_DIMENSION if max_side is None else max_side
     try:
         img = Image.open(io.BytesIO(image_bytes))
         w, h = img.size
-        if max(w, h) > _MAX_DIMENSION:
-            scale = _MAX_DIMENSION / max(w, h)
+        if max(w, h) > cap:
+            scale = cap / max(w, h)
             new_w = math.floor(w * scale)
             new_h = math.floor(h * scale)
             img = img.resize((new_w, new_h), Image.LANCZOS)
@@ -92,6 +101,14 @@ def _compress_image(image_bytes: bytes, media_type: str) -> tuple[bytes, str]:
     except Exception as exc:
         logger.warning("compress_image_failed", error=str(exc))
         return image_bytes, media_type
+
+
+def _bytes_to_jpeg_b64(image_bytes: bytes, *, quality: int = _JPEG_QUALITY) -> str:
+    """Encode arbitrary image bytes as base64 JPEG (for preview_fast crops, no BG removal)."""
+    img = Image.open(io.BytesIO(image_bytes))
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, format="JPEG", quality=quality, optimize=True)
+    return base64.b64encode(buf.getvalue()).decode("utf-8")
 
 
 def _image_hash(image_bytes: bytes) -> str:
@@ -257,37 +274,32 @@ async def run_pipeline(
     image_bytes: bytes,
     media_type: str,
     scan_id: str,
+    *,
+    preview_fast: bool = False,
 ) -> VisionAnalyzeResponse:
     """
-    Full vision pipeline:  compress → cache check → vision AI → BG removal → return.
+    Compress → cache → vision detection → per-item processing.
 
-    Parameters
-    ----------
-    image_bytes : raw uploaded bytes (uncompressed)
-    media_type  : "image/jpeg" | "image/png" | "image/webp"
-    scan_id     : UUID string for grouping items from this scan
-
-    Returns
-    -------
-    VisionAnalyzeResponse with items populated, including base64 BG-removed PNGs.
+    ``preview_fast=True`` (closet analyze-preview): skips per-item BG removal and crop
+    re-analysis (saves one OpenAI call per detected item + rembg time).
     """
     t0 = time.monotonic()
 
-    # 1. Compress for AI (send smaller image to save tokens + latency)
-    compressed, compressed_type = _compress_image(image_bytes, media_type)
+    fast_side = _MAX_DIMENSION_PREVIEW_FAST if preview_fast else None
+    compressed, compressed_type = _compress_image(image_bytes, media_type, max_side=fast_side)
     logger.info(
         "vision_pipeline_start",
         scan_id=scan_id,
         original_kb=round(len(image_bytes) / 1024, 1),
         compressed_kb=round(len(compressed) / 1024, 1),
+        preview_fast=preview_fast,
     )
 
-    # 2. Cache check (keyed on compressed bytes hash)
-    cache_key = _CACHE_KEY_PFX + _image_hash(compressed)
+    cache_key = _CACHE_KEY_PFX + ("fast:" if preview_fast else "") + _image_hash(compressed)
     cached_data = await _cache_get(cache_key)
     if cached_data:
         ms = round((time.monotonic() - t0) * 1000)
-        logger.info("vision_pipeline_cache_hit", scan_id=scan_id, ms=ms)
+        logger.info("vision_pipeline_cache_hit", scan_id=scan_id, ms=ms, preview_fast=preview_fast)
         items = [VisionAnalysisItem(**i) for i in cached_data.get("items", [])]
         return VisionAnalyzeResponse(
             scan_id=scan_id,
@@ -321,6 +333,32 @@ async def run_pipeline(
 
     raw_items: list[dict[str, Any]] = _filter_and_dedup(raw_result.get("items") or [])
     if not raw_items:
+        # Model may return valid boxes that all get dropped by area/confidence thresholds.
+        # Keep a single best-effort detection (expand tiny boxes to full frame) so preview
+        # still gets a crop instead of falling through to empty pipeline → confusing UX.
+        orig = [x for x in (raw_result.get("items") or []) if isinstance(x, dict)]
+        if orig:
+            best = max(
+                orig,
+                key=lambda x: float(x.get("detection_confidence") or x.get("confidence_score") or 0.0),
+            )
+            relaxed = dict(best)
+            bbox = relaxed.get("bbox")
+            if not isinstance(bbox, dict):
+                relaxed["bbox"] = {"x_min": 0.0, "y_min": 0.0, "x_max": 1.0, "y_max": 1.0}
+            elif _bbox_area(cast(dict[str, float], bbox)) < _MIN_BBOX_AREA:
+                relaxed["bbox"] = {"x_min": 0.0, "y_min": 0.0, "x_max": 1.0, "y_max": 1.0}
+            relaxed.setdefault("item_id", str(uuid4())[:8])
+            conf = float(relaxed.get("detection_confidence") or relaxed.get("confidence_score") or 0.0)
+            if conf < _MIN_CONFIDENCE:
+                relaxed["detection_confidence"] = _MIN_CONFIDENCE
+            raw_items = [relaxed]
+            logger.info(
+                "vision_pipeline_recovered_after_filter_dropped_all",
+                scan_id=scan_id,
+                recovered_item_id=relaxed.get("item_id"),
+            )
+    if not raw_items:
         ms = round((time.monotonic() - t0) * 1000)
         return VisionAnalyzeResponse(
             scan_id=scan_id,
@@ -329,9 +367,7 @@ async def run_pipeline(
             processing_time_ms=ms,
         )
 
-    # 4. Concurrent BG removal on ORIGINAL image crops
-    #    The vision service already cropped + removed BG using compressed bytes.
-    #    We redo BG removal on crops from the original (higher quality) bytes.
+    # 4. Per item: full BG + OpenAI enrich, OR (preview_fast) JPEG crop only
     from app.services.fashion_analysis_service import _crop_item  # type: ignore[attr-defined]
 
     async def _process_item(raw: dict[str, Any]) -> VisionAnalysisItem:
@@ -342,12 +378,22 @@ async def run_pipeline(
         except Exception:
             crop_bytes = image_bytes
 
-        final_bytes, bg_status = await _remove_bg_timed(crop_bytes)
-        bg_removed = bg_status in ("success_rembg", "success_pil")
-        img_b64 = base64.b64encode(final_bytes).decode("utf-8")
+        if preview_fast:
+            try:
+                img_b64 = _bytes_to_jpeg_b64(crop_bytes, quality=_JPEG_QUALITY_FAST)
+            except Exception as exc:
+                logger.warning("preview_fast_jpeg_failed", error=str(exc))
+                img_b64 = base64.b64encode(crop_bytes).decode("utf-8")
+            merged = dict(raw)
+            bg_status = "skipped_preview_fast"
+            bg_removed = False
+        else:
+            final_bytes, bg_status = await _remove_bg_timed(crop_bytes)
+            bg_removed = bg_status in ("success_rembg", "success_pil")
+            img_b64 = base64.b64encode(final_bytes).decode("utf-8")
 
-        merged = dict(raw)
-        merged = await enrich_detection_with_crop_analysis(final_bytes, merged)
+            merged = dict(raw)
+            merged = await enrich_detection_with_crop_analysis(final_bytes, merged)
 
         bb_model = _bbox_to_normalized_model(raw)
 
@@ -389,6 +435,7 @@ async def run_pipeline(
         scan_id=scan_id,
         items=len(processed_items),
         ms=ms,
+        preview_fast=preview_fast,
     )
 
     # 5. Cache the result (without image bytes — those are per-request)

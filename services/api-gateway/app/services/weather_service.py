@@ -69,6 +69,7 @@ def fetch_weather(destination: str, start_date: str, end_date: str) -> list[dict
             "temp_high": high,
             "temp_low": low,
             "description": _description(condition, high, low),
+            "data_source": "static_profile",
         })
     return days
 
@@ -86,6 +87,14 @@ def summarise_weather(days: list[dict[str, Any]]) -> dict[str, Any]:
         recommendation = "Bring warm layers and outerwear."
     else:
         recommendation = "Mild conditions; versatile layers should work well."
+    # "live" if every day has live OWM data; "partial" if mixed; "static_profile" if all fallback
+    sources = {day.get("data_source", "static_profile") for day in days}
+    if sources == {"live"}:
+        data_source = "live"
+    elif "live" in sources:
+        data_source = "partial"
+    else:
+        data_source = "static_profile"
     return {
         "dominant_condition": dominant,
         "avg_high": avg_high,
@@ -93,6 +102,7 @@ def summarise_weather(days: list[dict[str, Any]]) -> dict[str, Any]:
         "rainy_days": rainy_days,
         "total_days": len(days),
         "recommendation": recommendation,
+        "data_source": data_source,
         "days": days,
     }
 
@@ -147,6 +157,7 @@ async def fetch_weather_async(destination: str, start_date: str, end_date: str) 
                 condition = Counter(d["conditions"]).most_common(1)[0][0]
                 high = round(max(d["highs"]), 1)
                 low = round(min(d["lows"]), 1)
+                source = "live"
             else:
                 # Beyond forecast window — use static profile for remaining days
                 base_cond, base_high, base_low = _profile(destination)
@@ -155,12 +166,14 @@ async def fetch_weather_async(destination: str, start_date: str, end_date: str) 
                 variation = math.sin(i * 0.7) * 2.0
                 high = round(base_high + variation, 1)
                 low = round(base_low + variation * 0.6, 1)
+                source = "static_profile"
             result.append({
                 "date": day_key,
                 "condition": condition,
                 "temp_high": high,
                 "temp_low": low,
                 "description": _description(condition, high, low),
+                "data_source": source,
             })
             current += timedelta(days=1)
 

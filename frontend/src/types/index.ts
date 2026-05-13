@@ -26,6 +26,66 @@ export interface ClosetItem {
   created_at: string
 }
 
+/** Canonical row from POST /closet/analyze-preview (aligned with backend ClosetPreviewItem). */
+export interface VisionPreviewItem {
+  slot_index: number
+  temp_id: string
+  name: string
+  category: string
+  subcategory?: string | null
+  color?: string | null
+  brand?: string | null
+  material?: string | null
+  pattern?: string | null
+  season: string[]
+  occasions: string[]
+  description?: string | null
+  confidence: number
+  original_image_url: string
+  preview_image_url: string
+  processed_image_url?: string | null
+  background_removed: boolean
+  background_removal_status?: string | null
+  style_tags: string[]
+}
+
+export type StyleGender = 'male' | 'female' | 'non_binary' | 'prefer_not_to_say' | 'custom'
+
+export interface UserStyleProfile {
+  id: string
+  user_id: string
+  gender: StyleGender | null
+  custom_gender: string | null
+  height_value: number | null
+  height_unit: 'cm' | 'ft_in' | null
+  weight_value: number | null
+  weight_unit: 'kg' | 'lb' | null
+  age_range: string | null
+  body_types: string[]
+  custom_body_type: string | null
+  fit_preferences: string[]
+  custom_fit_notes: string | null
+  size_profile: Record<string, string>
+  custom_size_notes: string | null
+  style_preferences: string[]
+  favorite_colors: string[]
+  avoided_colors: string[]
+  neutral_color_preference: boolean | null
+  bold_color_preference: boolean | null
+  occasion_preferences: string[]
+  climate_preferences: string[]
+  onboarding_completed: boolean
+  onboarding_skipped: boolean
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export interface OnboardingStatus {
+  onboarding_completed: boolean
+  onboarding_skipped: boolean
+  has_profile_record: boolean
+}
+
 export interface Outfit {
   id: string
   name: string
@@ -140,6 +200,7 @@ export interface AuthUser {
   bio?: string | null
   avatar_url?: string | null
   role: 'user' | 'admin'
+  auth_provider?: 'local' | 'google'   // how the account was created
   follower_count?: number
   following_count?: number
   created_at?: string
@@ -438,10 +499,17 @@ export interface ScoredOutfit {
   items: OutfitItemSlots
   matching_score: number
   confidence: number
+  fit_confidence?: number | null
   score_breakdown: ScoreBreakdown
   fit_notes?: string
+  occasion_match?: 'High' | 'Medium' | 'Low' | null
+  style_match?: 'High' | 'Medium' | 'Low' | null
+  size_profile_match?: 'High' | 'Medium' | 'Low' | 'Unknown' | null
+  body_profile_notes?: string
   recommendations: OutfitRecommendations
   reasoning: string
+  why_it_works?: string
+  what_to_improve?: string[]
 }
 
 export interface OutfitAnalysis {
@@ -491,3 +559,4 @@ export type Category =
   | 'outerwear'
   | 'dresses'
   | 'accessories'
+  | 'other'

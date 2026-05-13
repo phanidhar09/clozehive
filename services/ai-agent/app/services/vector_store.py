@@ -10,9 +10,11 @@ from typing import Any
 
 import asyncpg
 import structlog
+from langsmith import traceable
 from openai import AsyncOpenAI
 
 from app.core.config import get_settings
+from app.core.openai_tracing import make_openai_client, wrap_openai_client
 
 logger = structlog.get_logger("vector_store")
 settings = get_settings()
@@ -43,7 +45,9 @@ async def get_pool() -> asyncpg.Pool:
 def get_openai() -> AsyncOpenAI:
     global _openai
     if _openai is None:
-        _openai = AsyncOpenAI(api_key=settings.openai_api_key)
+        _openai = wrap_openai_client(
+            make_openai_client(settings.openai_api_key, base_url=settings.openai_api_base_url)
+        )
     return _openai
 
 
@@ -57,6 +61,7 @@ async def close() -> None:
         _openai = None
 
 
+@traceable(name="ai_agent_embed_query", run_type="embedding")
 async def embed_query(text: str) -> list[float]:
     response = await get_openai().embeddings.create(
         model=settings.openai_embedding_model,

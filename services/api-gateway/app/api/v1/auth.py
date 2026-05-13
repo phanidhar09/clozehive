@@ -5,9 +5,9 @@ Signup, login, refresh, logout, profile management.
 
 from __future__ import annotations
 
-from typing import Optional
-
 import secrets
+import uuid as _uuid
+from typing import Optional
 from urllib.parse import urlencode
 
 import httpx
@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.deps import CurrentUser, DbSession
-from app.core.exceptions import AuthenticationError, NotFoundError
+from app.core.exceptions import AuthenticationError, ConflictError, NotFoundError
 from app.core.logging import get_logger
 from app.core.rate_limit import limiter
 from app.core.security import build_google_auth_url
@@ -88,7 +88,7 @@ async def refresh(request: Request, body: RefreshRequest, svc: AuthService = Dep
 async def me(user_id: CurrentUser, session: DbSession):
     """Return the currently authenticated user's profile."""
     users = UserRepository(session)
-    user = await users.get_or_raise(__import__("uuid").UUID(user_id))
+    user = await users.get_or_raise(_uuid.UUID(user_id))
     return UserResponse.model_validate(user)
 
 
@@ -99,14 +99,19 @@ async def update_profile(
     session: DbSession,
     bg: BackgroundTasks,
 ):
-    """Update display name, bio, or avatar URL."""
+    """Update display name, username, bio, avatar URL, or personalization data."""
     users = UserRepository(session)
-    uid = __import__("uuid").UUID(user_id)
+    uid = _uuid.UUID(user_id)
     user = await users.get_or_raise(uid)
-    user = await users.update(
-        user,
-        **{k: v for k, v in body.model_dump().items() if v is not None},
-    )
+
+    update_kwargs = {k: v for k, v in body.model_dump().items() if v is not None}
+
+    # Username uniqueness check — only enforce if it actually changed
+    if "username" in update_kwargs and update_kwargs["username"] != user.username:
+        if await users.username_exists(update_kwargs["username"]):
+            raise ConflictError("Username is already taken")
+
+    user = await users.update(user, **update_kwargs)
     # Invalidate cache in background
     bg.add_task(cache_service.delete, cache_service.user_profile_key(user_id))
     return UserResponse.model_validate(user)
@@ -120,7 +125,7 @@ async def change_password(
 ):
     """Change the authenticated user's password. Invalidates all sessions."""
     await svc.change_password(
-        __import__("uuid").UUID(user_id),
+        _uuid.UUID(user_id),
         body.current_password,
         body.new_password,
     )
@@ -145,7 +150,7 @@ async def logout(
 @router.post("/logout-all", status_code=204)
 async def logout_all(user_id: CurrentUser, svc: AuthService = Depends(_svc)):
     """Revoke ALL refresh tokens for the current user (sign out everywhere)."""
-    await svc.logout_all(__import__("uuid").UUID(user_id))
+    await svc.logout_all(_uuid.UUID(user_id))
 
 
 # ── Google OAuth ──────────────────────────────────────────────────────────────
