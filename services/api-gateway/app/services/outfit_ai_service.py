@@ -320,6 +320,35 @@ def _mock_analyze(selected_items: list[dict[str, Any]], occasion: str) -> dict[s
     })
 
 
+# ── Pairing suggestion prompt ──────────────────────────────────────────────────
+
+_SUGGEST_PAIRINGS_PROMPT = """\
+You are ClozeHive AI, an expert fashion stylist.
+
+The user has already built an outfit (listed under "selected_outfit"). Your job is to scan their \
+remaining closet items (listed under "remaining_closet") and suggest pieces that would COMPLEMENT or \
+COMPLETE this specific outfit — not replace existing pieces, but genuinely ADD value to it.
+
+RULES:
+1. Only suggest items from the provided remaining_closet list. Use exact IDs and names.
+2. Suggest 3–6 items maximum — only those that truly enhance the outfit.
+3. Prioritise missing categories first (e.g. shoes if no footwear in outfit, outerwear if outfit has \
+   no layer), then enhancing accessories, then optional layering pieces.
+4. Reason must be specific (20–50 words): reference color harmony, style echo, occasion fit, or \
+   fabric pairing — never generic phrases like "goes well with".
+5. Return ONLY valid JSON — no markdown fences, no prose outside JSON.
+
+EXACT RESPONSE SCHEMA:
+{
+  "suggested_pairings": [
+    {
+      "id": "uuid-of-item-from-remaining_closet",
+      "reason": "Specific reason why this item enhances the outfit"
+    }
+  ]
+}"""
+
+
 # ── Public API ─────────────────────────────────────────────────────────────────
 
 async def generate_outfits(
@@ -328,22 +357,23 @@ async def generate_outfits(
     weather: str = "",
     temperature: float | None = None,
     user_profile: dict[str, Any] | None = None,
+    rag_context: str | None = None,
 ) -> dict[str, Any]:
     """Generate 3 diverse, scored outfit combinations from the user's full wardrobe."""
     if not closet_items:
         return _mock_generate(closet_items, occasion)
 
-    payload = json.dumps(
-        {
-            "mode": "generate",
-            "occasion": occasion,
-            "weather_condition": weather or "mild",
-            "temperature_celsius": temperature,
-            "user_profile": user_profile or {},
-            "wardrobe": [_item_for_ai(i) for i in closet_items],
-        },
-        default=str,
-    )
+    payload_dict: dict[str, Any] = {
+        "mode": "generate",
+        "occasion": occasion,
+        "weather_condition": weather or "mild",
+        "temperature_celsius": temperature,
+        "user_profile": user_profile or {},
+        "wardrobe": [_item_for_ai(i) for i in closet_items],
+    }
+    if rag_context:
+        payload_dict["rag_context"] = rag_context
+    payload = json.dumps(payload_dict, default=str)
 
     try:
         raw = await ai_service.chat(
@@ -367,22 +397,23 @@ async def analyze_outfit(
     weather: str = "",
     temperature: float | None = None,
     user_profile: dict[str, Any] | None = None,
+    rag_context: str | None = None,
 ) -> dict[str, Any]:
     """Score and provide recommendations for a specific outfit combination chosen by the user."""
     if not selected_items:
         return _mock_analyze(selected_items, occasion)
 
-    payload = json.dumps(
-        {
-            "mode": "analyze",
-            "occasion": occasion,
-            "weather_condition": weather or "mild",
-            "temperature_celsius": temperature,
-            "user_profile": user_profile or {},
-            "selected_outfit_items": [_item_for_ai(i) for i in selected_items],
-        },
-        default=str,
-    )
+    analyze_dict: dict[str, Any] = {
+        "mode": "analyze",
+        "occasion": occasion,
+        "weather_condition": weather or "mild",
+        "temperature_celsius": temperature,
+        "user_profile": user_profile or {},
+        "selected_outfit_items": [_item_for_ai(i) for i in selected_items],
+    }
+    if rag_context:
+        analyze_dict["rag_context"] = rag_context
+    payload = json.dumps(analyze_dict, default=str)
 
     try:
         raw = await ai_service.chat(
@@ -398,3 +429,44 @@ async def analyze_outfit(
         logger.warning("outfit_ai_analyze_failed", error=str(exc), occasion=occasion)
 
     return _mock_analyze(selected_items, occasion)
+
+
+async def suggest_pairings_from_closet(
+    selected_items: list[dict[str, Any]],
+    remaining_items: list[dict[str, Any]],
+    occasion: str,
+    weather: str = "",
+) -> list[dict[str, Any]]:
+    """Ask the AI which remaining closet items would best complement the selected outfit.
+
+    Returns a list of dicts with ``id`` and ``reason`` keys.  An empty list is
+    returned on any error — callers must treat this as best-effort.
+    """
+    if not remaining_items:
+        return []
+
+    # Cap remaining items to keep the prompt size reasonable
+    capped = remaining_items[:40]
+
+    payload = json.dumps({
+        "occasion": occasion,
+        "weather": weather or "mild",
+        "selected_outfit": [_item_for_ai(i) for i in selected_items],
+        "remaining_closet": [_item_for_ai(i) for i in capped],
+    }, default=str)
+
+    try:
+        raw = await ai_service.chat(
+            [{"role": "user", "content": payload}],
+            _SUGGEST_PAIRINGS_PROMPT,
+        )
+        data = json.loads(_clean_json(raw))
+        pairings = data.get("suggested_pairings")
+        if isinstance(pairings, list):
+            return [p for p in pairings if isinstance(p, dict) and p.get("id")]
+    except json.JSONDecodeError:
+        logger.warning("outfit_ai_suggest_pairings_bad_json", occasion=occasion)
+    except Exception as exc:
+        logger.warning("outfit_ai_suggest_pairings_failed", error=str(exc), occasion=occasion)
+
+    return []

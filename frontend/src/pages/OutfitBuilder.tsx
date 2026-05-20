@@ -26,6 +26,7 @@ import {
   CloudSun,
   Lightbulb,
   Loader2,
+  Plus,
   Ruler,
   Search,
   Sparkles,
@@ -35,7 +36,7 @@ import {
 } from 'lucide-react'
 import { useApp } from '@/store'
 import { outfitsApi } from '@/lib/api'
-import type { ClosetItem, OutfitAnalysis, ScoreBreakdown } from '@/types'
+import type { ClosetItem, OutfitAnalysis, ScoreBreakdown, SuggestedPairingItem } from '@/types'
 
 const CANONICAL_TAB_CATEGORIES = new Set([
   'tops', 'bottoms', 'shoes', 'outerwear', 'dresses', 'accessories',
@@ -80,33 +81,47 @@ function itemImage(item: ClosetItem, className = 'h-full w-full object-cover') {
     : <div className="flex h-full w-full items-center justify-center text-2xl">👕</div>
 }
 
-function ClosetDraggableCard({ item, added }: { item: ClosetItem; added: boolean }) {
+function ClosetDraggableCard({ item, added, onAdd }: { item: ClosetItem; added: boolean; onAdd: () => void }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `closet:${item.id}`,
     data: { item },
   })
 
   return (
-    <button
+    <div
       ref={setNodeRef}
-      {...attributes}
-      {...listeners}
-      className="relative rounded-2xl border border-cream-200 bg-white text-left shadow-card transition hover:-translate-y-0.5 hover:shadow-card-hover dark:border-white/10 dark:bg-white/[0.04]"
       style={{ transform: transform ? CSS.Translate.toString(transform) : undefined, opacity: isDragging ? 0.45 : 1 }}
+      className="group relative rounded-2xl border border-cream-200 bg-white shadow-card transition hover:-translate-y-0.5 hover:shadow-card-hover dark:border-white/10 dark:bg-white/[0.04]"
     >
-      <div className="aspect-square overflow-hidden rounded-t-2xl bg-cream-100 dark:bg-slate-800">
+      {/* Drag handle — whole image area */}
+      <div
+        {...attributes}
+        {...listeners}
+        className="aspect-square overflow-hidden rounded-t-2xl bg-cream-100 dark:bg-slate-800 cursor-grab active:cursor-grabbing"
+      >
         {itemImage(item)}
       </div>
-      <div className="p-3">
+
+      <div className="p-3 pb-2">
         <p className="truncate text-sm font-semibold text-slate-800 dark:text-white">{item.name}</p>
         <p className="text-xs capitalize text-slate-500 dark:text-white/40">{item.category}</p>
       </div>
-      {added && (
-        <div className="absolute right-2 top-2 rounded-full bg-emerald-500 p-1 text-white shadow">
-          <Check size={14} />
-        </div>
-      )}
-    </button>
+
+      {/* Click-to-add button */}
+      <div className="px-3 pb-3">
+        <button
+          onClick={onAdd}
+          disabled={added}
+          className={`w-full flex items-center justify-center gap-1.5 rounded-xl py-1.5 text-[11px] font-semibold transition-all ${
+            added
+              ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400 cursor-default border border-emerald-200 dark:border-emerald-500/30'
+              : 'bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300 hover:bg-brand-100 dark:hover:bg-brand-500/25 border border-brand-200 dark:border-brand-500/30'
+          }`}
+        >
+          {added ? <><Check size={11} /> Added</> : <><Plus size={11} /> Add</>}
+        </button>
+      </div>
+    </div>
   )
 }
 
@@ -427,6 +442,111 @@ export function AIAnalysisPanel({
   )
 }
 
+// ── Suggested Pairings Shelf ──────────────────────────────────────────────────
+
+interface SuggestedPairingsShelfProps {
+  pairings: SuggestedPairingItem[]
+  alreadyAddedIds: Set<string>
+  onAdd: (item: SuggestedPairingItem) => void
+}
+
+function SuggestedPairingsShelf({ pairings, alreadyAddedIds, onAdd }: SuggestedPairingsShelfProps) {
+  if (pairings.length === 0) return null
+
+  return (
+    <div className="rounded-3xl border border-violet-200 bg-white/90 shadow-card dark:border-violet-500/30 dark:bg-slate-900/90">
+      {/* Header */}
+      <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-4 dark:border-slate-800">
+        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-100 dark:bg-violet-500/15">
+          <Sparkles size={14} className="text-violet-600 dark:text-violet-400" />
+        </div>
+        <div>
+          <p className="font-display text-sm font-bold text-slate-800 dark:text-white">
+            AI-Suggested Pairings
+          </p>
+          <p className="text-[11px] text-slate-400">
+            Items from your closet that complement this outfit — click to add
+          </p>
+        </div>
+      </div>
+
+      {/* Scrollable shelf */}
+      <div className="p-4">
+        <div
+          className="flex gap-3 overflow-x-auto pb-2"
+          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+        >
+          {pairings.map(item => {
+            const added = alreadyAddedIds.has(item.id)
+            return (
+              <div
+                key={item.id}
+                className="group relative flex-shrink-0 w-[140px] rounded-2xl border border-cream-200 bg-white dark:border-white/10 dark:bg-slate-800 overflow-hidden shadow-sm hover:shadow-md transition-shadow"
+              >
+                {/* Image */}
+                <div className="relative aspect-[3/4] bg-cream-100 dark:bg-slate-700 overflow-hidden">
+                  {item.image_url ? (
+                    <img
+                      src={item.image_url}
+                      alt={item.name}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-3xl">
+                      {item.category === 'shoes' ? '👟' : item.category === 'accessories' ? '👜' : item.category === 'outerwear' ? '🧥' : '👕'}
+                    </div>
+                  )}
+                  {/* Category badge */}
+                  <span className="absolute top-2 left-2 text-[9px] font-bold bg-black/50 text-white rounded-full px-2 py-0.5 capitalize">
+                    {item.category}
+                  </span>
+                </div>
+
+                {/* Info */}
+                <div className="px-2.5 pt-2 pb-1">
+                  <p className="text-xs font-semibold text-slate-800 dark:text-white truncate leading-tight">
+                    {item.name}
+                  </p>
+                  {item.brand && (
+                    <p className="text-[10px] text-slate-400 truncate">{item.brand}</p>
+                  )}
+                </div>
+
+                {/* AI reason — visible on hover */}
+                <div className="px-2.5 pb-2">
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug line-clamp-3">
+                    {item.reason}
+                  </p>
+                </div>
+
+                {/* Add button */}
+                <div className="px-2.5 pb-2.5">
+                  <button
+                    onClick={() => !added && onAdd(item)}
+                    disabled={added}
+                    className={`w-full flex items-center justify-center gap-1.5 rounded-xl py-1.5 text-[11px] font-semibold transition-all ${
+                      added
+                        ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400 cursor-default border border-emerald-200 dark:border-emerald-500/30'
+                        : 'bg-violet-50 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300 hover:bg-violet-100 dark:hover:bg-violet-500/25 border border-violet-200 dark:border-violet-500/30'
+                    }`}
+                  >
+                    {added ? (
+                      <><Check size={11} /> Added</>
+                    ) : (
+                      <><Plus size={11} /> Add to Outfit</>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function OutfitBuilder() {
@@ -450,6 +570,9 @@ export default function OutfitBuilder() {
   const [analysis, setAnalysis] = useState<OutfitAnalysis | null>(null)
   const [analysisError, setAnalysisError] = useState<string | null>(null)
 
+  // Suggested pairings — populated from analysis response
+  const suggestedPairings = analysis?.suggested_pairings ?? []
+
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
 
   const filtered = useMemo(() => {
@@ -472,6 +595,15 @@ export default function OutfitBuilder() {
   }, [closetItems, query, category])
 
   const addedIds = new Set(canvasItems.map(item => item.id))
+
+  // Add a suggested pairing item directly to the canvas
+  const addSuggestedToCanvas = (suggested: SuggestedPairingItem) => {
+    // Find the full ClosetItem from closetItems so we have all fields (image_url, etc.)
+    const full = closetItems.find(ci => ci.id === suggested.id)
+    if (!full || addedIds.has(suggested.id)) return
+    setCanvasItems(prev => [...prev, { ...full, canvasId: `${full.id}:${crypto.randomUUID()}` }])
+    // Keep analysis visible but note canvas changed
+  }
 
   const handleDragStart = (event: DragStartEvent) => {
     const item = event.active.data.current?.item as ClosetItem | undefined
@@ -584,7 +716,18 @@ export default function OutfitBuilder() {
         ))}
       </div>
       <div className="grid max-h-[560px] grid-cols-2 gap-3 overflow-y-auto pr-1">
-        {filtered.map(item => <ClosetDraggableCard key={item.id} item={item} added={addedIds.has(item.id)} />)}
+        {filtered.map(item => (
+          <ClosetDraggableCard
+            key={item.id}
+            item={item}
+            added={addedIds.has(item.id)}
+            onAdd={() => {
+              setCanvasItems(prev => [...prev, { ...item, canvasId: `${item.id}:${crypto.randomUUID()}` }])
+              setAnalysis(null)
+              setAnalysisError(null)
+            }}
+          />
+        ))}
       </div>
     </div>
   )
@@ -810,6 +953,15 @@ export default function OutfitBuilder() {
       {/* AI Analysis Panel — rendered below the builder when available */}
       {analysis && (
         <AIAnalysisPanel analysis={analysis} onClose={() => setAnalysis(null)} />
+      )}
+
+      {/* AI-Suggested Pairings shelf — shown whenever analysis has suggestions */}
+      {analysis && suggestedPairings.length > 0 && (
+        <SuggestedPairingsShelf
+          pairings={suggestedPairings}
+          alreadyAddedIds={addedIds}
+          onAdd={addSuggestedToCanvas}
+        />
       )}
     </div>
   )

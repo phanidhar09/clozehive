@@ -1,8 +1,8 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
-  LayoutDashboard, Shirt, Plane,
-  BarChart3, X, Moon, Sun, LogOut, Wand2, PlusCircle,
+  Home, Shirt, Plane,
+  X, Moon, Sun, LogOut, Wand2, PlusCircle,
   type LucideIcon,
 } from 'lucide-react'
 import { useApp } from '@/store'
@@ -17,12 +17,11 @@ type SidebarNavItem = {
 }
 
 const NAV: SidebarNavItem[] = [
-  { to: '/dashboard',       label: 'Dashboard',           icon: LayoutDashboard },
+  { to: '/dashboard',       label: 'Home',                icon: Home },
   { to: '/closet',          label: 'My Closet',           icon: Shirt },
   { to: '/outfit-builder',  label: 'Outfit Builder',      icon: Wand2,        gradient: 'from-pink-500 to-rose-600' },
   { to: '/upload',          label: 'Add to Your Closet',  icon: PlusCircle,   gradient: 'from-violet-500 to-indigo-600' },
   { to: '/travel',          label: 'Travel Packing',      icon: Plane },
-  { to: '/analytics',       label: 'Closet Insights',     icon: BarChart3 },
 ]
 
 export default function Sidebar() {

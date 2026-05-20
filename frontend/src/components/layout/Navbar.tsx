@@ -1,101 +1,189 @@
-import { useState, useRef, useEffect } from 'react'
-import { Menu, Bell, Search, LogOut, User, Settings, UserPlus, UserCheck, Loader2, X, Moon, Sun } from 'lucide-react'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import {
+  Menu, Search, LogOut, User, Settings, UserPlus, UserCheck, Loader2, X,
+  Moon, Sun, Sparkles, Heart, BarChart3, ShoppingBag, ChevronRight,
+} from 'lucide-react'
 import { useApp } from '@/store'
 import { useColorScheme } from '@/hooks/useColorScheme'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { socialApi } from '@/lib/api'
 import type { SocialUser } from '@/types'
 import { hideNonMvpUi } from '@/config/features'
+import NotificationBell from '@/components/ui/NotificationBell'
 
 const TITLES: Record<string, string> = {
-  '/dashboard':        'Dashboard',
+  '/dashboard':        'Home',
   '/closet':           'My Closet',
   '/outfit-builder':   'Outfit Builder',
   '/upload':           'Add to Your Closet',
   '/fashion-analysis': 'Add to Your Closet',
-  '/ai-stylist':       'AI Stylist',
+  '/ai-stylist':       'FANI',
   '/travel':           'Travel Planner',
   '/avatar':           'Avatar Builder',
   '/analytics':        'Analytics',
   '/groups':           'Groups',
   '/profile':          'Profile',
+  '/saved-outfits':    'Saved Outfits',
 }
 
-/* ── User dropdown ─────────────────────────────────────────────────────────── */
-function UserMenu({ onClose }: { onClose: () => void }) {
+/* ── Premium profile hover dropdown ────────────────────────────────────────── */
+
+const WARDROBE_LINKS = [
+  { to: '/saved-outfits',  label: 'Saved Outfits',    icon: Heart,      gradient: 'from-rose-500 to-pink-500',    desc: 'Your FANI-curated looks' },
+  { to: '/analytics',      label: 'Closet Insights',  icon: BarChart3,  gradient: 'from-violet-500 to-indigo-500', desc: 'Wear analytics & trends' },
+  { to: '/purchase-gaps',  label: 'Wardrobe Gaps',    icon: ShoppingBag,gradient: 'from-amber-500 to-orange-500', desc: 'What your closet is missing' },
+]
+
+function ProfileDropdown({ onNavigate }: { onNavigate: (to: string) => void }) {
   const { currentUser, logout } = useApp()
   const navigate = useNavigate()
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    function handler(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [onClose])
+  const { isDark, toggleColorScheme } = useColorScheme()
 
   const nameLabel = currentUser?.display_name || currentUser?.username || 'User'
   const initials = nameLabel !== 'User'
     ? nameLabel.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
     : 'U'
 
+  const go = (to: string) => { navigate(to); onNavigate(to) }
+
   return (
     <div
-      ref={ref}
-      className="absolute right-0 top-full mt-2 w-56
-                 bg-white/95 dark:bg-slate-900/95
-                 backdrop-blur-xl
-                 rounded-2xl border border-cream-200 dark:border-white/[0.10]
-                 shadow-card-hover dark:shadow-glass-card
-                 overflow-hidden z-50 animate-slide-up"
+      className="absolute right-0 top-full mt-3 w-[300px]
+                 bg-white/[0.97] dark:bg-slate-900/[0.97]
+                 backdrop-blur-2xl
+                 rounded-3xl border border-white/60 dark:border-white/[0.09]
+                 shadow-[0_24px_64px_-12px_rgba(79,70,229,0.22),0_8px_32px_-8px_rgba(0,0,0,0.18)]
+                 dark:shadow-[0_24px_64px_-12px_rgba(79,70,229,0.35),0_8px_24px_-8px_rgba(0,0,0,0.55)]
+                 overflow-hidden z-50
+                 animate-slide-up origin-top-right"
     >
-      {/* User info */}
-      <div className="px-4 py-3 border-b border-cream-200 dark:border-white/[0.07]">
-        <div className="flex items-center gap-2.5 mb-1">
-          <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600
-                          flex items-center justify-center text-[10px] font-bold text-white
-                          flex-shrink-0 overflow-hidden">
+      {/* ── Header — gradient avatar banner ──────────────────────────────── */}
+      <div className="relative px-5 pt-5 pb-4 bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-500 overflow-hidden">
+        {/* Decorative blur orb */}
+        <div className="pointer-events-none absolute -top-6 -right-6 w-28 h-28 rounded-full bg-white/10 blur-2xl" />
+
+        <div className="relative flex items-center gap-3.5">
+          {/* Avatar */}
+          <div className="w-14 h-14 rounded-2xl bg-white/20 border-2 border-white/40
+                          flex items-center justify-center text-lg font-bold text-white
+                          flex-shrink-0 overflow-hidden shadow-lg">
             {currentUser?.avatar_url
               ? <img src={currentUser.avatar_url} alt="" className="w-full h-full object-cover" />
               : initials}
           </div>
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-slate-800 dark:text-white truncate">
-              {nameLabel}
-            </p>
-            <p className="text-[11px] text-slate-400 dark:text-white/40 truncate">
-              @{currentUser?.username ?? '—'}
-            </p>
+
+          <div className="min-w-0 flex-1">
+            <p className="text-base font-bold text-white leading-tight truncate">{nameLabel}</p>
+            <p className="text-xs text-white/60 truncate mt-0.5">@{currentUser?.username ?? '—'}</p>
+            {/* FANI member badge */}
+            <div className="mt-2 inline-flex items-center gap-1 rounded-full bg-white/20 border border-white/30 px-2 py-0.5">
+              <Sparkles size={9} className="text-amber-200" />
+              <span className="text-[10px] font-semibold text-white/90 tracking-wide">FANI Member</span>
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="p-1.5 space-y-0.5">
+      {/* ── My Wardrobe section ───────────────────────────────────────────── */}
+      <div className="px-3 pt-3 pb-1">
+        <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate-400 dark:text-white/30 px-2 mb-1.5">
+          My Wardrobe
+        </p>
+        <div className="space-y-0.5">
+          {WARDROBE_LINKS.map(({ to, label, icon: Icon, gradient, desc }) => (
+            <button
+              key={to}
+              onClick={() => go(to)}
+              className="w-full flex items-center gap-3 px-2.5 py-2.5 rounded-2xl text-left
+                         hover:bg-slate-50 dark:hover:bg-white/[0.06]
+                         transition-colors duration-150 group"
+            >
+              <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${gradient}
+                              flex items-center justify-center flex-shrink-0
+                              shadow-sm group-hover:shadow-md transition-shadow`}>
+                <Icon size={15} className="text-white" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-slate-800 dark:text-white leading-tight">{label}</p>
+                <p className="text-[11px] text-slate-400 dark:text-white/35 truncate">{desc}</p>
+              </div>
+              <ChevronRight size={13} className="text-slate-300 dark:text-white/20 flex-shrink-0 group-hover:text-slate-400 dark:group-hover:text-white/40 transition-colors" />
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Divider ───────────────────────────────────────────────────────── */}
+      <div className="mx-4 my-2 h-px bg-gradient-to-r from-transparent via-slate-200 dark:via-white/[0.07] to-transparent" />
+
+      {/* ── Account section ───────────────────────────────────────────────── */}
+      <div className="px-3 pb-1">
+        <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate-400 dark:text-white/30 px-2 mb-1.5">
+          Account
+        </p>
+        <div className="space-y-0.5">
+          <button
+            onClick={() => go('/profile')}
+            className="w-full flex items-center gap-3 px-2.5 py-2.5 rounded-2xl text-left
+                       hover:bg-slate-50 dark:hover:bg-white/[0.06] transition-colors duration-150 group"
+          >
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-slate-600 to-slate-700
+                            flex items-center justify-center flex-shrink-0 shadow-sm">
+              <User size={15} className="text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-slate-800 dark:text-white">View Profile</p>
+              <p className="text-[11px] text-slate-400 dark:text-white/35">Style preferences & bio</p>
+            </div>
+            <ChevronRight size={13} className="text-slate-300 dark:text-white/20 flex-shrink-0 group-hover:text-slate-400 transition-colors" />
+          </button>
+
+          <button
+            onClick={() => go('/profile?tab=settings')}
+            className="w-full flex items-center gap-3 px-2.5 py-2.5 rounded-2xl text-left
+                       hover:bg-slate-50 dark:hover:bg-white/[0.06] transition-colors duration-150 group"
+          >
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-slate-500 to-slate-600
+                            flex items-center justify-center flex-shrink-0 shadow-sm">
+              <Settings size={15} className="text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-slate-800 dark:text-white">Settings</p>
+              <p className="text-[11px] text-slate-400 dark:text-white/35">Privacy, notifications & more</p>
+            </div>
+            <ChevronRight size={13} className="text-slate-300 dark:text-white/20 flex-shrink-0 group-hover:text-slate-400 transition-colors" />
+          </button>
+        </div>
+      </div>
+
+      {/* ── Footer ────────────────────────────────────────────────────────── */}
+      <div className="mx-4 my-2 h-px bg-gradient-to-r from-transparent via-slate-200 dark:via-white/[0.07] to-transparent" />
+
+      <div className="px-3 pb-3 flex items-center gap-2">
+        {/* Theme toggle */}
         <button
-          onClick={() => { navigate('/profile'); onClose() }}
-          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm
-                     text-slate-700 dark:text-white/80
-                     hover:bg-slate-50 dark:hover:bg-white/[0.07] transition-colors"
+          onClick={toggleColorScheme}
+          title={isDark ? 'Light mode' : 'Dark mode'}
+          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium
+                     text-slate-500 dark:text-white/50
+                     hover:bg-slate-50 dark:hover:bg-white/[0.06]
+                     border border-slate-200 dark:border-white/[0.07]
+                     transition-colors"
         >
-          <User size={14} /> View profile
+          {isDark ? <Sun size={13} className="text-amber-400" /> : <Moon size={13} className="text-indigo-400" />}
+          {isDark ? 'Light mode' : 'Dark mode'}
         </button>
+
+        {/* Sign out */}
         <button
-          onClick={() => { navigate('/profile?tab=settings'); onClose() }}
-          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm
-                     text-slate-700 dark:text-white/80
-                     hover:bg-slate-50 dark:hover:bg-white/[0.07] transition-colors"
-        >
-          <Settings size={14} /> Settings
-        </button>
-        <div className="h-px bg-cream-200 dark:bg-white/[0.06] mx-2 my-1" />
-        <button
-          onClick={() => { logout(); navigate('/login', { replace: true }); onClose() }}
-          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm
+          onClick={() => { logout(); navigate('/login', { replace: true }); onNavigate('/login') }}
+          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium
                      text-red-500 dark:text-red-400
-                     hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors"
+                     hover:bg-red-50 dark:hover:bg-red-500/10
+                     border border-red-100 dark:border-red-500/20
+                     transition-colors"
         >
-          <LogOut size={14} /> Sign out
+          <LogOut size={13} /> Sign out
         </button>
       </div>
     </div>
@@ -242,12 +330,24 @@ export default function Navbar() {
   const { isDark, toggleColorScheme } = useColorScheme()
   const location = useLocation()
   const [showMenu, setShowMenu] = useState(false)
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const title = TITLES[location.pathname] ?? 'ClozéHive'
   const navNameLabel = currentUser?.display_name || currentUser?.username || ''
   const initials = navNameLabel
     ? navNameLabel.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
     : 'U'
+
+  const openMenu = useCallback(() => {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
+    setShowMenu(true)
+  }, [])
+
+  const closeMenu = useCallback(() => {
+    hideTimerRef.current = setTimeout(() => setShowMenu(false), 180)
+  }, [])
+
+  useEffect(() => () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current) }, [])
 
   return (
     <header className="h-16 flex items-center justify-between px-4 lg:px-6
@@ -287,6 +387,19 @@ export default function Navbar() {
         )}
 
         <button
+          onClick={() => window.dispatchEvent(new CustomEvent('ch:open-ai-chat'))}
+          title="FANI — Fashion AI"
+          aria-label="Open FANI chat"
+          className="p-2 min-h-[44px] min-w-[44px] rounded-xl
+                     text-slate-500 dark:text-white/50
+                     hover:text-brand-600 dark:hover:text-brand-400
+                     hover:bg-brand-50 dark:hover:bg-brand-900/20
+                     transition-colors"
+        >
+          <Sparkles size={19} />
+        </button>
+
+        <button
           onClick={toggleColorScheme}
           title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
           aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
@@ -300,33 +413,32 @@ export default function Navbar() {
         </button>
 
         {/* Notification bell */}
-        <button className="relative p-2 min-h-[44px] min-w-[44px] rounded-xl
-                           text-slate-500 dark:text-white/50
-                           hover:text-slate-800 dark:hover:text-white
-                           hover:bg-slate-100 dark:hover:bg-white/[0.08]
-                           transition-colors">
-          <Bell size={19} />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full
-                           bg-indigo-500 ring-2 ring-white dark:ring-slate-950" />
-        </button>
+        <NotificationBell />
 
-        {/* Avatar */}
-        <div className="relative">
+        {/* Avatar — hover to open premium profile dropdown */}
+        <div
+          className="relative"
+          onMouseEnter={openMenu}
+          onMouseLeave={closeMenu}
+        >
           <button
-            onClick={() => setShowMenu(v => !v)}
+            aria-label="Open profile menu"
             className="min-h-[44px] min-w-[44px] rounded-full
                        bg-gradient-to-br from-indigo-500 to-violet-600
                        flex items-center justify-center text-sm font-bold text-white
-                       ring-2 ring-transparent hover:ring-indigo-400/40
-                       ring-offset-1 ring-offset-white dark:ring-offset-slate-950
+                       ring-2 ring-transparent hover:ring-indigo-400/50
+                       ring-offset-2 ring-offset-white dark:ring-offset-slate-950
                        transition-all duration-200 shadow-glow-sm hover:shadow-glow-md
-                       overflow-hidden"
+                       overflow-hidden cursor-pointer"
           >
             {currentUser?.avatar_url
               ? <img src={currentUser.avatar_url} alt="" className="w-full h-full object-cover" />
               : initials}
           </button>
-          {showMenu && <UserMenu onClose={() => setShowMenu(false)} />}
+
+          {showMenu && (
+            <ProfileDropdown onNavigate={() => setShowMenu(false)} />
+          )}
         </div>
       </div>
     </header>

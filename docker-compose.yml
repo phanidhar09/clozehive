@@ -345,6 +345,48 @@ services:
       # Real GCP key JSON at repo root (see .env GCS_CREDENTIALS_FILE). Create from IAM → Keys → JSON.
       - ./gcp-sa.json:/run/secrets/gcp-sa.json:ro
 
+  # ── Vision Service (MVP default — image analysis and background removal) ─────
+
+  vision-service:
+    build:
+      context: ./services/vision-service
+      dockerfile: Dockerfile
+    <<: [*restart, *logging]
+    env_file:
+      - .env
+    environment:
+      <<: *python-env
+      PORT: "8002"
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
+      DB_POOL_RECYCLE: ${DB_POOL_RECYCLE:-300}
+      REDIS_URL: redis://redis:6379/2
+      JWT_SECRET: ${JWT_SECRET}
+      OPENAI_API_BASE_URL: https://api.openai.com/v1
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GCS_BUCKET_NAME: ${GCS_BUCKET_NAME:-}
+      GCS_PROJECT_ID: ${GCS_PROJECT_ID:-}
+      GCS_CREDENTIALS_JSON: ${GCS_CREDENTIALS_JSON:-}
+      GCS_CREDENTIALS_FILE: ${GCS_CREDENTIALS_FILE:-}
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
+    ports:
+      - "8002:8002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8002/live')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    volumes:
+      - uploads:/app/uploads
+      - ./gcp-sa.json:/run/secrets/gcp-sa.json:ro
+
   # ── AI Worker (optional — profile worker) ───────────────────────────────────
 
   ai-worker:
@@ -414,6 +456,7 @@ services:
       - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       - api-gateway
+      - vision-service
       - frontend
 
 volumes:

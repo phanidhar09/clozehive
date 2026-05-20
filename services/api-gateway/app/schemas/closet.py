@@ -281,6 +281,7 @@ class ClosetPreviewItem(BaseModel):
 
     slot_index: int = Field(..., ge=0)
     temp_id: str = Field(..., description="Stable id for this detection within the session (alias of legacy item_id).")
+    detected_item_id: Optional[str] = Field(None, description="UUID assigned immediately after detection; stable across crop/BG/metadata pipeline.")
     name: str
     category: str
     subcategory: Optional[str] = None
@@ -342,6 +343,10 @@ class ClosetAnalyzePreviewResponse(BaseModel):
 
 class ClosetConfirmItemPayload(BaseModel):
     slot_index: int = Field(..., ge=0)
+    detected_item_id: Optional[str] = Field(
+        None,
+        description="Stable UUID from detection. Backend cross-checks this against the stored slot to catch frontend ordering bugs.",
+    )
     selected: bool = True
     name: str = Field(..., min_length=1, max_length=200)
     category: ClosetCategory
@@ -423,6 +428,8 @@ class NormalizedBoundingBox(BaseModel):
 class VisionAnalysisItem(BaseModel):
     """One detected clothing item from the vision pipeline (before saving)."""
 
+    # Stable UUID assigned immediately after detection — source of truth for image↔metadata correlation.
+    detected_item_id: str = ""
     item_id: str
     category: str
     subcategory: Optional[str] = None
@@ -461,6 +468,7 @@ class VisionAnalyzeResponse(BaseModel):
     items: list[VisionAnalysisItem]
     processing_time_ms: int
     cached: bool = False
+    failed_items: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class SaveItemRequest(BaseModel):

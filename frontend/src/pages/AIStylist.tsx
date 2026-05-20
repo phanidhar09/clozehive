@@ -16,7 +16,7 @@ const QUICK_PROMPTS = [
 const WELCOME_MSG: ChatMsg = {
   id: 'welcome',
   role: 'assistant',
-  content: "Hey! 👋 I'm your AI stylist. Tell me what you need and I'll suggest outfits from your wardrobe.",
+  content: "Hey! 👋 I'm FANI — your Fashion AI Nurturing Individuality. Tell me what you need and I'll suggest outfits from your wardrobe.",
   timestamp: new Date(),
 }
 
@@ -108,7 +108,7 @@ export default function AIStylist() {
             <div className="w-8 h-8 rounded-xl bg-gradient-brand flex items-center justify-center shadow-md">
               <Sparkles size={15} className="text-white" />
             </div>
-            AI Stylist
+            FANI
           </h2>
           <p className="text-sm text-slate-400 mt-0.5 ml-10">
             {closetItems.length > 0

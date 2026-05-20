@@ -28,6 +28,7 @@ from app.models.closet import ClosetItem
 from app.repositories.user_repo import UserRepository
 from app.services.style_profile_context import load_merged_user_profile_for_ai
 from app.services import ai_service, cache_service, outfit_service, packing_service, vision_service, weather_service
+from app.services.embedding_service import generate_text_embedding, pgvector_cosine_search
 from app.services.ai_request_service import create_request
 from app.services.upload_service import read_validated_image
 
@@ -65,25 +66,55 @@ class PackingRequest(BaseModel):
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-async def _get_closet_as_dicts(session, user_id: UUID) -> list[dict[str, Any]]:
+def _item_dict(item: ClosetItem) -> dict[str, Any]:
+    return {
+        "id": str(item.id),
+        "name": item.name,
+        "category": item.category,
+        "color": item.color or "",
+        "occasion": item.occasion or [],
+        "season": item.season or "",
+        "wear_count": item.wear_count,
+    }
+
+
+async def _get_closet_for_occasion(
+    session, user_id: UUID, occasion: str, weather_cond: str = "mild"
+) -> list[dict[str, Any]]:
+    """RAG-aware closet loader: vector search first, fallback to wear_count."""
+    query_text = f"outfit for {occasion} occasion weather:{weather_cond}"
+    embedding = await generate_text_embedding(query_text)
+    if embedding:
+        rows = await pgvector_cosine_search(
+            session,
+            table="closet_items",
+            embedding=embedding,
+            user_id=str(user_id),
+            extra_where="AND is_archived = false",
+            limit=30,
+            threshold=0.25,
+        )
+        if rows:
+            return [
+                {
+                    "id": str(r["id"]),
+                    "name": r.get("name") or "",
+                    "category": r.get("category") or "",
+                    "color": r.get("color") or "",
+                    "occasion": r.get("occasion") or [],
+                    "season": r.get("season") or "",
+                    "wear_count": r.get("wear_count") or 0,
+                }
+                for r in rows
+            ]
+    # Fallback when no embeddings exist yet
     result = await session.execute(
         select(ClosetItem)
         .where(ClosetItem.user_id == user_id, ClosetItem.is_archived == False)  # noqa: E712
         .order_by(ClosetItem.wear_count.desc(), ClosetItem.created_at.desc())
         .limit(50)
     )
-    return [
-        {
-            "id": str(item.id),
-            "name": item.name,
-            "category": item.category,
-            "color": item.color or "",
-            "occasion": item.occasion or [],
-            "season": item.season or "",
-            "wear_count": item.wear_count,
-        }
-        for item in result.scalars().all()
-    ]
+    return [_item_dict(item) for item in result.scalars().all()]
 
 
 async def _resolve_user_profile(
@@ -347,34 +378,72 @@ async def outfit_stream(body: OutfitRequest, user_id: CurrentUser, session: DbSe
 
 # ── Outfit of the Day ────────────────────────────────────────────────────────
 
+def _seconds_until_midnight_utc() -> int:
+    """Seconds remaining until 00:00 UTC — used as the daily cache TTL."""
+    now = datetime.utcnow()
+    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    from datetime import timedelta
+    midnight += timedelta(days=1)
+    return max(60, int((midnight - now).total_seconds()))
+
+
 @router.get("/outfit-of-day")
 async def outfit_of_day(user_id: CurrentUser, session: DbSession):
     """
     Return a single AI-generated outfit for today based on the user's closet,
     current weather at their saved location, and day-of-week occasion.
+
+    The result is cached in Redis until midnight UTC so the same outfit is
+    returned on every page reload throughout the day.
     """
     uid = UUID(user_id)
-    closet = await _get_closet_as_dicts(session, uid)
-    weather = await _resolve_weather_context(session, uid)
-    profile = await _resolve_user_profile(session, uid, None)
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    cache_key = cache_service.namespaced_key("outfit-of-day", str(uid), today)
 
-    # Weekdays lean business-casual; weekends lean casual
+    # ── Cache hit ─────────────────────────────────────────────────────────────
+    redis = await get_redis()
+    cached = await cache_service.get(cache_key)
+    if cached is not None:
+        logger.info("outfit_of_day_cache_hit", user_id=user_id, date=today)
+        return cached
+
+    # ── Generate ──────────────────────────────────────────────────────────────
     weekday = datetime.utcnow().weekday()  # 0=Mon … 6=Sun
     occasion = "business" if weekday < 5 else "casual"
 
+    weather, profile = await asyncio.gather(
+        _resolve_weather_context(session, uid),
+        _resolve_user_profile(session, uid, None),
+        return_exceptions=True,
+    )
+    if isinstance(weather, Exception):
+        weather = None
+    if isinstance(profile, Exception):
+        profile = None
+
     weather_str = weather.get("condition", "mild") if weather else "mild"
     temp = float(weather.get("temp_c", 20.0)) if weather else 20.0
+
+    # RAG: load only occasion-relevant items via vector search
+    closet = await _get_closet_for_occasion(session, uid, occasion, weather_str)
 
     result = await outfit_service.generate_outfits(
         closet, occasion, weather_str, temp, user_profile=profile,
     )
     outfits = result.get("outfits") or []
-    return {
+    payload = {
         "outfit": outfits[0] if outfits else None,
         "weather": weather,
         "occasion": occasion,
         "style_tips": result.get("style_tips") or [],
     }
+
+    # ── Cache until midnight UTC ──────────────────────────────────────────────
+    ttl = _seconds_until_midnight_utc()
+    await cache_service.set(cache_key, payload, ttl)
+    logger.info("outfit_of_day_cached", user_id=user_id, date=today, ttl_seconds=ttl)
+
+    return payload
 
 
 # ── Packing ───────────────────────────────────────────────────────────────────

@@ -5,5 +5,6 @@ from app.models.user_style_profile import UserStyleProfile  # noqa: F401
 from app.models.closet import ClosetItem, Outfit  # noqa: F401
 from app.models.packing import PackingPlan  # noqa: F401
 from app.models.trips import Trip  # noqa: F401
+from app.models.rag import FashionKnowledgeDocument, OutfitHistory, PackingMemory, PurchaseGap  # noqa: F401
 # from app.models.social import Follow, Group, GroupMember  # noqa: F401 — Non-MVP social features disabled for launch stabilization
 from app.models.user import RefreshToken, User, UserCredential  # noqa: F401

@@ -50,16 +50,20 @@ settings = get_settings()
 
 # ── Engine (singleton, shared across workers) ────────────────────────────────
 
-engine = create_async_engine(
-    settings.database_url,
-    pool_size=settings.db_pool_size,
-    max_overflow=settings.db_max_overflow,
-    pool_pre_ping=settings.db_pool_pre_ping,
-    pool_recycle=settings.db_pool_recycle,
-    pool_timeout=settings.db_pool_timeout,
-    echo=settings.debug,
-    future=True,
-)
+_is_sqlite = settings.database_url.startswith("sqlite")
+
+# SQLite (used in tests) does not support pool_size / max_overflow / pool_timeout.
+_engine_kwargs: dict = {"echo": settings.debug, "future": True}
+if not _is_sqlite:
+    _engine_kwargs.update(
+        pool_size=settings.db_pool_size,
+        max_overflow=settings.db_max_overflow,
+        pool_pre_ping=settings.db_pool_pre_ping,
+        pool_recycle=settings.db_pool_recycle,
+        pool_timeout=settings.db_pool_timeout,
+    )
+
+engine = create_async_engine(settings.database_url, **_engine_kwargs)
 
 # ── Session factory ───────────────────────────────────────────────────────────
 

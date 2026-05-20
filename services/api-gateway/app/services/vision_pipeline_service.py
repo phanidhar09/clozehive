@@ -348,7 +348,6 @@ async def run_pipeline(
                 relaxed["bbox"] = {"x_min": 0.0, "y_min": 0.0, "x_max": 1.0, "y_max": 1.0}
             elif _bbox_area(cast(dict[str, float], bbox)) < _MIN_BBOX_AREA:
                 relaxed["bbox"] = {"x_min": 0.0, "y_min": 0.0, "x_max": 1.0, "y_max": 1.0}
-            relaxed.setdefault("item_id", str(uuid4())[:8])
             conf = float(relaxed.get("detection_confidence") or relaxed.get("confidence_score") or 0.0)
             if conf < _MIN_CONFIDENCE:
                 relaxed["detection_confidence"] = _MIN_CONFIDENCE
@@ -356,7 +355,6 @@ async def run_pipeline(
             logger.info(
                 "vision_pipeline_recovered_after_filter_dropped_all",
                 scan_id=scan_id,
-                recovered_item_id=relaxed.get("item_id"),
             )
     if not raw_items:
         ms = round((time.monotonic() - t0) * 1000)
@@ -367,22 +365,60 @@ async def run_pipeline(
             processing_time_ms=ms,
         )
 
+    # Assign a stable detected_item_id to each raw item immediately after detection.
+    # This UUID is the source of truth for image↔metadata correlation across the
+    # entire pipeline: crop → BG removal → metadata enrichment → preview response → confirm.
+    num_items = len(raw_items)
+    for raw in raw_items:
+        raw["detected_item_id"] = str(uuid4())
+
     # 4. Per item: full BG + OpenAI enrich, OR (preview_fast) JPEG crop only
     from app.services.fashion_analysis_service import _crop_item  # type: ignore[attr-defined]
 
     async def _process_item(raw: dict[str, Any]) -> VisionAnalysisItem:
-        bbox_raw = raw.get("bbox") if isinstance(raw.get("bbox"), dict) else {}
+        detected_item_id: str = raw["detected_item_id"]
+        bbox_raw = raw.get("bbox")
+        has_valid_bbox = isinstance(bbox_raw, dict) and bool(bbox_raw)
+
+        if not has_valid_bbox:
+            if num_items > 1:
+                # For multi-item detection, a missing bbox means we cannot reliably crop
+                # this specific item — fall through to let caller collect as failed.
+                logger.warning(
+                    "item_missing_bbox_multi_item",
+                    detected_item_id=detected_item_id,
+                    category=raw.get("category"),
+                )
+                raise ValueError(
+                    f"bbox missing for detected_item_id={detected_item_id} "
+                    f"(category={raw.get('category')}) in multi-item detection. "
+                    "Cannot crop without bbox."
+                )
+            # Single item — use full frame as bbox.
+            bbox_raw = {"x_min": 0.0, "y_min": 0.0, "x_max": 1.0, "y_max": 1.0}
+
         bbox = cast(dict[str, float], bbox_raw)
+
         try:
             crop_bytes = _crop_item(image_bytes, bbox)
-        except Exception:
+        except Exception as crop_exc:
+            if num_items > 1:
+                logger.warning(
+                    "item_crop_failed_multi_item",
+                    detected_item_id=detected_item_id,
+                    error=str(crop_exc),
+                )
+                raise RuntimeError(
+                    f"crop failed for detected_item_id={detected_item_id}: {crop_exc}"
+                ) from crop_exc
+            logger.warning("item_crop_failed_single_item", detected_item_id=detected_item_id, error=str(crop_exc))
             crop_bytes = image_bytes
 
         if preview_fast:
             try:
                 img_b64 = _bytes_to_jpeg_b64(crop_bytes, quality=_JPEG_QUALITY_FAST)
             except Exception as exc:
-                logger.warning("preview_fast_jpeg_failed", error=str(exc))
+                logger.warning("preview_fast_jpeg_failed", detected_item_id=detected_item_id, error=str(exc))
                 img_b64 = base64.b64encode(crop_bytes).decode("utf-8")
             merged = dict(raw)
             bg_status = "skipped_preview_fast"
@@ -397,8 +433,18 @@ async def run_pipeline(
 
         bb_model = _bbox_to_normalized_model(raw)
 
+        logger.debug(
+            "item_pipeline_debug",
+            detected_item_id=detected_item_id,
+            category=_norm_cat(merged.get("category") or raw.get("category")),
+            bbox=bbox,
+            bg_status=bg_status,
+            description=(str(merged.get("description") or raw.get("description") or ""))[:120],
+        )
+
         return VisionAnalysisItem(
-            item_id=str(merged.get("item_id") or raw.get("item_id") or f"item_{hash(str(raw)) % 10000:04d}"),
+            detected_item_id=detected_item_id,
+            item_id=str(raw.get("item_id") or detected_item_id),
             category=_norm_cat(merged.get("category") or raw.get("category")),
             subcategory=merged.get("subcategory") or raw.get("subcategory") or None,
             name=_build_name(merged),
@@ -423,25 +469,44 @@ async def run_pipeline(
             segmentation_quality=str(merged.get("segmentation_quality") or raw.get("segmentation_quality") or "medium"),
         )
 
-    # Run all items in parallel
-    item_tasks = [_process_item(raw) for raw in raw_items]
-    processed_items: list[VisionAnalysisItem] = list(
-        await asyncio.gather(*item_tasks, return_exceptions=False)
+    # Run all items in parallel; collect failures per-item so one bad crop doesn't abort all.
+    gather_results: list[VisionAnalysisItem | BaseException] = await asyncio.gather(
+        *[_process_item(raw) for raw in raw_items],
+        return_exceptions=True,
     )
+
+    processed_items: list[VisionAnalysisItem] = []
+    failed_items: list[dict[str, Any]] = []
+    for i, result in enumerate(gather_results):
+        raw = raw_items[i]
+        if isinstance(result, BaseException):
+            failed_items.append({
+                "detected_item_id": raw.get("detected_item_id", "unknown"),
+                "category": raw.get("category"),
+                "error": str(result),
+            })
+            logger.warning(
+                "item_processing_failed",
+                detected_item_id=raw.get("detected_item_id"),
+                error=str(result),
+            )
+        else:
+            processed_items.append(result)
 
     ms = round((time.monotonic() - t0) * 1000)
     logger.info(
         "vision_pipeline_complete",
         scan_id=scan_id,
         items=len(processed_items),
+        failed=len(failed_items),
         ms=ms,
         preview_fast=preview_fast,
     )
 
-    # 5. Cache the result (without image bytes — those are per-request)
+    # 5. Cache the result (strip image bytes — they are per-request and must be re-cropped on hit)
     cacheable = {
         "items": [
-            {k: v for k, v in item.model_dump().items() if k != "image_base64"}
+            {k: v for k, v in item.model_dump().items() if k not in ("image_base64", "processed_image")}
             for item in processed_items
         ]
     }
@@ -453,6 +518,7 @@ async def run_pipeline(
         items=processed_items,
         processing_time_ms=ms,
         cached=False,
+        failed_items=failed_items,
     )
 
 
@@ -563,7 +629,13 @@ async def run_pipeline_streaming(
 
         raw_items = _filter_and_dedup(raw_result.get("items") or [])
 
-        # Stream metadata immediately — frontend can render cards before images
+        # Assign stable detected_item_id to each raw item immediately after detection.
+        for raw in raw_items:
+            raw["detected_item_id"] = str(_uuid.uuid4())
+
+        # Stream metadata immediately — frontend renders cards before images arrive.
+        # Include detected_item_id so frontend can correlate item_ready events by id,
+        # not by arrival order (which is non-deterministic for parallel BG tasks).
         items_meta = [
             {k: v for k, v in item.items() if k not in ("image_base64",)}
             for item in raw_items
@@ -590,11 +662,14 @@ async def run_pipeline_streaming(
     queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
 
     async def _process_and_queue(raw: dict[str, Any]) -> None:
-        item_id = raw.get("item_id") or str(_uuid.uuid4())[:8]
+        # Use the stable detected_item_id assigned right after detection.
+        detected_item_id: str = raw["detected_item_id"]
+        item_id = raw.get("item_id") or detected_item_id
         bbox = raw.get("bbox") or {}
         try:
             crop = _crop_item(image_bytes, bbox)
-        except Exception:
+        except Exception as exc:
+            logger.warning("stream_crop_failed", detected_item_id=detected_item_id, error=str(exc))
             crop = image_bytes
 
         bg_bytes, bg_status = await _remove_bg_timed(crop)
@@ -613,8 +688,18 @@ async def run_pipeline_streaming(
 
         conf = float(raw.get("detection_confidence") or raw.get("confidence_score") or 0.0)
 
+        logger.debug(
+            "stream_item_ready",
+            detected_item_id=detected_item_id,
+            category=_norm_cat(raw.get("category")),
+            bg_status=bg_status,
+            description=(str(raw.get("description") or ""))[:120],
+        )
+
         await queue.put({
             "type": "item_ready",
+            # detected_item_id is the stable key — frontend must use this, not array index.
+            "detected_item_id": detected_item_id,
             "item_id": item_id,
             # ── image ─────────────────────────────────────────────────────────
             "image_base64": img_b64,

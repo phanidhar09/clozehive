@@ -22,10 +22,44 @@ from app.schemas.trips import CreateTripResponse, PackingPlanResponse, SavePlann
 from app.services import ai_client, packing_service
 from app.services.style_profile_context import load_merged_user_profile_for_ai
 from app.services.trips_service import TripsService
+from app.services.packing_memory_service import (
+    get_packing_memory_for_prompt,
+    save_packing_memory,
+)
+from app.services.fashion_rag_service import get_fashion_context_for_prompt
+from app.services.purchase_gap_service import detect_and_save_gaps
 
 
 router = APIRouter(prefix="/trips", tags=["Trips"])
 logger = get_logger("trips")
+
+
+async def _build_packing_rag_context(
+    session: Any,
+    user_id: UUID,
+    destination: str,
+    purpose: str,
+    weather_summary: dict[str, Any] | None = None,
+) -> str | None:
+    """Fetch fashion knowledge + packing memory context for packing prompt enrichment."""
+    parts: list[str] = []
+    try:
+        fashion_ctx = await get_fashion_context_for_prompt(
+            session, f"{purpose} trip packing {destination}", limit=2
+        )
+        if fashion_ctx:
+            parts.append(fashion_ctx)
+    except Exception:
+        pass
+    try:
+        memory_ctx = await get_packing_memory_for_prompt(
+            session, str(user_id), destination, purpose, weather_summary, limit=2
+        )
+        if memory_ctx:
+            parts.append(memory_ctx)
+    except Exception:
+        pass
+    return "\n\n".join(parts) or None
 
 
 async def _generate_trip_packing(
@@ -37,6 +71,7 @@ async def _generate_trip_packing(
     purpose: str,
     closet_items: list[dict[str, Any]],
     notes: str | None = None,
+    rag_context: str | None = None,
 ) -> dict[str, Any]:
     """
     Prefer ai-agent (LangChain + MCP) so LangSmith traces trip packing; fall back to
@@ -71,6 +106,7 @@ async def _generate_trip_packing(
                 closet_items,
                 notes=notes,
                 user_style_profile=prof,
+                rag_context=rag_context,
             )
 
     try:
@@ -86,6 +122,7 @@ async def _generate_trip_packing(
             closet_items,
             notes=notes,
             user_style_profile=prof,
+            rag_context=rag_context,
         )
 
 
@@ -152,6 +189,9 @@ async def get_packing_list(
         }
         for item in result.scalars().all()
     ]
+    rag_context = await _build_packing_rag_context(
+        session, UUID(user_id), trip.destination, trip.purpose
+    )
     return await _generate_trip_packing(
         session,
         UUID(user_id),
@@ -161,6 +201,7 @@ async def get_packing_list(
         trip.purpose,
         closet_items,
         notes=trip.notes,
+        rag_context=rag_context,
     )
 
 
@@ -200,8 +241,12 @@ async def create_trip(
         for item in result.scalars().all()
     ]
 
+    packing_rag_ctx = await _build_packing_rag_context(
+        session, UUID(user_id), trip.destination, trip.purpose
+    )
     packing_plan = None
     packing_error = None
+    packing_result: dict[str, Any] | None = None
     try:
         packing_result = await _generate_trip_packing(
             session,
@@ -212,10 +257,47 @@ async def create_trip(
             trip.purpose,
             closet_items,
             notes=trip.notes,
+            rag_context=packing_rag_ctx,
         )
         packing_plan = await svc.save_packing_plan(trip.id, UUID(user_id), packing_result)
     except Exception as exc:
         packing_error = str(exc)
+
+    # Persist packing memory and detect purchase gaps (best-effort, non-blocking)
+    if packing_result:
+        try:
+            packed_ids = [
+                str(item.get("item_id") or "")
+                for item in packing_result.get("take_from_your_closet", [])
+                if item.get("item_id")
+            ]
+            missing = packing_result.get("you_might_still_need", [])
+            await save_packing_memory(
+                session,
+                user_id=user_id,
+                trip_id=str(trip.id),
+                destination=trip.destination,
+                start_date=trip.start_date.isoformat(),
+                end_date=trip.end_date.isoformat(),
+                purpose=trip.purpose,
+                weather_summary=packing_result.get("weather_summary"),
+                packed_item_ids=packed_ids,
+                missing_items=missing,
+                saved_plan_id=str(packing_plan.id) if packing_plan else None,
+            )
+            await detect_and_save_gaps(
+                session,
+                user_id=user_id,
+                closet_items=closet_items,
+                missing_packing_items=missing,
+                trip_context={
+                    "destination": trip.destination,
+                    "purpose": trip.purpose,
+                    "start_date": trip.start_date.isoformat(),
+                },
+            )
+        except Exception as exc:
+            logger.warning("packing_memory_save_failed", error=str(exc))
 
     return CreateTripResponse(trip=trip, packing_plan=packing_plan, packing_error=packing_error)
 

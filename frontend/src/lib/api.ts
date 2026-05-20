@@ -456,6 +456,8 @@ export type ClosetAnalyzePreviewResponse = {
 
 export type ClosetConfirmItemPayload = {
   slot_index: number
+  /** Stable UUID from detection — backend validates this matches the slot to prevent image↔metadata mismatch. */
+  detected_item_id?: string
   selected: boolean
   name: string
   category: string
@@ -759,6 +761,155 @@ export const socialApi = {
 
   async deleteGroup(groupId: string): Promise<void> {
     await api.delete(`/social/groups/${groupId}`)
+  },
+}
+
+// ── RAG: Fashion Knowledge ────────────────────────────────────────────────────
+
+export const fashionKnowledgeApi = {
+  async search(query: string, limit = 5, category?: string): Promise<{
+    query: string
+    count: number
+    results: Array<{
+      id: string
+      title: string
+      content: string
+      category: string
+      season: string | null
+      occasion: string | null
+      relevance_score: number
+    }>
+  }> {
+    const params: Record<string, unknown> = { query, limit }
+    if (category) params.category = category
+    const { data } = await api.get('/fashion-knowledge/search', { params })
+    return data as ReturnType<typeof fashionKnowledgeApi.search> extends Promise<infer T> ? T : never
+  },
+}
+
+// ── RAG: Outfit History ───────────────────────────────────────────────────────
+
+export type OutfitHistoryRecord = {
+  id: string
+  occasion: string | null
+  weather_context: { weather: string } | null
+  selected_item_ids: string[]
+  matching_score: number | null
+  recommendation_text: string | null
+  improvement_tips: string[]
+  was_saved: boolean
+  was_worn: boolean
+  user_feedback: string | null
+  similarity_score?: number
+  created_at: string | null
+}
+
+export const outfitHistoryApi = {
+  async list(limit = 20, offset = 0): Promise<{ count: number; results: OutfitHistoryRecord[] }> {
+    const { data } = await api.get('/outfits/history/', { params: { limit, offset } })
+    return data as { count: number; results: OutfitHistoryRecord[] }
+  },
+
+  async getSimilar(occasion: string, weather = '', limit = 5): Promise<{
+    count: number
+    results: OutfitHistoryRecord[]
+  }> {
+    const { data } = await api.get('/outfits/history/similar', { params: { occasion, weather, limit } })
+    return data as { count: number; results: OutfitHistoryRecord[] }
+  },
+
+  async submitFeedback(historyId: string, body: {
+    feedback?: string
+    was_worn?: boolean
+    was_saved?: boolean
+  }): Promise<{ id: string; user_feedback: string | null; was_worn: boolean; was_saved: boolean }> {
+    const { data } = await api.post(`/outfits/history/${historyId}/feedback`, body)
+    return data as ReturnType<typeof outfitHistoryApi.submitFeedback> extends Promise<infer T> ? T : never
+  },
+}
+
+// ── RAG: Packing Memory ────────────────────────────────────────────────────────
+
+export const packingMemoryApi = {
+  async getForTrip(tripId: string): Promise<{
+    id: string
+    destination: string
+    purpose: string | null
+    packed_item_ids: string[]
+    missing_items: Array<{ name: string; category: string; reason: string }>
+    user_feedback: string | null
+    created_at: string | null
+  } | null> {
+    try {
+      const { data } = await api.get(`/trips/${tripId}/packing-memory`)
+      return data as ReturnType<typeof packingMemoryApi.getForTrip> extends Promise<infer T> ? T : never
+    } catch {
+      return null
+    }
+  },
+
+  async submitFeedback(tripId: string, feedback: string): Promise<{ id: string; user_feedback: string }> {
+    const { data } = await api.post(`/trips/${tripId}/packing-memory/feedback`, { feedback })
+    return data as { id: string; user_feedback: string }
+  },
+}
+
+// ── RAG: Purchase Gaps ────────────────────────────────────────────────────────
+
+export type PurchaseGap = {
+  id: string
+  gap_type: 'outfit' | 'trip_packing' | 'seasonal' | 'occasion' | 'structural' | 'proportion'
+  missing_category: string
+  missing_color: string | null
+  missing_season: string | null
+  missing_occasion: string | null
+  reason: string
+  priority_score: number
+  source_context: Record<string, unknown> | null
+  suggested_attributes: Record<string, unknown> | null
+  resolved: boolean
+  created_at: string | null
+}
+
+export const purchaseGapsApi = {
+  async list(resolved = false, limit = 30): Promise<{ count: number; gaps: PurchaseGap[] }> {
+    const { data } = await api.get('/purchase-gaps/', { params: { resolved, limit } })
+    return data as { count: number; gaps: PurchaseGap[] }
+  },
+
+  async resolve(gapId: string): Promise<{ id: string; resolved: true }> {
+    const { data } = await api.patch(`/purchase-gaps/${gapId}/resolve`)
+    return data as { id: string; resolved: true }
+  },
+}
+
+// ── RAG: Closet Similarity ────────────────────────────────────────────────────
+
+export type SimilarClosetItem = {
+  item_id: string
+  name: string
+  category: string
+  color: string
+  brand: string
+  image_url: string
+  similarity_score: number
+  reason: string
+}
+
+export const closetSimilarityApi = {
+  async findSimilar(params: {
+    closet_item_id?: string
+    query?: string
+    image_url?: string
+    limit?: number
+  }): Promise<{ query_type: string; count: number; results: SimilarClosetItem[] }> {
+    const { data } = await api.post('/closet/similar', null, { params: { ...params, limit: params.limit ?? 5 } })
+    return data as { query_type: string; count: number; results: SimilarClosetItem[] }
+  },
+
+  async getSimilarToItem(itemId: string, limit = 5): Promise<{ count: number; results: SimilarClosetItem[] }> {
+    const { data } = await api.get(`/closet/similar/${itemId}`, { params: { limit } })
+    return data as { count: number; results: SimilarClosetItem[] }
   },
 }
 

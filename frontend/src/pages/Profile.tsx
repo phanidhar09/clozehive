@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useSearchParams, useNavigate, Link } from 'react-router-dom'
 import {
   Search, Users, UserCheck, Loader2, Edit3, Check, Shirt,
   User as UserIcon, Ruler, Palette, Brain, MapPin, Calendar, Sparkles,
+  Bell, Shield, Globe, Lock,
 } from 'lucide-react'
 import { useApp } from '@/store'
 import { socialApi, authApi } from '@/lib/api'
@@ -242,6 +243,7 @@ export default function Profile() {
           name={currentUser.display_name}
           username={currentUser.username}
           bio={currentUser.bio ?? ''}
+          avatarUrl={currentUser.avatar_url ?? null}
           permissions={currentUser.permissions ?? null}
           preferences={currentUser.preferences ?? null}
           onSaveBio={async (display_name, bio) => {
@@ -825,41 +827,71 @@ function SocialTab({
 // Settings tab
 // ─────────────────────────────────────────────────────────────────────────────
 
+const OCCASIONS = ['casual', 'business', 'formal', 'gym', 'date night', 'travel', 'beach', 'party']
+const AVOID_CATS = ['dresses', 'formal wear', 'outerwear', 'accessories', 'gym wear', 'swimwear']
+type SettingsSection = 'profile' | 'location' | 'preferences' | 'privacy'
+
 function SettingsTab({
-  name, username, bio, permissions, preferences,
+  name, username, bio, avatarUrl, permissions, preferences,
   onSaveBio, onSavePermissions, onSavePreferences,
 }: {
   name: string
   username: string
   bio: string
+  avatarUrl?: string | null
   permissions: UserPermissions | null
   preferences: UserPreferences | null
   onSaveBio: (name: string, bio: string) => Promise<void>
   onSavePermissions: (p: UserPermissions) => Promise<void>
   onSavePreferences: (p: UserPreferences) => Promise<void>
 }) {
+  const navigate = useNavigate()
+  const [activeSection, setActiveSection] = useState<SettingsSection>('profile')
+
+  // Profile
   const [editName, setEditName] = useState(name)
   const [editBio, setEditBio] = useState(bio)
-  const [savingBio, setSavingBio] = useState(false)
+  const [savingProfile, setSavingProfile] = useState(false)
+  const [savedProfile, setSavedProfile] = useState(false)
 
-  const [perms, setPerms] = useState<UserPermissions>(() => permissions ?? {
-    location: false, calendar: false,
-  })
+  // Permissions
+  const [perms, setPerms] = useState<UserPermissions>(() => permissions ?? { location: false, calendar: false })
   const [savingPerms, setSavingPerms] = useState(false)
 
-  const [prefs, setPrefs] = useState<UserPreferences>(() => preferences ?? {
-    occasion_focus: [], avoid_categories: [], notes: '',
-  })
+  // Preferences
+  const [prefs, setPrefs] = useState<UserPreferences>(() => preferences ?? { occasion_focus: [], avoid_categories: [], notes: '' })
   const [savingPrefs, setSavingPrefs] = useState(false)
+  const [savedPrefs, setSavedPrefs] = useState(false)
 
-  useEffect(() => { if (!savingBio) setEditName(name) }, [name, savingBio])
-  useEffect(() => { if (!savingBio) setEditBio(bio) }, [bio, savingBio])
-  useEffect(() => setPerms(permissions ?? { location: false, calendar: false }), [permissions])
-  useEffect(() => setPrefs(preferences ?? { occasion_focus: [], avoid_categories: [], notes: '' }), [preferences])
+  const profileRef = useRef<HTMLDivElement>(null)
+  const locationRef = useRef<HTMLDivElement>(null)
+  const preferencesRef = useRef<HTMLDivElement>(null)
+  const privacyRef = useRef<HTMLDivElement>(null)
 
-  const saveBio = async () => {
-    setSavingBio(true)
-    try { await onSaveBio(editName, editBio) } finally { setSavingBio(false) }
+  const sectionRefs: Record<SettingsSection, React.RefObject<HTMLDivElement>> = {
+    profile: profileRef,
+    location: locationRef,
+    preferences: preferencesRef,
+    privacy: privacyRef,
+  }
+
+  useEffect(() => { setEditName(name) }, [name])
+  useEffect(() => { setEditBio(bio) }, [bio])
+  useEffect(() => { setPerms(permissions ?? { location: false, calendar: false }) }, [permissions])
+  useEffect(() => { setPrefs(preferences ?? { occasion_focus: [], avoid_categories: [], notes: '' }) }, [preferences])
+
+  const scrollTo = (s: SettingsSection) => {
+    setActiveSection(s)
+    sectionRefs[s].current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  const saveProfile = async () => {
+    setSavingProfile(true)
+    try {
+      await onSaveBio(editName, editBio)
+      setSavedProfile(true)
+      setTimeout(() => setSavedProfile(false), 2500)
+    } finally { setSavingProfile(false) }
   }
 
   const toggleLocation = async () => {
@@ -867,21 +899,15 @@ function SettingsTab({
     try {
       if (!perms.location) {
         const got = await requestGeolocation()
-        if (!got) {
-          await onSavePermissions({ ...perms, location: false })
-          alert('Location permission was denied or unavailable.')
-          return
-        }
+        if (!got) { alert('Location permission was denied or unavailable.'); return }
         const next: UserPermissions = {
-          ...perms,
-          location: true,
+          ...perms, location: true,
           location_coords: { lat: got.lat, lon: got.lon },
           location_label: got.label,
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         }
         setPerms(next)
         await onSavePermissions(next)
-        alert('Location saved. Outfit suggestions will now factor in your local weather.')
       } else {
         const next: UserPermissions = { ...perms, location: false, location_coords: null, location_label: null }
         setPerms(next)
@@ -893,8 +919,6 @@ function SettingsTab({
   const toggleCalendar = async () => {
     setSavingPerms(true)
     try {
-      // Calendar access in the browser requires OAuth (Google/Apple). We capture
-      // the toggle now and treat events as user-supplied notes elsewhere.
       const next: UserPermissions = { ...perms, calendar: !perms.calendar }
       setPerms(next)
       await onSavePermissions(next)
@@ -903,101 +927,477 @@ function SettingsTab({
 
   const savePrefs = async () => {
     setSavingPrefs(true)
-    try { await onSavePreferences(prefs) } finally { setSavingPrefs(false) }
+    try {
+      await onSavePreferences(prefs)
+      setSavedPrefs(true)
+      setTimeout(() => setSavedPrefs(false), 2500)
+    } finally { setSavingPrefs(false) }
   }
 
+  const toggleOccasion = (o: string) =>
+    setPrefs(p => ({
+      ...p,
+      occasion_focus: p.occasion_focus.includes(o)
+        ? p.occasion_focus.filter(x => x !== o)
+        : [...p.occasion_focus, o],
+    }))
+
+  const toggleAvoidCat = (c: string) =>
+    setPrefs(p => ({
+      ...p,
+      avoid_categories: p.avoid_categories.includes(c)
+        ? p.avoid_categories.filter(x => x !== c)
+        : [...p.avoid_categories, c],
+    }))
+
+  const initials = name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() || 'U'
+
+  const SECTIONS: { id: SettingsSection; label: string; icon: ReactNode; desc: string }[] = [
+    { id: 'profile',     label: 'Public Profile',        icon: <UserIcon size={14} />, desc: 'Name, bio & avatar' },
+    { id: 'location',    label: 'Location & Weather',    icon: <MapPin size={14} />,   desc: 'Weather-aware outfits' },
+    { id: 'preferences', label: 'FANI Preferences',      icon: <Sparkles size={14} />, desc: 'Style & AI tuning' },
+    { id: 'privacy',     label: 'Privacy & Integrations',icon: <Shield size={14} />,   desc: 'Calendar & access' },
+  ]
+
   return (
-    <div className="space-y-4 animate-fade-in">
-      {/* Basic */}
-      <GlassCard padding="md" className="space-y-4">
-        <h3 className="font-semibold text-base text-slate-800 dark:text-white">Edit profile</h3>
-        <Field label="Display name">
-          <input className="input w-full" value={editName} onChange={e => setEditName(e.target.value)} />
-        </Field>
-        <Field label="Username">
-          <input className="input w-full opacity-50 cursor-not-allowed" value={`@${username}`} disabled />
-        </Field>
-        <Field label="Bio">
-          <textarea className="input w-full resize-none" rows={3} value={editBio} onChange={e => setEditBio(e.target.value)} />
-        </Field>
-        <button onClick={saveBio} disabled={savingBio || !editName.trim()} className="btn-primary text-sm gap-2">
-          {savingBio ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-          {savingBio ? 'Saving…' : 'Save changes'}
-        </button>
-      </GlassCard>
+    <div className="flex gap-6 animate-fade-in">
 
-      {/* Permissions */}
-      <GlassCard padding="md" className="space-y-3">
-        <h3 className="font-semibold text-base text-slate-800 dark:text-white flex items-center gap-2">
-          Location & Weather
-          {savingPerms && <Loader2 size={14} className="animate-spin text-slate-400" />}
-        </h3>
-        <Toggle
-          icon={<MapPin size={16} className="text-emerald-500" />}
-          title="Enable weather-aware outfit suggestions"
-          desc="Used to fetch local weather and adjust outfits to current conditions."
-          checked={perms.location}
-          onChange={toggleLocation}
-          extra={perms.location_label ? `Current location: ${perms.location_label}` : undefined}
-        />
-        <Toggle
-          icon={<Calendar size={16} className="text-indigo-500" />}
-          title="Calendar"
-          desc="Future: read events to plan outfits around meetings & travel."
-          checked={perms.calendar}
-          onChange={toggleCalendar}
-        />
-      </GlassCard>
+      {/* ── Sticky section sidebar (desktop) ──────────────────── */}
+      <aside className="hidden lg:block w-60 flex-shrink-0">
+        <div className="sticky top-24 rounded-2xl overflow-hidden border border-cream-200 dark:border-white/[0.07] shadow-sm">
+          <div className="px-4 py-3 bg-gradient-to-br from-indigo-600 to-violet-600">
+            <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-white/60">Settings</p>
+            <p className="text-sm font-bold text-white mt-0.5">Account & Preferences</p>
+          </div>
+          {SECTIONS.map((s, i) => (
+            <button
+              key={s.id}
+              onClick={() => scrollTo(s.id)}
+              className={cn(
+                'w-full flex items-center gap-3 px-4 py-3.5 text-left transition-colors',
+                i > 0 && 'border-t border-cream-100 dark:border-white/[0.04]',
+                activeSection === s.id
+                  ? 'bg-indigo-50 dark:bg-indigo-500/10'
+                  : 'bg-white dark:bg-slate-900/50 hover:bg-slate-50 dark:hover:bg-white/[0.04]',
+              )}
+            >
+              <span className={cn(
+                'w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors',
+                activeSection === s.id
+                  ? 'bg-indigo-100 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400'
+                  : 'bg-cream-100 dark:bg-white/[0.06] text-slate-400 dark:text-white/30',
+              )}>
+                {s.icon}
+              </span>
+              <div className="min-w-0">
+                <p className={cn(
+                  'text-[13px] font-semibold leading-tight truncate',
+                  activeSection === s.id ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-700 dark:text-white/70',
+                )}>
+                  {s.label}
+                </p>
+                <p className="text-[11px] text-slate-400 dark:text-white/30 mt-0.5 truncate">{s.desc}</p>
+              </div>
+              {activeSection === s.id && (
+                <div className="ml-auto w-0.5 h-8 rounded-full bg-indigo-500 flex-shrink-0" />
+              )}
+            </button>
+          ))}
+        </div>
+      </aside>
 
-      {/* Preferences */}
-      <GlassCard padding="md" className="space-y-4">
-        <h3 className="font-semibold text-base text-slate-800 dark:text-white">Preferences</h3>
-        <Field label="Occasion focus (comma separated)">
-          <input className="input w-full" placeholder="business, weekend, gym"
-                 value={prefs.occasion_focus.join(', ')}
-                 onChange={e => setPrefs(p => ({ ...p, occasion_focus: e.target.value.split(',').map(s => s.trim()).filter(Boolean) }))} />
-        </Field>
-        <Field label="Avoid categories">
-          <input className="input w-full" placeholder="formal, dresses"
-                 value={prefs.avoid_categories.join(', ')}
-                 onChange={e => setPrefs(p => ({ ...p, avoid_categories: e.target.value.split(',').map(s => s.trim()).filter(Boolean) }))} />
-        </Field>
-        <Field label="Notes for the AI">
-          <textarea className="input w-full resize-none" rows={2} placeholder="I prefer earth tones and avoid logos."
-                    value={prefs.notes ?? ''} onChange={e => setPrefs(p => ({ ...p, notes: e.target.value }))} />
-        </Field>
-        <button onClick={savePrefs} disabled={savingPrefs} className="btn-primary text-sm gap-2">
-          {savingPrefs ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-          {savingPrefs ? 'Saving…' : 'Save preferences'}
-        </button>
-      </GlassCard>
+      {/* ── Main content ────────────────────────────────────────── */}
+      <div className="flex-1 min-w-0 space-y-5">
+
+        {/* ── Public Profile ──────────────────────────────────── */}
+        <div ref={profileRef}>
+          <SettingsSectionCard
+            gradient="from-violet-500 to-fuchsia-500"
+            icon={<UserIcon size={15} className="text-violet-500" />}
+            title="Public Profile"
+            desc="This information appears on your CLOZEHIVE profile and is visible to the community."
+          >
+            {/* Avatar row */}
+            <div className="flex items-center gap-4 p-4 rounded-2xl bg-slate-50 dark:bg-white/[0.03]
+                            border border-cream-200 dark:border-white/[0.06]">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600
+                              flex items-center justify-center text-xl font-bold text-white
+                              flex-shrink-0 ring-4 ring-white dark:ring-slate-900 shadow-lg overflow-hidden">
+                {avatarUrl
+                  ? <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
+                  : initials}
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-slate-800 dark:text-white">Profile photo</p>
+                <p className="text-xs text-slate-400 dark:text-white/40 mt-0.5">
+                  Managed in the Avatar tab — choose your look
+                </p>
+                <button
+                  onClick={() => navigate('/profile?tab=avatar')}
+                  className="mt-2 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
+                >
+                  Edit avatar →
+                </button>
+              </div>
+            </div>
+
+            {/* Display name */}
+            <SettingsFormField
+              label="Display name"
+              hint="Your name as shown to other users — up to 60 characters"
+            >
+              <input
+                className="input w-full"
+                value={editName}
+                maxLength={60}
+                onChange={e => setEditName(e.target.value)}
+                placeholder="Your full name"
+              />
+              <p className={cn(
+                'text-right text-[11px] mt-1 transition-colors',
+                editName.length > 50 ? 'text-amber-500' : 'text-slate-400 dark:text-white/30',
+              )}>
+                {editName.length}/60
+              </p>
+            </SettingsFormField>
+
+            {/* Username (read-only) */}
+            <SettingsFormField
+              label="Username"
+              hint="Your unique @handle — cannot be changed after account creation"
+            >
+              <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl
+                              bg-slate-100 dark:bg-white/[0.04]
+                              border border-cream-200 dark:border-white/[0.06]">
+                <span className="text-slate-400 dark:text-white/30 text-sm font-medium">@</span>
+                <span className="text-sm text-slate-600 dark:text-white/60 flex-1">{username}</span>
+                <Lock size={12} className="text-slate-300 dark:text-white/20" />
+              </div>
+            </SettingsFormField>
+
+            {/* Bio */}
+            <SettingsFormField
+              label="Bio"
+              hint="A short description of your personal style — shown on your profile"
+            >
+              <textarea
+                className="input w-full resize-none"
+                rows={3}
+                maxLength={200}
+                value={editBio}
+                onChange={e => setEditBio(e.target.value)}
+                placeholder="e.g. Minimalist with a love for earth tones and clean silhouettes."
+              />
+              <p className={cn(
+                'text-right text-[11px] mt-1 transition-colors',
+                editBio.length > 180 ? 'text-amber-500' : 'text-slate-400 dark:text-white/30',
+              )}>
+                {editBio.length}/200
+              </p>
+            </SettingsFormField>
+
+            <SettingsSaveButton saving={savingProfile} saved={savedProfile} onClick={saveProfile} disabled={!editName.trim()} />
+          </SettingsSectionCard>
+        </div>
+
+        {/* ── Location & Weather ──────────────────────────────── */}
+        <div ref={locationRef}>
+          <SettingsSectionCard
+            gradient="from-emerald-500 to-teal-500"
+            icon={<MapPin size={15} className="text-emerald-500" />}
+            title="Location & Weather"
+            desc="FANI uses your location to suggest outfits suited to today's conditions. No data is shared with third parties."
+          >
+            <PremiumToggle
+              icon={<MapPin size={15} className="text-emerald-600 dark:text-emerald-400" />}
+              iconBg="bg-emerald-50 dark:bg-emerald-500/10"
+              title="Weather-aware outfit suggestions"
+              desc="Let FANI factor in your local weather when picking your daily look."
+              checked={perms.location}
+              onChange={toggleLocation}
+              loading={savingPerms}
+            />
+
+            {perms.location ? (
+              <div className="flex items-start gap-3.5 p-4 rounded-2xl
+                              bg-emerald-50/60 dark:bg-emerald-500/[0.07]
+                              border border-emerald-200/60 dark:border-emerald-500/20">
+                <div className="w-9 h-9 rounded-xl bg-emerald-100 dark:bg-emerald-500/15
+                                flex items-center justify-center flex-shrink-0">
+                  <Globe size={15} className="text-emerald-600 dark:text-emerald-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-300">Location active</p>
+                  {perms.location_label && (
+                    <p className="text-xs text-emerald-700 dark:text-emerald-400 mt-0.5 truncate">
+                      {perms.location_label}
+                    </p>
+                  )}
+                  {perms.timezone && (
+                    <p className="text-[11px] text-emerald-600/70 dark:text-emerald-500/60 mt-0.5">
+                      Timezone: {perms.timezone}
+                    </p>
+                  )}
+                  <button onClick={toggleLocation} disabled={savingPerms}
+                          className="mt-2 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 hover:underline disabled:opacity-40">
+                    Re-detect location
+                  </button>
+                </div>
+                <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse flex-shrink-0 mt-1" />
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-2 py-6 rounded-2xl
+                              bg-slate-50 dark:bg-white/[0.03]
+                              border border-dashed border-slate-200 dark:border-white/[0.08]">
+                <MapPin size={20} className="text-slate-300 dark:text-white/20" />
+                <p className="text-xs text-slate-500 dark:text-white/40 text-center max-w-xs">
+                  Location not enabled — FANI will suggest outfits without weather context.
+                </p>
+                <button onClick={toggleLocation} disabled={savingPerms}
+                        className="mt-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400 hover:underline disabled:opacity-40">
+                  Enable location →
+                </button>
+              </div>
+            )}
+          </SettingsSectionCard>
+        </div>
+
+        {/* ── FANI Preferences ────────────────────────────────── */}
+        <div ref={preferencesRef}>
+          <SettingsSectionCard
+            gradient="from-violet-500 to-indigo-500"
+            icon={<Sparkles size={15} className="text-violet-500" />}
+            title="FANI Preferences"
+            desc="Shape how FANI curates outfits for you. These preferences are read for every suggestion."
+          >
+            <SettingsFormField
+              label="Occasion focus"
+              hint="FANI will prioritise these occasions when building your looks"
+            >
+              <div className="flex flex-wrap gap-2 mt-1">
+                {OCCASIONS.map(o => (
+                  <button
+                    key={o}
+                    onClick={() => toggleOccasion(o)}
+                    className={cn(
+                      'px-3 py-1.5 rounded-xl text-xs font-semibold capitalize transition-all',
+                      prefs.occasion_focus.includes(o)
+                        ? 'bg-gradient-to-r from-indigo-500 to-violet-600 text-white shadow-glow-sm'
+                        : 'bg-cream-100 dark:bg-white/[0.06] text-slate-600 dark:text-white/60 hover:bg-cream-200 dark:hover:bg-white/[0.10]',
+                    )}
+                  >
+                    {o}
+                  </button>
+                ))}
+              </div>
+            </SettingsFormField>
+
+            <SettingsFormField
+              label="Avoid categories"
+              hint="FANI won't include these item types when building outfits"
+            >
+              <div className="flex flex-wrap gap-2 mt-1">
+                {AVOID_CATS.map(c => (
+                  <button
+                    key={c}
+                    onClick={() => toggleAvoidCat(c)}
+                    className={cn(
+                      'px-3 py-1.5 rounded-xl text-xs font-semibold capitalize transition-all',
+                      prefs.avoid_categories.includes(c)
+                        ? 'bg-gradient-to-r from-rose-500 to-pink-500 text-white shadow-sm'
+                        : 'bg-cream-100 dark:bg-white/[0.06] text-slate-600 dark:text-white/60 hover:bg-cream-200 dark:hover:bg-white/[0.10]',
+                    )}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </SettingsFormField>
+
+            <SettingsFormField
+              label="Personal notes for FANI"
+              hint="Free text — FANI reads this when curating your looks"
+            >
+              <textarea
+                className="input w-full resize-none"
+                rows={3}
+                value={prefs.notes ?? ''}
+                onChange={e => setPrefs(p => ({ ...p, notes: e.target.value }))}
+                placeholder="e.g. I prefer earth tones, avoid loud logos, love layered minimal looks."
+              />
+            </SettingsFormField>
+
+            <SettingsSaveButton saving={savingPrefs} saved={savedPrefs} onClick={savePrefs} />
+          </SettingsSectionCard>
+        </div>
+
+        {/* ── Privacy & Integrations ──────────────────────────── */}
+        <div ref={privacyRef}>
+          <SettingsSectionCard
+            gradient="from-slate-500 to-slate-700"
+            icon={<Shield size={15} className="text-slate-500" />}
+            title="Privacy & Integrations"
+            desc="Control what FANI can access and how your account connects with external services."
+          >
+            <PremiumToggle
+              icon={<Calendar size={15} className="text-indigo-500" />}
+              iconBg="bg-indigo-50 dark:bg-indigo-500/10"
+              title="Calendar integration"
+              desc="FANI will plan outfits around your upcoming meetings, events, and travel."
+              badge="Coming soon"
+              checked={perms.calendar}
+              onChange={toggleCalendar}
+              loading={savingPerms}
+            />
+
+            <PremiumToggle
+              icon={<Bell size={15} className="text-amber-500" />}
+              iconBg="bg-amber-50 dark:bg-amber-500/10"
+              title="Daily outfit reminders"
+              desc="Get a morning notification with FANI's pick for the day."
+              badge="Coming soon"
+              checked={false}
+              onChange={() => {}}
+              loading={false}
+            />
+
+            {/* Data note */}
+            <div className="flex items-start gap-3 p-3.5 rounded-2xl
+                            bg-slate-50 dark:bg-white/[0.03]
+                            border border-slate-200/60 dark:border-white/[0.05]">
+              <Shield size={14} className="text-slate-400 dark:text-white/30 mt-0.5 flex-shrink-0" />
+              <p className="text-xs text-slate-500 dark:text-white/40 leading-relaxed">
+                Your closet data is stored securely and never sold to third parties. Location coordinates are only used to fetch weather and are not stored in logs.
+              </p>
+            </div>
+          </SettingsSectionCard>
+        </div>
+
+      </div>
     </div>
   )
 }
 
-function Toggle({
-  icon, title, desc, checked, onChange, extra,
-}: { icon: React.ReactNode; title: string; desc: string; checked: boolean; onChange: () => void; extra?: string }) {
+function SettingsSectionCard({
+  gradient, icon, title, desc, children,
+}: {
+  gradient: string
+  icon: ReactNode
+  title: string
+  desc: string
+  children: ReactNode
+}) {
   return (
-    <div className="flex items-start gap-3 p-3 rounded-xl bg-cream-50 dark:bg-white/[0.03] border border-cream-200 dark:border-white/[0.06]">
-      <div className="mt-0.5">{icon}</div>
+    <div className="rounded-3xl border border-cream-200 dark:border-white/[0.07]
+                    bg-white/90 dark:bg-slate-900/60
+                    shadow-sm overflow-hidden">
+      {/* Section header */}
+      <div className="flex items-start gap-3.5 px-5 py-4
+                      border-b border-cream-100 dark:border-white/[0.05]">
+        <div className={`w-1 self-stretch rounded-full bg-gradient-to-b ${gradient} flex-shrink-0`} />
+        <div className="flex items-center gap-2.5 flex-1 min-w-0">
+          <div className="flex-shrink-0">{icon}</div>
+          <div>
+            <h3 className="text-sm font-bold text-slate-800 dark:text-white">{title}</h3>
+            <p className="text-[12px] text-slate-400 dark:text-white/40 mt-0.5 leading-snug">{desc}</p>
+          </div>
+        </div>
+      </div>
+      {/* Section body */}
+      <div className="px-5 py-5 space-y-5">{children}</div>
+    </div>
+  )
+}
+
+function SettingsFormField({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+  return (
+    <div className="space-y-1.5">
+      <div>
+        <span className="text-[13px] font-semibold text-slate-700 dark:text-white/80">{label}</span>
+        {hint && <p className="text-[11px] text-slate-400 dark:text-white/35 mt-0.5">{hint}</p>}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function SettingsSaveButton({
+  saving, saved, onClick, disabled,
+}: { saving: boolean; saved: boolean; onClick: () => void; disabled?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={saving || disabled}
+      className={cn(
+        'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all',
+        saved
+          ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30'
+          : 'bg-gradient-to-r from-indigo-500 to-violet-600 text-white shadow-glow-sm hover:opacity-90',
+        (saving || disabled) && 'opacity-50 cursor-not-allowed',
+      )}
+    >
+      {saving ? (
+        <><Loader2 size={13} className="animate-spin" /> Saving…</>
+      ) : saved ? (
+        <><Check size={13} /> Saved</>
+      ) : (
+        <><Check size={13} /> Save changes</>
+      )}
+    </button>
+  )
+}
+
+function PremiumToggle({
+  icon, iconBg, title, desc, badge, checked, onChange, loading,
+}: {
+  icon: ReactNode
+  iconBg: string
+  title: string
+  desc: string
+  badge?: string
+  checked: boolean
+  onChange: () => void
+  loading: boolean
+}) {
+  return (
+    <div className={cn(
+      'flex items-start gap-3.5 p-4 rounded-2xl border transition-colors',
+      checked
+        ? 'bg-indigo-50/50 dark:bg-indigo-500/[0.06] border-indigo-200/60 dark:border-indigo-500/20'
+        : 'bg-slate-50 dark:bg-white/[0.03] border-cream-200 dark:border-white/[0.06]',
+    )}>
+      <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0', iconBg)}>
+        {icon}
+      </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-slate-800 dark:text-white">{title}</p>
-        <p className="text-xs text-slate-500 dark:text-white/50">{desc}</p>
-        {extra && <p className="text-[11px] text-slate-400 dark:text-white/40 mt-1">{extra}</p>}
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-semibold text-slate-800 dark:text-white">{title}</p>
+          {badge && (
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold
+                             bg-amber-100 dark:bg-amber-500/15
+                             text-amber-700 dark:text-amber-300
+                             border border-amber-200 dark:border-amber-500/20">
+              {badge}
+            </span>
+          )}
+        </div>
+        <p className="text-xs text-slate-500 dark:text-white/40 mt-0.5 leading-relaxed">{desc}</p>
       </div>
       <button
         onClick={onChange}
+        disabled={loading}
         role="switch"
         aria-checked={checked}
         className={cn(
-          'relative w-10 h-6 rounded-full transition-colors flex-shrink-0',
-          checked ? 'bg-gradient-to-r from-indigo-500 to-violet-600' : 'bg-cream-300 dark:bg-white/[0.10]',
+          'relative w-11 h-6 rounded-full flex-shrink-0 transition-colors duration-200 disabled:opacity-50',
+          checked
+            ? 'bg-gradient-to-r from-indigo-500 to-violet-600 shadow-glow-sm'
+            : 'bg-slate-200 dark:bg-white/[0.10]',
         )}
       >
         <span className={cn(
-          'absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform',
-          checked && 'translate-x-4',
+          'absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-md transition-transform duration-200',
+          checked && 'translate-x-5',
         )} />
       </button>
     </div>

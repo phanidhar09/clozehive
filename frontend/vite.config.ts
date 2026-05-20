@@ -19,8 +19,11 @@ export default defineConfig(({ mode }) => {
     server: {
       port: frontendPort,
       proxy: {
-        '/api':     { target: backendUrl, changeOrigin: true },
-        '/uploads': { target: backendUrl, changeOrigin: true },
+        // WebSocket must be listed before the general /api catch-all so Vite
+        // applies the ws:true upgrade before the plain HTTP proxy takes over.
+        '/api/v1/ws': { target: backendUrl, changeOrigin: true, ws: true },
+        '/api':       { target: backendUrl, changeOrigin: true },
+        '/uploads':   { target: backendUrl, changeOrigin: true },
       },
     },
   }

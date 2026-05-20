@@ -146,6 +146,13 @@ class Settings(BaseSettings):
     enable_metrics: bool = True
     sentry_dsn: str = ""
 
+    # ── RAG / Vector store ────────────────────────────────────────────────────
+    # "pgvector" uses PostgreSQL + pgvector extension (production default).
+    # "faiss"    uses an in-memory FAISS index (local dev / testing, no pgvector required).
+    rag_vector_store: str = "pgvector"
+    # Directory where FAISS indexes are persisted to disk (only used when rag_vector_store=faiss).
+    faiss_index_dir: str = "./faiss_indexes"
+
     # ── Kafka / Redpanda ──────────────────────────────────────────────────────
     kafka_enabled: bool = False
     kafka_bootstrap_servers: str = "redpanda:9092"

@@ -44,6 +44,18 @@ from app.services.ai_request_service import create_request
 from app.services.closet_service import ClosetService
 from app.services.upload_service import persist_upload, read_validated_image
 
+# Lazy import to avoid circular dependency — ws.manager is only accessed inside functions
+def _ws_push(user_id: str, data: dict) -> None:
+    """Fire-and-forget WebSocket push — never raises."""
+    try:
+        import asyncio
+        from app.api.v1.ws import manager as _ws_manager
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.ensure_future(_ws_manager.broadcast_to_user(user_id, data))
+    except Exception:
+        pass
+
 router = APIRouter(prefix="/closet", tags=["Closet"])
 settings = get_settings()
 
@@ -166,6 +178,12 @@ async def create_item(
     item = await svc.create_item(UUID(user_id), body)
     await cache_service.invalidate_user_ai_cache(await get_redis(), user_id)
     background_tasks.add_task(similarity_service.update_item_embedding_job, str(item.id))
+    # Real-time push: notify the user's open browser tabs that a new item was added
+    background_tasks.add_task(_ws_push, user_id, {
+        "type": "notification",
+        "channel": "closet",
+        "data": {"event": "item_added", "item_name": item.name, "category": item.category},
+    })
     return item
 
 

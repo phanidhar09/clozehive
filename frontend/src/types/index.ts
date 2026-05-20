@@ -30,6 +30,8 @@ export interface ClosetItem {
 export interface VisionPreviewItem {
   slot_index: number
   temp_id: string
+  /** Stable UUID assigned immediately after AI detection — use as React key and for confirm validation. */
+  detected_item_id?: string | null
   name: string
   category: string
   subcategory?: string | null
@@ -512,10 +514,21 @@ export interface ScoredOutfit {
   what_to_improve?: string[]
 }
 
+export interface SuggestedPairingItem {
+  id: string
+  name: string
+  category: string
+  color?: string | null
+  image_url?: string | null
+  brand?: string | null
+  reason: string
+}
+
 export interface OutfitAnalysis {
   outfit: ScoredOutfit
   missing_pieces: string[]
   style_tips: string[]
+  suggested_pairings?: SuggestedPairingItem[]
 }
 
 // ── Vision pipeline ──────────────────────────────────────────────────────────
@@ -546,6 +559,79 @@ export interface SaveItemRequest {
 export interface SaveAnalyzedItemsResponse {
   created: ClosetItem[]
   failed: string[]
+}
+
+// ── AI Stylist Chat ───────────────────────────────────────────────────────────
+
+export interface AIChatItemRef {
+  id: string
+  name: string
+  category: string
+  color?: string | null
+  image_url?: string | null
+}
+
+export interface AIChatOutfitScoreBreakdown {
+  color: number
+  occasion: number
+  fit: number
+  style: number
+  weather: number
+  preference: number
+}
+
+export interface RecommendedOutfit {
+  title: string
+  items: AIChatItemRef[]
+  matching_score: number
+  score_breakdown?: AIChatOutfitScoreBreakdown
+  reasoning: string
+  fashion_rules_used: string[]
+  improvement_tips: string[]
+  occasion_match?: string | null
+}
+
+export interface PurchaseGapHint {
+  category: string
+  reason: string
+}
+
+export interface AIChatStructuredResponse {
+  reply: string
+  recommended_outfits: RecommendedOutfit[]
+  purchase_gaps: PurchaseGapHint[]
+  follow_up_questions: string[]
+}
+
+export interface AIChatMessage {
+  id: string
+  session_id: string
+  role: 'user' | 'assistant' | 'system'
+  message: string
+  structured_response?: AIChatStructuredResponse | null
+  created_at: string
+}
+
+export interface AIChatSession {
+  id: string
+  title: string
+  created_at: string
+  updated_at: string
+}
+
+export interface StylistChatMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  structured?: AIChatStructuredResponse | null
+  timestamp: Date
+}
+
+export interface AIChatContext {
+  occasion?: string
+  mood?: string
+  location?: string
+  weather_required?: boolean
 }
 
 // ── UI helpers ────────────────────────────────────────────────────────────────

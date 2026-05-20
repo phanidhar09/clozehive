@@ -30,6 +30,7 @@ function draftsFromPreviewItems(items: ClosetPreviewItem[] | null | undefined): 
   return (items ?? []).map(it => ({
     slot_index: it.slot_index,
     temp_id: it.temp_id,
+    detected_item_id: it.detected_item_id ?? it.temp_id,
     selected: true,
     name: it.name,
     category: it.category,
@@ -53,6 +54,8 @@ function draftsFromPreviewItems(items: ClosetPreviewItem[] | null | undefined): 
 type ItemDraft = {
   slot_index: number
   temp_id: string
+  /** Stable UUID from backend detection — used as React key and confirm validation. */
+  detected_item_id: string
   selected: boolean
   name: string
   category: string
@@ -245,6 +248,8 @@ export default function Upload() {
         preview_session_id: group.sessionId,
         items: group.drafts.map(d => ({
           slot_index: d.slot_index,
+          // Send detected_item_id so backend can validate image↔metadata correlation.
+          detected_item_id: d.detected_item_id,
           selected: d.selected,
           name: d.name.trim() || 'Clothing Item',
           category: d.category,
@@ -370,7 +375,7 @@ export default function Upload() {
 
           {files.length > 0 && !inPreview && (
             <Button className="w-full" disabled={uploading} icon={<Sparkles size={15} />} onClick={analyze}>
-              {uploading ? 'Analyzing…' : files.length > 1 ? 'Analyze photos (preview)' : 'Analyze with Vision AI'}
+              {uploading ? 'Analyzing…' : files.length > 1 ? 'Analyze with FANI (preview)' : 'Analyze with FANI'}
             </Button>
           )}
 
@@ -428,7 +433,7 @@ export default function Upload() {
                     const imgSrc = resolveUploadUrl(d.preview_image_url) ?? d.preview_image_url
                     return (
                       <div
-                        key={`${group.sessionId}-${d.temp_id}`}
+                        key={`${group.sessionId}-${d.detected_item_id}`}
                         className="rounded-xl border border-slate-200 dark:border-slate-600 p-3 space-y-3 bg-white/50 dark:bg-slate-900/40"
                       >
                         <label className="flex items-start gap-3 cursor-pointer">

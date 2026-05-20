@@ -21,15 +21,21 @@ const Closet = lazy(() => import('@/pages/Closet'))
 const OutfitBuilder = lazy(() => import('@/pages/OutfitBuilder'))
 const Upload = lazy(() => import('@/pages/Upload'))
 const AIStylist = lazy(() => import('@/pages/AIStylist'))
+const AIStylistChat = lazy(() => import('@/pages/AIStylistChat'))
 const TravelPlanner = lazy(() => import('@/pages/TravelPlanner'))
 const AvatarBuilder = lazy(() => import('@/pages/AvatarBuilder'))
 const Analytics = lazy(() => import('@/pages/Analytics'))
 const Groups = lazy(() => import('@/pages/Groups'))
 const Profile = lazy(() => import('@/pages/Profile'))
+const PurchaseGaps = lazy(() => import('@/pages/PurchaseGaps'))
+const SavedOutfits = lazy(() => import('@/pages/SavedOutfits'))
 
-// Loads closet data once the user is authenticated
+import { useWebSocket } from '@/hooks/useWebSocket'
+
+// Loads closet data + initialises WebSocket once authenticated
 function DataLoader() {
   const { fetchClosetItems, isAuthenticated } = useApp()
+  useWebSocket()  // connects/disconnects WS based on auth state
   useEffect(() => {
     if (isAuthenticated) fetchClosetItems()
   }, [isAuthenticated, fetchClosetItems])
@@ -101,8 +107,11 @@ function AnimatedRoutes() {
           <Route path="upload"     element={<PageBoundary><Upload /></PageBoundary>} />
           {/* Redirect old /fashion-analysis deep-links to unified Add to Closet hub */}
           <Route path="fashion-analysis" element={<Navigate to="/upload" replace />} />
+          {/* AI Stylist — new structured chat (always enabled) */}
+          <Route path="ai-stylist" element={<PageBoundary><AIStylistChat /></PageBoundary>} />
+          {/* Legacy basic chat — preserved for backward compat */}
           <Route
-            path="ai-stylist"
+            path="ai-stylist-classic"
             element={
               hideNonMvpUi()
                 ? <NonMvpPlaceholder />
@@ -128,6 +137,8 @@ function AnimatedRoutes() {
             }
           />
           <Route path="profile"    element={<PageBoundary><Profile /></PageBoundary>} />
+          <Route path="purchase-gaps" element={<PageBoundary><PurchaseGaps /></PageBoundary>} />
+          <Route path="saved-outfits" element={<PageBoundary><SavedOutfits /></PageBoundary>} />
         </Route>
 
         {/* Catch-all → login */}

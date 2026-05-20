@@ -2,9 +2,9 @@ import { useCallback, useEffect, useState, type CSSProperties } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import {
   Shirt, ArrowRight,
-  Leaf, TrendingUp, Sun,
+  Percent, TrendingUp, Sun,
   Sparkles, RefreshCw, Loader2, Check, CloudSun,
-  Bookmark, AlertCircle,
+  Bookmark, AlertCircle, Star, Zap,
 } from 'lucide-react'
 import { useApp } from '@/store'
 import { outfitsApi, profileApi, type OutfitOfDayResponse } from '@/lib/api'
@@ -12,7 +12,166 @@ import GlassCard from '@/components/ui/GlassCard'
 import EmptyState from '@/components/ui/EmptyState'
 import { useCursorGlow } from '@/hooks/useCursorGlow'
 import { DASHBOARD_QUICK_ACTIONS } from '@/features/dashboard/quickActions'
+import OnboardingChecklist from '@/components/dashboard/OnboardingChecklist'
 import type { ClosetItem, OutfitSuggestion } from '@/types'
+
+// ── Outfit rating ─────────────────────────────────────────────────────────────
+
+type RatingLabel = 'Needs Improvement' | 'Average' | 'Good' | 'Excellent' | 'Best Fit'
+type OutfitRating = {
+  label: RatingLabel
+  gradient: string
+  textColor: string
+  stars: number        // filled stars out of 5
+  stylistNote: string  // one-line AI stylist tip shown under the badge
+}
+
+function getOutfitRating(
+  styleScore: number | undefined,
+  itemCount: number,
+  hasWeather: boolean,
+  tipCount: number,
+): OutfitRating {
+  const score = styleScore ?? 0
+  // Each signal adds one point; score carries up to 2 points
+  const signals =
+    (score >= 0.85 ? 2 : score >= 0.65 ? 1 : 0) +
+    (itemCount >= 4 ? 1 : 0) +
+    (hasWeather ? 1 : 0) +
+    (tipCount >= 2 ? 1 : 0)
+
+  if (signals >= 4)
+    return {
+      label: 'Best Fit',
+      gradient: 'from-amber-400 to-orange-400',
+      textColor: 'text-amber-700 dark:text-amber-300',
+      stars: 5,
+      stylistNote: 'A stylist-approved, complete look — wear it with confidence.',
+    }
+  if (signals === 3)
+    return {
+      label: 'Excellent',
+      gradient: 'from-violet-500 to-fuchsia-500',
+      textColor: 'text-violet-700 dark:text-violet-300',
+      stars: 4,
+      stylistNote: 'Well-coordinated outfit — a small accessory would perfect it.',
+    }
+  if (signals === 2)
+    return {
+      label: 'Good',
+      gradient: 'from-emerald-500 to-teal-400',
+      textColor: 'text-emerald-700 dark:text-emerald-300',
+      stars: 3,
+      stylistNote: 'Solid everyday look — try adding a layer or colour accent.',
+    }
+  if (signals === 1)
+    return {
+      label: 'Average',
+      gradient: 'from-slate-400 to-slate-500',
+      textColor: 'text-slate-600 dark:text-slate-300',
+      stars: 2,
+      stylistNote: 'Decent base — mix in a statement piece to elevate the outfit.',
+    }
+  return {
+    label: 'Needs Improvement',
+    gradient: 'from-rose-500 to-pink-500',
+    textColor: 'text-rose-700 dark:text-rose-300',
+    stars: 1,
+    stylistNote: 'Consider pairing with complementary colours or adding more items.',
+  }
+}
+
+// ── FANI daily tips ───────────────────────────────────────────────────────────
+
+const FANI_TIPS = [
+  { tip: 'Build every outfit around 3 neutrals — every piece stays effortlessly versatile.', tag: 'Colour Theory' },
+  { tip: 'One statement item per look. Let it breathe and keep everything else minimal.', tag: 'Styling Rule' },
+  { tip: 'Quality over quantity — 10 great pieces outperform 50 average ones every time.', tag: 'Wardrobe Edit' },
+  { tip: 'Match your shoe tone to your belt for an instant, no-effort polish boost.', tag: 'Classic Rule' },
+  { tip: 'Layer textures, not just colours. It adds depth and dimension without visual noise.', tag: 'Layering' },
+  { tip: 'Your most-worn item reveals your true style signature — lean into it unapologetically.', tag: 'Self Awareness' },
+  { tip: 'A well-tailored fit at any price point looks more elevated than a loose designer piece.', tag: 'Fit First' },
+]
+
+function FaniTipCard() {
+  const dayIndex = new Date().getDay() // 0–6
+  const { tip, tag } = FANI_TIPS[dayIndex]
+  return (
+    <div className="flex items-start gap-4 rounded-2xl
+                    bg-gradient-to-r from-violet-50 to-fuchsia-50
+                    dark:from-violet-950/30 dark:to-fuchsia-950/20
+                    border border-violet-200/60 dark:border-violet-500/20
+                    px-5 py-4">
+      <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500
+                      flex items-center justify-center flex-shrink-0 shadow-sm">
+        <Zap size={15} className="text-white" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-violet-500 dark:text-violet-400">
+            FANI Tip · {tag}
+          </span>
+        </div>
+        <p className="text-sm text-slate-700 dark:text-white/80 leading-relaxed">{tip}</p>
+      </div>
+    </div>
+  )
+}
+
+// ── Style at a glance ─────────────────────────────────────────────────────────
+
+function StyleGlance({ closetItems }: { closetItems: ClosetItem[] }) {
+  if (closetItems.length === 0) return null
+
+  const mostWorn = [...closetItems].sort((a, b) => (b.wear_count ?? 0) - (a.wear_count ?? 0))[0]
+  const unworn   = closetItems.filter(i => (i.wear_count ?? 0) === 0).length
+  const categories = new Set(closetItems.map(i => i.category?.toLowerCase()))
+  const essentials = ['tops', 'bottoms', 'shoes', 'outerwear']
+  const missing = essentials.filter(e => !categories.has(e))
+
+  const glances = [
+    {
+      label: 'Most Worn',
+      value: mostWorn?.name ? mostWorn.name.split(' ').slice(0, 3).join(' ') : '—',
+      sub: mostWorn?.wear_count ? `${mostWorn.wear_count} wear${mostWorn.wear_count === 1 ? '' : 's'}` : 'Track your wears',
+      color: 'text-violet-600 dark:text-violet-400',
+      dot: 'bg-violet-500',
+    },
+    {
+      label: 'Never Worn',
+      value: String(unworn),
+      sub: unworn === 0 ? 'Great — fully active closet' : `item${unworn === 1 ? '' : 's'} waiting for a moment`,
+      color: unworn > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400',
+      dot: unworn > 0 ? 'bg-amber-500' : 'bg-emerald-500',
+    },
+    {
+      label: 'Closet Gaps',
+      value: missing.length === 0 ? 'None' : missing.map(m => m.charAt(0).toUpperCase() + m.slice(1)).join(', '),
+      sub: missing.length === 0 ? 'All essentials covered' : 'Missing wardrobe essentials',
+      color: missing.length > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400',
+      dot: missing.length > 0 ? 'bg-rose-500' : 'bg-emerald-500',
+    },
+  ]
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      {glances.map(({ label, value, sub, color, dot }) => (
+        <div key={label}
+             className="rounded-2xl border border-cream-200 dark:border-white/[0.07]
+                        bg-white/80 dark:bg-white/[0.04] px-4 py-3.5 backdrop-blur-sm">
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <span className={`w-1.5 h-1.5 rounded-full ${dot} flex-shrink-0`} />
+            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-white/30">
+              {label}
+            </span>
+          </div>
+          <p className={`text-sm font-bold truncate ${color}`}>{value}</p>
+          <p className="text-[11px] text-slate-400 dark:text-white/35 mt-0.5 leading-tight">{sub}</p>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 // ── Outfit-of-the-Day card ────────────────────────────────────────────────────
 
@@ -90,7 +249,7 @@ function OutfitOfDayCard({ closetItems }: { closetItems: ClosetItem[] }) {
                 Outfit of the Day
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                AI-picked from your closet
+                FANI-picked from your closet
                 {data?.occasion ? ` · ${data.occasion}` : ''}
               </p>
             </div>
@@ -129,9 +288,37 @@ function OutfitOfDayCard({ closetItems }: { closetItems: ClosetItem[] }) {
             <>
               {/* Outfit name + style notes */}
               <div className="mb-4">
-                <p className="font-display text-lg font-semibold text-slate-800 dark:text-white">
-                  {data.outfit.name}
-                </p>
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <p className="font-display text-lg font-semibold text-slate-800 dark:text-white">
+                    {data.outfit.name}
+                  </p>
+                  {/* Outfit rating badge */}
+                  {(() => {
+                    const rating = getOutfitRating(
+                      data.outfit!.style_score,
+                      resolvedItems.length,
+                      Boolean(data.weather),
+                      (data.style_tips ?? []).length,
+                    )
+                    return (
+                      <div className="flex flex-col items-end gap-1">
+                        <div className={`flex items-center gap-1 rounded-full bg-gradient-to-r ${rating.gradient} px-3 py-1 shadow-sm`}>
+                          {Array.from({ length: 5 }).map((_, i) => (
+                            <Star
+                              key={i}
+                              size={9}
+                              className={i < rating.stars ? 'fill-white text-white' : 'fill-white/30 text-white/30'}
+                            />
+                          ))}
+                          <span className="ml-1 text-[11px] font-bold text-white">{rating.label}</span>
+                        </div>
+                        <p className={`text-[10px] font-medium ${rating.textColor} max-w-[180px] text-right leading-tight`}>
+                          {rating.stylistNote}
+                        </p>
+                      </div>
+                    )
+                  })()}
+                </div>
                 {data.outfit.style_notes && (
                   <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{data.outfit.style_notes}</p>
                 )}
@@ -271,18 +458,20 @@ export default function Dashboard() {
 
   const totalItems = closetItems.length
   const categories = new Set(closetItems.map(i => i.category)).size
-  const avgEco = closetItems.length
-    ? (closetItems.reduce((s, i) => s + (i.eco_score ?? 0), 0) / closetItems.length).toFixed(1)
-    : 0
+  const wornItems = closetItems.filter(i => (i.wear_count ?? 0) > 0).length
+  const closetUsedPct = totalItems > 0 ? Math.round((wornItems / totalItems) * 100) : 0
 
   const stats = [
-    { label: 'Total Items', value: totalItems, icon: Shirt, color: 'from-rose-500 to-pink-500' },
-    { label: 'Categories', value: categories, icon: TrendingUp, color: 'from-violet-500 to-purple-500' },
-    { label: 'Eco Score', value: typeof avgEco === 'string' ? avgEco : avgEco.toFixed(1), icon: Leaf, color: 'from-emerald-500 to-teal-500' },
+    { label: 'Total Items', value: totalItems, icon: Shirt, color: 'from-rose-500 to-pink-500', suffix: '' },
+    { label: 'Categories', value: categories, icon: TrendingUp, color: 'from-violet-500 to-purple-500', suffix: '' },
+    { label: 'Closet Used', value: closetUsedPct, icon: Percent, color: 'from-sky-500 to-blue-500', suffix: '%' },
   ]
 
   return (
     <div className="space-y-6 max-w-6xl">
+
+      {/* Onboarding checklist — shown to new users until all steps complete or dismissed */}
+      <OnboardingChecklist />
 
       {showStyleReminder && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
@@ -344,12 +533,12 @@ export default function Dashboard() {
             {closetLoading
               ? 'Loading your wardrobe…'
               : totalItems > 0
-                ? `You have ${totalItems} curated piece${totalItems === 1 ? '' : 's'}. Your AI stylist has picked today's look below.`
+                ? `You have ${totalItems} curated piece${totalItems === 1 ? '' : 's'}. FANI has picked today's look below.`
                 : 'Start by scanning your closet to build your digital wardrobe.'}
           </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {stats.map(({ label, value, icon: Icon, color }) => (
+            {stats.map(({ label, value, icon: Icon, color, suffix }) => (
               <div key={label} className="bg-white/10 backdrop-blur-md rounded-xl p-3 border border-white/15">
                 <div className="flex items-center gap-3">
                   <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${color} flex items-center justify-center flex-shrink-0`}>
@@ -357,7 +546,7 @@ export default function Dashboard() {
                   </div>
                   <div>
                     <p className="text-[10px] font-bold text-white/60 uppercase tracking-wider">{label}</p>
-                    <p className="text-xl font-bold text-white">{value}</p>
+                    <p className="text-xl font-bold text-white">{value}{suffix}</p>
                   </div>
                 </div>
               </div>
@@ -366,9 +555,23 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* ── FANI Tip of the Day ───────────────────────────────────────────── */}
+      <FaniTipCard />
+
       {/* ── Outfit of the Day ─────────────────────────────────────────────── */}
       {!closetLoading && (
         <OutfitOfDayCard closetItems={closetItems} />
+      )}
+
+      {/* ── Style at a Glance ─────────────────────────────────────────────── */}
+      {!closetLoading && totalItems > 0 && (
+        <div>
+          <h3 className="font-display font-semibold text-sm uppercase tracking-widest
+                         text-slate-500 dark:text-white/40 mb-3">
+            Style at a glance
+          </h3>
+          <StyleGlance closetItems={closetItems} />
+        </div>
       )}
 
       {/* ── Quick actions ─────────────────────────────────────────────────── */}
@@ -377,7 +580,7 @@ export default function Dashboard() {
                        text-slate-500 dark:text-white/40 mb-3">
           Quick actions
         </h3>
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 stagger">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 stagger">
           {DASHBOARD_QUICK_ACTIONS.map(({ label, desc, icon: Icon, to, gradient }, idx) => (
             <Link key={to} to={to} style={{ '--i': idx } as CSSProperties}>
               <GlassCard hover glow padding="md" className="group h-full">
@@ -401,7 +604,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-display font-semibold text-sm uppercase tracking-widest
                            text-slate-500 dark:text-white/40">
-              Recent items
+              Recently added
             </h3>
             <Link to="/closet" className="text-xs text-brand-600 dark:text-brand-400 hover:underline flex items-center gap-1">
               View all <ArrowRight size={12} />
@@ -419,7 +622,7 @@ export default function Dashboard() {
                 </div>
                 <div className="p-3">
                   <p className="font-semibold text-sm text-slate-800 dark:text-white line-clamp-1">{item.name}</p>
-                  <p className="text-xs text-slate-500 dark:text-white/40 mt-0.5">{item.category}</p>
+                  <p className="text-xs text-slate-500 dark:text-white/40 mt-0.5 capitalize">{item.category}</p>
                 </div>
               </GlassCard>
             ))}

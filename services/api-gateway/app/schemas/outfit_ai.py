@@ -89,11 +89,29 @@ class AnalyzeOutfitRequest(BaseModel):
 
 # ── Response schemas ───────────────────────────────────────────────────────────
 
+class SuggestedPairingItem(BaseModel):
+    """A closet item (not in the current outfit) suggested by the AI as a complementary pairing."""
+    id: str
+    name: str
+    category: str
+    color: Optional[str] = None
+    image_url: Optional[str] = None
+    brand: Optional[str] = None
+    reason: str = Field(
+        default="",
+        description="Specific AI-generated reason why this item complements the outfit.",
+    )
+
+
 class AnalyzeOutfitResponse(BaseModel):
     """Single-outfit analysis returned from POST /outfits/generate."""
     outfit: ScoredOutfit
     missing_pieces: list[str] = Field(default_factory=list)
     style_tips: list[str] = Field(default_factory=list)
+    suggested_pairings: list[SuggestedPairingItem] = Field(
+        default_factory=list,
+        description="Items from the user's closet (not in the current outfit) that the AI recommends adding.",
+    )
 
 
 class GenerateOutfitsResponse(BaseModel):

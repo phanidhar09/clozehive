@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
-import { useVirtualizer } from '@tanstack/react-virtual'
+import { useMemo, useState } from 'react'
 import {
   Search, SlidersHorizontal, Loader2, RefreshCw, Trash2, X,
   Sparkles, Upload, ChevronRight, Clock, TrendingUp,
@@ -23,29 +22,6 @@ import {
   CLOSET_SEASONS,
   CLOSET_SORT_OPTIONS,
 } from '@/features/closet/constants'
-// ── Grid helpers ───────────────────────────────────────────────────────────────
-
-function columnsForWidth(width: number) {
-  if (width >= 1280) return 5
-  if (width >= 1024) return 4
-  if (width >= 640)  return 3
-  return 2
-}
-
-function useColumnCount(ref: RefObject<HTMLElement>) {
-  const [columns, setColumns] = useState(2)
-  useEffect(() => {
-    const node = ref.current
-    if (!node) return
-    const update = () => setColumns(columnsForWidth(node.clientWidth))
-    update()
-    const ro = new ResizeObserver(update)
-    ro.observe(node)
-    return () => ro.disconnect()
-  }, [ref])
-  return columns
-}
-
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
 function CategoryTab({
@@ -164,9 +140,7 @@ function RecentlyAddedSection({
 // ── Main page ──────────────────────────────────────────────────────────────────
 
 export default function Closet() {
-  const { closetItems, closetLoading, closetError, fetchClosetItems, removeClosetItem } = useApp()
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const columnCount = useColumnCount(scrollRef)
+  const { closetItems, setClosetItems, closetLoading, closetError, fetchClosetItems, removeClosetItem } = useApp()
 
   const [category, setCategory]     = useState<Category>('all')
   const [search,   setSearch]       = useState('')
@@ -214,14 +188,11 @@ export default function Closet() {
   }, [closetItems, category, search, sort, colorFilter, seasonFilter, occasionFilter])
 
   const isFiltered = category !== 'all' || search.trim() !== '' || !!colorFilter || !!seasonFilter || !!occasionFilter
-  const rowCount   = Math.ceil(filtered.length / columnCount)
 
-  const rowVirtualizer = useVirtualizer({
-    count:           rowCount,
-    getScrollElement: () => scrollRef.current,
-    estimateSize:    () => 280,
-    overscan:        3,
-  })
+  const handleItemSaved = (updated: ClosetItem) => {
+    setClosetItems(closetItems.map(i => i.id === updated.id ? updated : i))
+    setSelected(updated)
+  }
 
   const handleDelete = async (item: ClosetItem) => {
     if (!confirm(`Delete "${item.name}"?`)) return
@@ -500,33 +471,16 @@ export default function Closet() {
             </div>
           )}
 
-          <div ref={scrollRef} className="h-[calc(100vh-260px)] overflow-y-auto overflow-x-hidden pr-1">
-            <div className="relative w-full" style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
-              {rowVirtualizer.getVirtualItems().map(virtualRow => {
-                const start    = virtualRow.index * columnCount
-                const rowItems = filtered.slice(start, start + columnCount)
-                return (
-                  <div
-                    key={virtualRow.key}
-                    className="absolute left-0 top-0 grid w-full gap-3"
-                    style={{
-                      gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))`,
-                      transform: `translateY(${virtualRow.start}px)`,
-                    }}
-                  >
-                    {rowItems.map(item => (
-                      <ClosetItemCard
-                        key={item.id}
-                        item={item}
-                        onOpen={setSelected}
-                        onDelete={handleDelete}
-                        deleting={deleting === item.id}
-                      />
-                    ))}
-                  </div>
-                )
-              })}
-            </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+            {filtered.map(item => (
+              <ClosetItemCard
+                key={item.id}
+                item={item}
+                onOpen={setSelected}
+                onDelete={handleDelete}
+                deleting={deleting === item.id}
+              />
+            ))}
           </div>
         </section>
       )}
@@ -552,7 +506,13 @@ export default function Closet() {
         </div>
       )}
 
-      <ItemDetailModal item={selected} open={!!selected} onClose={() => setSelected(null)} />
+      <ItemDetailModal
+        item={selected}
+        open={!!selected}
+        onClose={() => setSelected(null)}
+        onDelete={handleDelete}
+        onSaved={handleItemSaved}
+      />
     </div>
   )
 }

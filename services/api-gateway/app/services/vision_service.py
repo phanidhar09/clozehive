@@ -53,7 +53,6 @@ def _fallback_raw(reason: str) -> dict[str, Any]:
         "pattern": "",
         "occasion": ["casual"],
         "tags": [],
-        "eco_score": None,
         "confidence": 0.0,
         "notes": f"Auto-analysis unavailable ({reason}). Please fill in details manually.",
     }
@@ -74,7 +73,6 @@ def _bulk_fallback_raw(reason: str) -> dict[str, Any]:
         "season_tags": [],
         "style_tags": [],
         "fit": "Regular",
-        "eco_score": None,
         "brand": "",
         "confidence_score": 0.0,
         "warnings": [f"Auto-analysis unavailable: {reason}"],
@@ -97,7 +95,10 @@ async def analyze_image(image_bytes: bytes, media_type: str = "image/jpeg") -> d
     prompt = (
         "Analyse this clothing item and return ONLY valid JSON with fields: "
         "name, category (tops, bottoms, shoes, outerwear, dresses, accessories, other), "
-        "color, brand, material, pattern, occasion array, tags array, eco_score, confidence, notes."
+        "color (specific shade e.g. navy blue, charcoal, ivory — not just 'blue'), "
+        "brand (null unless logo is clearly visible), material (read the visible texture — "
+        "denim/cotton/silk/wool/polyester/leather/unknown), pattern, occasion array, tags array, "
+        "confidence, notes."
     )
     try:
         response = await _get_client().chat.completions.create(
@@ -129,28 +130,37 @@ async def analyze_image(image_bytes: bytes, media_type: str = "image/jpeg") -> d
 # ── Rich bulk-ingestion analysis (used by smart-ingest, closet preview fallback) ─
 
 _BULK_PROMPT = """\
-Analyse this clothing item image and return ONLY valid JSON with these exact fields.
-Be precise; do not hallucinate brand names unless a logo is clearly visible.
+You are an expert fashion AI. Analyse this single clothing item image and return \
+ONLY valid JSON with the fields below. Be precise — do not hallucinate details.
+
+COLOR — use specific shade names (navy blue, charcoal, ivory, burgundy, sage green, \
+rust, camel, cobalt, etc.). Never use bare "blue", "green", or "gray".
+
+MATERIAL — read the visible texture and drape:
+  diagonal twill, rigid body → denim | matte flat weave → cotton or linen
+  liquid-draped folds → silk or satin | fuzzy warm surface → wool or fleece
+  fine ribbing → knit | high-sheen smooth → polyester or synthetic
+  stiff grained surface → leather or faux-leather
+Output "unknown" if texture is indeterminate — never guess.
 
 {
-  "name": "Descriptive item name (e.g. White Slim-Fit Oxford Shirt)",
+  "name": "Specific item name e.g. Charcoal Slim-Fit Chinos or Ivory Cable-Knit Sweater",
   "category": "tops | bottoms | shoes | outerwear | dresses | accessories | other",
-  "subcategory": "e.g. T-Shirt | Jeans | Sneakers | Blazer | Maxi Dress | Belt",
-  "description": "2-3 sentence plain-English description suitable for a wardrobe app",
-  "primary_color": "Single dominant color name",
-  "secondary_colors": ["list", "of", "accent", "colors"],
-  "pattern": "Solid | Striped | Plaid | Floral | Graphic | Animal Print | Tie-Dye | Camo | Other",
-  "material": "Primary fabric e.g. Cotton, Denim, Polyester, Silk, Wool, Linen",
+  "subcategory": "e.g. T-Shirt | Slim Jeans | Sneakers | Blazer | Maxi Dress | Belt",
+  "description": "One concrete sentence about the item's visible qualities — color, cut, texture",
+  "primary_color": "Specific shade e.g. navy blue | charcoal | ivory | burgundy",
+  "secondary_colors": ["list of any accent colors, empty if none"],
+  "pattern": "Solid | Striped | Plaid | Checked | Floral | Graphic | Animal Print | Tie-Dye | Camo | Houndstooth | Paisley | Other",
+  "material": "Cotton | Denim | Leather | Faux-leather | Polyester | Silk | Wool | Linen | Fleece | Knit | Synthetic | Unknown",
   "occasion_tags": ["Casual", "Business Casual", "Formal", "Sport", "Beach", "Date Night", "Travel"],
-  "season_tags": ["Spring", "Summer", "Fall", "Winter"],
-  "style_tags": ["Minimal", "Streetwear", "Classic", "Bohemian", "Preppy", "Sporty", "Elegant", "Vintage"],
+  "season_tags": ["Spring", "Summer", "Fall", "Winter", "All-Season"],
+  "style_tags": ["Minimal", "Streetwear", "Classic", "Bohemian", "Preppy", "Sporty", "Elegant", "Vintage", "Athleisure", "Workwear"],
   "fit": "Slim | Regular | Relaxed | Oversized | Tailored",
-  "eco_score": null or 0-10 float,
-  "brand": "Brand name if logo is clearly visible, else empty string",
+  "brand": "Brand name if logo is clearly and fully legible, else empty string",
   "confidence_score": 0.0-1.0 float reflecting detection certainty
 }
 
-Return ONLY valid JSON. No markdown fences, no prose."""
+Return ONLY valid JSON. No markdown fences, no prose, no trailing commas."""
 
 
 @traceable(name="gateway_vision_analyze_for_bulk", run_type="chain")
@@ -172,13 +182,13 @@ async def analyze_for_bulk(image_bytes: bytes, media_type: str = "image/jpeg") -
     try:
         response = await _get_client().chat.completions.create(
             model=settings.openai_model,
-            max_tokens=1200,
+            max_tokens=1500,
             timeout=45.0,
             messages=[
                 {
                     "role": "user",
                     "content": [
-                        {"type": "image_url", "image_url": {"url": data_url}},
+                        {"type": "image_url", "image_url": {"url": data_url, "detail": "high"}},
                         {"type": "text", "text": _BULK_PROMPT},
                     ],
                 }

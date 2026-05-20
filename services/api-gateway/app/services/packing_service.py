@@ -106,6 +106,7 @@ async def _ai_packing_recommendations(
     notes: str | None,
     style_profile_context_text: str | None = None,
     weather_days: list[dict[str, Any]] | None = None,
+    rag_context: str | None = None,
 ) -> dict[str, Any] | None:
     """
     Ask the LLM which wardrobe items to pack and what else is needed.
@@ -130,6 +131,8 @@ async def _ai_packing_recommendations(
             "\nPersonalisation (respect fit, sizes, preferred colors, climate comfort):\n"
             f"{style_profile_context_text.strip()}\n\n"
         )
+    if rag_context and rag_context.strip():
+        style_block += f"\nRAG Context (use as additional guidance):\n{rag_context.strip()}\n\n"
 
     prompt = (
         "You are a professional travel stylist. Help pack for this trip.\n\n"
@@ -487,6 +490,7 @@ async def generate_packing_list(
     *,
     style_profile_context_text: str | None = None,
     user_style_profile: dict[str, Any] | None = None,
+    rag_context: str | None = None,
 ) -> dict[str, Any]:
     try:
         start = date.fromisoformat(start_date)
@@ -562,6 +566,7 @@ async def generate_packing_list(
             closet_items, weather_summary, notes,
             style_profile_context_text=merged_ctx,
             weather_days=weather_days,
+            rag_context=rag_context,
         )
 
         if ai_data:

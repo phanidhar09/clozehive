@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import Navbar from './Navbar'
+import FloatingAIChat from '@/components/ai-chat/FloatingAIChat'
 
 /**
  * Three-layer depth system:
@@ -53,6 +54,9 @@ export default function Layout() {
           <Outlet />
         </main>
       </div>
+
+      {/* Floating FANI — available on every page */}
+      <FloatingAIChat />
     </div>
   )
 }

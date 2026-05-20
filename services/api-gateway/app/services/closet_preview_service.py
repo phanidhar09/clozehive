@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import base64
-from typing import Any
+from typing import Any, Optional
 from uuid import UUID, uuid4
 
 from app.core.config import get_settings
@@ -44,10 +44,12 @@ def _preview_from_normalized(
     processed_image_url: str | None,
     background_removed: bool,
     background_removal_status: str | None,
+    detected_item_id: Optional[str] = None,
 ) -> ClosetPreviewItem:
     return ClosetPreviewItem(
         slot_index=slot_index,
         temp_id=temp_id,
+        detected_item_id=detected_item_id,
         name=n.name,
         category=n.category,
         subcategory=n.subcategory,
@@ -104,7 +106,9 @@ async def _append_bulk_fallback_preview(
         {
             "slot_index": slot_index,
             "temp_id": temp_id,
+            "detected_item_id": temp_id,
             "original_image_url": original_url,
+            "crop_image_url": prev_url,
             "processed_image_url": proc_url,
             "background_removed": bg_removed,
             "background_removal_status": bg_status,
@@ -121,6 +125,7 @@ async def _append_bulk_fallback_preview(
             processed_image_url=proc_url,
             background_removed=bg_removed,
             background_removal_status=bg_status,
+            detected_item_id=temp_id,
         )
     )
 
@@ -148,7 +153,9 @@ def _append_minimal_placeholder_preview(
         {
             "slot_index": slot_index,
             "temp_id": temp_id,
+            "detected_item_id": temp_id,
             "original_image_url": original_url,
+            "crop_image_url": original_url,
             "processed_image_url": original_url,
             "background_removed": False,
             "background_removal_status": "not_attempted",
@@ -165,8 +172,52 @@ def _append_minimal_placeholder_preview(
             processed_image_url=original_url,
             background_removed=False,
             background_removal_status="not_attempted",
+            detected_item_id=temp_id,
         )
     )
+
+
+def _recrop_from_source(
+    image_bytes: bytes,
+    vitem: Any,
+    detected_item_id: str,
+    original_url: str,
+) -> tuple[str, bool]:
+    """
+    Re-crop a detected item from source bytes using its bounding_box.
+
+    Used when image_base64 is absent (cache hit) — returns (proc_url, success).
+    Falls back to original_url if bounding_box is missing or crop fails.
+    """
+    from app.services.fashion_analysis_service import _crop_item  # type: ignore[attr-defined]
+
+    bb = getattr(vitem, "bounding_box", None)
+    if bb is None:
+        logger.warning(
+            "recrop_skipped_no_bbox",
+            detected_item_id=detected_item_id,
+            fallback="original_url",
+        )
+        return original_url, False
+
+    bbox_dict = {
+        "x_min": float(bb.x),
+        "y_min": float(bb.y),
+        "x_max": float(bb.x + bb.width),
+        "y_max": float(bb.y + bb.height),
+    }
+    try:
+        crop = _crop_item(image_bytes, bbox_dict)
+        url = persist_upload(crop, "image/png", f"{detected_item_id}_crop.png")
+        logger.info("recropped_from_source_on_cache_hit", detected_item_id=detected_item_id)
+        return url, True
+    except Exception as exc:
+        logger.warning(
+            "recrop_failed_using_original",
+            detected_item_id=detected_item_id,
+            error=str(exc),
+        )
+        return original_url, False
 
 
 async def analyze_preview(
@@ -191,27 +242,68 @@ async def analyze_preview(
 
     if pipeline.items:
         for idx, vitem in enumerate(pipeline.items):
+            # Use the stable detected_item_id generated at detection time; fall back to item_id.
+            detected_item_id: str = (
+                getattr(vitem, "detected_item_id", None) or vitem.item_id
+            )
+
             n = vision_analysis_item_to_normalized(vitem)
-            proc_url = original_url
             bg_removed = bool(vitem.background_removed)
             bg_status = vitem.background_removal_status or "not_attempted"
             raw_b64 = vitem.image_base64 or vitem.processed_image
+
             if raw_b64:
+                # Fresh pipeline run — image_base64 holds the per-item crop/BG-removed bytes.
                 try:
                     png = base64.b64decode(raw_b64)
-                    proc_url = persist_upload(png, "image/png", f"{vitem.item_id}.png")
+                    proc_url = persist_upload(png, "image/png", f"{detected_item_id}.png")
+                    logger.debug(
+                        "closet_preview_item_persisted",
+                        detected_item_id=detected_item_id,
+                        slot_index=idx,
+                        category=n.category,
+                        description=(n.description or "")[:100],
+                        proc_url=proc_url,
+                        bg_status=bg_status,
+                    )
                 except Exception as exc:
-                    logger.warning("preview_persist_crop_failed", error=str(exc))
+                    logger.warning(
+                        "preview_persist_crop_failed",
+                        detected_item_id=detected_item_id,
+                        error=str(exc),
+                    )
                     proc_url = original_url
                     bg_removed = False
                     bg_status = "failed"
+            else:
+                # Cache hit: image_base64 is intentionally absent in cached payload.
+                # Re-crop from source bytes using the stored bounding_box so every
+                # item still gets its own image rather than the full original.
+                proc_url, _recrop_ok = _recrop_from_source(
+                    image_bytes, vitem, detected_item_id, original_url
+                )
+                if not _recrop_ok:
+                    bg_removed = False
+                    bg_status = "cache_hit_no_bbox"
+                else:
+                    bg_status = "cache_hit_recropped"
+                logger.debug(
+                    "closet_preview_item_cache_hit",
+                    detected_item_id=detected_item_id,
+                    slot_index=idx,
+                    category=n.category,
+                    proc_url=proc_url,
+                    bg_status=bg_status,
+                )
 
             prev_url = proc_url or original_url
             slots.append(
                 {
                     "slot_index": idx,
                     "temp_id": vitem.item_id,
+                    "detected_item_id": detected_item_id,
                     "original_image_url": original_url,
+                    "crop_image_url": prev_url,
                     "processed_image_url": proc_url,
                     "background_removed": bg_removed,
                     "background_removal_status": bg_status,
@@ -226,9 +318,10 @@ async def analyze_preview(
                     n,
                     original_image_url=original_url,
                     preview_image_url=prev_url,
-                    processed_image_url=proc_url if proc_url != original_url else proc_url,
+                    processed_image_url=proc_url,
                     background_removed=bg_removed,
                     background_removal_status=bg_status,
+                    detected_item_id=detected_item_id,
                 )
             )
     else:
@@ -311,6 +404,10 @@ async def confirm_preview(
     """
     Persist selected preview slots as closet items.
 
+    Image URLs come exclusively from the server-side slot (keyed by slot_index).
+    Metadata comes from the client payload. This guarantees image ↔ metadata
+    stay locked to the same detected_item_id established at detection time.
+
     ``create_item`` must be ``ClosetService.create_item(user_id, ClosetItemCreate) -> ClosetItemResponse``.
     """
     key = preview_session_key(str(preview_session_id))
@@ -322,7 +419,9 @@ async def confirm_preview(
         raise BadRequestError("Invalid preview session.")
 
     slots: list[dict[str, Any]] = session.get("slots") or []
+    # Primary lookup by slot_index; secondary index by detected_item_id for validation.
     by_index = {int(s["slot_index"]): s for s in slots}
+    by_detected_id = {str(s.get("detected_item_id", "")): s for s in slots if s.get("detected_item_id")}
 
     saved: list[ClosetItemResponse] = []
     for payload in items:
@@ -332,10 +431,37 @@ async def confirm_preview(
         if not slot:
             raise BadRequestError(f"Unknown slot_index {payload.slot_index}.")
 
-        proc = str(slot["processed_image_url"])
+        # If payload carries detected_item_id, validate it matches the slot to catch any
+        # frontend ordering bugs before they silently persist wrong image↔metadata pairs.
+        payload_did = getattr(payload, "detected_item_id", None)
+        if payload_did and by_detected_id:
+            slot_did = slot.get("detected_item_id")
+            if slot_did and payload_did != slot_did:
+                logger.error(
+                    "confirm_detected_item_id_mismatch",
+                    slot_index=payload.slot_index,
+                    slot_detected_item_id=slot_did,
+                    payload_detected_item_id=payload_did,
+                )
+                raise BadRequestError(
+                    f"detected_item_id mismatch for slot {payload.slot_index}: "
+                    f"server has {slot_did!r}, client sent {payload_did!r}. "
+                    "Re-run analyze-preview and try again."
+                )
+
+        # Image URLs come from the slot (server-side truth), not the payload.
+        proc = str(slot.get("processed_image_url") or slot.get("crop_image_url") or slot["original_image_url"])
         orig = str(slot["original_image_url"])
         conf = slot.get("confidence_score")
         fabric = payload.fabric or payload.material
+
+        logger.debug(
+            "confirm_slot_image",
+            slot_index=payload.slot_index,
+            detected_item_id=slot.get("detected_item_id"),
+            proc_url=proc,
+            category=payload.category,
+        )
 
         create = ClosetItemCreate(
             name=payload.name,
