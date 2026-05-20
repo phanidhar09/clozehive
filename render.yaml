@@ -124,6 +124,8 @@ services:
           type: redis
           name: clozehive-redis
           property: connectionString
+      - key: JWT_SECRET
+        sync: false
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_MODEL
