@@ -4,6 +4,7 @@ services:
     name: clozehive-redis
     plan: free
     maxmemoryPolicy: allkeys-lru
+    ipAllowList: []
 
   # ── API Gateway ──────────────────────────────────────────────────────────────
   - type: web
@@ -42,11 +43,7 @@ services:
       - key: DEBUG
         value: "false"
       - key: AI_AGENT_URL
-        fromService:
-          type: web
-          name: clozehive-ai-agent
-          property: host
-          envVarKey: AI_AGENT_URL
+        sync: false
       - key: ENABLE_MCP_TOOLS
         value: "true"
       - key: GOOGLE_CLIENT_ID
