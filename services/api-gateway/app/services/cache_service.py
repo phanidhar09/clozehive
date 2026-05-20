@@ -42,6 +42,9 @@ async def get_redis() -> aioredis.Redis:
             socket_timeout=10,
             retry_on_timeout=True,
             health_check_interval=30,
+            # Cap pool to 5 connections — Render Valkey free tier allows ~20 total
+            # and we share those across cache ops + pubsub + vision service.
+            max_connections=5,
         )
     return _redis
 

@@ -114,7 +114,13 @@ class ConnectionManager:
             self._listener_task = asyncio.create_task(self._listen())
 
     async def _listen(self) -> None:
+        backoff = 2.0
+        max_backoff = 60.0
         while True:
+            # If nobody is connected, pause rather than hammering Redis.
+            if self._total() == 0:
+                await asyncio.sleep(5)
+                continue
             try:
                 client = await cache_service.get_redis()
                 pubsub = client.pubsub(ignore_subscribe_messages=True)
@@ -122,6 +128,7 @@ class ConnectionManager:
                 await pubsub.psubscribe(cache_service.namespaced_key("ws", "user", "*"))
                 await pubsub.subscribe(cache_service.websocket_broadcast_channel())
                 logger.info("ws_pubsub_listener_started")
+                backoff = 2.0  # reset on successful connection
 
                 async for message in pubsub.listen():
                     if message.get("type") not in {"message", "pmessage"}:
@@ -142,7 +149,8 @@ class ConnectionManager:
                 raise
             except Exception as exc:
                 logger.warning("ws_pubsub_listener_error", error=str(exc))
-                await asyncio.sleep(2)
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, max_backoff)
 
 
 manager = ConnectionManager()
