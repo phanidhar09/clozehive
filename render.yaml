@@ -105,6 +105,8 @@ services:
         sync: false
       - key: INTERNAL_SERVICE_TOKEN
         sync: false
+      - key: ENVIRONMENT
+        value: production
       - key: LOG_LEVEL
         value: INFO
 
@@ -140,6 +142,8 @@ services:
         sync: false
       - key: GCS_CREDENTIALS_JSON
         sync: false
+      - key: ENVIRONMENT
+        value: production
       - key: LOG_LEVEL
         value: INFO
 
