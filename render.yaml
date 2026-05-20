@@ -1,0 +1,195 @@
+services:
+  # ── Redis ────────────────────────────────────────────────────────────────────
+  - type: redis
+    name: clozehive-redis
+    plan: free
+    maxmemoryPolicy: allkeys-lru
+
+  # ── API Gateway ──────────────────────────────────────────────────────────────
+  - type: web
+    name: clozehive-api
+    runtime: docker
+    dockerfilePath: services/api-gateway/Dockerfile
+    dockerContext: services/api-gateway
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: clozehive-redis
+          property: connectionString
+      - key: JWT_SECRET
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o
+      - key: OPENAI_EMBEDDING_MODEL
+        value: text-embedding-3-small
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.0-flash
+      - key: OPENWEATHER_API_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: AI_AGENT_URL
+        fromService:
+          type: web
+          name: clozehive-ai-agent
+          property: host
+          envVarKey: AI_AGENT_URL
+      - key: ENABLE_MCP_TOOLS
+        value: "true"
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
+      - key: GCS_BUCKET_NAME
+        sync: false
+      - key: GCS_PROJECT_ID
+        sync: false
+      - key: GCS_CREDENTIALS_JSON
+        sync: false
+      - key: REDIS_CHECK_ON_READY
+        value: "true"
+      - key: KAFKA_ENABLED
+        value: "false"
+      - key: VITE_HIDE_NON_MVP
+        value: "true"
+      - key: LOG_LEVEL
+        value: INFO
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "15"
+      - key: REFRESH_TOKEN_EXPIRE_DAYS
+        value: "7"
+
+  # ── AI Agent ─────────────────────────────────────────────────────────────────
+  - type: web
+    name: clozehive-ai-agent
+    runtime: docker
+    dockerfilePath: services/ai-agent/Dockerfile
+    dockerContext: services/ai-agent
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: clozehive-redis
+          property: connectionString
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o
+      - key: OPENAI_EMBEDDING_MODEL
+        value: text-embedding-3-small
+      - key: OPENWEATHER_API_KEY
+        sync: false
+      - key: ENABLE_MCP_TOOLS
+        value: "true"
+      - key: MCP_WEATHER_URL
+        sync: false
+      - key: MCP_OUTFIT_URL
+        sync: false
+      - key: MCP_PACKING_URL
+        sync: false
+      - key: INTERNAL_SERVICE_TOKEN
+        sync: false
+      - key: LOG_LEVEL
+        value: INFO
+
+  # ── Vision Service ───────────────────────────────────────────────────────────
+  - type: web
+    name: clozehive-vision
+    runtime: docker
+    dockerfilePath: services/vision-service/Dockerfile
+    dockerContext: services/vision-service
+    plan: free
+    healthCheckPath: /live
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: clozehive-redis
+          property: connectionString
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.0-flash
+      - key: GCS_BUCKET_NAME
+        sync: false
+      - key: GCS_PROJECT_ID
+        sync: false
+      - key: GCS_CREDENTIALS_JSON
+        sync: false
+      - key: LOG_LEVEL
+        value: INFO
+
+  # ── MCP Weather ──────────────────────────────────────────────────────────────
+  - type: web
+    name: clozehive-mcp-weather
+    runtime: docker
+    dockerfilePath: services/mcp/weather/Dockerfile
+    dockerContext: services/mcp
+    plan: free
+    envVars:
+      - key: OPENWEATHER_API_KEY
+        sync: false
+
+  # ── MCP Outfit ───────────────────────────────────────────────────────────────
+  - type: web
+    name: clozehive-mcp-outfit
+    runtime: docker
+    dockerfilePath: services/mcp/outfit/Dockerfile
+    dockerContext: services/mcp
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+
+  # ── MCP Packing ──────────────────────────────────────────────────────────────
+  - type: web
+    name: clozehive-mcp-packing
+    runtime: docker
+    dockerfilePath: services/mcp/packing/Dockerfile
+    dockerContext: services/mcp
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+
+  # ── Frontend (Static Site) ───────────────────────────────────────────────────
+  - type: web
+    name: clozehive-frontend
+    runtime: static
+    buildCommand: cd frontend && npm install --no-audit --no-fund && npm run build
+    staticPublishPath: frontend/dist
+    plan: free
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        sync: false
+      - key: VITE_HIDE_NON_MVP
+        value: "true"
