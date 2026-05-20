@@ -80,7 +80,12 @@ async def lifespan(app: FastAPI):
     logger.info("startup", service=settings.app_name, version=settings.app_version, env=settings.environment)
 
     # PostgreSQL — primary store for users, closet, trips, packing plans, outfits, etc.
-    await db_connect()
+    try:
+        await db_connect()
+    except Exception as exc:
+        logger.error("startup_db_failed", error=str(exc),
+                     msg="DB unreachable at startup — app will start but requests requiring DB will fail")
+        # Do not re-raise: allow Render health check to pass so we can debug via shell
 
     # Optional Firestore (legacy / non-MVP paths only; Phase 1 closet + trips live in Postgres)
     try:
