@@ -33,6 +33,7 @@ or open a new ``AsyncSessionLocal`` scope there.
 
 from __future__ import annotations
 
+import ssl
 from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import (
@@ -61,7 +62,7 @@ if not _is_sqlite:
         pool_pre_ping=settings.db_pool_pre_ping,
         pool_recycle=settings.db_pool_recycle,
         pool_timeout=settings.db_pool_timeout,
-        connect_args={"ssl": "require", "statement_cache_size": 0} if settings.is_production else {},
+        connect_args={"ssl": ssl.create_default_context(), "statement_cache_size": 0} if settings.is_production else {},
     )
 
 engine = create_async_engine(settings.database_url, **_engine_kwargs)
