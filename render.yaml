@@ -78,7 +78,7 @@ services:
     dockerfilePath: services/ai-agent/Dockerfile
     dockerContext: services/ai-agent
     plan: free
-    healthCheckPath: /live
+    healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
         sync: false
