@@ -33,12 +33,10 @@ def _postgres_url() -> str:
 async def get_pool() -> asyncpg.Pool:
     global _pool
     if _pool is None:
-        _pool = await asyncpg.create_pool(
-            dsn=_postgres_url(),
-            min_size=1,
-            max_size=4,
-            command_timeout=5,
-        )
+        kwargs: dict = {"min_size": 1, "max_size": 4, "command_timeout": 5}
+        if settings.is_production:
+            kwargs["ssl"] = "require"
+        _pool = await asyncpg.create_pool(dsn=_postgres_url(), **kwargs)
     return _pool
 
 
