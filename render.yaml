@@ -13,7 +13,7 @@ services:
     dockerfilePath: services/api-gateway/Dockerfile
     dockerContext: services/api-gateway
     plan: free
-    healthCheckPath: /health
+    healthCheckPath: /live
     envVars:
       - key: DATABASE_URL
         sync: false
@@ -78,7 +78,7 @@ services:
     dockerfilePath: services/ai-agent/Dockerfile
     dockerContext: services/ai-agent
     plan: free
-    healthCheckPath: /health
+    healthCheckPath: /live
     envVars:
       - key: DATABASE_URL
         sync: false
