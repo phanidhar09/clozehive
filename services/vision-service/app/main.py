@@ -53,7 +53,11 @@ async def lifespan(app: FastAPI):
     logger.info("startup", service="vision-service", env=settings.environment)
 
     # PostgreSQL
-    await db_connect()
+    try:
+        await db_connect()
+    except Exception as exc:
+        logger.error("startup_db_failed", error=str(exc),
+                     msg="DB unreachable at startup — app will start but DB requests will fail")
 
     # Redis (best-effort)
     redis_ok = await cache_service.ping()
