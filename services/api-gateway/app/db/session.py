@@ -61,7 +61,7 @@ if not _is_sqlite:
         pool_pre_ping=settings.db_pool_pre_ping,
         pool_recycle=settings.db_pool_recycle,
         pool_timeout=settings.db_pool_timeout,
-        connect_args={"ssl": "require"} if settings.is_production else {},
+        connect_args={"ssl": "require", "statement_cache_size": 0} if settings.is_production else {},
     )
 
 engine = create_async_engine(settings.database_url, **_engine_kwargs)

@@ -36,6 +36,7 @@ async def get_pool() -> asyncpg.Pool:
         kwargs: dict = {"min_size": 1, "max_size": 4, "command_timeout": 5}
         if settings.is_production:
             kwargs["ssl"] = "require"
+            kwargs["statement_cache_size"] = 0
         _pool = await asyncpg.create_pool(dsn=_postgres_url(), **kwargs)
     return _pool
 
