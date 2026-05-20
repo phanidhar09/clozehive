@@ -180,7 +180,6 @@ services:
     runtime: static
     buildCommand: cd frontend && npm install --no-audit --no-fund && npm run build
     staticPublishPath: frontend/dist
-    plan: free
     routes:
       - type: rewrite
         source: /*
