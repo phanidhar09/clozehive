@@ -73,7 +73,7 @@ services:
       - key: REFRESH_TOKEN_EXPIRE_DAYS
         value: "7"
       - key: FRONTEND_URL
-        value: https://clozehive-frontend.onrender.com
+        value: https://clozehive.onrender.com
 
   # ── AI Agent ─────────────────────────────────────────────────────────────────
   - type: web
@@ -186,7 +186,7 @@ services:
 
   # ── Frontend (Static Site) ───────────────────────────────────────────────────
   - type: web
-    name: clozehive-frontend
+    name: clozehive
     runtime: static
     buildCommand: cd frontend && npm install --no-audit --no-fund && npm run build
     staticPublishPath: frontend/dist
