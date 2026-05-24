@@ -3,14 +3,18 @@ FROM python:3.12-slim AS base
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    UV_SYSTEM_PYTHON=1 \
+    UV_NO_CACHE=1
 
 WORKDIR /app
 
 # ── Dependencies ──────────────────────────────────────────────────────────────
 FROM base AS deps
+# Install uv — much faster resolver, handles Google's complex transitive deps
+RUN pip install uv
 COPY requirements.txt .
-RUN pip install --upgrade pip && pip install -r requirements.txt
+RUN uv pip install -r requirements.txt
 
 # ── Runtime ───────────────────────────────────────────────────────────────────
 FROM deps AS runtime
