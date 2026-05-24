@@ -11,10 +11,10 @@ WORKDIR /app
 
 # ── Dependencies ──────────────────────────────────────────────────────────────
 FROM base AS deps
-# Install uv — much faster resolver, handles Google's complex transitive deps
-RUN pip install uv
+# Copy uv binary directly from the official image — no pip needed, busts layer cache
+COPY --from=ghcr.io/astral-sh/uv:0.7.3 /uv /usr/local/bin/uv
 COPY requirements.txt .
-RUN uv pip install -r requirements.txt
+RUN uv pip install --system -r requirements.txt
 
 # ── Runtime ───────────────────────────────────────────────────────────────────
 FROM deps AS runtime

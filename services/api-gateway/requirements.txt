@@ -67,9 +67,10 @@ googleapis-common-protos==1.75.0
 google-cloud-core==2.6.0
 google-cloud-firestore==2.27.0
 google-resumable-media==2.9.0
-google-crc32c==1.8.0
-grpcio==1.80.0
-grpcio-status==1.71.2
+# grpcio, grpcio-status, google-crc32c are intentionally NOT pinned here.
+# They are native/platform-specific and grpcio-status must match the Python
+# version constraint from google-api-core[grpc] (>=1.75.1 on Python >=3.14).
+# Let uv resolve the correct versions for the build platform automatically.
 proto-plus==1.28.0
 protobuf==5.29.6
 
