@@ -240,7 +240,7 @@ async def save_analyzed_items(
             if req.image_base64:
                 try:
                     img_bytes = base64.b64decode(req.image_base64)
-                    processed_url = persist_upload(img_bytes, "image/png", f"{req.item_id}_processed.png")
+                    processed_url = await persist_upload(img_bytes, "image/png", f"{req.item_id}_processed.png")
                 except Exception as exc:
                     logger.warning("save_image_decode_failed", item_id=req.item_id, error=str(exc))
 
@@ -365,7 +365,7 @@ async def retry_remove_background(
     bg_removed = bg_status in ("success_rembg", "success_pil")
 
     # Persist the new processed image
-    new_processed_url = persist_upload(processed_bytes, "image/png", f"retry_{item_id}.png")
+    new_processed_url = await persist_upload(processed_bytes, "image/png", f"retry_{item_id}.png")
 
     # Update item in DB
     updated = await repo.update(

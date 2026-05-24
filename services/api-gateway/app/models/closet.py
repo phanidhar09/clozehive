@@ -57,6 +57,7 @@ class ClosetItem(Base):
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     brand: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     size: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    section: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
     price: Mapped[Optional[float]] = mapped_column(Numeric(10, 2), nullable=True)
     embedding: Mapped[Optional[list[float]]] = mapped_column(Vector(1536), nullable=True, index=False)
     wear_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -101,3 +102,4 @@ class Outfit(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+

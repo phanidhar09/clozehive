@@ -161,7 +161,7 @@ async def start_ingest(
     for file in files:
         try:
             image_bytes, content_type = await read_validated_image(file)
-            url = persist_upload(image_bytes, content_type, file.filename)
+            url = await persist_upload(image_bytes, content_type, file.filename)
             from app.core.config import get_settings
             settings = get_settings()
             from pathlib import Path

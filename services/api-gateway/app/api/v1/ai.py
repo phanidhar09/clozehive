@@ -90,9 +90,9 @@ async def _get_closet_for_occasion(
             table="closet_items",
             embedding=embedding,
             user_id=str(user_id),
-            extra_where="AND is_archived = false",
             limit=30,
             threshold=0.25,
+            filter_archived=True,
         )
         if rows:
             return [

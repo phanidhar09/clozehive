@@ -22,6 +22,7 @@ GCS credentials
 
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 from pathlib import Path
@@ -223,9 +224,10 @@ def _gcs_client():
 
 
 def _gcs_upload(image_bytes: bytes, blob_name: str, content_type: str) -> str:
-    """Upload bytes to GCS and return the public HTTPS URL.
+    """Upload bytes to GCS synchronously and return the public HTTPS URL.
 
     The bucket must have allUsers / roles/storage.objectViewer for public reads.
+    This is intentionally synchronous so it can be called via asyncio.to_thread.
     """
     settings = get_settings()
     client = _gcs_client()
@@ -235,12 +237,39 @@ def _gcs_upload(image_bytes: bytes, blob_name: str, content_type: str) -> str:
     return f"https://storage.googleapis.com/{settings.gcs_bucket_name}/{blob_name}"
 
 
+def _gcs_delete(blob_name: str) -> None:
+    """Delete a blob from GCS synchronously (call via asyncio.to_thread)."""
+    settings = get_settings()
+    try:
+        client = _gcs_client()
+        bucket = client.bucket(settings.gcs_bucket_name)
+        blob = bucket.blob(blob_name)
+        blob.delete()
+    except Exception:
+        # Non-fatal: log at caller level; don't crash the delete request.
+        pass
+
+
+def _blob_name_from_gcs_url(url: str) -> Optional[str]:
+    """Extract the GCS blob name from a public storage URL, or None if not a GCS URL."""
+    prefix = "https://storage.googleapis.com/"
+    if not url.startswith(prefix):
+        return None
+    without_prefix = url[len(prefix):]
+    # Strip the bucket name from the front: "{bucket}/{blob_name}"
+    parts = without_prefix.split("/", 1)
+    return parts[1] if len(parts) == 2 else None
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def persist_upload(
+async def persist_upload(
     image_bytes: bytes, content_type: str, original_filename: Optional[str]
 ) -> str:
     """Persist image bytes and return a stable public URL.
+
+    Runs blocking I/O (GCS or local disk) in a thread pool so the async
+    event loop is never blocked.
 
     Returns a ``https://storage.googleapis.com/...`` URL when GCS is configured,
     or a ``/uploads/<filename>`` relative URL for local-disk fallback.
@@ -253,13 +282,35 @@ def persist_upload(
 
     if settings.gcs_enabled:
         blob_name = f"{_GCS_UPLOADS_PREFIX}/{stored_name}"
-        return _gcs_upload(image_bytes, blob_name, content_type)
+        return await asyncio.to_thread(_gcs_upload, image_bytes, blob_name, content_type)
 
     # Local fallback — development only, not persistent across container restarts
     root = settings.upload_path
     dest = root / stored_name
-    dest.write_bytes(image_bytes)
+    await asyncio.to_thread(dest.write_bytes, image_bytes)
     return f"/uploads/{stored_name}"
+
+
+async def delete_upload(image_url: str) -> None:
+    """Delete a previously persisted upload (GCS or local disk), best-effort.
+
+    Safe to call even if the URL is None, empty, or points to a non-existent
+    object — errors are swallowed so that item deletion always succeeds.
+    """
+    if not image_url:
+        return
+    settings = get_settings()
+    if settings.gcs_enabled:
+        blob_name = _blob_name_from_gcs_url(image_url)
+        if blob_name:
+            await asyncio.to_thread(_gcs_delete, blob_name)
+        return
+    # Local disk cleanup
+    try:
+        img_path = settings.upload_path / Path(image_url).name
+        await asyncio.to_thread(img_path.unlink, True)  # missing_ok=True
+    except Exception:
+        pass
 
 
 def read_upload_bytes(url: str) -> bytes:

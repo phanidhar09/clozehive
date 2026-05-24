@@ -80,6 +80,13 @@ export interface UserStyleProfile {
   onboarding_skipped: boolean
   created_at?: string | null
   updated_at?: string | null
+  // v2 onboarding fields
+  styling_goals?: string[]
+  avoidances?: string[]
+  pattern_preferences?: string[]
+  style_archetype?: string | null
+  recommendation_rules?: Record<string, unknown> | null
+  ai_stylist_context?: string | null
 }
 
 export interface OnboardingStatus {
@@ -266,6 +273,21 @@ export interface AvatarConfig {
 
 // ── Trips ────────────────────────────────────────────────────────────────────
 
+export type TripStyle = 'casual' | 'smart_casual' | 'chic' | 'business' | 'sporty' | 'beach' | 'boho' | 'streetwear'
+export type BagSize = 'backpack' | 'carry_on' | 'medium_suitcase' | 'large_suitcase' | 'none'
+export type TimeOfDay = 'morning' | 'afternoon' | 'evening' | 'night' | 'full_day'
+export type ActivityFormality = 'casual' | 'smart_casual' | 'formal' | 'active' | 'beachwear' | 'business'
+
+export interface TripActivity {
+  name: string
+  day_number?: number | null
+  date?: string | null
+  time_of_day?: TimeOfDay | null
+  formality?: ActivityFormality | null
+  is_fixed: boolean
+  notes?: string | null
+}
+
 export interface Trip {
   id: string            // UUID
   user_id: string       // UUID
@@ -274,15 +296,84 @@ export interface Trip {
   end_date: string      // ISO date
   purpose: string
   notes?: string | null
+  trip_style?: TripStyle | null
+  bag_size?: BagSize | null
+  activities: TripActivity[]
   is_saved: boolean
   created_at: string
   updated_at: string
+}
+
+// ── Rich packing plan types ───────────────────────────────────────────────────
+
+export interface RichOutfitItem {
+  closet_item_id?: string | null
+  item_name: string
+  category: string
+  image_url?: string | null
+  source: 'from_closet' | 'missing_recommended' | 'optional' | 'essential'
+}
+
+export interface OutfitSlot {
+  slot: TimeOfDay
+  activity: string
+  outfit_name: string
+  items: RichOutfitItem[]
+  styling_notes?: string
+  comfort_notes?: string
+  rewear_notes?: string
+}
+
+export interface RichDayPlan {
+  day_number: number
+  date: string
+  weather_note?: string
+  activities: string[]
+  outfits: OutfitSlot[]
+}
+
+export interface PackingChecklistItem {
+  item_name: string
+  category: string
+  closet_item_id?: string | null
+  image_url?: string | null
+  source: string
+  quantity: number
+  planned_days: string[]
+  activities: string[]
+  rewear_count: number
+  is_packed: boolean
+  priority?: string
+  reason?: string
+}
+
+export interface RewearStrategyItem {
+  item_name: string
+  closet_item_id?: string | null
+  worn_on_days: string[]
+  worn_for?: string[]
+  reason: string
+}
+
+export interface BagCapacitySummary {
+  packing_status: 'fits' | 'tight' | 'overpacked'
+  total_unique_items?: number
+  optimization_notes: string[]
+}
+
+export interface MissingItemRich {
+  item_name: string
+  category: string
+  needed_for?: string
+  priority: 'essential' | 'recommended' | 'optional'
+  reason?: string
 }
 
 export interface PackingPlan {
   id: string
   trip_id: string
   user_id: string
+  // ── Legacy fields (backward compat) ──────────────────────────────────────
   take_from_your_closet: PackingItemDetailed[]
   you_might_still_need: PackingItemNeeded[]
   daily_plan: DailyOutfitPlan[]
@@ -292,6 +383,16 @@ export interface PackingPlan {
   summary?: string | null
   closet_hint?: string | null
   alerts: string[]
+  // ── New rich fields ───────────────────────────────────────────────────────
+  activities: TripActivity[]
+  day_plans_rich: RichDayPlan[]
+  rewear_strategy: RewearStrategyItem[]
+  bag_capacity_summary?: BagCapacitySummary | null
+  packing_checklist: PackingChecklistItem[]
+  checklist_state: Record<string, boolean>
+  trip_style_direction?: string | null
+  climate_summary?: string | null
+  // ─────────────────────────────────────────────────────────────────────────
   is_saved: boolean
   created_at: string
   updated_at: string
@@ -596,9 +697,17 @@ export interface PurchaseGapHint {
   reason: string
 }
 
+export interface StylingHint {
+  tip: string
+  closet_item_name?: string | null
+  closet_item_id?: string | null
+  category: 'color' | 'layering' | 'accessories' | 'fit' | 'occasion' | 'general'
+}
+
 export interface AIChatStructuredResponse {
   reply: string
   recommended_outfits: RecommendedOutfit[]
+  styling_suggestions: StylingHint[]
   purchase_gaps: PurchaseGapHint[]
   follow_up_questions: string[]
 }

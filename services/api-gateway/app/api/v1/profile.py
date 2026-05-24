@@ -11,6 +11,7 @@ from app.core.exceptions import NotFoundError
 from app.schemas.style_profile import (
     CompleteOnboardingBody,
     OnboardingStatusResponse,
+    OnboardingSubmitBody,
     StyleProfileCreate,
     StyleProfileResponse,
     StyleProfileUpdate,
@@ -52,3 +53,17 @@ async def complete_style_onboarding(
     body: CompleteOnboardingBody, user_id: CurrentUser, session: DbSession
 ):
     return await style_profile_service.complete_onboarding(session, UUID(user_id), body)
+
+
+@router.post("/onboarding/submit", response_model=StyleProfileResponse)
+async def submit_onboarding(
+    body: OnboardingSubmitBody, user_id: CurrentUser, session: DbSession
+):
+    """V2 onboarding wizard — saves all answers in one call and marks completion."""
+    return await style_profile_service.submit_onboarding(session, UUID(user_id), body)
+
+
+@router.post("/style/refresh-summary", response_model=StyleProfileResponse)
+async def refresh_style_summary(user_id: CurrentUser, session: DbSession):
+    """Re-generate style summary + archetype using latest wardrobe & profile data."""
+    return await style_profile_service.refresh_style_summary(session, UUID(user_id))

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useSearchParams, useNavigate, Link } from 'react-router-dom'
+import BackButton from '@/components/ui/BackButton'
 import {
   Search, Users, UserCheck, Loader2, Edit3, Check, Shirt,
   User as UserIcon, Ruler, Palette, Brain, MapPin, Calendar, Sparkles,
@@ -58,7 +59,7 @@ export default function Profile() {
     setProfileLoading(true)
     socialApi.getProfile(currentUser.id)
       .then(setProfile)
-      .catch(console.error)
+      .catch(() => { /* profile load failure is non-fatal */ })
       .finally(() => setProfileLoading(false))
   }, [currentUser])
 
@@ -85,11 +86,19 @@ export default function Profile() {
   }, [])
 
   if (!currentUser) {
-    return <div className="p-8 text-slate-400">Sign in to view your profile.</div>
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <div className="w-16 h-16 rounded-2xl bg-slate-100 dark:bg-white/5 flex items-center justify-center mb-4">
+          <UserIcon size={28} className="text-slate-300 dark:text-white/20" />
+        </div>
+        <p className="font-semibold text-slate-600 dark:text-white/60">Sign in to view your profile</p>
+      </div>
+    )
   }
 
   return (
     <div className="max-w-5xl space-y-6">
+      <BackButton fallback="/dashboard" label="Back to Dashboard" />
 
       {searchParams.get('onboarding') === '1' && (
         <div className="rounded-2xl border border-indigo-200 dark:border-indigo-500/35 bg-indigo-50/90 dark:bg-indigo-950/35 p-4 text-sm text-slate-700 dark:text-slate-200">
@@ -1273,8 +1282,92 @@ function SettingsTab({
           </SettingsSectionCard>
         </div>
 
+        {/* ── GDPR: Your Data ──────────────────────────────── */}
+        <GdprSection />
+
       </div>
     </div>
+  )
+}
+
+function GdprSection() {
+  const navigate = useNavigate()
+  const { logout } = useApp()
+  const [exporting, setExporting] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+
+  const handleExport = async () => {
+    setExporting(true)
+    try {
+      await authApi.exportMyData()
+    } catch {
+      /* ignore */
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!confirmDelete) { setConfirmDelete(true); return }
+    setDeleting(true)
+    try {
+      await authApi.deleteAccount()
+      logout()
+      navigate('/login', { replace: true })
+    } catch {
+      setDeleting(false)
+      setConfirmDelete(false)
+    }
+  }
+
+  return (
+    <SettingsSectionCard
+      gradient="from-rose-500 to-red-700"
+      icon={<Shield size={15} className="text-rose-500" />}
+      title="Your Data (GDPR)"
+      desc="Access, download, or permanently erase the data we hold about you."
+    >
+      <div className="space-y-3">
+        {/* Export */}
+        <div className="flex items-center justify-between gap-4 p-3.5 rounded-2xl bg-slate-50 dark:bg-white/[0.03] border border-slate-200/60 dark:border-white/[0.05]">
+          <div>
+            <p className="text-sm font-medium text-slate-800 dark:text-white">Download your data</p>
+            <p className="text-xs text-slate-500 dark:text-white/40 mt-0.5">Export a JSON file of your profile, closet, trips, and chat history.</p>
+          </div>
+          <button
+            onClick={handleExport}
+            disabled={exporting}
+            className="flex-shrink-0 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50 transition-colors"
+          >
+            {exporting ? 'Exporting…' : 'Export'}
+          </button>
+        </div>
+
+        {/* Delete account */}
+        <div className="flex items-center justify-between gap-4 p-3.5 rounded-2xl bg-red-50 dark:bg-red-900/10 border border-red-200/60 dark:border-red-700/30">
+          <div>
+            <p className="text-sm font-medium text-red-700 dark:text-red-400">Delete account</p>
+            <p className="text-xs text-red-500/80 dark:text-red-400/60 mt-0.5">
+              {confirmDelete
+                ? 'This is permanent and cannot be undone. Click again to confirm.'
+                : 'Permanently erase your account and all associated data.'}
+            </p>
+          </div>
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            className={`flex-shrink-0 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-colors disabled:opacity-50
+              ${confirmDelete
+                ? 'bg-red-600 text-white hover:bg-red-700'
+                : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50'
+              }`}
+          >
+            {deleting ? 'Deleting…' : confirmDelete ? 'Confirm delete' : 'Delete'}
+          </button>
+        </div>
+      </div>
+    </SettingsSectionCard>
   )
 }
 

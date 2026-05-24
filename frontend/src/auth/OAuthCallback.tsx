@@ -7,12 +7,16 @@ import { useApp } from '@/store'
 const INFLIGHT_KEY = 'ch_oauth_inflight'
 
 /**
- * Completes Google OAuth: tokens arrive as query params on /oauth/callback.
+ * Completes Google OAuth via a secure two-step exchange:
  *
- * React 18 Strict Mode runs effects twice in development. We must not call
- * `history.replaceState` (which strips the query) before both runs have had
- * a chance to read `access_token` / `refresh_token`, or the second run sees an
- * empty URL and sends the user to "Google sign-in failed".
+ * 1. The backend redirects here with a short-lived one-time `?code=` parameter
+ *    (never the raw JWT tokens).
+ * 2. We POST the code to /auth/oauth/exchange which returns the real tokens and
+ *    immediately deletes the server-side entry so it cannot be replayed.
+ *
+ * React 18 Strict Mode runs effects twice in development. The `INFLIGHT_KEY`
+ * flag prevents the second run from issuing a duplicate exchange request after
+ * the first has already consumed the one-time code.
  */
 export default function OAuthCallback() {
   const navigate = useNavigate()
@@ -20,10 +24,9 @@ export default function OAuthCallback() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    const accessToken = params.get('access_token')
-    const refreshToken = params.get('refresh_token')
+    const code = params.get('code')
 
-    if (!accessToken || !refreshToken) {
+    if (!code) {
       navigate('/login?error=oauth_failed', { replace: true })
       return
     }
@@ -33,17 +36,21 @@ export default function OAuthCallback() {
     }
     sessionStorage.setItem(INFLIGHT_KEY, '1')
 
-    tokenStorage.set(accessToken, refreshToken)
+    // Strip the one-time code from the URL immediately so it is not retained in
+    // browser history even if the exchange call below fails.
+    window.history.replaceState({}, '', '/oauth/callback')
 
     const finish = () => {
       sessionStorage.removeItem(INFLIGHT_KEY)
-      window.history.replaceState({}, '', '/oauth/callback')
     }
 
     authApi
-      .getMe()
-      .then(async user => {
-        login(user, accessToken, refreshToken)
+      .oauthExchange(code)
+      .then(async ({ access_token }) => {
+        // Refresh token is delivered as HttpOnly cookie by the server — do not store it here.
+        tokenStorage.set(access_token)
+        const user = await authApi.getMe()
+        login(user, access_token)
         try {
           const st = await profileApi.getOnboardingStatus()
           if (!st.onboarding_completed) {
@@ -51,12 +58,12 @@ export default function OAuthCallback() {
             return
           }
         } catch {
-          /* continue */
+          /* continue to dashboard */
         }
         navigate('/dashboard', { replace: true, state: { fromLogin: true } })
       })
       .catch(err => {
-        console.error('[OAuth] getMe failed after Google redirect', err)
+        console.error('[OAuth] token exchange failed', err)
         tokenStorage.clear()
         navigate('/login?error=oauth_failed', { replace: true })
       })

@@ -23,6 +23,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
+from app.core.llm_safety import (
+    build_closet_item_summary,
+    sanitize_user_text,
+    wrap_untrusted,
+)
 from app.models.closet import ClosetItem
 from app.repositories.user_repo import UserRepository
 from app.services import ai_service, weather_service
@@ -41,36 +46,58 @@ logger = get_logger("ai_stylist_chat_service")
 # ── System prompt ─────────────────────────────────────────────────────────────
 
 _SYSTEM_PROMPT_TEMPLATE = """\
-You are CLOZEHIVE AI Stylist, a personal fashion intelligence assistant. \
-Your job is to recommend outfits using ONLY the items listed in the user's wardrobe below. \
-NEVER invent, assume, or hallucinate clothing items. \
-If the wardrobe lacks what is needed, say so clearly and list it as a "purchase_gap".
+You are FANI — ClozeHive's personal AI stylist (Fashion AI Nurturing Individuality). \
+You are warm, encouraging, and specific. You handle ALL fashion and styling questions — not just outfit building.
 
-STRICT RULES:
-1. Outfit items MUST come exclusively from [WARDROBE CONTEXT].
+CAPABILITIES:
+• Recommend outfits built exclusively from the user's wardrobe (WARDROBE CONTEXT below)
+• Answer general fashion/styling questions (color theory, trends, rules, care tips, etc.)
+• Critique and improve existing outfits — suggest specific closet items to swap or add
+• Identify wardrobe gaps and what to buy next
+• Give styling tips for specific body types, occasions, or moods
+• Help the user understand their own style identity
+
+STRICT RULES FOR OUTFIT RECOMMENDATIONS:
+1. Outfit items MUST come exclusively from [WARDROBE CONTEXT]. NEVER invent items.
 2. Always use the exact item id and name from the wardrobe list.
 3. matching_score must equal color + occasion + fit + style + weather + preference (max 100).
-4. For every recommended outfit, explain WHY it works in "reasoning".
-5. List 1–3 actionable "improvement_tips" per outfit.
-6. List "fashion_rules_used" as short strings (e.g. "color harmony", "occasion match").
-7. If the wardrobe has <3 items suitable for the request, fill "purchase_gaps" with what is missing.
-8. "follow_up_questions": 2–3 natural follow-up questions the user might ask.
-9. Return ONLY valid JSON. No markdown fences, no prose outside the JSON.
+4. For every outfit, explain WHY it works in "reasoning".
+5. List 1–3 actionable "improvement_tips" — reference specific closet items where possible.
+6. List "fashion_rules_used" as short strings (e.g. "color harmony", "60-30-10 rule").
+7. If wardrobe has <3 suitable items, fill "purchase_gaps" with what is missing.
 
-RESPONSE SCHEMA:
+STYLING SUGGESTIONS:
+• When asked to improve styling or "how can I look better", provide "styling_suggestions" — an array of specific, actionable tips.
+• Each suggestion should reference real items from the wardrobe when possible (use their exact names).
+• Suggestions can cover: adding accessories, trying different color combos, re-purposing items, layering ideas.
+
+GENERAL QUESTIONS:
+• When the question is general (trends, color theory, care, fashion rules, body type advice), answer in "reply" conversationally.
+• You may still suggest closet items if they're relevant.
+• Skip "recommended_outfits" array (leave empty []) for purely general questions.
+
+RESPONSE SCHEMA — always return valid JSON, no markdown fences, no prose outside JSON:
 {{
-  "reply": "Conversational summary addressed to the user (1-3 sentences).",
+  "reply": "Conversational response (1-4 sentences). For general questions this is the main answer.",
   "recommended_outfits": [
     {{
       "title": "Smart Dinner Look",
       "items": [
-        {{"id": "<uuid>", "name": "...", "category": "...", "color": "..."}}
+        {{"id": "<uuid>", "name": "...", "category": "...", "color": "...", "image_url": null}}
       ],
       "matching_score": 88,
       "score_breakdown": {{"color": 22, "occasion": 23, "fit": 18, "style": 12, "weather": 9, "preference": 4}},
       "reasoning": "One paragraph explaining why this outfit works.",
       "fashion_rules_used": ["color harmony", "occasion match"],
-      "improvement_tips": ["Swap X for Y to elevate the look."]
+      "improvement_tips": ["Swap X for Y to elevate the look.", "Add your navy blazer for a polished finish."]
+    }}
+  ],
+  "styling_suggestions": [
+    {{
+      "tip": "Short actionable tip (1-2 sentences)",
+      "closet_item_name": "Exact item name from wardrobe if relevant, or null",
+      "closet_item_id": "Item UUID if relevant, or null",
+      "category": "One of: color | layering | accessories | fit | occasion | general"
     }}
   ],
   "purchase_gaps": [
@@ -78,7 +105,8 @@ RESPONSE SCHEMA:
   ],
   "follow_up_questions": [
     "Would you like a more casual alternative?",
-    "Should I factor in the weather forecast?"
+    "Should I factor in the weather forecast?",
+    "Want me to suggest what to buy next?"
   ]
 }}
 
@@ -158,9 +186,9 @@ async def _rag_load_closet(
         table="closet_items",
         embedding=query_embedding,
         user_id=str(user_id),
-        extra_where="AND is_archived = false",
         limit=_RAG_CLOSET_LIMIT,
         threshold=0.30,  # low threshold — we want broad coverage for fashion
+        filter_archived=True,
     )
     if rows:
         logger.info(
@@ -210,16 +238,32 @@ async def _resolve_weather(session: AsyncSession, user_id: UUID, location: str |
 
 
 def _build_wardrobe_block(items: list[dict[str, Any]]) -> str:
+    """Build the wardrobe context block.
+
+    All user-provided field values are sanitised before embedding so that a
+    malicious item name (e.g. "ignore previous instructions") cannot hijack
+    the system prompt.  Item IDs are server-generated UUIDs and trusted.
+    """
     if not items:
         return "[WARDROBE CONTEXT]\nNo items in wardrobe yet.\n[END WARDROBE CONTEXT]"
     lines = [f"[WARDROBE CONTEXT] ({len(items)} items)"]
     for it in items:
-        occ = ", ".join(it.get("occasion") or []) or "any"
-        season = ", ".join(it.get("season") or []) if isinstance(it.get("season"), list) else str(it.get("season") or "")
+        occ_raw = it.get("occasion") or []
+        occ = sanitize_user_text(
+            ", ".join(occ_raw) if isinstance(occ_raw, list) else str(occ_raw),
+            field="notes", max_len=80,
+        ) or "any"
+        season_raw = it.get("season") or []
+        season = sanitize_user_text(
+            ", ".join(season_raw) if isinstance(season_raw, list) else str(season_raw),
+            field="notes", max_len=60,
+        ) or "all"
         lines.append(
-            f"  id={it['id']} | {it['name']} | {it['category']} | "
-            f"color={it['color'] or '?'} | fabric={it.get('fabric') or '?'} | "
-            f"occasion={occ} | season={season or 'all'} | worn={it.get('wear_count', 0)}x"
+            f"  id={it['id']} | {sanitize_user_text(it.get('name', ''), field='name')} | "
+            f"{sanitize_user_text(it.get('category', ''), field='category')} | "
+            f"color={sanitize_user_text(it.get('color') or '?', field='color', max_len=40)} | "
+            f"fabric={sanitize_user_text(it.get('fabric') or '?', field='material', max_len=60)} | "
+            f"occasion={occ} | season={season} | worn={it.get('wear_count', 0)}x"
         )
     lines.append("[END WARDROBE CONTEXT]")
     return "\n".join(lines)
@@ -409,16 +453,23 @@ async def process_chat_message(
     )
 
     # ── Step 5: Build conversation messages ───────────────────────────────────
+    # Sanitise every user-supplied string before it enters the conversation.
     messages: list[dict[str, str]] = []
     for h in (chat_history or [])[-10:]:
-        if h.get("role") in ("user", "assistant") and h.get("content"):
-            messages.append({"role": h["role"], "content": h["content"]})
+        role = h.get("role")
+        content = h.get("content")
+        if role in ("user", "assistant") and content:
+            safe_content = sanitize_user_text(str(content), field="message")
+            messages.append({"role": role, "content": safe_content})
 
-    augmented_message = message
+    safe_message = sanitize_user_text(message, field="message")
+    augmented_message = safe_message
     if mood:
-        augmented_message += f"\n\n[User mood: {mood}]"
+        safe_mood = sanitize_user_text(mood, field="notes", max_len=50)
+        augmented_message += f"\n\n[User mood: {safe_mood}]"
     if occasion and occasion != "casual":
-        augmented_message += f"\n[Occasion: {occasion}]"
+        safe_occasion = sanitize_user_text(occasion, field="notes", max_len=60)
+        augmented_message += f"\n[Occasion: {safe_occasion}]"
     messages.append({"role": "user", "content": augmented_message})
 
     # ── Call AI ───────────────────────────────────────────────────────────────
@@ -441,6 +492,7 @@ async def process_chat_message(
     return {
         "reply": str(data.get("reply") or ""),
         "recommended_outfits": outfits,
+        "styling_suggestions": data.get("styling_suggestions") or [],
         "purchase_gaps": data.get("purchase_gaps") or [],
         "follow_up_questions": data.get("follow_up_questions") or [],
     }
@@ -453,9 +505,11 @@ def _fallback_response(message: str, closet_items: list[dict[str, Any]]) -> dict
             f"Your wardrobe has {len(closet_items)} items ready for me to work with."
         ),
         "recommended_outfits": [],
+        "styling_suggestions": [],
         "purchase_gaps": [],
         "follow_up_questions": [
             "What occasion are you dressing for?",
             "Would you like casual or smart recommendations?",
+            "Can you help me improve my current style?",
         ],
     }

@@ -2,6 +2,7 @@ import { Outlet } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import Navbar from './Navbar'
 import FloatingAIChat from '@/components/ai-chat/FloatingAIChat'
+import ToastContainer from '@/components/ui/ToastContainer'
 
 /**
  * Three-layer depth system:
@@ -55,8 +56,11 @@ export default function Layout() {
         </main>
       </div>
 
-      {/* Floating FANI — available on every page */}
+      {/* Floating AI chat — available on every page */}
       <FloatingAIChat />
+
+      {/* Real-time toast notifications — bottom-left, above everything */}
+      <ToastContainer />
     </div>
   )
 }

@@ -302,12 +302,7 @@ async def ensure_seeded(session: AsyncSession) -> None:
             embedding=embedding,
         )
         session.add(db_doc)
-    try:
-        await session.commit()
-        logger.info("fashion_kb_seeded", docs=len(_KNOWLEDGE_SEED))
-    except Exception as exc:
-        await session.rollback()
-        logger.warning("fashion_kb_seed_failed", error=str(exc))
+    logger.info("fashion_kb_seeded", docs=len(_KNOWLEDGE_SEED))
 
 
 async def search_fashion_knowledge(
@@ -323,15 +318,14 @@ async def search_fashion_knowledge(
     if not embedding:
         return _keyword_fallback(session, query, category, limit)
 
-    extra_where = f"AND category = '{category}'" if category else ""
     rows = await pgvector_cosine_search(
         session,
         table="fashion_knowledge_documents",
         embedding=embedding,
         user_id=None,
-        extra_where=extra_where,
         limit=limit,
         threshold=0.60,
+        filter_category=category,
     )
     return [
         {

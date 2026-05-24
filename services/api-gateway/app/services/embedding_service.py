@@ -8,6 +8,8 @@ Provides:
 
 from __future__ import annotations
 
+import re
+import uuid as _uuid
 from typing import Any, Type, TypeVar
 
 from langsmith import traceable
@@ -22,6 +24,20 @@ from app.db.base import Base
 
 settings = get_settings()
 logger = get_logger("embedding_service")
+
+# Tables that are permitted as targets for pgvector_cosine_search.
+# This allowlist prevents table-name injection — PostgreSQL cannot parameterise
+# table/column identifiers, so we validate the caller-supplied name explicitly.
+_ALLOWED_TABLES: frozenset[str] = frozenset({
+    "closet_items",
+    "outfit_history",
+    "packing_memory",
+    "fashion_knowledge_documents",
+    "purchase_gaps",
+})
+
+# Matches the exact string produced by vector_literal(): "[f,f,f,…]"
+_VEC_RE = re.compile(r"\[[\d.,eE+\-]+\]")
 
 _client: AsyncOpenAI | None = None
 
@@ -96,27 +112,72 @@ async def pgvector_cosine_search(
     table: str,
     embedding: list[float],
     user_id: str | None,
-    extra_where: str = "",
     limit: int = _DEFAULT_LIMIT,
     threshold: float = _DEFAULT_THRESHOLD,
+    filter_archived: bool = False,
+    exclude_id: str | None = None,
+    filter_category: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Raw SQL cosine search against any table with an `embedding` vector column."""
+    """Raw SQL cosine search against any table with an `embedding` vector column.
+
+    Security notes:
+    - ``table`` is validated against ``_ALLOWED_TABLES`` (cannot be parameterised
+      in PostgreSQL; must use an allowlist).
+    - The vector literal is validated with a strict regex before interpolation.
+    - All user-supplied filter values (``user_id``, ``exclude_id``,
+      ``filter_category``) are passed as bound parameters, never interpolated.
+    """
+    if table not in _ALLOWED_TABLES:
+        logger.warning("pgvector_search_blocked", table=table, reason="table_not_in_allowlist")
+        return []
+
     vec = vector_literal(embedding)
-    user_filter = f"AND user_id = '{user_id}'::uuid" if user_id else ""
+    if not _VEC_RE.fullmatch(vec):
+        logger.warning("pgvector_search_blocked", reason="invalid_vector_literal")
+        return []
+
+    if exclude_id is not None:
+        try:
+            _uuid.UUID(exclude_id)
+        except ValueError:
+            logger.warning("pgvector_search_blocked", reason="invalid_exclude_id")
+            return []
+
+    params: dict[str, Any] = {"threshold": threshold, "limit": limit}
+
+    user_filter = ""
+    if user_id:
+        params["user_id"] = user_id
+        user_filter = "AND user_id = :user_id::uuid"
+
+    archived_filter = "AND is_archived = false" if filter_archived else ""
     resolved_filter = "AND resolved = false" if table == "purchase_gaps" else ""
+
+    exclude_filter = ""
+    if exclude_id is not None:
+        params["exclude_id"] = exclude_id
+        exclude_filter = "AND id != :exclude_id::uuid"
+
+    category_filter = ""
+    if filter_category is not None:
+        params["filter_category"] = filter_category
+        category_filter = "AND category = :filter_category"
+
     sql = text(f"""
         SELECT *, 1 - (embedding <=> '{vec}'::vector) AS similarity_score
         FROM {table}
         WHERE embedding IS NOT NULL
           {user_filter}
-          {extra_where}
+          {archived_filter}
+          {exclude_filter}
+          {category_filter}
           {resolved_filter}
           AND 1 - (embedding <=> '{vec}'::vector) >= :threshold
         ORDER BY embedding <=> '{vec}'::vector
         LIMIT :limit
     """)
     try:
-        result = await session.execute(sql, {"threshold": threshold, "limit": limit})
+        result = await session.execute(sql, params)
         rows = result.mappings().all()
         return [dict(r) for r in rows]
     except Exception as exc:

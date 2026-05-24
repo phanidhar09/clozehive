@@ -94,7 +94,7 @@ async def _append_bulk_fallback_preview(
         try:
             png, bg_status = await remove_background_async(image_bytes)
             if bg_status in ("success_rembg", "success_pil"):
-                proc_url = persist_upload(png, "image/png", None)
+                proc_url = await persist_upload(png, "image/png", None)
                 bg_removed = True
         except Exception as exc:
             logger.warning("preview_full_bg_failed", error=str(exc))
@@ -177,7 +177,7 @@ def _append_minimal_placeholder_preview(
     )
 
 
-def _recrop_from_source(
+async def _recrop_from_source(
     image_bytes: bytes,
     vitem: Any,
     detected_item_id: str,
@@ -208,7 +208,7 @@ def _recrop_from_source(
     }
     try:
         crop = _crop_item(image_bytes, bbox_dict)
-        url = persist_upload(crop, "image/png", f"{detected_item_id}_crop.png")
+        url = await persist_upload(crop, "image/png", f"{detected_item_id}_crop.png")
         logger.info("recropped_from_source_on_cache_hit", detected_item_id=detected_item_id)
         return url, True
     except Exception as exc:
@@ -227,7 +227,7 @@ async def analyze_preview(
     content_type: str,
     filename: str | None,
 ) -> ClosetAnalyzePreviewResponse:
-    original_url = persist_upload(image_bytes, content_type, filename)
+    original_url = await persist_upload(image_bytes, content_type, filename)
     scan_id = str(uuid4())
     pipeline = await run_pipeline(
         image_bytes,
@@ -256,7 +256,7 @@ async def analyze_preview(
                 # Fresh pipeline run — image_base64 holds the per-item crop/BG-removed bytes.
                 try:
                     png = base64.b64decode(raw_b64)
-                    proc_url = persist_upload(png, "image/png", f"{detected_item_id}.png")
+                    proc_url = await persist_upload(png, "image/png", f"{detected_item_id}.png")
                     logger.debug(
                         "closet_preview_item_persisted",
                         detected_item_id=detected_item_id,
@@ -279,7 +279,7 @@ async def analyze_preview(
                 # Cache hit: image_base64 is intentionally absent in cached payload.
                 # Re-crop from source bytes using the stored bounding_box so every
                 # item still gets its own image rather than the full original.
-                proc_url, _recrop_ok = _recrop_from_source(
+                proc_url, _recrop_ok = await _recrop_from_source(
                     image_bytes, vitem, detected_item_id, original_url
                 )
                 if not _recrop_ok:

@@ -1,732 +1,894 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+/**
+ * StyleProfileOnboarding — v2 premium 6-step wizard.
+ *
+ * Steps:
+ *  1. Style Identity   — pick your vibe (multi-select style cards)
+ *  2. Lifestyle        — occasions you dress for
+ *  3. Fit & Comfort    — preferred fits + things you avoid
+ *  4. Colors & Patterns — colour swatches + pattern picks
+ *  5. Styling Goal     — what you're building
+ *  6. About You        — optional body / climate context
+ *
+ * On submit → POST /profile/onboarding/submit → AI derives archetype + context
+ * → redirect to /onboarding/result
+ */
+
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import {
-  ArrowLeft,
-  ArrowRight,
-  Check,
-  Loader2,
-  Sparkles,
-} from 'lucide-react'
-import type { StyleGender, UserStyleProfile } from '@/types'
+import { AnimatePresence, motion } from 'framer-motion'
+import { ArrowLeft, ArrowRight, Check, Loader2, Sparkles, X } from 'lucide-react'
 import { profileApi } from '@/lib/api'
-import {
-  AGE_RANGES,
-  CLIMATE_PREFS,
-  OCCASION_PREFS,
-  STYLE_IDENTITY_OPTIONS,
-  STYLE_TAGS,
-  optionsForGender,
-  type StyleIdentityKey,
-} from '@/config/styleProfileOptions'
+import { cn } from '@/lib/utils'
 
-const STEPS = [
-  'welcome',
-  'basic',
-  'body',
-  'fit',
-  'sizes',
-  'style',
-  'colors',
-  'occasions',
-  'climate',
-  'review',
-] as const
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-type StepId = (typeof STEPS)[number]
+interface OnboardingPayload {
+  style_preferences: string[]
+  occasion_preferences: string[]
+  fit_preferences: string[]
+  avoidances: string[]
+  favorite_colors: string[]
+  avoided_colors: string[]
+  pattern_preferences: string[]
+  styling_goals: string[]
+  gender: string | null
+  body_types: string[]
+  age_range: string | null
+  climate_preferences: string[]
+}
 
-const emptyForm = (): Partial<UserStyleProfile> => ({
-  gender: null,
-  custom_gender: null,
-  height_value: null,
-  height_unit: 'cm',
-  weight_value: null,
-  weight_unit: 'lb',
-  age_range: null,
-  body_types: [],
-  custom_body_type: null,
-  fit_preferences: [],
-  custom_fit_notes: null,
-  size_profile: {},
-  custom_size_notes: null,
+const emptyPayload = (): OnboardingPayload => ({
   style_preferences: [],
+  occasion_preferences: [],
+  fit_preferences: [],
+  avoidances: [],
   favorite_colors: [],
   avoided_colors: [],
-  neutral_color_preference: null,
-  bold_color_preference: null,
-  occasion_preferences: [],
+  pattern_preferences: [],
+  styling_goals: [],
+  gender: null,
+  body_types: [],
+  age_range: null,
   climate_preferences: [],
 })
 
-function Chip({
-  active,
-  children,
+// ─── Step data ────────────────────────────────────────────────────────────────
+
+const STEPS = [
+  'style',
+  'lifestyle',
+  'fit',
+  'colors',
+  'goals',
+  'body',
+] as const
+type StepId = (typeof STEPS)[number]
+
+interface CardOption {
+  id: string
+  emoji: string
+  label: string
+  desc?: string
+}
+
+const STYLE_VIBES: CardOption[] = [
+  { id: 'minimal',    emoji: '🤍', label: 'Minimalist',    desc: 'Clean lines, neutral palette, less is more' },
+  { id: 'streetwear', emoji: '🧢', label: 'Streetwear',    desc: 'Bold graphics, sneakers, urban energy' },
+  { id: 'boho',       emoji: '🌸', label: 'Boho',          desc: 'Flowing fabrics, earth tones, free spirit' },
+  { id: 'corporate',  emoji: '💼', label: 'Corporate',     desc: 'Polished, tailored, boardroom-ready' },
+  { id: 'casual',     emoji: '👕', label: 'Casual Comfort', desc: 'Everyday ease, relaxed and effortless' },
+  { id: 'romantic',   emoji: '🌹', label: 'Romantic',      desc: 'Feminine details, soft colours, elegance' },
+  { id: 'sporty',     emoji: '⚡', label: 'Athleisure',    desc: 'Performance meets style, always ready' },
+  { id: 'vintage',    emoji: '🎞️', label: 'Vintage',       desc: 'Timeless classics, retro silhouettes' },
+  { id: 'eclectic',   emoji: '🎨', label: 'Eclectic',      desc: 'Mix & match, bold patterns, no rules' },
+  { id: 'outdoor',    emoji: '🏕️', label: 'Outdoorsy',     desc: 'Durable, functional, adventure-ready' },
+]
+
+const OCCASION_OPTIONS: CardOption[] = [
+  { id: 'work',          emoji: '💻', label: 'Work / Office',    desc: 'Mon–Fri professional looks' },
+  { id: 'casual',        emoji: '☕', label: 'Casual Everyday',  desc: 'Errands, coffee runs, weekends' },
+  { id: 'social',        emoji: '🎉', label: 'Nights Out',       desc: 'Bars, dinners, parties' },
+  { id: 'formal',        emoji: '🥂', label: 'Formal Events',    desc: 'Galas, weddings, celebrations' },
+  { id: 'gym',           emoji: '🏋️', label: 'Gym & Sport',     desc: 'Workouts, runs, classes' },
+  { id: 'travel',        emoji: '✈️', label: 'Travel',           desc: 'Airports, hotels, exploring' },
+  { id: 'date',          emoji: '💖', label: 'Dates',            desc: 'Romantic, put-together looks' },
+  { id: 'homewear',      emoji: '🏠', label: 'Homewear',         desc: 'Comfort at home / remote work' },
+]
+
+const FIT_OPTIONS: CardOption[] = [
+  { id: 'slim',      emoji: '📐', label: 'Slim / Fitted',  desc: 'Close to the body, sharp silhouette' },
+  { id: 'regular',   emoji: '✅', label: 'Regular',        desc: 'Classic, neither tight nor baggy' },
+  { id: 'relaxed',   emoji: '😌', label: 'Relaxed',        desc: 'Comfortable room to move' },
+  { id: 'oversized', emoji: '🌊', label: 'Oversized',      desc: 'Roomy, relaxed, trending' },
+  { id: 'tailored',  emoji: '🪡', label: 'Tailored',       desc: 'Structured, precise, polished' },
+]
+
+const AVOID_OPTIONS: CardOption[] = [
+  { id: 'tight',        emoji: '😬', label: 'Too tight',        desc: '' },
+  { id: 'baggy',        emoji: '😅', label: 'Baggy / shapeless', desc: '' },
+  { id: 'synthetic',    emoji: '🧪', label: 'Synthetic fabrics', desc: '' },
+  { id: 'loud_prints',  emoji: '🔇', label: 'Loud prints',      desc: '' },
+  { id: 'short_hems',   emoji: '📏', label: 'Very short hems',  desc: '' },
+  { id: 'high_heels',   emoji: '👠', label: 'High heels',       desc: '' },
+  { id: 'formal',       emoji: '🚫', label: 'Overly formal',    desc: '' },
+  { id: 'revealing',    emoji: '🙈', label: 'Revealing cuts',   desc: '' },
+]
+
+const COLOR_SWATCHES = [
+  { id: 'black',    hex: '#1a1a1a', label: 'Black'    },
+  { id: 'white',    hex: '#f5f5f5', label: 'White'    },
+  { id: 'navy',     hex: '#1e3a5f', label: 'Navy'     },
+  { id: 'grey',     hex: '#9ca3af', label: 'Grey'     },
+  { id: 'beige',    hex: '#d4b896', label: 'Beige'    },
+  { id: 'brown',    hex: '#8b6040', label: 'Brown'    },
+  { id: 'tan',      hex: '#c4a882', label: 'Tan'      },
+  { id: 'olive',    hex: '#6b7c45', label: 'Olive'    },
+  { id: 'burgundy', hex: '#722f37', label: 'Burgundy' },
+  { id: 'red',      hex: '#dc2626', label: 'Red'      },
+  { id: 'orange',   hex: '#ea580c', label: 'Orange'   },
+  { id: 'yellow',   hex: '#eab308', label: 'Yellow'   },
+  { id: 'green',    hex: '#16a34a', label: 'Green'    },
+  { id: 'teal',     hex: '#0d9488', label: 'Teal'     },
+  { id: 'blue',     hex: '#2563eb', label: 'Blue'     },
+  { id: 'sky',      hex: '#0ea5e9', label: 'Sky Blue' },
+  { id: 'purple',   hex: '#7c3aed', label: 'Purple'   },
+  { id: 'pink',     hex: '#ec4899', label: 'Pink'     },
+  { id: 'lilac',    hex: '#c4b5fd', label: 'Lilac'    },
+  { id: 'cream',    hex: '#fefce8', label: 'Cream'    },
+]
+
+const PATTERN_OPTIONS: CardOption[] = [
+  { id: 'solid',    emoji: '⬜', label: 'Solid / Plain',  desc: '' },
+  { id: 'stripes',  emoji: '〰️', label: 'Stripes',       desc: '' },
+  { id: 'plaid',    emoji: '🟦', label: 'Plaid / Check',  desc: '' },
+  { id: 'floral',   emoji: '🌺', label: 'Floral',         desc: '' },
+  { id: 'abstract', emoji: '🎭', label: 'Abstract',       desc: '' },
+  { id: 'animal',   emoji: '🐆', label: 'Animal Print',   desc: '' },
+  { id: 'geo',      emoji: '🔷', label: 'Geometric',      desc: '' },
+  { id: 'camo',     emoji: '🎄', label: 'Camo',           desc: '' },
+]
+
+const GOAL_OPTIONS: CardOption[] = [
+  { id: 'capsule',     emoji: '💎', label: 'Build a capsule wardrobe', desc: 'Essential pieces that work for everything' },
+  { id: 'refresh',     emoji: '🔄', label: 'Refresh my style',         desc: 'New direction, modernise my looks' },
+  { id: 'polished',    emoji: '✨', label: 'Look polished daily',       desc: 'Elevated everyday outfits' },
+  { id: 'express',     emoji: '🎨', label: 'Express my personality',    desc: 'Clothes that say something about me' },
+  { id: 'conscious',   emoji: '🌿', label: 'Shop more consciously',     desc: 'Quality over quantity, sustainable choices' },
+  { id: 'occasion',    emoji: '📅', label: 'Dress for key occasions',   desc: 'Specific events I want to nail' },
+]
+
+const GENDER_OPTIONS: CardOption[] = [
+  { id: 'male',              emoji: '👔', label: 'Male',              desc: '' },
+  { id: 'female',            emoji: '👗', label: 'Female',            desc: '' },
+  { id: 'non_binary',        emoji: '🌈', label: 'Non-binary',        desc: '' },
+  { id: 'prefer_not_to_say', emoji: '🤐', label: 'Prefer not to say', desc: '' },
+]
+
+const BODY_TYPE_OPTIONS: CardOption[] = [
+  { id: 'slim',       emoji: '📏', label: 'Slim',        desc: '' },
+  { id: 'athletic',   emoji: '💪', label: 'Athletic',    desc: '' },
+  { id: 'average',    emoji: '🙂', label: 'Average',     desc: '' },
+  { id: 'curvy',      emoji: '🌊', label: 'Curvy',       desc: '' },
+  { id: 'plus',       emoji: '✨', label: 'Plus size',   desc: '' },
+  { id: 'petite',     emoji: '🌸', label: 'Petite',      desc: '' },
+  { id: 'tall',       emoji: '🦒', label: 'Tall',        desc: '' },
+  { id: 'broad',      emoji: '🏔️', label: 'Broad build', desc: '' },
+]
+
+const AGE_RANGES = ['Under 20', '20–24', '25–29', '30–34', '35–44', '45–54', '55–64', '65+']
+
+const CLIMATE_OPTIONS: CardOption[] = [
+  { id: 'tropical',    emoji: '☀️', label: 'Hot & Humid',    desc: '' },
+  { id: 'warm',        emoji: '🌤️', label: 'Warm',           desc: '' },
+  { id: 'temperate',   emoji: '🍂', label: 'Four seasons',   desc: '' },
+  { id: 'cold',        emoji: '❄️', label: 'Cold winters',   desc: '' },
+  { id: 'variable',    emoji: '🌦️', label: 'Unpredictable',  desc: '' },
+]
+
+// ─── Animations ───────────────────────────────────────────────────────────────
+
+const STEP_VARIANTS = {
+  enter:  (dir: number) => ({ x: dir > 0 ? 60 : -60, opacity: 0, scale: 0.97 }),
+  center: { x: 0, opacity: 1, scale: 1 },
+  exit:   (dir: number) => ({ x: dir > 0 ? -60 : 60, opacity: 0, scale: 0.97 }),
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function StyleCard({
+  option,
+  selected,
   onClick,
+  compact = false,
 }: {
-  active: boolean
-  children: React.ReactNode
+  option: CardOption
+  selected: boolean
   onClick: () => void
+  compact?: boolean
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-2xl border px-3 py-2 text-left text-sm font-medium transition ${
-        active
-          ? 'border-brand-500 bg-brand-50 text-brand-800 dark:bg-brand-500/15 dark:text-brand-200'
-          : 'border-cream-200 bg-white/80 text-slate-700 hover:border-brand-300 dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-200'
-      }`}
+      className={cn(
+        'relative flex flex-col items-start gap-1 rounded-2xl border p-4 text-left transition-all duration-200',
+        'focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500',
+        compact ? 'p-3 gap-0.5' : 'p-4',
+        selected
+          ? 'border-brand-500 bg-brand-50 dark:bg-brand-500/15 shadow-md shadow-brand-500/10'
+          : 'border-cream-200 dark:border-white/10 bg-white/80 dark:bg-white/[0.04] hover:border-brand-300 dark:hover:border-white/20',
+      )}
     >
-      {children}
+      {selected && (
+        <span className="absolute top-2.5 right-2.5 flex h-5 w-5 items-center justify-center rounded-full bg-brand-500">
+          <Check size={11} className="text-white" />
+        </span>
+      )}
+      <span className={compact ? 'text-xl' : 'text-2xl'}>{option.emoji}</span>
+      <span className={cn(
+        'font-semibold leading-tight',
+        compact ? 'text-xs' : 'text-sm',
+        selected ? 'text-brand-700 dark:text-brand-300' : 'text-slate-800 dark:text-white',
+      )}>
+        {option.label}
+      </span>
+      {option.desc && !compact && (
+        <span className="text-xs text-slate-500 dark:text-slate-400 leading-snug">{option.desc}</span>
+      )}
     </button>
   )
+}
+
+function ColorSwatch({
+  swatch,
+  selected,
+  avoided,
+  onFav,
+  onAvoid,
+}: {
+  swatch: { id: string; hex: string; label: string }
+  selected: boolean
+  avoided: boolean
+  onFav: () => void
+  onAvoid: () => void
+}) {
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <div
+        className="relative w-11 h-11 rounded-full border-2 shadow-sm cursor-pointer transition-transform hover:scale-110"
+        style={{
+          backgroundColor: swatch.hex,
+          borderColor: selected ? '#6366f1' : avoided ? '#ef4444' : 'transparent',
+        }}
+        title={swatch.label}
+      >
+        {selected && (
+          <button
+            type="button"
+            onClick={onFav}
+            className="absolute inset-0 flex items-center justify-center rounded-full"
+          >
+            <Check size={14} className="text-white drop-shadow" />
+          </button>
+        )}
+        {avoided && (
+          <button
+            type="button"
+            onClick={onAvoid}
+            className="absolute inset-0 flex items-center justify-center rounded-full"
+          >
+            <X size={14} className="text-white drop-shadow" />
+          </button>
+        )}
+        {!selected && !avoided && (
+          <button
+            type="button"
+            onClick={onFav}
+            className="absolute inset-0 rounded-full"
+            title={`Add ${swatch.label} as favourite`}
+          />
+        )}
+      </div>
+      <span className="text-[10px] text-slate-500 dark:text-slate-400 text-center leading-none">
+        {swatch.label}
+      </span>
+      {/* Avoid toggle below swatch */}
+      {selected && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onFav() }}
+          className="text-[9px] text-brand-500 hover:text-brand-700"
+        >
+          ✓ fave
+        </button>
+      )}
+      {!selected && !avoided && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onAvoid() }}
+          className="text-[9px] text-slate-400 hover:text-red-500"
+        >
+          avoid
+        </button>
+      )}
+      {avoided && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onAvoid() }}
+          className="text-[9px] text-red-400 hover:text-red-600"
+        >
+          ✗ avoid
+        </button>
+      )}
+    </div>
+  )
+}
+
+// ─── Step content renderers ───────────────────────────────────────────────────
+
+function StepStyle({
+  form,
+  toggle,
+}: {
+  form: OnboardingPayload
+  toggle: (key: keyof OnboardingPayload, val: string) => void
+}) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Your Style Vibe</h2>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          Pick everything that resonates — you can mix and match.
+        </p>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        {STYLE_VIBES.map(opt => (
+          <StyleCard
+            key={opt.id}
+            option={opt}
+            selected={form.style_preferences.includes(opt.id)}
+            onClick={() => toggle('style_preferences', opt.id)}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function StepLifestyle({
+  form,
+  toggle,
+}: {
+  form: OnboardingPayload
+  toggle: (key: keyof OnboardingPayload, val: string) => void
+}) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Your Lifestyle</h2>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          Where do you wear your clothes most? Select all that apply.
+        </p>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {OCCASION_OPTIONS.map(opt => (
+          <StyleCard
+            key={opt.id}
+            option={opt}
+            selected={form.occasion_preferences.includes(opt.id)}
+            onClick={() => toggle('occasion_preferences', opt.id)}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function StepFit({
+  form,
+  toggle,
+}: {
+  form: OnboardingPayload
+  toggle: (key: keyof OnboardingPayload, val: string) => void
+}) {
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Fit & Comfort</h2>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          Tell me how you like your clothes to fit — and what to avoid.
+        </p>
+      </div>
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-3">Preferred fits</p>
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          {FIT_OPTIONS.map(opt => (
+            <StyleCard
+              key={opt.id}
+              option={opt}
+              selected={form.fit_preferences.includes(opt.id)}
+              onClick={() => toggle('fit_preferences', opt.id)}
+            />
+          ))}
+        </div>
+      </div>
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-3">Things I avoid</p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {AVOID_OPTIONS.map(opt => (
+            <StyleCard
+              key={opt.id}
+              option={opt}
+              selected={form.avoidances.includes(opt.id)}
+              onClick={() => toggle('avoidances', opt.id)}
+              compact
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function StepColors({
+  form,
+  setForm,
+}: {
+  form: OnboardingPayload
+  setForm: React.Dispatch<React.SetStateAction<OnboardingPayload>>
+}) {
+  const toggleFav = (id: string) => {
+    setForm(f => ({
+      ...f,
+      favorite_colors: f.favorite_colors.includes(id)
+        ? f.favorite_colors.filter(c => c !== id)
+        : [...f.favorite_colors, id],
+      avoided_colors: f.avoided_colors.filter(c => c !== id),
+    }))
+  }
+  const toggleAvoid = (id: string) => {
+    setForm(f => ({
+      ...f,
+      avoided_colors: f.avoided_colors.includes(id)
+        ? f.avoided_colors.filter(c => c !== id)
+        : [...f.avoided_colors, id],
+      favorite_colors: f.favorite_colors.filter(c => c !== id),
+    }))
+  }
+  const toggle = (key: keyof OnboardingPayload, val: string) => {
+    setForm(f => {
+      const arr = f[key] as string[]
+      return {
+        ...f,
+        [key]: arr.includes(val) ? arr.filter(v => v !== val) : [...arr, val],
+      }
+    })
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Your Colour Story</h2>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          Click a swatch to mark it as a favourite. Hit "avoid" to exclude it from recommendations.
+        </p>
+      </div>
+
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-3">Colours</p>
+        <div className="flex flex-wrap gap-4">
+          {COLOR_SWATCHES.map(sw => (
+            <ColorSwatch
+              key={sw.id}
+              swatch={sw}
+              selected={form.favorite_colors.includes(sw.id)}
+              avoided={form.avoided_colors.includes(sw.id)}
+              onFav={() => toggleFav(sw.id)}
+              onAvoid={() => toggleAvoid(sw.id)}
+            />
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-3">Patterns I love</p>
+        <div className="grid grid-cols-4 sm:grid-cols-8 gap-3">
+          {PATTERN_OPTIONS.map(opt => (
+            <StyleCard
+              key={opt.id}
+              option={opt}
+              selected={form.pattern_preferences.includes(opt.id)}
+              onClick={() => toggle('pattern_preferences', opt.id)}
+              compact
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function StepGoals({
+  form,
+  toggle,
+}: {
+  form: OnboardingPayload
+  toggle: (key: keyof OnboardingPayload, val: string) => void
+}) {
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Your Styling Goal</h2>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          What are you trying to achieve? Pick one or more.
+        </p>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {GOAL_OPTIONS.map(opt => (
+          <StyleCard
+            key={opt.id}
+            option={opt}
+            selected={form.styling_goals.includes(opt.id)}
+            onClick={() => toggle('styling_goals', opt.id)}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function StepBody({
+  form,
+  setForm,
+  toggle,
+}: {
+  form: OnboardingPayload
+  setForm: React.Dispatch<React.SetStateAction<OnboardingPayload>>
+  toggle: (key: keyof OnboardingPayload, val: string) => void
+}) {
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-white">A Little About You</h2>
+        <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          Optional — but it helps us suggest the best fits and silhouettes for your body.
+        </p>
+      </div>
+
+      {/* Gender */}
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-3">I shop in the</p>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {GENDER_OPTIONS.map(opt => (
+            <StyleCard
+              key={opt.id}
+              option={opt}
+              selected={form.gender === opt.id}
+              onClick={() => setForm(f => ({ ...f, gender: f.gender === opt.id ? null : opt.id }))}
+              compact
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Body type */}
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-3">Body type</p>
+        <div className="grid grid-cols-4 sm:grid-cols-8 gap-3">
+          {BODY_TYPE_OPTIONS.map(opt => (
+            <StyleCard
+              key={opt.id}
+              option={opt}
+              selected={form.body_types.includes(opt.id)}
+              onClick={() => toggle('body_types', opt.id)}
+              compact
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Age range */}
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-3">Age range</p>
+        <div className="flex flex-wrap gap-2">
+          {AGE_RANGES.map(range => (
+            <button
+              key={range}
+              type="button"
+              onClick={() => setForm(f => ({ ...f, age_range: f.age_range === range ? null : range }))}
+              className={cn(
+                'rounded-full border px-4 py-1.5 text-sm font-medium transition',
+                form.age_range === range
+                  ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300'
+                  : 'border-cream-200 dark:border-white/10 text-slate-600 dark:text-slate-300 hover:border-brand-300',
+              )}
+            >
+              {range}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Climate */}
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-3">My climate</p>
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          {CLIMATE_OPTIONS.map(opt => (
+            <StyleCard
+              key={opt.id}
+              option={opt}
+              selected={form.climate_preferences.includes(opt.id)}
+              onClick={() => toggle('climate_preferences', opt.id)}
+              compact
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+
+const STEP_META: Record<StepId, { title: string; subtitle: string; icon: string }> = {
+  style:     { title: 'Style',     subtitle: 'Your vibe',          icon: '🎨' },
+  lifestyle: { title: 'Lifestyle', subtitle: 'Your occasions',     icon: '📅' },
+  fit:       { title: 'Fit',       subtitle: 'Your comfort zone',  icon: '✂️' },
+  colors:    { title: 'Colours',   subtitle: 'Your palette',       icon: '🎨' },
+  goals:     { title: 'Goals',     subtitle: 'What you want',      icon: '🎯' },
+  body:      { title: 'About You', subtitle: 'Optional context',   icon: '👤' },
 }
 
 export default function StyleProfileOnboarding() {
   const navigate = useNavigate()
   const [stepIdx, setStepIdx] = useState(0)
-  const [form, setForm] = useState<Partial<UserStyleProfile>>(emptyForm)
+  const [direction, setDirection] = useState(1)
+  const [form, setForm] = useState<OnboardingPayload>(emptyPayload())
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [colorIn, setColorIn] = useState({ fav: '', avoid: '' })
+  const prevIdx = useRef(0)
 
-  const step: StepId = STEPS[stepIdx] ?? 'welcome'
+  const step = STEPS[stepIdx]!
 
-  const identityKey: StyleIdentityKey = useMemo(() => {
-    const g = form.gender
-    if (g === 'male' || g === 'female' || g === 'non_binary' || g === 'prefer_not_to_say' || g === 'custom')
-      return g
-    return 'prefer_not_to_say'
-  }, [form.gender])
-
-  const dynamic = useMemo(() => optionsForGender(identityKey), [identityKey])
-
+  // Pre-fill if profile exists
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       try {
         const existing = await profileApi.getStyleProfile()
-        if (cancelled) return
-        if (existing) {
-          setForm({
-            ...emptyForm(),
-            ...existing,
-            size_profile: { ...existing.size_profile },
-          })
-        }
+        if (cancelled || !existing) return
+        setForm(f => ({
+          ...f,
+          style_preferences:    existing.style_preferences    ?? [],
+          occasion_preferences: existing.occasion_preferences ?? [],
+          fit_preferences:      existing.fit_preferences      ?? [],
+          favorite_colors:      existing.favorite_colors      ?? [],
+          avoided_colors:       existing.avoided_colors       ?? [],
+          gender:               existing.gender               ?? null,
+          body_types:           existing.body_types           ?? [],
+          age_range:            existing.age_range            ?? null,
+          climate_preferences:  existing.climate_preferences  ?? [],
+          styling_goals:        (existing as { styling_goals?: string[] }).styling_goals      ?? [],
+          avoidances:           (existing as { avoidances?: string[] }).avoidances            ?? [],
+          pattern_preferences:  (existing as { pattern_preferences?: string[] }).pattern_preferences ?? [],
+        }))
       } catch {
-        /* ignore */
+        /* silent */
       } finally {
         if (!cancelled) setLoading(false)
       }
     })()
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [])
 
-  const persistPatch = useCallback(async (patch: Partial<UserStyleProfile>) => {
-    setSaving(true)
-    setError(null)
-    try {
-      const next = await profileApi.patchStyleProfile(patch as Record<string, unknown>)
-      setForm(f => ({ ...f, ...next, size_profile: { ...next.size_profile } }))
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not save')
-    } finally {
-      setSaving(false)
-    }
-  }, [])
-
-  const goNext = async () => {
-    const patch: Record<string, unknown> = {}
-    if (step === 'basic') {
-      if (form.gender) patch.gender = form.gender
-      if (form.custom_gender) patch.custom_gender = form.custom_gender
-      if (form.height_value != null && form.height_unit) {
-        patch.height_value = form.height_value
-        patch.height_unit = form.height_unit
-      }
-      if (form.weight_value != null && form.weight_unit) {
-        patch.weight_value = form.weight_value
-        patch.weight_unit = form.weight_unit
-      }
-      if (form.age_range) patch.age_range = form.age_range
-    }
-    if (step === 'body') {
-      patch.body_types = form.body_types ?? []
-      patch.custom_body_type = form.custom_body_type
-    }
-    if (step === 'fit') {
-      patch.fit_preferences = form.fit_preferences ?? []
-      patch.custom_fit_notes = form.custom_fit_notes
-    }
-    if (step === 'sizes') {
-      patch.size_profile = form.size_profile ?? {}
-      patch.custom_size_notes = form.custom_size_notes
-    }
-    if (step === 'style') patch.style_preferences = form.style_preferences ?? []
-    if (step === 'colors') {
-      patch.favorite_colors = form.favorite_colors ?? []
-      patch.avoided_colors = form.avoided_colors ?? []
-      patch.neutral_color_preference = form.neutral_color_preference
-      patch.bold_color_preference = form.bold_color_preference
-    }
-    if (step === 'occasions') patch.occasion_preferences = form.occasion_preferences ?? []
-    if (step === 'climate') patch.climate_preferences = form.climate_preferences ?? []
-
-    if (Object.keys(patch).length) await persistPatch(patch)
-
-    if (stepIdx < STEPS.length - 1) setStepIdx(stepIdx + 1)
-  }
-
-  const goBack = () => {
-    if (stepIdx <= 0) return
-    setStepIdx(stepIdx - 1)
-  }
-
-  const finish = async (skipped: boolean) => {
-    setSaving(true)
-    setError(null)
-    try {
-      if (step === 'review' && !skipped) {
-        await persistPatch({
-          ...form,
-          gender: form.gender ?? undefined,
-        } as UserStyleProfile)
-      }
-      try {
-        await profileApi.completeOnboarding(skipped)
-      } catch {
-        /* best-effort — navigate regardless so the user is never stuck */
-      }
-      // Pass state so Dashboard skips its own onboarding redirect check.
-      navigate('/dashboard', { replace: true, state: { onboardingJustDone: true, skipped } })
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not complete')
-      // Always escape on skip — never trap the user here.
-      if (skipped) navigate('/dashboard', { replace: true, state: { onboardingJustDone: true, skipped: true } })
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const toggleMulti = (field: 'body_types' | 'fit_preferences' | 'style_preferences' | 'occasion_preferences' | 'climate_preferences', value: string) => {
+  const toggle = (key: keyof OnboardingPayload, val: string) => {
     setForm(f => {
-      const cur = new Set(f[field] ?? [])
-      if (cur.has(value)) cur.delete(value)
-      else cur.add(value)
-      return { ...f, [field]: [...cur] }
+      const arr = f[key] as string[]
+      return {
+        ...f,
+        [key]: arr.includes(val) ? arr.filter(v => v !== val) : [...arr, val],
+      }
     })
   }
 
-  const progress = Math.round(((stepIdx + 1) / STEPS.length) * 100)
+  const goTo = (idx: number) => {
+    setDirection(idx > prevIdx.current ? 1 : -1)
+    prevIdx.current = idx
+    setStepIdx(idx)
+  }
+
+  const goNext = () => {
+    if (stepIdx < STEPS.length - 1) {
+      goTo(stepIdx + 1)
+    }
+  }
+
+  const goPrev = () => {
+    if (stepIdx > 0) goTo(stepIdx - 1)
+  }
+
+  const handleSkip = async () => {
+    setSaving(true)
+    try {
+      await profileApi.completeOnboarding(true)
+      navigate('/closet')
+    } catch {
+      navigate('/closet')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleSubmit = async () => {
+    setSaving(true)
+    setError(null)
+    try {
+      const profile = await profileApi.submitOnboarding(form as unknown as Record<string, unknown>)
+      // Store derived data in sessionStorage for the result page
+      sessionStorage.setItem('onboarding_result', JSON.stringify({
+        style_archetype:    (profile as unknown as { style_archetype?: string }).style_archetype,
+        style_summary:      profile.style_preferences,
+        style_preferences:  profile.style_preferences,
+        occasion_preferences: profile.occasion_preferences,
+        styling_goals:      form.styling_goals,
+      }))
+      navigate('/onboarding/result')
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Something went wrong. Please try again.')
+      setSaving(false)
+    }
+  }
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-cream-50 dark:bg-slate-950">
+      <div className="flex h-screen items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-brand-500" />
       </div>
     )
   }
 
+  const isLast = stepIdx === STEPS.length - 1
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-cream-50 via-white to-brand-50/30 px-4 py-10 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
-      <div className="mx-auto max-w-lg">
-        <div className="mb-8">
-          <div className="mb-2 flex items-center justify-between text-xs font-medium text-slate-500 dark:text-slate-400">
-            <span>Style Profile</span>
-            <span>{progress}%</span>
-          </div>
-          <div className="h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-brand-500 to-violet-500 transition-all duration-500"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-        </div>
+    <div className="min-h-screen flex flex-col">
+      {/* Fixed top bar */}
+      <header className="sticky top-0 z-20 bg-white/80 dark:bg-slate-950/80 backdrop-blur border-b border-cream-200 dark:border-white/[0.06]">
+        <div className="mx-auto max-w-4xl px-4 py-3 flex items-center gap-4">
+          {/* Logo */}
+          <span className="flex items-center gap-2 font-bold text-brand-600 dark:text-brand-400 text-base shrink-0">
+            <Sparkles size={18} />
+            ClozeHive
+          </span>
 
-        <div className="rounded-3xl border border-cream-200 bg-white/90 p-6 shadow-card dark:border-white/10 dark:bg-slate-900/90">
-          {error && (
-            <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
-              {error}
-            </div>
-          )}
-
-          {step === 'welcome' && (
-            <div className="space-y-4 text-center">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-500/10 text-brand-600 dark:text-brand-400">
-                <Sparkles size={28} />
-              </div>
-              <h1 className="font-display text-2xl font-bold text-slate-900 dark:text-white">
-                Build Your Style Profile
-              </h1>
-              <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-300">
-                This helps CLOZEHIVE recommend outfits that match your fit, comfort, style, and occasions.
-                You can update it anytime.
-              </p>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                This information is used only to personalize outfit and packing recommendations. You can
-                skip it now and update it anytime.
-              </p>
-              <div className="flex flex-col gap-2 pt-2 sm:flex-row sm:justify-center">
-                <button type="button" className="btn-primary w-full sm:w-auto" onClick={() => setStepIdx(1)}>
-                  Start
-                </button>
-                <button
-                  type="button"
-                  className="btn-secondary w-full sm:w-auto"
-                  disabled={saving}
-                  onClick={() => finish(true)}
-                >
-                  Skip for now
-                </button>
-              </div>
-            </div>
-          )}
-
-          {step === 'basic' && (
-            <div className="space-y-4">
-              <h2 className="font-display text-lg font-bold text-slate-900 dark:text-white">Basic profile</h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                These details help the AI recommend outfits that match your fit, comfort, and style preferences.
-              </p>
-              <div>
-                <p className="mb-2 text-xs font-semibold text-slate-600 dark:text-slate-300">Gender / style identity</p>
-                <div className="flex flex-wrap gap-2">
-                  {STYLE_IDENTITY_OPTIONS.map(opt => (
-                    <Chip
-                      key={opt.id}
-                      active={form.gender === opt.id}
-                      onClick={() => setForm(f => ({ ...f, gender: opt.id as StyleGender }))}
-                    >
-                      {opt.label}
-                    </Chip>
-                  ))}
-                </div>
-              </div>
-              {form.gender === 'custom' && (
-                <input
-                  className="input"
-                  placeholder="Describe your gender / style identity"
-                  value={form.custom_gender ?? ''}
-                  onChange={e => setForm(f => ({ ...f, custom_gender: e.target.value }))}
-                />
-              )}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-500">Height value</label>
-                  <input
-                    type="number"
-                    className="input"
-                    value={form.height_value ?? ''}
-                    onChange={e =>
-                      setForm(f => ({
-                        ...f,
-                        height_value: e.target.value === '' ? null : parseFloat(e.target.value),
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-500">Unit</label>
-                  <select
-                    className="input"
-                    value={form.height_unit ?? 'cm'}
-                    onChange={e =>
-                      setForm(f => ({ ...f, height_unit: e.target.value as UserStyleProfile['height_unit'] }))
-                    }
-                  >
-                    <option value="cm">Centimeters</option>
-                    <option value="ft_in">Feet / inches</option>
-                  </select>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-500">Weight value</label>
-                  <input
-                    type="number"
-                    className="input"
-                    value={form.weight_value ?? ''}
-                    onChange={e =>
-                      setForm(f => ({
-                        ...f,
-                        weight_value: e.target.value === '' ? null : parseFloat(e.target.value),
-                      }))
-                    }
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-500">Unit</label>
-                  <select
-                    className="input"
-                    value={form.weight_unit ?? 'lb'}
-                    onChange={e =>
-                      setForm(f => ({ ...f, weight_unit: e.target.value as UserStyleProfile['weight_unit'] }))
-                    }
-                  >
-                    <option value="lb">Pounds</option>
-                    <option value="kg">Kilograms</option>
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-500">Age range (optional)</label>
-                <select
-                  className="input"
-                  value={form.age_range ?? ''}
-                  onChange={e => setForm(f => ({ ...f, age_range: e.target.value || null }))}
-                >
-                  <option value="">—</option>
-                  {AGE_RANGES.map(a => (
-                    <option key={a.id} value={a.id}>
-                      {a.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          )}
-
-          {step === 'body' && (
-            <div className="space-y-3">
-              <h2 className="font-display text-lg font-bold text-slate-900 dark:text-white">Body type</h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Optional — select any that apply. You can customize these anytime.</p>
-              <div className="flex flex-wrap gap-2">
-                {dynamic.bodyTypes.map(b => (
-                  <Chip
-                    key={b}
-                    active={form.body_types?.includes(b) ?? false}
-                    onClick={() => toggleMulti('body_types', b)}
-                  >
-                    {b}
-                  </Chip>
-                ))}
-              </div>
-              <input
-                className="input"
-                placeholder="Custom body type (optional)"
-                value={form.custom_body_type ?? ''}
-                onChange={e => setForm(f => ({ ...f, custom_body_type: e.target.value || null }))}
-              />
-            </div>
-          )}
-
-          {step === 'fit' && (
-            <div className="space-y-3">
-              <h2 className="font-display text-lg font-bold text-slate-900 dark:text-white">Fit preferences</h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Optional — pick as many as you like.</p>
-              <div className="flex flex-wrap gap-2">
-                {dynamic.fitPreferences.map(b => (
-                  <Chip
-                    key={b}
-                    active={form.fit_preferences?.includes(b) ?? false}
-                    onClick={() => toggleMulti('fit_preferences', b)}
-                  >
-                    {b}
-                  </Chip>
-                ))}
-              </div>
-              <textarea
-                className="input min-h-20"
-                placeholder="Custom fit notes (optional)"
-                value={form.custom_fit_notes ?? ''}
-                onChange={e => setForm(f => ({ ...f, custom_fit_notes: e.target.value || null }))}
-              />
-            </div>
-          )}
-
-          {step === 'sizes' && (
-            <div className="space-y-3">
-              <h2 className="font-display text-lg font-bold text-slate-900 dark:text-white">Size details</h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">US sizing by default — all optional.</p>
-              <div className="grid gap-3 sm:grid-cols-2">
-                {dynamic.sizeFields.map(sf => (
-                  <div key={sf.key}>
-                    <label className="mb-1 block text-xs font-medium text-slate-500">
-                      {sf.label}
-                      {sf.optional ? ' (optional)' : ''}
-                    </label>
-                    <input
-                      className="input"
-                      placeholder={sf.placeholder}
-                      value={form.size_profile?.[sf.key] ?? ''}
-                      onChange={e =>
-                        setForm(f => ({
-                          ...f,
-                          size_profile: { ...f.size_profile, [sf.key]: e.target.value },
-                        }))
-                      }
-                    />
-                  </div>
-                ))}
-              </div>
-              <textarea
-                className="input min-h-20"
-                placeholder="Custom size notes (optional)"
-                value={form.custom_size_notes ?? ''}
-                onChange={e => setForm(f => ({ ...f, custom_size_notes: e.target.value || null }))}
-              />
-            </div>
-          )}
-
-          {step === 'style' && (
-            <div className="space-y-3">
-              <h2 className="font-display text-lg font-bold text-slate-900 dark:text-white">Style preferences</h2>
-              <div className="flex flex-wrap gap-2">
-                {STYLE_TAGS.map(b => (
-                  <Chip
-                    key={b}
-                    active={form.style_preferences?.includes(b) ?? false}
-                    onClick={() => toggleMulti('style_preferences', b)}
-                  >
-                    {b}
-                  </Chip>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {step === 'colors' && (
-            <div className="space-y-4">
-              <h2 className="font-display text-lg font-bold text-slate-900 dark:text-white">Color preferences</h2>
-              <div className="flex gap-2">
-                <input
-                  className="input"
-                  placeholder="Add a favourite colour"
-                  value={colorIn.fav}
-                  onChange={e => setColorIn(c => ({ ...c, fav: e.target.value }))}
-                />
-                <button
-                  type="button"
-                  className="btn-secondary shrink-0"
-                  onClick={() => {
-                    const v = colorIn.fav.trim()
-                    if (!v) return
-                    setForm(f => ({ ...f, favorite_colors: [...(f.favorite_colors ?? []), v] }))
-                    setColorIn(c => ({ ...c, fav: '' }))
-                  }}
-                >
-                  Add
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {(form.favorite_colors ?? []).map(c => (
-                  <button
-                    key={c}
-                    type="button"
-                    className="rounded-full bg-emerald-100 px-3 py-1 text-xs dark:bg-emerald-500/20"
-                    onClick={() =>
-                      setForm(f => ({
-                        ...f,
-                        favorite_colors: (f.favorite_colors ?? []).filter(x => x !== c),
-                      }))
-                    }
-                  >
-                    {c} ✕
-                  </button>
-                ))}
-              </div>
-              <div className="flex gap-2">
-                <input
-                  className="input"
-                  placeholder="Colour to avoid"
-                  value={colorIn.avoid}
-                  onChange={e => setColorIn(c => ({ ...c, avoid: e.target.value }))}
-                />
-                <button
-                  type="button"
-                  className="btn-secondary shrink-0"
-                  onClick={() => {
-                    const v = colorIn.avoid.trim()
-                    if (!v) return
-                    setForm(f => ({ ...f, avoided_colors: [...(f.avoided_colors ?? []), v] }))
-                    setColorIn(c => ({ ...c, avoid: '' }))
-                  }}
-                >
-                  Add
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {(form.avoided_colors ?? []).map(c => (
-                  <button
-                    key={c}
-                    type="button"
-                    className="rounded-full bg-rose-100 px-3 py-1 text-xs dark:bg-rose-500/20"
-                    onClick={() =>
-                      setForm(f => ({
-                        ...f,
-                        avoided_colors: (f.avoided_colors ?? []).filter(x => x !== c),
-                      }))
-                    }
-                  >
-                    {c} ✕
-                  </button>
-                ))}
-              </div>
-              <div className="flex flex-wrap gap-4 text-sm">
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(form.neutral_color_preference)}
-                    onChange={e => setForm(f => ({ ...f, neutral_color_preference: e.target.checked }))}
-                  />
-                  Prefer neutrals
-                </label>
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(form.bold_color_preference)}
-                    onChange={e => setForm(f => ({ ...f, bold_color_preference: e.target.checked }))}
-                  />
-                  Like bold colours
-                </label>
-              </div>
-            </div>
-          )}
-
-          {step === 'occasions' && (
-            <div className="space-y-3">
-              <h2 className="font-display text-lg font-bold text-slate-900 dark:text-white">Occasions</h2>
-              <div className="flex flex-wrap gap-2">
-                {OCCASION_PREFS.map(b => (
-                  <Chip
-                    key={b}
-                    active={form.occasion_preferences?.includes(b) ?? false}
-                    onClick={() => toggleMulti('occasion_preferences', b)}
-                  >
-                    {b}
-                  </Chip>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {step === 'climate' && (
-            <div className="space-y-3">
-              <h2 className="font-display text-lg font-bold text-slate-900 dark:text-white">Climate & comfort</h2>
-              <div className="flex flex-wrap gap-2">
-                {CLIMATE_PREFS.map(b => (
-                  <Chip
-                    key={b}
-                    active={form.climate_preferences?.includes(b) ?? false}
-                    onClick={() => toggleMulti('climate_preferences', b)}
-                  >
-                    {b}
-                  </Chip>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {step === 'review' && (
-            <div className="space-y-3 text-sm text-slate-600 dark:text-slate-300">
-              <h2 className="font-display text-lg font-bold text-slate-900 dark:text-white">Review your profile</h2>
-              <ul className="space-y-2.5 divide-y divide-slate-100 dark:divide-slate-800">
-                <li className="pt-2">
-                  <span className="font-semibold text-slate-800 dark:text-white">Identity: </span>
-                  {(form.gender === 'custom' ? form.custom_gender : form.gender) || '—'}
-                </li>
-                <li className="pt-2">
-                  <span className="font-semibold text-slate-800 dark:text-white">Age range: </span>
-                  {form.age_range || '—'}
-                </li>
-                <li className="pt-2">
-                  <span className="font-semibold text-slate-800 dark:text-white">Height: </span>
-                  {form.height_value ? `${form.height_value} ${form.height_unit ?? ''}` : '—'}
-                  {'  ·  '}
-                  <span className="font-semibold text-slate-800 dark:text-white">Weight: </span>
-                  {form.weight_value ? `${form.weight_value} ${form.weight_unit ?? ''}` : '—'}
-                </li>
-                <li className="pt-2">
-                  <span className="font-semibold text-slate-800 dark:text-white">Body types: </span>
-                  {(form.body_types ?? []).join(', ') || '—'}
-                </li>
-                <li className="pt-2">
-                  <span className="font-semibold text-slate-800 dark:text-white">Fit preferences: </span>
-                  {(form.fit_preferences ?? []).join(', ') || '—'}
-                </li>
-                {form.size_profile && Object.keys(form.size_profile).length > 0 && (
-                  <li className="pt-2">
-                    <span className="font-semibold text-slate-800 dark:text-white">Sizes: </span>
-                    {Object.entries(form.size_profile)
-                      .filter(([, v]) => v)
-                      .map(([k, v]) => `${k}: ${v}`)
-                      .join(' · ') || '—'}
-                  </li>
-                )}
-                <li className="pt-2">
-                  <span className="font-semibold text-slate-800 dark:text-white">Styles: </span>
-                  {(form.style_preferences ?? []).join(', ') || '—'}
-                </li>
-                <li className="pt-2">
-                  <span className="font-semibold text-slate-800 dark:text-white">Favourite colours: </span>
-                  {(form.favorite_colors ?? []).join(', ') || '—'}
-                </li>
-                <li className="pt-2">
-                  <span className="font-semibold text-slate-800 dark:text-white">Colours to avoid: </span>
-                  {(form.avoided_colors ?? []).join(', ') || '—'}
-                </li>
-                <li className="pt-2">
-                  <span className="font-semibold text-slate-800 dark:text-white">Occasions: </span>
-                  {(form.occasion_preferences ?? []).join(', ') || '—'}
-                </li>
-                <li className="pt-2">
-                  <span className="font-semibold text-slate-800 dark:text-white">Climate: </span>
-                  {(form.climate_preferences ?? []).join(', ') || '—'}
-                </li>
-              </ul>
-            </div>
-          )}
-
-          {step !== 'welcome' && (
-            <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-6 dark:border-slate-800">
+          {/* Progress dots */}
+          <div className="flex-1 flex items-center justify-center gap-2">
+            {STEPS.map((s, i) => (
               <button
+                key={s}
                 type="button"
-                className="btn-ghost flex items-center gap-1 text-sm"
-                onClick={goBack}
-                disabled={saving}
-              >
-                <ArrowLeft size={16} /> Back
-              </button>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  className="btn-secondary text-sm"
-                  disabled={saving}
-                  onClick={() => finish(true)}
-                >
-                  Skip for now
-                </button>
-                {step !== 'review' ? (
-                  <button
-                    type="button"
-                    className="btn-primary flex items-center gap-1 text-sm"
-                    disabled={saving}
-                    onClick={goNext}
-                  >
-                    {saving ? <Loader2 className="animate-spin" size={16} /> : <>Next <ArrowRight size={16} /></>}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="btn-primary flex items-center gap-1 text-sm"
-                    disabled={saving}
-                    onClick={() => finish(false)}
-                  >
-                    {saving ? <Loader2 className="animate-spin" size={16} /> : <><Check size={16} /> Save & Continue</>}
-                  </button>
+                onClick={() => i < stepIdx && goTo(i)}
+                className={cn(
+                  'rounded-full transition-all duration-300',
+                  i === stepIdx
+                    ? 'w-6 h-2.5 bg-brand-500'
+                    : i < stepIdx
+                    ? 'w-2.5 h-2.5 bg-brand-300 hover:bg-brand-400 cursor-pointer'
+                    : 'w-2.5 h-2.5 bg-cream-300 dark:bg-slate-700 cursor-default',
                 )}
-              </div>
-            </div>
+                aria-label={STEP_META[s].title}
+              />
+            ))}
+          </div>
+
+          {/* Step count + skip */}
+          <div className="flex items-center gap-3 shrink-0">
+            <span className="text-xs text-slate-400 dark:text-slate-500">
+              {stepIdx + 1} / {STEPS.length}
+            </span>
+            <button
+              type="button"
+              onClick={handleSkip}
+              disabled={saving}
+              className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition"
+            >
+              Skip
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Step content */}
+      <main className="flex-1 mx-auto w-full max-w-4xl px-4 py-8 overflow-hidden">
+        <AnimatePresence mode="wait" custom={direction}>
+          <motion.div
+            key={step}
+            custom={direction}
+            variants={STEP_VARIANTS}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={{ type: 'spring', stiffness: 380, damping: 32 }}
+          >
+            {step === 'style' && (
+              <StepStyle form={form} toggle={toggle} />
+            )}
+            {step === 'lifestyle' && (
+              <StepLifestyle form={form} toggle={toggle} />
+            )}
+            {step === 'fit' && (
+              <StepFit form={form} toggle={toggle} />
+            )}
+            {step === 'colors' && (
+              <StepColors form={form} setForm={setForm} />
+            )}
+            {step === 'goals' && (
+              <StepGoals form={form} toggle={toggle} />
+            )}
+            {step === 'body' && (
+              <StepBody form={form} setForm={setForm} toggle={toggle} />
+            )}
+          </motion.div>
+        </AnimatePresence>
+
+        {/* Error */}
+        {error && (
+          <div className="mt-4 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700/40 px-4 py-3 text-sm text-red-700 dark:text-red-300">
+            {error}
+          </div>
+        )}
+      </main>
+
+      {/* Bottom navigation */}
+      <footer className="sticky bottom-0 bg-white/80 dark:bg-slate-950/80 backdrop-blur border-t border-cream-200 dark:border-white/[0.06]">
+        <div className="mx-auto max-w-4xl px-4 py-4 flex items-center justify-between gap-4">
+          {/* Back */}
+          <button
+            type="button"
+            onClick={goPrev}
+            disabled={stepIdx === 0 || saving}
+            className={cn(
+              'flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition',
+              stepIdx === 0
+                ? 'invisible'
+                : 'text-slate-600 dark:text-slate-300 hover:bg-cream-100 dark:hover:bg-white/[0.06]',
+            )}
+          >
+            <ArrowLeft size={16} />
+            Back
+          </button>
+
+          {/* Step label */}
+          <div className="text-center">
+            <p className="text-xs text-slate-400 dark:text-slate-500">{STEP_META[step].subtitle}</p>
+          </div>
+
+          {/* Next / Finish */}
+          {isLast ? (
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={saving}
+              className="flex items-center gap-2 rounded-xl bg-brand-500 hover:bg-brand-600 active:bg-brand-700 text-white px-6 py-2.5 text-sm font-semibold shadow-md shadow-brand-500/25 transition disabled:opacity-60"
+            >
+              {saving ? (
+                <><Loader2 size={15} className="animate-spin" /> Building profile…</>
+              ) : (
+                <><Sparkles size={15} /> Build My Profile</>
+              )}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={goNext}
+              className="flex items-center gap-2 rounded-xl bg-brand-500 hover:bg-brand-600 active:bg-brand-700 text-white px-6 py-2.5 text-sm font-semibold shadow-md shadow-brand-500/25 transition"
+            >
+              Next
+              <ArrowRight size={16} />
+            </button>
           )}
         </div>
-
-        <p className="mt-6 text-center text-xs text-slate-400 dark:text-slate-500">
-          You can customize these anytime in Profile settings.
-        </p>
-      </div>
+      </footer>
     </div>
   )
 }

@@ -169,6 +169,10 @@ class StyleProfileUpdate(BaseModel):
     bold_color_preference: bool | None = None
     occasion_preferences: list[str] | None = None
     climate_preferences: list[str] | None = None
+    # v2 onboarding fields
+    styling_goals: list[str] | None = None
+    avoidances: list[str] | None = None
+    pattern_preferences: list[str] | None = None
 
     @field_validator("custom_gender", "custom_body_type", "custom_fit_notes", "custom_size_notes", mode="before")
     @classmethod
@@ -192,6 +196,9 @@ class StyleProfileUpdate(BaseModel):
         "avoided_colors",
         "occasion_preferences",
         "climate_preferences",
+        "styling_goals",
+        "avoidances",
+        "pattern_preferences",
         mode="before",
     )
     @classmethod
@@ -238,6 +245,13 @@ class StyleProfileResponse(BaseModel):
     onboarding_completed: bool
     onboarding_skipped: bool
     style_summary: str | None = None
+    # v2 fields
+    styling_goals: list[str] = Field(default_factory=list)
+    avoidances: list[str] = Field(default_factory=list)
+    pattern_preferences: list[str] = Field(default_factory=list)
+    style_archetype: str | None = None
+    recommendation_rules: dict | None = None
+    ai_stylist_context: str | None = None
     created_at: Any
     updated_at: Any
 
@@ -271,6 +285,12 @@ class StyleProfileResponse(BaseModel):
             onboarding_completed=row.onboarding_completed,
             onboarding_skipped=row.onboarding_skipped,
             style_summary=getattr(row, "style_summary", None),
+            styling_goals=list(getattr(row, "styling_goals", None) or []),
+            avoidances=list(getattr(row, "avoidances", None) or []),
+            pattern_preferences=list(getattr(row, "pattern_preferences", None) or []),
+            style_archetype=getattr(row, "style_archetype", None),
+            recommendation_rules=getattr(row, "recommendation_rules", None),
+            ai_stylist_context=getattr(row, "ai_stylist_context", None),
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
@@ -284,5 +304,28 @@ class OnboardingStatusResponse(BaseModel):
 
 class CompleteOnboardingBody(BaseModel):
     skipped: bool = False
+
+
+class OnboardingSubmitBody(BaseModel):
+    """Single-call payload for the new v2 onboarding wizard."""
+
+    # Step 1 — Style Identity
+    style_preferences: list[str] = Field(default_factory=list)
+    # Step 2 — Lifestyle / Occasions
+    occasion_preferences: list[str] = Field(default_factory=list)
+    # Step 3 — Fit & Comfort
+    fit_preferences: list[str] = Field(default_factory=list)
+    avoidances: list[str] = Field(default_factory=list)
+    # Step 4 — Colors & Patterns
+    favorite_colors: list[str] = Field(default_factory=list)
+    avoided_colors: list[str] = Field(default_factory=list)
+    pattern_preferences: list[str] = Field(default_factory=list)
+    # Step 5 — Styling Goal
+    styling_goals: list[str] = Field(default_factory=list)
+    # Step 6 — Body (optional)
+    gender: GenderValue | None = None
+    body_types: list[str] = Field(default_factory=list)
+    age_range: str | None = Field(None, max_length=40)
+    climate_preferences: list[str] = Field(default_factory=list)
 
 

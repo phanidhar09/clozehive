@@ -17,15 +17,12 @@ from datetime import datetime
 from typing import Any, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 from pydantic import BaseModel, Field
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from sqlalchemy import select, desc
 
-from fastapi import BackgroundTasks
-
 from app.core.deps import CurrentUser, DbSession
+from app.core.rate_limit import limiter
 from app.core.logging import get_logger
 from app.models.ai_chat import AIChatMessage, AIChatSession, OutfitFeedback
 from app.models.closet import ClosetItem, Outfit
@@ -34,8 +31,6 @@ from app.services.outfit_history_service import save_outfit_history_background
 
 router = APIRouter(prefix="/ai-chat", tags=["AI Chat"])
 logger = get_logger("ai_chat.routes")
-
-_limiter = Limiter(key_func=get_remote_address)
 
 # ── Request / Response Schemas ────────────────────────────────────────────────
 
@@ -103,7 +98,7 @@ async def create_session(user_id: CurrentUser, session: DbSession) -> dict[str, 
     uid = UUID(user_id)
     chat_session = AIChatSession(user_id=uid, title="New Chat")
     session.add(chat_session)
-    await session.commit()
+    await session.flush()
     await session.refresh(chat_session)
     return {
         "id": str(chat_session.id),
@@ -172,17 +167,15 @@ async def get_messages(
 
 
 @router.post("/message")
+@limiter.limit("20/minute")
 async def send_message(
+    request: Request,
     body: SendMessageRequest,
     user_id: CurrentUser,
     session: DbSession,
     background_tasks: BackgroundTasks,
 ) -> dict[str, Any]:
-    """
-    Send a message to the AI Stylist and receive outfit recommendations.
-
-    Rate limit: 20 requests/minute per IP.
-    """
+    """Send a message to the AI Stylist and receive outfit recommendations."""
     uid = UUID(user_id)
 
     # ── Resolve or create session ─────────────────────────────────────────────
@@ -237,7 +230,7 @@ async def send_message(
     if not body.session_id:
         chat_session.title = _session_title_from_message(body.message)
 
-    await session.commit()
+    await session.flush()
     await session.refresh(assistant_msg)
 
     # ── Save outfit history for RAG retrieval in future sessions ─────────────
@@ -268,6 +261,7 @@ async def send_message(
         "message_id": str(assistant_msg.id),
         "reply": ai_response.get("reply") or "",
         "recommended_outfits": outfits,
+        "styling_suggestions": ai_response.get("styling_suggestions") or [],
         "purchase_gaps": ai_response.get("purchase_gaps") or [],
         "follow_up_questions": ai_response.get("follow_up_questions") or [],
     }
@@ -339,7 +333,7 @@ async def submit_feedback(
         was_worn=body.was_worn,
     )
     session.add(feedback)
-    await session.commit()
+    await session.flush()
     await session.refresh(feedback)
 
     return {
@@ -389,7 +383,7 @@ async def save_outfit(
         style_score=body.style_score or 0,
     )
     session.add(outfit)
-    await session.commit()
+    await session.flush()
     await session.refresh(outfit)
 
     logger.info("outfit_saved_from_chat", outfit_id=str(outfit.id), user_id=user_id)

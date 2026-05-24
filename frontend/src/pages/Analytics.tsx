@@ -7,6 +7,7 @@ import { TrendingUp, Shirt, Star, Loader2, BarChart3 } from 'lucide-react'
 import { useApp } from '@/store'
 import Badge from '@/components/ui/Badge'
 import GlassCard from '@/components/ui/GlassCard'
+import EmptyState from '@/components/ui/EmptyState'
 import { analyticsApi } from '@/lib/api'
 import { useAsyncError } from '@/hooks/useAsyncError'
 import type { ClosetAnalytics, CategoryCoverageItem, ColorStats } from '@/types'
@@ -76,11 +77,14 @@ export default function Analytics() {
 
   if (closetItems.length === 0) {
     return (
-      <div className="text-center py-12 space-y-3">
-        <Shirt size={40} className="text-slate-300 dark:text-white/20 mx-auto" />
-        <h3 className="font-semibold text-slate-700 dark:text-white">Your closet is empty</h3>
-        <p className="text-sm text-slate-500 dark:text-white/40">Add items to see closet insights and analytics</p>
-      </div>
+      <EmptyState
+        icon={<BarChart3 />}
+        title="No insights yet"
+        description="Add clothing items to your closet to unlock wear analytics, category breakdowns, and style trends."
+        primaryAction={{ label: 'Add to Your Closet', href: '/upload' }}
+        secondaryAction={{ label: 'View My Closet', href: '/closet' }}
+        variant="card"
+      />
     )
   }
 

@@ -56,5 +56,4 @@ async def submit_packing_memory_feedback(
     )
     if not result:
         raise NotFoundError("Packing memory record not found")
-    await session.commit()
     return result

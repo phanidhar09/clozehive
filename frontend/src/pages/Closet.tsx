@@ -1,9 +1,12 @@
-import { useMemo, useState } from 'react'
+import React, { useMemo } from 'react'
 import {
   Search, SlidersHorizontal, Loader2, RefreshCw, Trash2, X,
-  Sparkles, Upload, ChevronRight, Clock, TrendingUp,
+  Sparkles, Upload, ChevronRight, Clock, TrendingUp, Plus,
 } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { useApp } from '@/store'
+import { usePageState } from '@/hooks/usePageState'
+import { useWindowScrollRestoration } from '@/hooks/useScrollRestoration'
 import { closetApi } from '@/lib/api'
 import ItemDetailModal from '@/components/closet/ItemDetailModal'
 import RevealCard from '@/components/ui/RevealCard'
@@ -142,15 +145,21 @@ function RecentlyAddedSection({
 export default function Closet() {
   const { closetItems, setClosetItems, closetLoading, closetError, fetchClosetItems, removeClosetItem } = useApp()
 
-  const [category, setCategory]     = useState<Category>('all')
-  const [search,   setSearch]       = useState('')
-  const [sort,     setSort]         = useState('recent')
-  const [selected, setSelected]     = useState<ClosetItem | null>(null)
-  const [deleting, setDeleting]     = useState<string | null>(null)
-  const [filtersOpen, setFiltersOpen] = useState(false)
-  const [colorFilter,    setColorFilter]    = useState('')
-  const [seasonFilter,   setSeasonFilter]   = useState('')
-  const [occasionFilter, setOccasionFilter] = useState('')
+  // Persisted filter state — survives navigation, cleared on browser refresh
+  const [category, setCategory]       = usePageState<Category>('closet-category', 'all')
+  const [search,   setSearch]         = usePageState('closet-search', '')
+  const [sort,     setSort]           = usePageState('closet-sort', 'recent')
+  const [filtersOpen, setFiltersOpen] = usePageState('closet-filters-open', false)
+  const [colorFilter,    setColorFilter]    = usePageState('closet-color', '')
+  const [seasonFilter,   setSeasonFilter]   = usePageState('closet-season', '')
+  const [occasionFilter, setOccasionFilter] = usePageState('closet-occasion', '')
+
+  // Transient UI state (not persisted)
+  const [selected, setSelected] = React.useState<ClosetItem | null>(null)
+  const [deleting, setDeleting] = React.useState<string | null>(null)
+
+  // Restore scroll position across navigations
+  useWindowScrollRestoration('closet-scroll')
 
   const filtered = useMemo(() => {
     let items = closetItems
@@ -209,7 +218,8 @@ export default function Closet() {
   }
 
   const clearFilters = () => {
-    setCategory('all'); setSearch(''); setColorFilter(''); setSeasonFilter(''); setOccasionFilter('')
+    setCategory('all'); setSearch(''); setSort('recent')
+    setColorFilter(''); setSeasonFilter(''); setOccasionFilter('')
   }
 
   if (closetLoading && closetItems.length === 0) {
@@ -245,21 +255,15 @@ export default function Closet() {
           >
             <RefreshCw size={15} className={closetLoading ? 'animate-spin text-brand-500' : ''} />
           </button>
-          {/* Smart Upload CTA */}
-          <a
-            href="/smart-upload"
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-gradient-to-r from-brand-500 to-violet-500 text-white shadow-md shadow-brand-500/25 hover:shadow-brand-500/40 hover:-translate-y-0.5 transition-all duration-200"
+          {/* Add to Closet CTA */}
+          <Link
+            to="/upload"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-gradient-to-r from-brand-500 to-violet-500 text-white shadow-md shadow-brand-500/25 hover:shadow-brand-500/40 hover:-translate-y-0.5 transition-all duration-200 min-h-[44px]"
           >
-            <Sparkles size={14} />
-            AI Upload
-          </a>
-          <a
-            href="/upload"
-            className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold btn-secondary min-h-[44px]"
-          >
-            <Upload size={14} />
-            <span className="hidden sm:inline">Add Item</span>
-          </a>
+            <Plus size={15} />
+            <span className="hidden sm:inline">Add to Closet</span>
+            <span className="sm:hidden">Add</span>
+          </Link>
         </div>
       </div>
 
@@ -418,18 +422,18 @@ export default function Closet() {
             <p className="text-sm text-slate-400 mt-1">Start by adding your first clothing items</p>
           </div>
           <div className="flex gap-3">
-            <a
-              href="/smart-upload"
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold bg-gradient-to-r from-brand-500 to-violet-500 text-white shadow-md"
+            <Link
+              to="/upload"
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold bg-gradient-to-r from-brand-500 to-violet-500 text-white shadow-md hover:opacity-90 transition-opacity"
             >
-              <Sparkles size={15} /> AI Bulk Upload
-            </a>
-            <a
-              href="/upload"
+              <Sparkles size={15} /> Add with AI
+            </Link>
+            <Link
+              to="/upload"
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold btn-secondary"
             >
-              <Upload size={15} /> Add Single Item
-            </a>
+              <Upload size={15} /> Add Item
+            </Link>
           </div>
         </div>
       )}
@@ -497,12 +501,12 @@ export default function Closet() {
               <p className="text-xs text-slate-400">Upload up to 20 photos — AI detects and categorises everything</p>
             </div>
           </div>
-          <a
-            href="/smart-upload"
+          <Link
+            to="/upload"
             className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold bg-gradient-to-r from-brand-500 to-violet-500 text-white flex-shrink-0 hover:opacity-90 transition-opacity"
           >
-            Try AI Upload <ChevronRight size={14} />
-          </a>
+            Add Items <ChevronRight size={14} />
+          </Link>
         </div>
       )}
 

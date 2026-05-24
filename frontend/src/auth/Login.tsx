@@ -58,11 +58,11 @@ export default function Login() {
     setLoading(true)
     setError(null)
     try {
-      const { user, access_token, refresh_token } = await authApi.login({
+      const { user, access_token } = await authApi.login({
         identifier: identifier.trim(),
         password,
       })
-      login(user, access_token, refresh_token)
+      login(user, access_token)
       try {
         const st = await profileApi.getOnboardingStatus()
         if (!st.onboarding_completed) {
@@ -212,7 +212,7 @@ export default function Login() {
                 <input
                   type={showPw ? 'text' : 'password'}
                   className="input w-full pr-11"
-                  placeholder="••••••••"
+                  placeholder="Enter your password"
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                   autoComplete="current-password"
@@ -226,6 +226,16 @@ export default function Login() {
                   {showPw ? <EyeOff size={18} /> : <Eye size={18} />}
                 </button>
               </div>
+            </div>
+
+            {/* Forgot password */}
+            <div className="text-right -mt-1">
+              <Link
+                to="/forgot-password"
+                className="text-xs text-brand-500 hover:text-brand-600 font-medium transition-colors"
+              >
+                Forgot password?
+              </Link>
             </div>
 
             {/* Submit */}

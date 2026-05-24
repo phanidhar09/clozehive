@@ -13,7 +13,10 @@ import { hideNonMvpUi } from '@/config/features'
 const Login = lazy(() => import('@/auth/Login'))
 const Signup = lazy(() => import('@/auth/Signup'))
 const OAuthCallback = lazy(() => import('@/auth/OAuthCallback'))
+const ForgotPassword = lazy(() => import('@/pages/ForgotPassword'))
+const ResetPassword  = lazy(() => import('@/pages/ResetPassword'))
 const StyleProfileOnboarding = lazy(() => import('@/pages/onboarding/StyleProfileOnboarding'))
+const StyleProfileResult = lazy(() => import('@/pages/onboarding/StyleProfileResult'))
 
 // App pages
 const Dashboard = lazy(() => import('@/pages/Dashboard'))
@@ -82,13 +85,30 @@ function AnimatedRoutes() {
         <Route path="/signup" element={
           <AuthGuard><Signup /></AuthGuard>
         } />
-        <Route path="/oauth/callback" element={<OAuthCallback />} />
+        <Route path="/oauth/callback"    element={<OAuthCallback />} />
+        {/* Password reset — public, no auth required */}
+        <Route path="/forgot-password" element={
+          <AuthGuard><Suspense fallback={<RouteFallback />}><ForgotPassword /></Suspense></AuthGuard>
+        } />
+        <Route path="/reset-password"  element={
+          <Suspense fallback={<RouteFallback />}><ResetPassword /></Suspense>
+        } />
         <Route
           path="/onboarding/style-profile"
           element={
             <ProtectedRoute>
               <Suspense fallback={<RouteFallback />}>
                 <StyleProfileOnboarding />
+              </Suspense>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/onboarding/result"
+          element={
+            <ProtectedRoute>
+              <Suspense fallback={<RouteFallback />}>
+                <StyleProfileResult />
               </Suspense>
             </ProtectedRoute>
           }

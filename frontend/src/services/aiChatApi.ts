@@ -60,6 +60,7 @@ export interface SendMessageResponse {
   message_id: string
   reply: string
   recommended_outfits: AIChatStructuredResponse['recommended_outfits']
+  styling_suggestions: AIChatStructuredResponse['styling_suggestions']
   purchase_gaps: AIChatStructuredResponse['purchase_gaps']
   follow_up_questions: string[]
 }
@@ -122,4 +123,37 @@ export async function saveRecommendedOutfit(payload: SaveOutfitPayload): Promise
 }> {
   const { data } = await api.post('/ai-chat/save-outfit', payload)
   return data as { id: string; name: string; message: string }
+}
+
+// ── Outfit Shuffle ────────────────────────────────────────────────────────────
+
+export interface ShuffleOutfitPayload {
+  item_ids: string[]
+  occasion?: string
+  seed_category?: string | null
+  location?: string | null
+}
+
+export interface ShuffleAlternative {
+  title: string
+  items: Array<{
+    id: string
+    name: string
+    category: string
+    color?: string
+    image_url?: string | null
+  }>
+  matching_score: number
+  score_breakdown?: {
+    color: number; occasion: number; fit: number
+    style: number; weather: number; preference: number
+  }
+  reasoning: string
+  improvement_tips: string[]
+  fashion_rules_used?: string[]
+}
+
+export async function shuffleOutfit(payload: ShuffleOutfitPayload): Promise<ShuffleAlternative[]> {
+  const { data } = await api.post<{ alternatives: ShuffleAlternative[] }>('/outfits/shuffle', payload)
+  return data.alternatives ?? []
 }

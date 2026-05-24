@@ -17,13 +17,14 @@ const TITLES: Record<string, string> = {
   '/outfit-builder':   'Outfit Builder',
   '/upload':           'Add to Your Closet',
   '/fashion-analysis': 'Add to Your Closet',
-  '/ai-stylist':       'FANI',
+  '/ai-stylist':       'FANI — AI Stylist',
   '/travel':           'Travel Planner',
   '/avatar':           'Avatar Builder',
-  '/analytics':        'Analytics',
+  '/analytics':        'Style Insights',
   '/groups':           'Groups',
   '/profile':          'Profile',
   '/saved-outfits':    'Saved Outfits',
+  '/purchase-gaps':    'Wardrobe Gaps',
 }
 
 /* ── Premium profile hover dropdown ────────────────────────────────────────── */

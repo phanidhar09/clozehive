@@ -18,7 +18,8 @@ export interface AppState {
   // ── Auth ───────────────────────────────────────────────────────────────────
   currentUser: AuthUser | null
   isAuthenticated: boolean
-  login: (user: AuthUser, accessToken: string, refreshToken: string) => void
+  /** @param refreshToken Ignored — refresh token now lives in HttpOnly cookie. */
+  login: (user: AuthUser, accessToken: string, refreshToken?: string) => void
   logout: () => void
   updateCurrentUser: (updates: Partial<AuthUser>) => void
 
@@ -151,8 +152,9 @@ export function useCreateAppState(): AppState {
     return hasToken ? loadPersistedUser() : null
   })
 
-  const login = useCallback((user: AuthUser, accessToken: string, refreshToken: string) => {
-    tokenStorage.set(accessToken, refreshToken)
+  // refreshToken is ignored — it lives in the HttpOnly cookie set by the server.
+  const login = useCallback((user: AuthUser, accessToken: string, _refreshToken?: string) => {
+    tokenStorage.set(accessToken)
     setCurrentUser(user)
     persistUser(user)
   }, [])

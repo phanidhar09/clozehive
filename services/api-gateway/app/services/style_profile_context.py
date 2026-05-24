@@ -83,6 +83,30 @@ def style_profile_to_prompt_block(row: UserStyleProfile | None, user: User | Non
         if row.bold_color_preference is not None:
             lines.append(f"- Enjoys bold colors: {row.bold_color_preference}")
         lines.append(f"- Climate / comfort preferences: {row.climate_preferences or []}")
+        # v2 onboarding fields
+        styling_goals = getattr(row, "styling_goals", None)
+        avoidances = getattr(row, "avoidances", None)
+        pattern_prefs = getattr(row, "pattern_preferences", None)
+        style_archetype = getattr(row, "style_archetype", None)
+        ai_ctx = getattr(row, "ai_stylist_context", None)
+        rec_rules = getattr(row, "recommendation_rules", None)
+        if styling_goals:
+            lines.append(f"- Styling goals: {styling_goals}")
+        if avoidances:
+            lines.append(f"- Items/styles to avoid: {avoidances}")
+        if pattern_prefs:
+            lines.append(f"- Pattern preferences: {pattern_prefs}")
+        if style_archetype:
+            lines.append(f"- Style archetype: {style_archetype}")
+        if rec_rules and isinstance(rec_rules, dict):
+            if rec_rules.get("always_include"):
+                lines.append(f"- Always include in recommendations: {rec_rules['always_include']}")
+            if rec_rules.get("avoid"):
+                lines.append(f"- Recommendation avoidances: {rec_rules['avoid']}")
+            if rec_rules.get("fit_notes"):
+                lines.append(f"- Fit notes: {rec_rules['fit_notes']}")
+        if ai_ctx:
+            lines.insert(0, f"AI Stylist Brief: {ai_ctx}\n")
     elif user:
         bp = user.body_profile if isinstance(user.body_profile, dict) else None
         sp = user.style_profile if isinstance(user.style_profile, dict) else None

@@ -1,4 +1,4 @@
-"""PackingPlan ORM model — stores AI-generated packing results per trip."""
+"""PackingPlan ORM model — stores AI-generated activity-aware packing results per trip."""
 
 from __future__ import annotations
 
@@ -31,6 +31,7 @@ class PackingPlan(Base):
         nullable=False,
         index=True,
     )
+    # ── Legacy fields (backward compatible) ──────────────────────────────────
     take_from_your_closet: Mapped[list] = mapped_column(
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
@@ -39,9 +40,15 @@ class PackingPlan(Base):
     )
     daily_plan: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     weather_summary: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    # Full raw packing result — used to reconstruct the complete PackingResult
-    # for the frontend without re-running AI.
     raw_result: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # ── New activity-aware fields ─────────────────────────────────────────────
+    activities: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    day_plans_rich: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    rewear_strategy: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    bag_capacity_summary: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    packing_checklist: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    checklist_state: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # ─────────────────────────────────────────────────────────────────────────
     is_saved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False

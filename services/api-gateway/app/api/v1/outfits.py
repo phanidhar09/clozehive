@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, status
+from fastapi import APIRouter, BackgroundTasks, Request, status
+from app.core.rate_limit import limiter
 from pydantic import BaseModel, Field
 from sqlalchemy import select, desc
 
@@ -120,7 +121,8 @@ async def create_outfit(body: OutfitCreate, user_id: CurrentUser, session: DbSes
 # ── AI outfit analysis ─────────────────────────────────────────────────────────
 
 @router.post("/generate", response_model=AnalyzeOutfitResponse)
-async def analyze_outfit(body: AnalyzeOutfitRequest, user_id: CurrentUser, session: DbSession, background_tasks: BackgroundTasks):
+@limiter.limit("20/minute")
+async def analyze_outfit(request: Request, body: AnalyzeOutfitRequest, user_id: CurrentUser, session: DbSession, background_tasks: BackgroundTasks):
     """
     Analyse a specific outfit combination the user built in the Outfit Builder.
 
@@ -308,6 +310,99 @@ async def analyze_outfit(body: AnalyzeOutfitRequest, user_id: CurrentUser, sessi
     })
 
     return data
+
+
+class ShuffleOutfitRequest(BaseModel):
+    item_ids: list[str] = Field(..., min_items=1, description="Current outfit item IDs")
+    occasion: str = "casual"
+    seed_category: str | None = Field(None, description="Optional category to anchor first alternative (e.g. 'tops', 'bottoms')")
+    location: str | None = None
+
+
+@router.post("/shuffle")
+async def shuffle_outfit(
+    body: ShuffleOutfitRequest,
+    user_id: CurrentUser,
+    session: DbSession,
+):
+    """Suggest 1–2 alternative outfit combinations from the user's closet."""
+    uid = UUID(user_id)
+
+    # Load current outfit items
+    item_uuids = []
+    for raw_id in body.item_ids:
+        try:
+            item_uuids.append(UUID(raw_id))
+        except ValueError:
+            pass
+
+    current_rows = await session.execute(
+        select(ClosetItem).where(
+            ClosetItem.id.in_(item_uuids),
+            ClosetItem.user_id == uid,
+            ClosetItem.is_archived == False,  # noqa: E712
+        )
+    )
+    current_items = [
+        {
+            "id": str(r.id), "name": r.name, "category": r.category,
+            "color": r.color or "", "fabric": r.fabric or "",
+            "pattern": r.pattern or "", "occasion": r.occasion or [],
+            "season": r.season or [], "tags": r.tags or [],
+            "image_url": r.processed_image_url or r.image_url or r.original_image_url,
+        }
+        for r in current_rows.scalars().all()
+    ]
+
+    # Load the rest of the closet (excluding current items)
+    current_ids = {str(i) for i in item_uuids}
+    all_rows = await session.execute(
+        select(ClosetItem)
+        .where(ClosetItem.user_id == uid, ClosetItem.is_archived == False)  # noqa: E712
+        .order_by(ClosetItem.wear_count.desc())
+        .limit(80)
+    )
+    available = [
+        {
+            "id": str(r.id), "name": r.name, "category": r.category,
+            "color": r.color or "", "fabric": r.fabric or "",
+            "pattern": r.pattern or "", "occasion": r.occasion or [],
+            "season": r.season or [], "tags": r.tags or [],
+            "image_url": r.processed_image_url or r.image_url or r.original_image_url,
+        }
+        for r in all_rows.scalars().all()
+        if str(r.id) not in current_ids
+    ]
+
+    # Resolve weather if location provided
+    weather_str = ""
+    if body.location:
+        try:
+            w = await get_weather_by_city(body.location)
+            weather_str = w.get("condition", "") if w else ""
+        except Exception:
+            pass
+
+    alternatives = await outfit_ai_service.shuffle_outfit(
+        current_items=current_items,
+        available_closet=available,
+        occasion=body.occasion,
+        weather=weather_str,
+        seed_category=body.seed_category,
+    )
+
+    # Enrich alternatives with image_urls from full closet
+    closet_map = {r["id"]: r for r in current_items + available}
+    for alt in alternatives:
+        enriched_items = []
+        valid_ids = set(closet_map.keys())
+        for it in alt.get("items") or []:
+            if it.get("id") in valid_ids:
+                full = closet_map[it["id"]]
+                enriched_items.append({**it, "image_url": full.get("image_url")})
+        alt["items"] = enriched_items
+
+    return {"alternatives": alternatives}
 
 
 async def _save_outfit_history_and_gaps(

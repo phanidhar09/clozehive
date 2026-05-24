@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ShoppingBag, CheckCircle, AlertCircle, Loader2, RefreshCw } from 'lucide-react'
+import BackButton from '@/components/ui/BackButton'
 import GlassCard from '@/components/ui/GlassCard'
 import Badge from '@/components/ui/Badge'
 import { purchaseGapsApi, type PurchaseGap } from '@/lib/api'
@@ -40,7 +41,7 @@ function GapCard({ gap, onResolve }: { gap: PurchaseGap; onResolve: (id: string)
             {level} priority
           </span>
           {gap.gap_type && (
-            <Badge variant="outline" className="text-xs capitalize">
+            <Badge variant="gray" className="text-xs capitalize">
               {gap.gap_type.replace(/_/g, ' ')}
             </Badge>
           )}
@@ -121,7 +122,8 @@ export default function PurchaseGaps() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
+    <div className="max-w-3xl space-y-6">
+      <BackButton fallback="/dashboard" label="Back to Dashboard" />
       {/* Header */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">

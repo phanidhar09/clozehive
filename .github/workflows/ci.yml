@@ -74,6 +74,10 @@ jobs:
       GOOGLE_CLIENT_ID: ci-google-client-id
       GOOGLE_CLIENT_SECRET: ci-google-client-secret
       OPENAI_API_KEY: sk-ci-placeholder
+      ANTHROPIC_API_KEY: sk-ant-ci-placeholder
+      COOKIE_SECURE: "false"
+      COOKIE_SAMESITE: Lax
+      COOKIE_DOMAIN: ""
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

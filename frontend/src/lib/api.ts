@@ -22,6 +22,7 @@ import type {
   SavePlannerResponse,
   SocialUser,
   Trip,
+  TripActivity,
   TripListResponse,
   UserStyleProfile,
   VisionPreviewItem,
@@ -109,6 +110,9 @@ function normalizeOutfitSuggestion(outfit: OutfitSuggestion | null): OutfitSugge
 const api: AxiosInstance = axios.create({
   baseURL: `${apiOrigin()}/api/v1`,
   timeout: 120_000,
+  // Required so the browser sends the HttpOnly refresh-token cookie on
+  // /auth/refresh and /auth/logout calls.  Safe for same-origin deploys.
+  withCredentials: true,
 })
 
 api.interceptors.request.use(cfg => {
@@ -161,10 +165,9 @@ api.interceptors.response.use(
     }
     original._chRetry = true
 
-    if (!tokenStorage.getRefresh()) {
-      dispatchUnauthenticated()
-      return Promise.reject(err)
-    }
+    // Refresh token lives in an HttpOnly cookie — we cannot read it from JS.
+    // Just attempt the refresh; if the cookie is absent/expired the refresh
+    // endpoint will return 401 and `_chRetry` prevents an infinite loop.
 
     try {
       const access = await refreshAccessToken()
@@ -342,6 +345,9 @@ function mapTrip(raw: Record<string, unknown>): Trip {
     end_date: String(raw.end_date ?? ''),
     purpose: String(raw.purpose ?? ''),
     notes: (raw.notes as string | null | undefined) ?? null,
+    trip_style: (raw.trip_style as Trip['trip_style']) ?? null,
+    bag_size: (raw.bag_size as Trip['bag_size']) ?? null,
+    activities: (raw.activities as TripActivity[]) ?? [],
     is_saved: Boolean(raw.is_saved),
     created_at: String(raw.created_at ?? ''),
     updated_at: String(raw.updated_at ?? ''),
@@ -363,13 +369,12 @@ export const authApi = {
   async login(body: { identifier: string; password: string }): Promise<{
     user: AuthUser
     access_token: string
-    refresh_token: string
+    // refresh_token intentionally absent — delivered via HttpOnly cookie
   }> {
     const { data } = await api.post('/auth/login', body)
     return {
       user: mapUserResponse(data.user as Record<string, unknown>),
       access_token: String(data.access_token),
-      refresh_token: String(data.refresh_token),
     }
   },
 
@@ -378,12 +383,12 @@ export const authApi = {
     email: string
     username: string
     password: string
-  }): Promise<{ user: AuthUser; access_token: string; refresh_token: string }> {
+    gdpr_consent: boolean
+  }): Promise<{ user: AuthUser; access_token: string }> {
     const { data } = await api.post('/auth/signup', body)
     return {
       user: mapUserResponse(data.user as Record<string, unknown>),
       access_token: String(data.access_token),
-      refresh_token: String(data.refresh_token),
     }
   },
 
@@ -393,10 +398,9 @@ export const authApi = {
   },
 
   async logout(): Promise<void> {
-    const refresh = tokenStorage.getRefresh()
-    if (!refresh) return
     try {
-      await api.post('/auth/logout', { refresh_token: refresh })
+      // withCredentials ensures the HttpOnly cookie is sent to the server for revocation.
+      await api.post('/auth/logout')
     } catch {
       /* best-effort */
     }
@@ -412,6 +416,46 @@ export const authApi = {
     }
     const { data } = await api.patch('/auth/me', body)
     return mapUserResponse(data as Record<string, unknown>)
+  },
+
+  async deleteAccount(): Promise<void> {
+    await api.delete('/auth/me')
+  },
+
+  async exportMyData(): Promise<void> {
+    const { data } = await api.get('/auth/me/export')
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'clozehive_data_export.json'
+    a.click()
+    URL.revokeObjectURL(url)
+  },
+
+  async oauthExchange(code: string): Promise<{ access_token: string }> {
+    // withCredentials ensures the server's Set-Cookie header is honoured —
+    // the refresh token is delivered as an HttpOnly cookie, not in the body.
+    const { data } = await api.post('/auth/oauth/exchange', { code })
+    return {
+      access_token: String(data.access_token),
+    }
+  },
+
+  /**
+   * Request a password-reset email.  The server always returns 202 regardless
+   * of whether the email is registered (prevents account enumeration).
+   */
+  async forgotPassword(email: string): Promise<void> {
+    await api.post('/auth/forgot-password', { email })
+  },
+
+  /**
+   * Consume a one-time password-reset token and set a new password.
+   * @throws AxiosError with response.data.detail on invalid/expired token.
+   */
+  async resetPassword(token: string, new_password: string): Promise<void> {
+    await api.post('/auth/reset-password', { token, new_password })
   },
 }
 
@@ -441,6 +485,11 @@ export const profileApi = {
 
   async completeOnboarding(skipped: boolean): Promise<UserStyleProfile> {
     const { data } = await api.post<Record<string, unknown>>('/profile/style/complete', { skipped })
+    return mapUserStyleProfile(data)
+  },
+
+  async submitOnboarding(payload: Record<string, unknown>): Promise<UserStyleProfile> {
+    const { data } = await api.post<Record<string, unknown>>('/profile/onboarding/submit', payload)
     return mapUserStyleProfile(data)
   },
 }
@@ -639,15 +688,30 @@ export const tripsApi = {
     end_date: string
     purpose: string
     notes?: string
+    trip_style?: string | null
+    bag_size?: string | null
+    activities?: TripActivity[]
   }): Promise<CreateTripResponse> {
-    // Packing generation calls OpenAI + optional ai-agent; give it more time than
-    // the default 120 s global timeout in case the backend is under load.
-    const { data } = await api.post<CreateTripResponse>('/trips/', body, { timeout: 90_000 })
+    const { data } = await api.post<CreateTripResponse>('/trips/', body, { timeout: 120_000 })
     return {
       trip: mapTrip(data.trip as unknown as Record<string, unknown>),
       packing_plan: (data.packing_plan ?? null) as CreateTripResponse['packing_plan'],
       packing_error: data.packing_error ?? null,
     }
+  },
+
+  async addActivities(tripId: string, activities: TripActivity[], replace = false): Promise<Trip> {
+    const { data } = await api.post(`/trips/${tripId}/activities`, { activities, replace })
+    return mapTrip(data as Record<string, unknown>)
+  },
+
+  async regeneratePacking(tripId: string): Promise<PackingPlan> {
+    const { data } = await api.post<PackingPlan>(`/trips/${tripId}/regenerate-packing`, {}, { timeout: 120_000 })
+    return data
+  },
+
+  async updateChecklistItem(tripId: string, itemKey: string, isPacked: boolean): Promise<void> {
+    await api.patch(`/trips/${tripId}/planner/checklist`, { item_key: itemKey, is_packed: isPacked })
   },
 
   async getPackingList(tripId: string): Promise<unknown> {
@@ -885,18 +949,73 @@ export const purchaseGapsApi = {
 
 // ── RAG: Closet Similarity ────────────────────────────────────────────────────
 
+/** Rich similar-item result returned by the new check-similar and items/{id}/similar endpoints. */
 export type SimilarClosetItem = {
+  id: string
   item_id: string
   name: string
   category: string
   color: string
+  colors: string[]
   brand: string
   image_url: string
+  /** 0–100 integer */
   similarity_score: number
-  reason: string
+  /** "Possible duplicate" | "Very similar" | "Related item" */
+  similarity_label: string
+  /** Why they are similar */
+  similarity_reason: string
+  /** Key differences between the two items */
+  difference_summary: string
+  /** Legacy field kept for backward compat */
+  reason?: string
+}
+
+export interface CheckSimilarPayload {
+  name?: string
+  category: string
+  subcategory?: string
+  color?: string
+  colors?: string[]
+  pattern?: string
+  material?: string
+  style_tags?: string[]
+  occasion_tags?: string[]
+  season_tags?: string[]
+  limit?: number
 }
 
 export const closetSimilarityApi = {
+  /**
+   * Check if a NEW (not-yet-saved) item is similar to existing closet items.
+   * Call before saving to warn the user of potential duplicates.
+   */
+  async checkSimilarClosetItems(payload: CheckSimilarPayload): Promise<SimilarClosetItem[]> {
+    try {
+      const { data } = await api.post<{ similar_items: SimilarClosetItem[] }>(
+        '/closet/check-similar',
+        payload,
+      )
+      return data.similar_items ?? []
+    } catch {
+      return []
+    }
+  },
+
+  /** Get similar items for an EXISTING closet item (detail view). */
+  async getSimilarForItem(itemId: string, limit = 6): Promise<SimilarClosetItem[]> {
+    try {
+      const { data } = await api.get<{ similar_items: SimilarClosetItem[] }>(
+        `/closet/items/${itemId}/similar`,
+        { params: { limit } },
+      )
+      return data.similar_items ?? []
+    } catch {
+      return []
+    }
+  },
+
+  // ── Legacy endpoints kept for backward compat ──────────────────────────────
   async findSimilar(params: {
     closet_item_id?: string
     query?: string
@@ -952,13 +1071,7 @@ export async function streamChat(
     let res = await openStream(accessToken)
 
     if (res.status === 401) {
-      if (!tokenStorage.getRefresh()) {
-        tokenStorage.clear()
-        window.dispatchEvent(new Event('ch:unauthenticated'))
-        handlers.onError('Session expired — please sign in again')
-        finish()
-        return
-      }
+      // Refresh token is in an HttpOnly cookie — attempt refresh unconditionally.
       try {
         accessToken = await refreshAccessToken()
         res = await openStream(accessToken)

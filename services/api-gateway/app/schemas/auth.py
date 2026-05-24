@@ -17,6 +17,15 @@ class SignupRequest(BaseModel):
     # username is optional — the service auto-generates one from name/email if omitted
     username: Optional[str] = Field(None, min_length=3, max_length=30)
     password: str = Field(..., min_length=8, max_length=128)
+    # GDPR Art. 6/7 — explicit consent is required before account creation
+    gdpr_consent: bool = Field(..., description="User must explicitly accept the Privacy Policy and Terms of Service")
+
+    @field_validator("gdpr_consent")
+    @classmethod
+    def consent_must_be_given(cls, v: bool) -> bool:
+        if not v:
+            raise ValueError("You must accept the Privacy Policy and Terms of Service to create an account")
+        return v
 
     @field_validator("name", mode="before")
     @classmethod
@@ -54,14 +63,8 @@ class LoginRequest(BaseModel):
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
-
-
-class TokenResponse(BaseModel):
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
-    expires_in: int  # seconds until access token expiry
+    # Kept for backwards compatibility; the cookie path is preferred.
+    refresh_token: Optional[str] = None
 
 
 # ── Personalization sub-schemas ──────────────────────────────────────────────
@@ -143,8 +146,16 @@ class UserResponse(BaseModel):
 class AuthResponse(BaseModel):
     user: UserResponse
     access_token: str
-    refresh_token: str
+    # refresh_token is intentionally NOT returned in the response body — it is
+    # set as an HttpOnly cookie by the route handler so JavaScript cannot read it.
     token_type: str = "bearer"
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    # refresh_token omitted from body — delivered via HttpOnly cookie.
+    token_type: str = "bearer"
+    expires_in: int  # seconds until access token expiry
 
 
 class UpdateProfileRequest(BaseModel):
@@ -176,6 +187,27 @@ class UpdateProfileRequest(BaseModel):
 
 class ChangePasswordRequest(BaseModel):
     current_password: str
+    new_password: str = Field(..., min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def password_strength(cls, v: str) -> str:
+        if not re.search(r"[A-Za-z]", v) or not re.search(r"\d", v):
+            raise ValueError("Password must be 8-128 characters and contain at least one letter and one number")
+        return v
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr = Field(..., max_length=254)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalise_email(cls, v: str) -> str:
+        return strip_string(v).lower()
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(..., min_length=10, max_length=200)
     new_password: str = Field(..., min_length=8, max_length=128)
 
     @field_validator("new_password")

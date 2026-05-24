@@ -309,7 +309,7 @@ async def process_job(
             processed_bytes = remove_background(raw_bytes)
 
             # 4. Persist processed PNG (background-removed version)
-            processed_url = persist_upload(
+            processed_url = await persist_upload(
                 processed_bytes,
                 "image/png",
                 f"processed_{filename}",

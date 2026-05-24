@@ -17,6 +17,7 @@ from app.repositories.style_profile_repo import UserStyleProfileRepository
 from app.schemas.style_profile import (
     CompleteOnboardingBody,
     OnboardingStatusResponse,
+    OnboardingSubmitBody,
     StyleProfileCreate,
     StyleProfileResponse,
     StyleProfileUpdate,
@@ -49,45 +50,141 @@ def _extract_profile_data(row: UserStyleProfile) -> dict:
         "bold_color_preference": row.bold_color_preference,
         "occasion_preferences": row.occasion_preferences or [],
         "climate_preferences": row.climate_preferences or [],
+        # v2 fields
+        "styling_goals": getattr(row, "styling_goals", None) or [],
+        "avoidances": getattr(row, "avoidances", None) or [],
+        "pattern_preferences": getattr(row, "pattern_preferences", None) or [],
     }
 
 
+_STYLE_PROFILE_PROMPT = """\
+You are ClozeHive AI, an expert personal stylist. Based on the user style profile AND their actual wardrobe data below, \
+generate a rich profile JSON used to personalise all AI recommendations.
+
+If wardrobe data is provided, let it shape the style_summary and ai_stylist_context — reflect what they actually own, \
+not just what they said they prefer. Look for patterns in their real items.
+
+RESPOND WITH VALID JSON ONLY — no markdown fences, no commentary.
+
+Required JSON schema:
+{
+  "style_summary": "2-3 sentence natural-language description synthesising their stated preferences AND their actual wardrobe. \
+Mention dominant categories, colour palette from real items, occasions covered, and any interesting patterns.",
+  "style_archetype": "One of: Classic Minimalist | Streetwear Edge | Bohemian Free Spirit | Corporate Power | Casual Comfort | Romantic Feminine | Outdoorsy Explorer | Eclectic Creative | Athleisure Athlete | Vintage Revivalist",
+  "recommendation_rules": {
+    "always_include": ["list of must-have item types / attributes"],
+    "avoid": ["list of item types / attributes to avoid"],
+    "colour_palette": ["3-6 hex codes that suit their preferences and existing wardrobe"],
+    "occasion_focus": ["primary occasions to optimise outfits for"],
+    "fit_notes": "brief sentence about their fit philosophy"
+  },
+  "ai_stylist_context": "Single rich paragraph (3-5 sentences) the AI stylist reads before every conversation — includes archetype, key traits, colour story from actual wardrobe, occasions, avoidances, styling goals, and any wardrobe gaps worth noting. Written as if briefing a human stylist."
+}
+"""
+
+
+async def _load_wardrobe_stats(user_id: UUID) -> dict:
+    """Load a statistical snapshot of the user's closet for AI context."""
+    try:
+        from app.db.session import AsyncSessionLocal
+        from app.models.closet import ClosetItem
+        from sqlalchemy import select, func as sa_func
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(ClosetItem)
+                .where(ClosetItem.user_id == user_id, ClosetItem.is_archived == False)  # noqa: E712
+                .order_by(ClosetItem.wear_count.desc())
+                .limit(100)
+            )
+            items = result.scalars().all()
+            if not items:
+                return {}
+
+            # Aggregate statistics
+            from collections import Counter
+            categories = Counter(i.category for i in items)
+            colors = Counter(i.color for i in items if i.color)
+            occasions_flat = [o for i in items for o in (i.occasion or [])]
+            occasions = Counter(occasions_flat)
+            top_worn = [
+                {"name": i.name, "category": i.category, "wear_count": i.wear_count}
+                for i in items if i.wear_count > 1
+            ][:5]
+
+            return {
+                "total_items": len(items),
+                "top_categories": dict(categories.most_common(6)),
+                "top_colors": dict(colors.most_common(8)),
+                "top_occasions": dict(occasions.most_common(5)),
+                "most_worn_items": top_worn,
+                "never_worn_count": sum(1 for i in items if i.wear_count == 0),
+            }
+    except Exception as exc:
+        logger.warning("wardrobe_stats_load_failed", user_id=str(user_id), error=str(exc))
+        return {}
+
+
 async def _background_generate_style_summary(user_id: UUID, profile_data: dict) -> None:
-    """Run in its own DB session so it never blocks an HTTP response."""
+    """Run in its own DB session so it never blocks an HTTP response.
+    Enriches the AI prompt with the user's real wardrobe statistics so the
+    generated summary reflects what they actually own, not just preferences.
+    """
     if not settings.openai_api_key:
         return
     from app.db.session import AsyncSessionLocal
     from app.repositories.style_profile_repo import UserStyleProfileRepository
     non_empty = {k: v for k, v in profile_data.items() if k != "user_id" and v not in (None, [], {}, "")}
-    if not non_empty:
+
+    # Load wardrobe data in parallel with the non-empty check
+    wardrobe_stats = await _load_wardrobe_stats(user_id)
+
+    if not non_empty and not wardrobe_stats:
         return
-    prompt = (
-        "You are a personal stylist assistant. Based on the following user style profile data, "
-        "write a concise 2-3 sentence natural-language summary of this person's style identity, "
-        "body preferences, and dressing needs. The summary will be used as context for an AI "
-        "fashion assistant. Be specific and helpful — mention body type, fit preferences, color "
-        "palette, occasions they dress for, and climate needs.\n\n"
-        f"Profile:\n{json.dumps(non_empty, indent=2)}"
-    )
+
+    parts = [f"User style profile:\n{json.dumps(non_empty, indent=2)}"]
+    if wardrobe_stats:
+        parts.append(f"\nActual wardrobe data (from {wardrobe_stats.get('total_items', 0)} uploaded items):\n{json.dumps(wardrobe_stats, indent=2)}")
+    user_prompt = "\n".join(parts)
     try:
         client = make_openai_client(settings.openai_api_key, base_url=settings.openai_api_base_url)
         completion = await client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=200,
+            messages=[
+                {"role": "system", "content": _STYLE_PROFILE_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            max_tokens=600,
             temperature=0.4,
+            response_format={"type": "json_object"},
         )
-        summary = (completion.choices[0].message.content or "").strip()
-        if not summary:
+        raw = (completion.choices[0].message.content or "").strip()
+        if not raw:
             return
+        data = json.loads(raw)
+        summary = data.get("style_summary", "")
+        archetype = data.get("style_archetype")
+        rec_rules = data.get("recommendation_rules")
+        ai_ctx = data.get("ai_stylist_context")
         async with AsyncSessionLocal() as session:
             repo = UserStyleProfileRepository(session)
             row = await repo.get_by_user_id(user_id)
             if row:
-                row.style_summary = summary
+                if summary:
+                    row.style_summary = summary
+                if archetype:
+                    row.style_archetype = archetype
+                if rec_rules:
+                    row.recommendation_rules = rec_rules
+                if ai_ctx:
+                    row.ai_stylist_context = ai_ctx
                 session.add(row)
                 await session.commit()
-                logger.info("style_summary_generated", user_id=str(user_id), chars=len(summary))
+                logger.info(
+                    "style_profile_ai_generated",
+                    user_id=str(user_id),
+                    archetype=archetype,
+                    summary_chars=len(summary),
+                )
     except Exception as exc:
         logger.warning("style_summary_generation_failed", user_id=str(user_id), error=str(exc))
 
@@ -204,6 +301,43 @@ async def update_style_profile(session: AsyncSession, user_id: UUID, payload: St
     await session.flush()
     await session.refresh(row)
     logger.info("style_profile_updated", user_id=str(user_id))
+    _schedule_style_summary(row)
+    return _row_to_response(row)
+
+
+async def refresh_style_summary(session: AsyncSession, user_id: UUID) -> StyleProfileResponse:
+    """Manually trigger re-generation of style_summary/archetype/context using latest wardrobe + profile."""
+    repo = UserStyleProfileRepository(session)
+    row = await repo.get_by_user_id(user_id)
+    if not row:
+        row = await create_default_profile_row(session, user_id)
+    _schedule_style_summary(row)
+    return _row_to_response(row)
+
+
+async def submit_onboarding(
+    session: AsyncSession, user_id: UUID, body: OnboardingSubmitBody
+) -> StyleProfileResponse:
+    """
+    Single-call endpoint for the v2 onboarding wizard.
+    Saves all answers, marks onboarding complete, then fires background AI generation.
+    """
+    repo = UserStyleProfileRepository(session)
+    row = await repo.get_by_user_id(user_id)
+    if not row:
+        row = await create_default_profile_row(session, user_id)
+
+    # Apply all submitted fields
+    fields = body.model_dump(exclude_unset=True)
+    for k, v in fields.items():
+        setattr(row, k, v)
+
+    row.onboarding_completed = True
+    row.onboarding_skipped = False
+    session.add(row)
+    await session.flush()
+    await session.refresh(row)
+    logger.info("onboarding_v2_submitted", user_id=str(user_id))
     _schedule_style_summary(row)
     return _row_to_response(row)
 

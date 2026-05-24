@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import BackButton from '@/components/ui/BackButton'
 import {
   closestCenter,
   DndContext,
@@ -27,8 +28,10 @@ import {
   Lightbulb,
   Loader2,
   Plus,
+  RefreshCw,
   Ruler,
   Search,
+  Shirt,
   Sparkles,
   TrendingUp,
   Wand2,
@@ -36,6 +39,7 @@ import {
 } from 'lucide-react'
 import { useApp } from '@/store'
 import { outfitsApi } from '@/lib/api'
+import { shuffleOutfit, type ShuffleAlternative } from '@/services/aiChatApi'
 import type { ClosetItem, OutfitAnalysis, ScoreBreakdown, SuggestedPairingItem } from '@/types'
 
 const CANONICAL_TAB_CATEGORIES = new Set([
@@ -547,6 +551,134 @@ function SuggestedPairingsShelf({ pairings, alreadyAddedIds, onAdd }: SuggestedP
 }
 
 
+// ── Smart Start Banner (empty canvas hint) ────────────────────────────────────
+
+const SMART_START_SUGGESTIONS = [
+  { label: 'Start with a Shirt', category: 'tops',      emoji: '👔' },
+  { label: 'Start with Pants',   category: 'bottoms',   emoji: '👖' },
+  { label: 'Start with a Dress', category: 'dresses',   emoji: '👗' },
+  { label: 'Start with Shoes',   category: 'shoes',     emoji: '👟' },
+  { label: 'Start with a Jacket',category: 'outerwear', emoji: '🧥' },
+]
+
+function SmartStartBanner({ onPick }: { onPick: (category: string) => void }) {
+  return (
+    <div className="rounded-2xl border border-brand-100 dark:border-brand-500/20 bg-brand-50/60 dark:bg-brand-500/[0.06] px-5 py-4">
+      <div className="flex items-center gap-2 mb-3">
+        <Shirt size={16} className="text-brand-500" />
+        <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+          Start building your outfit
+        </p>
+      </div>
+      <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+        Drag items from the closet panel, or pick a starting piece:
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {SMART_START_SUGGESTIONS.map(s => (
+          <button
+            key={s.category}
+            type="button"
+            onClick={() => onPick(s.category)}
+            className="flex items-center gap-1.5 rounded-full border border-brand-200 dark:border-brand-500/30 bg-white dark:bg-slate-800 px-3 py-1.5 text-xs font-medium text-brand-700 dark:text-brand-300 hover:bg-brand-100 dark:hover:bg-brand-500/15 transition-colors"
+          >
+            <span>{s.emoji}</span>
+            {s.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Shuffle Alternatives Shelf ────────────────────────────────────────────────
+
+interface ShuffleShelfProps {
+  alternatives: ShuffleAlternative[]
+  onApply: (alt: ShuffleAlternative) => void
+  onClose: () => void
+}
+
+function ShuffleAlternativesShelf({ alternatives, onApply, onClose }: ShuffleShelfProps) {
+  if (alternatives.length === 0) return null
+  return (
+    <div className="rounded-3xl border border-emerald-200 dark:border-emerald-500/30 bg-white/90 dark:bg-slate-900/90 shadow-card">
+      <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 px-5 py-4">
+        <div className="flex items-center gap-2">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-500/15">
+            <RefreshCw size={14} className="text-emerald-600 dark:text-emerald-400" />
+          </div>
+          <div>
+            <p className="font-display text-sm font-bold text-slate-800 dark:text-white">
+              Alternative Outfits
+            </p>
+            <p className="text-[11px] text-slate-400">
+              {alternatives.length} fresh combination{alternatives.length > 1 ? 's' : ''} from your closet
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={onClose}
+          className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+        >
+          <X size={14} />
+        </button>
+      </div>
+
+      <div className="p-4 space-y-4">
+        {alternatives.map((alt, idx) => (
+          <div key={idx} className="rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/40 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-sm text-slate-800 dark:text-white">{alt.title}</span>
+                <span className={`rounded-full px-2 py-0.5 text-xs font-bold text-white ${alt.matching_score >= 85 ? 'bg-emerald-500' : alt.matching_score >= 70 ? 'bg-brand-500' : 'bg-amber-500'}`}>
+                  {alt.matching_score}%
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => onApply(alt)}
+                className="flex items-center gap-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1.5 text-xs font-semibold transition-colors"
+              >
+                <Check size={11} /> Apply
+              </button>
+            </div>
+
+            {/* Item thumbnails */}
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {alt.items.map((item, i) => (
+                <div key={i} className="flex-shrink-0 flex flex-col items-center gap-1 w-14">
+                  <div className="w-14 h-14 rounded-xl overflow-hidden bg-cream-100 dark:bg-slate-700 border border-cream-200 dark:border-slate-700 flex items-center justify-center">
+                    {item.image_url ? (
+                      <img src={item.image_url} alt={item.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-[10px] text-slate-400 text-center px-1 leading-tight">{item.category}</span>
+                    )}
+                  </div>
+                  <span className="text-[9px] text-slate-500 text-center leading-tight max-w-[56px] truncate">{item.name}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Reasoning */}
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400 leading-snug">{alt.reasoning}</p>
+
+            {/* Improvement tips */}
+            {alt.improvement_tips?.length > 0 && (
+              <div className="mt-2 space-y-0.5">
+                {alt.improvement_tips.map((tip, i) => (
+                  <p key={i} className="text-xs text-emerald-600 dark:text-emerald-400 flex gap-1.5">
+                    <span className="flex-shrink-0">→</span>{tip}
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function OutfitBuilder() {
@@ -573,6 +705,14 @@ export default function OutfitBuilder() {
   // Suggested pairings — populated from analysis response
   const suggestedPairings = analysis?.suggested_pairings ?? []
 
+  // Outfit shuffle state
+  const [shuffling, setShuffling] = useState(false)
+  const [shuffleAlternatives, setShuffleAlternatives] = useState<ShuffleAlternative[]>([])
+  const [shuffleError, setShuffleError] = useState<string | null>(null)
+
+  // Smart-start filter: when user clicks a "Start with X" button, filter the closet panel
+  const [smartStartCategory, setSmartStartCategory] = useState<string | null>(null)
+
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
 
   const filtered = useMemo(() => {
@@ -595,6 +735,48 @@ export default function OutfitBuilder() {
   }, [closetItems, query, category])
 
   const addedIds = new Set(canvasItems.map(item => item.id))
+
+  const handleSmartStart = (category: string) => {
+    setSmartStartCategory(category)
+    // Cast to the CATEGORIES union — only values from SMART_START_SUGGESTIONS are used
+    setCategory(category as (typeof CATEGORIES)[number])
+    setBrowserOpen(true)
+  }
+
+  const shuffleCurrentOutfit = async () => {
+    if (canvasItems.length === 0 || shuffling) return
+    setShuffling(true)
+    setShuffleError(null)
+    setShuffleAlternatives([])
+    try {
+      const alts = await shuffleOutfit({
+        item_ids: canvasItems.map(i => i.id),
+        occasion,
+        location: location.trim() || null,
+      })
+      setShuffleAlternatives(alts)
+      if (alts.length === 0) setShuffleError('No alternative combinations found — try adding more items to your closet.')
+    } catch {
+      setShuffleError('Shuffle failed. Please try again.')
+    } finally {
+      setShuffling(false)
+    }
+  }
+
+  const applyShuffleAlternative = (alt: ShuffleAlternative) => {
+    const altIds = new Set(alt.items.map(i => i.id))
+    const newItems: CanvasItem[] = []
+    for (const ai of alt.items) {
+      const full = closetItems.find(ci => ci.id === ai.id)
+      if (full) newItems.push({ ...full, canvasId: `${full.id}:${crypto.randomUUID()}` })
+    }
+    if (newItems.length > 0) {
+      setCanvasItems(newItems)
+      setAnalysis(null)
+      setAnalysisError(null)
+      setShuffleAlternatives([])
+    }
+  }
 
   // Add a suggested pairing item directly to the canvas
   const addSuggestedToCanvas = (suggested: SuggestedPairingItem) => {
@@ -619,9 +801,10 @@ export default function OutfitBuilder() {
       const item = active.data.current?.item as ClosetItem | undefined
       if (item) {
         setCanvasItems(prev => [...prev, { ...item, canvasId: `${item.id}:${crypto.randomUUID()}` }])
-        // Clear previous analysis whenever the canvas changes.
+        // Clear previous analysis + shuffle whenever the canvas changes.
         setAnalysis(null)
         setAnalysisError(null)
+        setShuffleAlternatives([])
       }
       return
     }
@@ -645,6 +828,9 @@ export default function OutfitBuilder() {
     setWeather(null)
     setAnalysis(null)
     setAnalysisError(null)
+    setShuffleAlternatives([])
+    setShuffleError(null)
+    setSmartStartCategory(null)
   }
 
   const save = async () => {
@@ -751,6 +937,7 @@ export default function OutfitBuilder() {
 
   return (
     <div className="space-y-5">
+      <BackButton fallback="/closet" label="Back to Closet" />
       <div>
         <h2 className="font-display text-xl font-bold text-slate-800 dark:text-slate-100">Outfit Builder</h2>
         <p className="text-sm text-slate-400">
@@ -808,7 +995,7 @@ export default function OutfitBuilder() {
                     Drag pieces from your closet to build a look
                   </p>
                   <p className="text-xs text-slate-400 dark:text-white/25">
-                    Mix and match — then hit <span className="font-semibold text-brand-500">Analyze with AI</span>
+                    Or click an item to add it directly
                   </p>
                 </div>
               ) : (
@@ -922,6 +1109,20 @@ export default function OutfitBuilder() {
                   )}
                 </button>
 
+                {/* Shuffle — suggest alternative outfits */}
+                <button
+                  className="flex items-center gap-2 rounded-2xl border border-emerald-300 dark:border-emerald-500/40 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                  disabled={canvasItems.length === 0 || shuffling || analyzing}
+                  onClick={shuffleCurrentOutfit}
+                  title="Get alternative outfit combinations"
+                >
+                  {shuffling ? (
+                    <><Loader2 size={15} className="animate-spin" /> Shuffling…</>
+                  ) : (
+                    <><RefreshCw size={15} /> Shuffle</>
+                  )}
+                </button>
+
                 <button className="btn-secondary" onClick={clear}>
                   Clear
                 </button>
@@ -950,6 +1151,11 @@ export default function OutfitBuilder() {
         </DragOverlay>
       </DndContext>
 
+      {/* Smart Start banner — shown when canvas is empty */}
+      {canvasItems.length === 0 && (
+        <SmartStartBanner onPick={handleSmartStart} />
+      )}
+
       {/* AI Analysis Panel — rendered below the builder when available */}
       {analysis && (
         <AIAnalysisPanel analysis={analysis} onClose={() => setAnalysis(null)} />
@@ -961,6 +1167,23 @@ export default function OutfitBuilder() {
           pairings={suggestedPairings}
           alreadyAddedIds={addedIds}
           onAdd={addSuggestedToCanvas}
+        />
+      )}
+
+      {/* Shuffle error */}
+      {shuffleError && (
+        <div className="flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+          <AlertCircle size={15} className="mt-0.5 flex-shrink-0" />
+          {shuffleError}
+        </div>
+      )}
+
+      {/* Shuffle alternatives shelf */}
+      {shuffleAlternatives.length > 0 && (
+        <ShuffleAlternativesShelf
+          alternatives={shuffleAlternatives}
+          onApply={applyShuffleAlternative}
+          onClose={() => setShuffleAlternatives([])}
         />
       )}
     </div>

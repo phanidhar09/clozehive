@@ -9,7 +9,7 @@ from uuid import UUID
 
 from sqlalchemy import and_, select
 
-from app.models.user import RefreshToken, User, UserCredential
+from app.models.user import PasswordResetToken, RefreshToken, User, UserCredential
 from app.repositories.base import BaseRepository
 
 
@@ -89,4 +89,35 @@ class RefreshTokenRepository(BaseRepository[RefreshToken]):
                 and_(RefreshToken.user_id == user_id, RefreshToken.revoked == False)
             )
             .values(revoked=True)
+        )
+
+
+class PasswordResetTokenRepository(BaseRepository[PasswordResetToken]):
+    model = PasswordResetToken
+
+    async def get_valid(self, token_hash: str) -> Optional[PasswordResetToken]:
+        """Return a valid (unused, unexpired) reset token by hash."""
+        result = await self.session.execute(
+            select(PasswordResetToken).where(
+                and_(
+                    PasswordResetToken.token_hash == token_hash,
+                    PasswordResetToken.used_at == None,  # noqa: E711
+                    PasswordResetToken.expires_at > datetime.now(timezone.utc),
+                )
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def invalidate_all_for_user(self, user_id: UUID) -> None:
+        """Mark all pending reset tokens for a user as used (prevents replay)."""
+        from sqlalchemy import update
+        await self.session.execute(
+            update(PasswordResetToken)
+            .where(
+                and_(
+                    PasswordResetToken.user_id == user_id,
+                    PasswordResetToken.used_at == None,  # noqa: E711
+                )
+            )
+            .values(used_at=datetime.now(timezone.utc))
         )

@@ -49,5 +49,4 @@ async def resolve_purchase_gap(
     )
     if not result:
         raise NotFoundError("Purchase gap not found")
-    await session.commit()
     return result

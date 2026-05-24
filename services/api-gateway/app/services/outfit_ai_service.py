@@ -431,6 +431,80 @@ async def analyze_outfit(
     return _mock_analyze(selected_items, occasion)
 
 
+_SHUFFLE_OUTFIT_PROMPT = """\
+You are ClozeHive AI, an expert fashion stylist.
+
+The user has built an outfit with a specific match score. They want to try a DIFFERENT combination \
+that might score higher or explore a different style direction.
+
+Given the current outfit items and the user's full available closet, suggest 1-2 ALTERNATIVE outfit combinations.
+
+RULES:
+1. Use ONLY items from available_closet. Use exact IDs and names.
+2. You may keep some items from current_outfit if they are strong anchors.
+3. Each alternative should feel clearly different from the current outfit (different vibe, color story, or category emphasis).
+4. If a "seed_category" is provided, make sure one alternative starts with an item of that category.
+5. matching_score must equal color + occasion + fit + style + weather + preference (max 100).
+6. Provide 2–3 specific improvement_tips explaining why this alternative scores better.
+7. Return ONLY valid JSON — no markdown fences.
+
+EXACT RESPONSE SCHEMA:
+{
+  "alternatives": [
+    {
+      "title": "Alternative outfit title",
+      "items": [
+        {"id": "uuid", "name": "...", "category": "...", "color": "..."}
+      ],
+      "matching_score": 91,
+      "score_breakdown": {"color": 23, "occasion": 24, "fit": 19, "style": 13, "weather": 8, "preference": 4},
+      "reasoning": "Why this combination works better or differently.",
+      "improvement_tips": ["Specific tip 1", "Specific tip 2"],
+      "fashion_rules_used": ["rule 1", "rule 2"]
+    }
+  ]
+}"""
+
+
+async def shuffle_outfit(
+    current_items: list[dict[str, Any]],
+    available_closet: list[dict[str, Any]],
+    occasion: str,
+    weather: str = "",
+    seed_category: str | None = None,
+) -> list[dict[str, Any]]:
+    """Suggest 1-2 alternative outfit combinations from the user's closet.
+
+    Returns a list of alternative outfit dicts (same shape as analyze response outfits).
+    """
+    if not available_closet:
+        return []
+
+    payload = json.dumps({
+        "occasion": occasion,
+        "weather": weather or "mild",
+        "seed_category": seed_category or None,
+        "current_outfit": [_item_for_ai(i) for i in current_items],
+        "available_closet": [_item_for_ai(i) for i in available_closet[:50]],
+    }, default=str)
+
+    try:
+        raw = await ai_service.chat(
+            [{"role": "user", "content": payload}],
+            _SHUFFLE_OUTFIT_PROMPT,
+        )
+        data = json.loads(_clean_json(raw))
+        alternatives = data.get("alternatives")
+        if isinstance(alternatives, list):
+            return [a for a in alternatives if isinstance(a, dict) and a.get("items")]
+    except json.JSONDecodeError:
+        logger.warning("outfit_ai_shuffle_bad_json", occasion=occasion)
+    except Exception as exc:
+        logger.warning("outfit_ai_shuffle_failed", error=str(exc), occasion=occasion)
+
+    return []
+
+
 async def suggest_pairings_from_closet(
     selected_items: list[dict[str, Any]],
     remaining_items: list[dict[str, Any]],

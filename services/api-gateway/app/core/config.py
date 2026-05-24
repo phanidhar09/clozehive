@@ -71,6 +71,14 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 7
 
+    # ── Refresh-token cookie settings ─────────────────────────────────────────
+    # The refresh token is stored in an HttpOnly cookie, invisible to JavaScript.
+    # In production, set COOKIE_SECURE=true and COOKIE_SAMESITE=Lax (or Strict
+    # if your API and frontend share the same eTLD+1).
+    cookie_secure: bool = False           # override to True in production
+    cookie_samesite: str = "Lax"          # Lax | Strict | None
+    cookie_domain: str = ""              # leave blank for same-origin (recommended)
+
     # ── AI Agent Service ──────────────────────────────────────────────────────
     ai_agent_url: str = "http://ai-agent:8001"
     # Budget for a single ai-agent read. connect timeout is always 5 s (see ai_client.py).

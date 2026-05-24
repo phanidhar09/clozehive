@@ -32,10 +32,11 @@ from app.core.security import (
 from app.models.user import RefreshToken, User, UserCredential
 from app.repositories.user_repo import (
     CredentialRepository,
+    PasswordResetTokenRepository,
     RefreshTokenRepository,
     UserRepository,
 )
-from app.schemas.auth import AuthResponse, SignupRequest, TokenResponse, UserResponse
+from app.schemas.auth import AuthResponse, SignupRequest, UserResponse
 from app.services.style_profile_service import create_default_profile_row
 from app.utils.username import generate_unique_username
 
@@ -69,8 +70,9 @@ class AuthService:
         self.users = UserRepository(session)
         self.creds = CredentialRepository(session)
         self.tokens = RefreshTokenRepository(session)
+        self.reset_tokens = PasswordResetTokenRepository(session)
 
-    async def signup(self, data: SignupRequest) -> AuthResponse:
+    async def signup(self, data: SignupRequest) -> tuple[AuthResponse, str]:
         if await self.users.email_exists(data.email):
             raise ConflictError("Email already registered")
 
@@ -106,10 +108,9 @@ class AuthService:
         return AuthResponse(
             user=_user_response(user),
             access_token=access,
-            refresh_token=refresh_raw,
-        )
+        ), refresh_raw
 
-    async def login(self, identifier: str, password: str) -> AuthResponse:
+    async def login(self, identifier: str, password: str) -> tuple[AuthResponse, str]:
         # Look up by email or username
         if "@" in identifier:
             user = await self.users.get_by_email(identifier.lower())
@@ -136,10 +137,9 @@ class AuthService:
         return AuthResponse(
             user=_user_response(user),
             access_token=access,
-            refresh_token=refresh_raw,
-        )
+        ), refresh_raw
 
-    async def refresh(self, raw_token: str) -> TokenResponse:
+    async def refresh(self, raw_token: str) -> tuple[str, str]:
         redis = await get_redis()
         if not await is_refresh_token_valid(redis, raw_token):
             raise AuthenticationError("Refresh token has been revoked. Please log in again.")
@@ -161,11 +161,8 @@ class AuthService:
         await self._store_refresh(user.id, new_refresh_raw)
 
         logger.info("token_refreshed", user_id=str(user.id))
-        return TokenResponse(
-            access_token=access,
-            refresh_token=new_refresh_raw,
-            expires_in=settings.access_token_expire_minutes * 60,
-        )
+        # Return (new_access_token, new_refresh_raw) so the route can set the cookie.
+        return access, new_refresh_raw
 
     async def logout(self, user_id: UUID, raw_token: str) -> None:
         await self.logout_by_refresh(raw_token)
@@ -200,7 +197,7 @@ class AuthService:
         email: str,
         name: str,
         avatar_url: Optional[str] = None,
-    ) -> AuthResponse:
+    ) -> tuple[AuthResponse, str]:
         """Find or create a user from Google OAuth, then return a token pair."""
         user = await self.users.get_by_google_id(google_id)
 
@@ -253,12 +250,11 @@ class AuthService:
         access, refresh_raw = _build_tokens(str(user.id), user.role)
         await self._store_refresh(user.id, refresh_raw)
 
-        logger.info("google_oauth_login", user_id=str(user.id), email=email)
+        logger.info("google_oauth_login", user_id=str(user.id))
         return AuthResponse(
             user=_user_response(user),
             access_token=access,
-            refresh_token=refresh_raw,
-        )
+        ), refresh_raw
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -277,3 +273,67 @@ class AuthService:
             settings.refresh_token_expire_days * 24 * 60 * 60,
         )
         return stored
+
+    # ── Password reset ────────────────────────────────────────────────────────
+
+    _RESET_TOKEN_EXPIRE_MINUTES = 30  # short window to reduce brute-force surface
+
+    async def request_password_reset(self, email: str) -> Optional[str]:
+        """Generate a reset token for *email* (if it exists).
+
+        Returns the raw token so the caller can send it by email.
+        Returns ``None`` when the email is not found — the *caller* must NOT
+        reveal this to the client (return a generic success response regardless).
+
+        Security:
+        - Only the SHA-256 hash is stored in the DB.
+        - Any existing unused tokens for the user are invalidated first.
+        - Token expires in 30 minutes.
+        """
+        user = await self.users.get_by_email(email.lower())
+        if not user:
+            # Do not reveal that the email does not exist.
+            return None
+
+        # Invalidate any existing unused reset tokens to prevent token accumulation.
+        await self.reset_tokens.invalidate_all_for_user(user.id)
+
+        raw_token = secrets.token_urlsafe(48)
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=self._RESET_TOKEN_EXPIRE_MINUTES)
+        await self.reset_tokens.create(
+            user_id=user.id,
+            token_hash=hash_token(raw_token),
+            expires_at=expires_at,
+        )
+        logger.info("password_reset_requested", user_id=str(user.id))
+        return raw_token
+
+    async def reset_password(self, raw_token: str, new_password: str) -> None:
+        """Consume *raw_token* and set *new_password*.
+
+        Raises ``AuthenticationError`` if the token is invalid, expired, or
+        already used.  Revokes all existing refresh tokens on success so every
+        device is signed out.
+        """
+        token_hash = hash_token(raw_token)
+        stored = await self.reset_tokens.get_valid(token_hash)
+        if not stored:
+            raise AuthenticationError("Invalid or expired password reset link. Please request a new one.")
+
+        user = await self.users.get(stored.user_id)
+        if not user or not user.is_active:
+            raise AuthenticationError("Account not found or inactive.")
+
+        # Mark token as used — prevents replay even within expiry window.
+        await self.reset_tokens.update(stored, used_at=datetime.now(timezone.utc))
+
+        # Update password.
+        cred = await self.creds.get_by_user_id(user.id)
+        if cred:
+            await self.creds.update(cred, password_hash=hash_password(new_password))
+        else:
+            await self.creds.create(user_id=user.id, password_hash=hash_password(new_password))
+
+        # Revoke all sessions — the user will need to log in again with the new password.
+        await self.tokens.revoke_all_for_user(user.id)
+        logger.info("password_reset_completed", user_id=str(user.id))

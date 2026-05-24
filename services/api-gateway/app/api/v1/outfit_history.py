@@ -74,5 +74,4 @@ async def submit_outfit_feedback(
     )
     if not result:
         raise NotFoundError("Outfit history record not found")
-    await session.commit()
     return result

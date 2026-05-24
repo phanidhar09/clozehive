@@ -120,7 +120,7 @@ class VectorStore(Protocol):
         user_id: str | None,
         limit: int = 5,
         threshold: float = 0.70,
-        extra_where: str = "",
+        exclude_id: str | None = None,
         session: AsyncSession | None = None,
     ) -> list[SearchResult]: ...
 
@@ -240,7 +240,7 @@ class FAISSVectorStore:
         user_id: str | None,
         limit: int = 5,
         threshold: float = 0.70,
-        extra_where: str = "",  # ignored; metadata filters are applied in Python
+        exclude_id: str | None = None,  # ignored; metadata filters are applied in Python
         session: AsyncSession | None = None,
     ) -> list[SearchResult]:
         async with self._lock(source_type):
@@ -361,7 +361,7 @@ class PGVectorStore:
         user_id: str | None,
         limit: int = 5,
         threshold: float = 0.70,
-        extra_where: str = "",
+        exclude_id: str | None = None,
         session: AsyncSession | None = None,
     ) -> list[SearchResult]:
         if session is None:
@@ -377,9 +377,9 @@ class PGVectorStore:
             table=table,
             embedding=embedding,
             user_id=user_id,
-            extra_where=extra_where,
             limit=limit,
             threshold=threshold,
+            exclude_id=exclude_id,
         )
         return [_row_to_search_result(row, source_type) for row in rows]
 

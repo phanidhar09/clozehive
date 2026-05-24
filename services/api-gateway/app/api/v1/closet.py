@@ -12,13 +12,14 @@ from typing import Optional, Any, cast
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, Request, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.redis import get_redis
 from app.core.deps import CurrentUser
+from app.core.rate_limit import limiter
 from app.db.session import get_session
 from app.constants.wardrobe import CLOSET_SECTIONS
 from app.core.exceptions import BadRequestError
@@ -42,7 +43,7 @@ from app.schemas.closet import (
 from app.services import cache_service, closet_preview_service, similarity_service, vision_service
 from app.services.ai_request_service import create_request
 from app.services.closet_service import ClosetService
-from app.services.upload_service import persist_upload, read_validated_image
+from app.services.upload_service import delete_upload, persist_upload, read_validated_image
 
 # Lazy import to avoid circular dependency — ws.manager is only accessed inside functions
 def _ws_push(user_id: str, data: dict) -> None:
@@ -119,7 +120,7 @@ def _item_from_vision(
 
 async def _analyse_file(file: UploadFile) -> tuple[str, dict[str, Any]]:
     image_bytes, content_type = await read_validated_image(file)
-    image_url = persist_upload(image_bytes, content_type, file.filename)
+    image_url = await persist_upload(image_bytes, content_type, file.filename)
     raw = await vision_service.analyze_image(image_bytes, content_type)
     vision = raw if isinstance(raw, dict) else {}
     return image_url, vision
@@ -193,7 +194,9 @@ async def create_item(
     status_code=status.HTTP_200_OK,
     summary="Analyze image and stage a preview session (no closet row yet)",
 )
+@limiter.limit("10/minute")
 async def analyze_preview_endpoint(
+    request: Request,
     user_id: CurrentUser,
     file: UploadFile = File(...),
 ):
@@ -238,7 +241,9 @@ async def confirm_closet_preview(
     status_code=status.HTTP_200_OK,
     summary="Analyze up to 20 images — each file returns its own preview session",
 )
+@limiter.limit("5/minute")
 async def bulk_analyze_preview(
+    request: Request,
     user_id: CurrentUser,
     files: list[UploadFile] = File(...),
 ):
@@ -287,7 +292,7 @@ async def upload_item(
 ):
     image_bytes, content_type = await read_validated_image(file)
 
-    image_url = persist_upload(image_bytes, content_type, file.filename)
+    image_url = await persist_upload(image_bytes, content_type, file.filename)
 
     vision: dict = {}
     try:
@@ -416,10 +421,18 @@ async def update_item(item_id: UUID, body: ClosetItemUpdate, user_id: CurrentUse
 
 
 @router.delete("/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_item(item_id: UUID, user_id: CurrentUser, session: AsyncSession = Depends(get_session)):
+async def delete_item(
+    item_id: UUID,
+    user_id: CurrentUser,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_session),
+):
     svc = _get_svc(session)
-    await svc.delete_item(item_id, UUID(user_id))
+    image_urls = await svc.delete_item(item_id, UUID(user_id))
     await cache_service.invalidate_user_ai_cache(await get_redis(), user_id)
+    # Clean up stored blobs after the DB row is gone — best-effort, non-blocking
+    for url in image_urls:
+        background_tasks.add_task(delete_upload, url)
 
 
 # ── Wear log ──────────────────────────────────────────────────────────────────

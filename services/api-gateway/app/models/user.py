@@ -119,3 +119,27 @@ class RefreshToken(Base):
     )
 
     user: Mapped[User] = relationship("User", back_populates="refresh_tokens")
+
+
+class PasswordResetToken(Base):
+    """One-time, time-limited token for the password-reset flow.
+
+    Only the SHA-256 hash is stored; the raw token is sent to the user by email.
+    """
+
+    __tablename__ = "password_reset_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # SHA-256 hex digest of the raw token — never store the raw value.
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Set when the token is consumed — prevents replay even within the validity window.
+    used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

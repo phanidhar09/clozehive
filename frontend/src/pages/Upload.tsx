@@ -1,13 +1,15 @@
 import { useState, useRef, useCallback, useMemo } from 'react'
 import { Image, Sparkles, CheckCircle, X } from 'lucide-react'
 import Button from '@/components/ui/Button'
+import BackButton from '@/components/ui/BackButton'
 import Input, { Select } from '@/components/ui/Input'
 import Badge from '@/components/ui/Badge'
 import { useApp } from '@/store'
-import { closetApi, resolveUploadUrl, type ClosetPreviewItem } from '@/lib/api'
+import { closetApi, closetSimilarityApi, resolveUploadUrl, type ClosetPreviewItem, type SimilarClosetItem } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { InlineError } from '@/components/system/InlineError'
 import { LoadingSpinner } from '@/components/system/LoadingSpinner'
+import SimilarityWarningBanner from '@/components/closet/SimilarityWarningBanner'
 
 const CATEGORY_OPTIONS = [
   { value: 'tops', label: 'Tops' },
@@ -96,6 +98,11 @@ export default function Upload() {
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  // Similarity check state — keyed by detected_item_id
+  const [similarItemsMap, setSimilarItemsMap] = useState<Record<string, SimilarClosetItem[]>>({})
+  const [similarLoadingIds, setSimilarLoadingIds] = useState<Set<string>>(new Set())
+  const [similarErrorIds, setSimilarErrorIds] = useState<Set<string>>(new Set())
+
   const inPreview = previewGroups.length > 0
   const hasFailures = analyzeFailures.length > 0
 
@@ -113,7 +120,43 @@ export default function Upload() {
     setAnalyzeFailures([])
     setSaveOkMessage(null)
     setError(null)
+    // Reset similarity state when new files are selected
+    setSimilarItemsMap({})
+    setSimilarLoadingIds(new Set())
+    setSimilarErrorIds(new Set())
   }, [preview])
+
+  /** Fire similarity checks for a batch of draft items in parallel. Never throws. */
+  const runSimilarityChecks = useCallback(async (drafts: ItemDraft[]) => {
+    if (drafts.length === 0) return
+    setSimilarLoadingIds(prev => new Set([...prev, ...drafts.map(d => d.detected_item_id)]))
+    await Promise.allSettled(
+      drafts.map(async d => {
+        try {
+          const items = await closetSimilarityApi.checkSimilarClosetItems({
+            name: d.name,
+            category: d.category,
+            subcategory: d.subcategory || undefined,
+            color: d.color || undefined,
+            pattern: d.pattern || undefined,
+            material: d.material || undefined,
+            season_tags: parseCommaList(d.seasonStr),
+            occasion_tags: parseCommaList(d.occasionStr),
+            limit: 5,
+          })
+          setSimilarItemsMap(prev => ({ ...prev, [d.detected_item_id]: items }))
+        } catch {
+          setSimilarErrorIds(prev => new Set([...prev, d.detected_item_id]))
+        } finally {
+          setSimilarLoadingIds(prev => {
+            const next = new Set(prev)
+            next.delete(d.detected_item_id)
+            return next
+          })
+        }
+      }),
+    )
+  }, [])
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -130,6 +173,9 @@ export default function Upload() {
     setUploadProgress(null)
     setSaveOkMessage(null)
     setError(null)
+    setSimilarItemsMap({})
+    setSimilarLoadingIds(new Set())
+    setSimilarErrorIds(new Set())
   }, [preview])
 
   const extractErr = (err: unknown): string => {
@@ -165,46 +211,46 @@ export default function Upload() {
     setSaveOkMessage(null)
     setAnalyzeFailures([])
     setPreviewGroups([])
+    setSimilarItemsMap({})
+    setSimilarLoadingIds(new Set())
+    setSimilarErrorIds(new Set())
     setUploadProgress(files.length > 1 ? `Analyzing ${files.length} photos…` : 'Analyzing…')
     try {
       if (files.length > 1) {
         const { results, failed } = await closetApi.bulkAnalyzePreview(files)
         setAnalyzeFailures(failed)
-        setPreviewGroups(
-          results.flatMap(r => {
-            const p = r.preview
-            if (!p?.preview_session_id) return []
-            return [
-              {
-                filename: r.filename,
-                sessionId: p.preview_session_id,
-                drafts: draftsFromPreviewItems(p.items),
-              },
-            ]
-          }),
-        )
+        const newGroups: PreviewGroup[] = results.flatMap(r => {
+          const p = r.preview
+          if (!p?.preview_session_id) return []
+          return [{ filename: r.filename, sessionId: p.preview_session_id, drafts: draftsFromPreviewItems(p.items) }]
+        })
+        setPreviewGroups(newGroups)
         if (results.length === 0 && failed.length > 0) {
           setError('Could not analyze any files. Check errors below.')
+        } else {
+          // Kick off similarity checks for all detected drafts (non-blocking)
+          void runSimilarityChecks(newGroups.flatMap(g => g.drafts))
         }
         return
       }
 
       const res = await closetApi.analyzePreview(files[0])
-      setPreviewGroups([
-        {
-          filename: files[0].name || 'upload',
-          sessionId: res.preview_session_id,
-          drafts: draftsFromPreviewItems(res.items),
-        },
-      ])
+      const newGroups: PreviewGroup[] = [{
+        filename: files[0].name || 'upload',
+        sessionId: res.preview_session_id,
+        drafts: draftsFromPreviewItems(res.items),
+      }]
+      setPreviewGroups(newGroups)
       if (!res.items.length) {
         setError(
-          'No items detected. Confirm the api-gateway is rebuilt/restarted, OPENAI_API_KEY is set for it, and Redis (closet preview) is up — then try again. You can still fill details manually after saving.',
+          'No clothing items were detected in this photo. Try a clearer, well-lit image of a single item on a plain background.',
         )
+      } else {
+        // Kick off similarity checks for all detected drafts (non-blocking)
+        void runSimilarityChecks(newGroups.flatMap(g => g.drafts))
       }
     } catch (err: unknown) {
       setError(`Analysis failed: ${extractErr(err)}`)
-      console.error(err)
     } finally {
       setUploadProgress(null)
       setUploading(false)
@@ -284,10 +330,11 @@ export default function Upload() {
 
   return (
     <div className="max-w-3xl space-y-6">
+      <BackButton fallback="/closet" label="Back to Closet" />
       <div>
-        <h2 className="font-display font-bold text-xl text-slate-800 dark:text-slate-100">Upload Clothing Item</h2>
+        <h2 className="font-display font-bold text-xl text-slate-800 dark:text-slate-100">Add to Your Closet</h2>
         <p className="text-sm text-slate-400 mt-0.5">
-          AI analyzes your photo — review and confirm before anything is added to your closet
+          Upload a photo and our AI will detect your clothing items — review and confirm before saving
         </p>
       </div>
 
@@ -389,6 +436,9 @@ export default function Upload() {
                   setAnalyzeFailures([])
                   setSaveOkMessage(null)
                   setError(null)
+                  setSimilarItemsMap({})
+                  setSimilarLoadingIds(new Set())
+                  setSimilarErrorIds(new Set())
                 }}
               >
                 Back — adjust photos & analyze again
@@ -465,6 +515,14 @@ export default function Upload() {
                             </div>
                           </div>
                         </label>
+
+                        {/* Similarity warning — shown after AI analysis, before save */}
+                        <SimilarityWarningBanner
+                          loading={similarLoadingIds.has(d.detected_item_id)}
+                          error={similarErrorIds.has(d.detected_item_id)}
+                          items={similarItemsMap[d.detected_item_id] ?? []}
+                          itemName={d.name}
+                        />
 
                         <div className="grid gap-2 sm:grid-cols-2">
                           <Input

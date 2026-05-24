@@ -10,6 +10,7 @@ interface Props {
   rank?: number
   sessionId?: string
   onRegenerate?: () => void
+  onAskFollowUp?: (q: string) => void
 }
 
 function ScoreBadge({ score }: { score: number }) {
@@ -61,7 +62,7 @@ function ScoreBar({ label, value, max }: { label: string; value: number; max: nu
   )
 }
 
-export default function OutfitRecommendationCard({ outfit, rank = 0, sessionId, onRegenerate }: Props) {
+export default function OutfitRecommendationCard({ outfit, rank = 0, sessionId, onRegenerate, onAskFollowUp }: Props) {
   const [expanded, setExpanded] = useState(rank === 0)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -212,6 +213,17 @@ export default function OutfitRecommendationCard({ outfit, rank = 0, sessionId, 
                 </p>
               ))}
             </div>
+          )}
+
+          {/* Ask FANI to improve */}
+          {onAskFollowUp && outfit.improvement_tips?.length > 0 && (
+            <button
+              type="button"
+              onClick={() => onAskFollowUp(`How can I improve the "${outfit.title}" outfit from my closet?`)}
+              className="w-full flex items-center justify-center gap-1.5 text-[10px] font-medium text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300 py-1.5 rounded-xl border border-brand-200 dark:border-brand-700 hover:bg-brand-50 dark:hover:bg-brand-900/20 transition-colors"
+            >
+              <Sparkles size={10} /> Ask FANI to improve this outfit
+            </button>
           )}
 
           {/* Actions */}

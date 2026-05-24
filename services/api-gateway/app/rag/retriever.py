@@ -383,7 +383,7 @@ async def _faiss_similar_items(
         user_id=user_id,
         limit=limit,
         threshold=threshold,
-        extra_where=f"AND id != '{closet_item_id}'::uuid" if closet_item_id else "",
+        exclude_id=closet_item_id if closet_item_id else None,
     )
 
     results = [

@@ -63,6 +63,22 @@ class UserStyleProfile(Base):
     # Regenerated automatically on every profile save.
     style_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # ── Onboarding v2 fields ──────────────────────────────────────────────────
+    styling_goals: Mapped[list] = mapped_column(
+        JSONB, nullable=True, server_default=text("'[]'::jsonb")
+    )
+    avoidances: Mapped[list] = mapped_column(
+        JSONB, nullable=True, server_default=text("'[]'::jsonb")
+    )
+    pattern_preferences: Mapped[list] = mapped_column(
+        JSONB, nullable=True, server_default=text("'[]'::jsonb")
+    )
+
+    # AI-derived personality / recommendation data
+    style_archetype: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    recommendation_rules: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    ai_stylist_context: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

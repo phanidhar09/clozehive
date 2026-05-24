@@ -94,13 +94,28 @@ class ClosetService:
         await cache_service.invalidate_closet_list_cache(str(user_id))
         return _to_response(updated)
 
-    async def delete_item(self, item_id: UUID, user_id: UUID) -> None:
+    async def delete_item(self, item_id: UUID, user_id: UUID) -> list[str]:
+        """Delete a closet item and return the image URLs that should be cleaned up.
+
+        The caller is responsible for firing a background task to delete the
+        actual image blobs — returned URLs may be GCS or local /uploads/ paths.
+        """
         item = await self.repo.get_owned(item_id, user_id)
         if not item:
             raise NotFoundError(f"Item {item_id} not found")
+        # Collect image URLs before the row is gone
+        image_urls = [
+            u for u in (
+                item.original_image_url,
+                item.processed_image_url,
+                item.image_url,
+            )
+            if u
+        ]
         await self.repo.delete(item)
         await cache_service.invalidate_closet_list_cache(str(user_id))
         logger.info("closet_item_deleted", user_id=str(user_id), item_id=str(item_id))
+        return image_urls
 
     async def log_wear(self, item_id: UUID, user_id: UUID, worn_date: date | None = None) -> ClosetItemResponse:
         item = await self.repo.get_owned(item_id, user_id)

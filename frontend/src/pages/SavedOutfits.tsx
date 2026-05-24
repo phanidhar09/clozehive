@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
+import BackButton from '@/components/ui/BackButton'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Heart, Shirt, Star, ChevronDown, ChevronUp, Calendar,
@@ -125,9 +126,9 @@ function OutfitCard({ record, closetMap, onFeedback }: OutfitCardProps) {
           <div className="mt-3 flex gap-2 overflow-x-auto pb-1 scrollbar-none">
             {items.map(item => (
               <div key={item.id} className="flex-shrink-0 w-14 h-14 rounded-xl overflow-hidden border border-cream-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800">
-                {item.processed_image_url || item.image_url ? (
+                {item.image_url ? (
                   <img
-                    src={item.processed_image_url ?? item.image_url ?? ''}
+                    src={item.image_url}
                     alt={item.name}
                     className="w-full h-full object-cover"
                   />
@@ -435,6 +436,7 @@ export default function SavedOutfits() {
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-6 space-y-6">
+      <BackButton fallback="/closet" label="Back to Closet" />
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>

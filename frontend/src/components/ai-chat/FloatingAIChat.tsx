@@ -1,36 +1,52 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { AnimatePresence, motion, useMotionValue } from 'framer-motion'
-import { Sparkles, X, Maximize2, Send, Square, AlertTriangle } from 'lucide-react'
+import { Lightbulb, Sparkles, X, Maximize2, Send, Square, AlertTriangle, RefreshCw } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { generateId } from '@/lib/utils'
 import { sendMessage } from '@/services/aiChatApi'
 import OutfitRecommendationCard from './OutfitRecommendationCard'
-import type { StylistChatMessage, AIChatContext } from '@/types'
+import type { StylistChatMessage, AIChatContext, StylingHint } from '@/types'
 
 const STORAGE_KEY = 'ch:ai-btn-pos'
 
 const WELCOME: StylistChatMessage = {
   id: 'welcome',
   role: 'assistant',
-  content: "Hey! 👋 I'm FANI — your Fashion AI Nurturing Individuality. Ask me what to wear and I'll build outfits from your actual closet.",
+  content: "Hey! 👋 I'm FANI — your Fashion AI Nurturing Individuality. I can build outfits from your closet, answer styling questions, and help you look your best. What's on your mind?",
   timestamp: new Date(),
 }
 
 const QUICK = [
   'What should I wear today?',
-  'Build me a smart casual outfit',
+  'How can I improve my style?',
   'Outfit for dinner tonight',
-  'I feel like looking bold',
+  'What items am I missing?',
 ]
+
+// ── Category colour map for styling hints ────────────────────────────────────
+const HINT_STYLE: Record<string, string> = {
+  color:       'bg-pink-50 dark:bg-pink-900/20 border-pink-200 dark:border-pink-800 text-pink-700 dark:text-pink-300',
+  layering:    'bg-sky-50 dark:bg-sky-900/20 border-sky-200 dark:border-sky-800 text-sky-700 dark:text-sky-300',
+  accessories: 'bg-violet-50 dark:bg-violet-900/20 border-violet-200 dark:border-violet-800 text-violet-700 dark:text-violet-300',
+  fit:         'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300',
+  occasion:    'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300',
+  general:     'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300',
+}
 
 // ── Message bubble ────────────────────────────────────────────────────────────
 
-interface BubbleProps { msg: StylistChatMessage; streaming?: boolean; sessionId?: string }
+interface BubbleProps {
+  msg: StylistChatMessage
+  streaming?: boolean
+  sessionId?: string
+  onFollowUp?: (q: string) => void
+}
 
-function Bubble({ msg, streaming = false, sessionId }: BubbleProps) {
+function Bubble({ msg, streaming = false, sessionId, onFollowUp }: BubbleProps) {
   const isUser = msg.role === 'user'
   const outfits = msg.structured?.recommended_outfits ?? []
+  const hints: StylingHint[] = msg.structured?.styling_suggestions ?? []
   const gaps = msg.structured?.purchase_gaps ?? []
   const followUps = msg.structured?.follow_up_questions ?? []
 
@@ -56,14 +72,54 @@ function Bubble({ msg, streaming = false, sessionId }: BubbleProps) {
           </div>
         )}
 
+        {/* Outfit recommendation cards */}
         {outfits.length > 0 && (
           <div className="w-full space-y-2">
             {outfits.map((outfit, i) => (
-              <OutfitRecommendationCard key={outfit.title + i} outfit={outfit} rank={i} sessionId={sessionId} />
+              <OutfitRecommendationCard
+                key={outfit.title + i}
+                outfit={outfit}
+                rank={i}
+                sessionId={sessionId}
+                onAskFollowUp={onFollowUp}
+              />
             ))}
           </div>
         )}
 
+        {/* Styling suggestions */}
+        {hints.length > 0 && (
+          <div className="w-full space-y-2">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 flex items-center gap-1">
+              <Lightbulb size={10} /> Styling Tips
+            </p>
+            {hints.map((hint, i) => (
+              <div
+                key={i}
+                className={cn(
+                  'flex items-start gap-2 p-2.5 rounded-xl border text-xs',
+                  HINT_STYLE[hint.category] ?? HINT_STYLE.general,
+                )}
+              >
+                <span className="flex-shrink-0 mt-0.5">
+                  {hint.category === 'color' ? '🎨' :
+                   hint.category === 'layering' ? '🧥' :
+                   hint.category === 'accessories' ? '💍' :
+                   hint.category === 'fit' ? '✂️' :
+                   hint.category === 'occasion' ? '📅' : '💡'}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="leading-snug">{hint.tip}</p>
+                  {hint.closet_item_name && (
+                    <p className="mt-0.5 font-semibold opacity-80">→ {hint.closet_item_name}</p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Missing pieces */}
         {gaps.length > 0 && (
           <div className="w-full p-2.5 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-xs space-y-1">
             <p className="font-semibold text-amber-700 dark:text-amber-400">Missing from your closet:</p>
@@ -76,12 +132,19 @@ function Bubble({ msg, streaming = false, sessionId }: BubbleProps) {
           </div>
         )}
 
+        {/* Follow-up questions — clickable chips */}
         {followUps.length > 0 && (
           <div className="flex flex-wrap gap-1">
             {followUps.map((q, i) => (
-              <span key={i} className="text-[10px] px-2 py-1 rounded-full bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600 cursor-default">
+              <button
+                key={i}
+                type="button"
+                onClick={() => onFollowUp?.(q)}
+                disabled={!onFollowUp}
+                className="text-[10px] px-2 py-1 rounded-full bg-brand-50 dark:bg-brand-900/30 text-brand-700 dark:text-brand-300 border border-brand-200 dark:border-brand-700 hover:bg-brand-100 dark:hover:bg-brand-900/50 transition-colors disabled:cursor-default"
+              >
                 {q}
-              </span>
+              </button>
             ))}
           </div>
         )}
@@ -176,7 +239,17 @@ export default function FloatingAIChat() {
       setSessionId(res.session_id)
       setMessages(m => m.map(msg =>
         msg.id === aiMsgId
-          ? { ...msg, content: res.reply, structured: { reply: res.reply, recommended_outfits: res.recommended_outfits, purchase_gaps: res.purchase_gaps, follow_up_questions: res.follow_up_questions } }
+          ? {
+              ...msg,
+              content: res.reply,
+              structured: {
+                reply: res.reply,
+                recommended_outfits: res.recommended_outfits,
+                styling_suggestions: res.styling_suggestions ?? [],
+                purchase_gaps: res.purchase_gaps,
+                follow_up_questions: res.follow_up_questions,
+              },
+            }
           : msg,
       ))
     } catch (e) {
@@ -233,15 +306,13 @@ export default function FloatingAIChat() {
             drag
             dragMomentum={false}
             dragElastic={0}
-            dragHandle=".drag-handle"
-            style={{ x: dragX, y: dragY }}
+            style={{ x: dragX, y: dragY, maxHeight: 'min(620px, calc(100vh - 48px))' }}
             onDragEnd={savePosition}
             initial={{ opacity: 0, y: 24, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 24, scale: 0.95 }}
             transition={{ type: 'spring', stiffness: 380, damping: 28 }}
             className="fixed bottom-6 right-6 z-50 w-[360px] max-w-[calc(100vw-24px)] rounded-2xl shadow-2xl bg-white dark:bg-slate-900 border border-cream-200 dark:border-slate-700 flex flex-col"
-            style={{ maxHeight: 'min(620px, calc(100vh - 48px))' }}
           >
             {/* Header — drag handle */}
             <div className="drag-handle flex items-center justify-between px-4 py-3 border-b border-cream-200 dark:border-slate-700 bg-slate-900 dark:bg-slate-800 rounded-t-2xl flex-shrink-0 cursor-grab active:cursor-grabbing select-none">
@@ -259,7 +330,24 @@ export default function FloatingAIChat() {
                   to="/ai-stylist"
                   className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
                   title="Open full screen"
-                  onClick={() => setOpen(false)}
+                  onClick={() => {
+                    // Persist current session + messages so the full page can pick them up
+                    try {
+                      sessionStorage.setItem('ch:ai-chat-handoff', JSON.stringify({
+                        sessionId,
+                        messages: messages
+                          .filter(m => m.id !== 'welcome')
+                          .map(m => ({
+                            id: m.id,
+                            role: m.role,
+                            content: m.content,
+                            structured: m.structured ?? null,
+                            timestamp: m.timestamp.toISOString(),
+                          })),
+                      }))
+                    } catch { /* ignore */ }
+                    setOpen(false)
+                  }}
                 >
                   <Maximize2 size={14} />
                 </Link>
@@ -280,6 +368,7 @@ export default function FloatingAIChat() {
                   msg={msg}
                   streaming={streaming && msg === messages[messages.length - 1] && msg.role === 'assistant'}
                   sessionId={sessionId ?? undefined}
+                  onFollowUp={streaming ? undefined : (q) => send(q)}
                 />
               ))}
 
