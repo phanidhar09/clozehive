@@ -48,8 +48,8 @@ python-dotenv==1.2.2
 orjson==3.11.9
 pillow==12.2.0
 
-# ── Gemini AI ─────────────────────────────────────────────────────────────────
-google-generativeai==0.8.6
+# ── Gemini AI (new SDK — avoids google-ai-generativelanguage protobuf<6 pin) ──
+google-genai==2.6.0
 
 # ── Google Cloud Storage (persistent image storage) ───────────────────────────
 google-cloud-storage==3.10.1
@@ -59,7 +59,6 @@ google-cloud-storage==3.10.1
 # cluster of transitive packages. Pinning them explicitly prevents pip/uv from
 # having to resolve the complex inter-package constraints at install time.
 google-api-core==2.30.3
-google-ai-generativelanguage==0.6.15
 google-api-python-client==2.196.0
 google-auth==2.53.0
 google-auth-httplib2==0.4.0
@@ -67,12 +66,11 @@ googleapis-common-protos==1.75.0
 google-cloud-core==2.6.0
 google-cloud-firestore==2.27.0
 google-resumable-media==2.9.0
-# grpcio, grpcio-status, google-crc32c are intentionally NOT pinned here.
-# They are native/platform-specific and grpcio-status must match the Python
-# version constraint from google-api-core[grpc] (>=1.75.1 on Python >=3.14).
-# Let uv resolve the correct versions for the build platform automatically.
+# grpcio, grpcio-status, google-crc32c: NOT pinned — platform-specific natives,
+# and grpcio-status version depends on Python version (>=1.75.1 on Py >=3.14).
+# protobuf: NOT pinned — grpcio-status>=1.75.1 requires >=6.31.1; pinning 5.x
+# would conflict. Let the resolver pick a compatible 6.x version.
 proto-plus==1.28.0
-protobuf==5.29.6
 
 # ── RAG / Vector search ───────────────────────────────────────────────────────
 # faiss-cpu: in-memory FAISS index for local dev / testing (no GPU required).

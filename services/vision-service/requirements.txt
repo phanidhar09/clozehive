@@ -22,7 +22,7 @@ onnxruntime>=1.18.0
 
 # ── AI providers ─────────────────────────────────────────────────────────────
 openai>=1.40.0
-google-generativeai>=0.8.0
+google-genai>=2.6.0
 
 # ── Google Cloud Storage ──────────────────────────────────────────────────────
 google-cloud-storage>=2.16.0

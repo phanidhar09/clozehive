@@ -50,27 +50,19 @@ from app.core.logging import get_logger
 settings = get_settings()
 logger = get_logger("gemini_service")
 
-# ── Lazy model singleton ──────────────────────────────────────────────────────
+# ── Lazy client singleton (google-genai SDK) ──────────────────────────────────
 
-_model: Any = None
+_client: Any = None
 
 
-def _get_model() -> Any:
-    global _model
-    if _model is None:
-        import google.generativeai as genai  # type: ignore[import]
+def _get_client() -> Any:
+    global _client
+    if _client is None:
+        from google import genai  # type: ignore[import]
 
-        genai.configure(api_key=settings.gemini_api_key)
-        _model = genai.GenerativeModel(
-            model_name=settings.gemini_model,
-            generation_config=genai.types.GenerationConfig(
-                temperature=0.1,
-                max_output_tokens=4096,
-                response_mime_type="application/json",
-            ),
-        )
-        logger.info("gemini_model_initialized", model=settings.gemini_model)
-    return _model
+        _client = genai.Client(api_key=settings.gemini_api_key)
+        logger.info("gemini_client_initialized", model=settings.gemini_model)
+    return _client
 
 
 # ── Detection prompt ──────────────────────────────────────────────────────────
@@ -225,18 +217,27 @@ async def detect_and_classify(image_bytes: bytes, media_type: str) -> dict[str, 
     Returns the standard detection dict (same shape as fashion_analysis_service).
     Raises on API error or JSON parse failure — callers should catch and fall back.
     """
-    model = _get_model()
+    from google.genai import types  # type: ignore[import]
+
+    client = _get_client()
 
     # Gemini accepts inline image bytes
     effective_mime = media_type if media_type in (
         "image/jpeg", "image/png", "image/webp", "image/gif"
     ) else "image/jpeg"
 
-    image_part = {"mime_type": effective_mime, "data": image_bytes}
-
     try:
-        response = await model.generate_content_async(
-            [_DETECTION_PROMPT, image_part]
+        response = await client.aio.models.generate_content(
+            model=settings.gemini_model,
+            contents=[
+                types.Part.from_bytes(data=image_bytes, mime_type=effective_mime),
+                _DETECTION_PROMPT,
+            ],
+            config=types.GenerateContentConfig(
+                temperature=0.1,
+                max_output_tokens=4096,
+                response_mime_type="application/json",
+            ),
         )
         raw_text = response.text.strip()
     except Exception as exc:
