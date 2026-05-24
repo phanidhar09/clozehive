@@ -145,10 +145,13 @@ async def pgvector_cosine_search(
 
     params: dict[str, Any] = {"threshold": threshold, "limit": limit}
 
+    # Use CAST() instead of :: for all type casts — the asyncpg SQLAlchemy dialect
+    # can misparse :name::type sequences (treating the second : as another param
+    # prefix), leading to PostgresSyntaxError.  CAST() is unambiguous.
     user_filter = ""
     if user_id:
         params["user_id"] = user_id
-        user_filter = "AND user_id = :user_id::uuid"
+        user_filter = "AND user_id = CAST(:user_id AS uuid)"
 
     archived_filter = "AND is_archived = false" if filter_archived else ""
     resolved_filter = "AND resolved = false" if table == "purchase_gaps" else ""
@@ -156,15 +159,18 @@ async def pgvector_cosine_search(
     exclude_filter = ""
     if exclude_id is not None:
         params["exclude_id"] = exclude_id
-        exclude_filter = "AND id != :exclude_id::uuid"
+        exclude_filter = "AND id != CAST(:exclude_id AS uuid)"
 
     category_filter = ""
     if filter_category is not None:
         params["filter_category"] = filter_category
         category_filter = "AND category = :filter_category"
 
+    # The vector literal is interpolated directly (not a bound param) because
+    # asyncpg cannot bind custom pgvector types via $N params.  The value is
+    # pre-validated by _VEC_RE above so interpolation is safe.
     sql = text(f"""
-        SELECT *, 1 - (embedding <=> '{vec}'::vector) AS similarity_score
+        SELECT *, 1 - (embedding <=> CAST('{vec}' AS vector)) AS similarity_score
         FROM {table}
         WHERE embedding IS NOT NULL
           {user_filter}
@@ -172,13 +178,20 @@ async def pgvector_cosine_search(
           {exclude_filter}
           {category_filter}
           {resolved_filter}
-          AND 1 - (embedding <=> '{vec}'::vector) >= :threshold
-        ORDER BY embedding <=> '{vec}'::vector
+          AND 1 - (embedding <=> CAST('{vec}' AS vector)) >= :threshold
+        ORDER BY embedding <=> CAST('{vec}' AS vector)
         LIMIT :limit
     """)
+    # Use a savepoint so that a DB-level failure (e.g. pgvector not installed,
+    # embedding column missing) rolls back only this sub-operation and leaves
+    # the outer SQLAlchemy session/transaction in a usable state.  Without this
+    # the session enters InFailedSQLTransactionError and every subsequent query
+    # in the same request fails — which is the root cause of the
+    # "Could not generate today's outfit" error.
     try:
-        result = await session.execute(sql, params)
-        rows = result.mappings().all()
+        async with session.begin_nested():
+            result = await session.execute(sql, params)
+            rows = result.mappings().all()
         return [dict(r) for r in rows]
     except Exception as exc:
         logger.warning("pgvector_search_failed", table=table, error=str(exc))

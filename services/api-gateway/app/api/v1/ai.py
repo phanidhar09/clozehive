@@ -401,7 +401,6 @@ async def outfit_of_day(user_id: CurrentUser, session: DbSession):
     cache_key = cache_service.namespaced_key("outfit-of-day", str(uid), today)
 
     # ── Cache hit ─────────────────────────────────────────────────────────────
-    redis = await get_redis()
     cached = await cache_service.get(cache_key)
     if cached is not None:
         logger.info("outfit_of_day_cache_hit", user_id=user_id, date=today)
@@ -411,15 +410,24 @@ async def outfit_of_day(user_id: CurrentUser, session: DbSession):
     weekday = datetime.utcnow().weekday()  # 0=Mon … 6=Sun
     occasion = "business" if weekday < 5 else "casual"
 
-    weather, profile = await asyncio.gather(
-        _resolve_weather_context(session, uid),
-        _resolve_user_profile(session, uid, None),
-        return_exceptions=True,
-    )
-    if isinstance(weather, Exception):
-        weather = None
-    if isinstance(profile, Exception):
-        profile = None
+    # Run sequentially rather than concurrently: both coroutines share the same
+    # SQLAlchemy session, and asyncio.gather with return_exceptions=True swallows
+    # Python exceptions but DOES NOT roll back the Postgres transaction.  If either
+    # call left the session in a failed-transaction state the next query would raise
+    # InFailedSQLTransactionError.  Sequential calls keep the session clean.
+    weather: dict | None = None
+    profile: dict | None = None
+    try:
+        weather = await _resolve_weather_context(session, uid)
+    except Exception as exc:
+        logger.warning("outfit_weather_failed", error=str(exc))
+        await session.rollback()
+
+    try:
+        profile = await _resolve_user_profile(session, uid, None)
+    except Exception as exc:
+        logger.warning("outfit_profile_failed", error=str(exc))
+        await session.rollback()
 
     weather_str = weather.get("condition", "mild") if weather else "mild"
     temp = float(weather.get("temp_c", 20.0)) if weather else 20.0
