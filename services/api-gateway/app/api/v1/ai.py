@@ -10,26 +10,23 @@ import asyncio
 import json
 from datetime import datetime
 from typing import Any, Optional
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from fastapi import APIRouter, File, UploadFile, status
+from fastapi import APIRouter, File, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from app.core.deps import CurrentUser, DbSession
-from app.core.exceptions import AppError, ServiceUnavailableError
+from app.core.exceptions import AppError
 from app.core.logging import get_logger
 from app.core.config import get_settings
 from app.core.redis import get_redis
-from app.events import producer as event_producer, topics
-from app.events.schemas import AsyncAcceptedResponse, EventEnvelope
 from app.models.closet import ClosetItem
 from app.repositories.user_repo import UserRepository
 from app.services.style_profile_context import load_merged_user_profile_for_ai
 from app.services import ai_service, cache_service, outfit_service, packing_service, vision_service, weather_service
 from app.services.embedding_service import generate_text_embedding, pgvector_cosine_search
-from app.services.ai_request_service import create_request
 from app.services.upload_service import read_validated_image
 
 router = APIRouter(prefix="/ai", tags=["AI"])
@@ -178,7 +175,7 @@ def _build_stylist_system_prompt(
 
     if not closet_items:
         return (
-            "You are a personal AI stylist for ClosetIQ. This user has not added any wardrobe items yet. "
+            "You are a personal AI stylist for ClozeHive. This user has not added any wardrobe items yet. "
             "Give general fashion advice and encourage them to upload their wardrobe items using the Smart "
             f"Closet Scan feature.{profile_block}{_weather_prompt_block(weather)}"
         )
@@ -192,7 +189,7 @@ def _build_stylist_system_prompt(
             f"{item.get('color') or 'unknown'} | {occasion_text}"
         )
     closet_context = "\n".join(lines)
-    return f"""You are a personal AI stylist for ClosetIQ. The user's complete wardrobe is listed below. When suggesting outfits or styling advice:
+    return f"""You are a personal AI stylist for ClozeHive. The user's complete wardrobe is listed below. When suggesting outfits or styling advice:
 - ONLY recommend items from the wardrobe list below
 - Always refer to items by their EXACT name as listed
 - If the wardrobe lacks a suitable item for an outfit component, explicitly say so rather than inventing items
@@ -290,30 +287,6 @@ async def chat_stream(body: ChatRequest, user_id: CurrentUser, session: DbSessio
     return StreamingResponse(events(), media_type="text/event-stream", headers=_STREAM_HEADERS)
 
 
-@router.post("/chat/async", response_model=AsyncAcceptedResponse, status_code=status.HTTP_202_ACCEPTED)
-async def chat_async(body: ChatRequest, user_id: CurrentUser, session: DbSession):
-    if not settings.kafka_enabled:
-        raise ServiceUnavailableError("Async processing requires Kafka — not available in this deployment")
-    """Publish an async AI chat job; tokens are delivered through ai_response_stream events."""
-    request_id = uuid4()
-    user_uuid = UUID(user_id)
-    closet = await _get_closet_as_dicts(session, user_uuid) if body.include_closet else []
-    payload = {"message": body.message, "history": body.history, "closet_items": closet}
-    await create_request(
-        session,
-        request_id=request_id,
-        user_id=user_uuid,
-        request_type=topics.AI_CHAT_REQUESTED,
-        input_payload=payload,
-    )
-    # Commit before Kafka so workers read a committed ai_requests row (see app.db.session).
-    await session.commit()
-    await event_producer.publish(
-        topics.AI_CHAT_REQUESTED,
-        EventEnvelope(event_type=topics.AI_CHAT_REQUESTED, request_id=request_id, user_id=user_uuid, payload=payload),
-    )
-    return AsyncAcceptedResponse(request_id=request_id, event_type=topics.AI_CHAT_REQUESTED, message="AI chat queued")
-
 
 # ── Outfit ────────────────────────────────────────────────────────────────────
 
@@ -327,31 +300,6 @@ async def outfit(body: OutfitRequest, user_id: CurrentUser, session: DbSession):
         closet, body.occasion, body.weather, body.temperature, user_profile=profile,
     )
 
-
-@router.post("/outfit/async", response_model=AsyncAcceptedResponse, status_code=status.HTTP_202_ACCEPTED)
-async def outfit_async(body: OutfitRequest, user_id: CurrentUser, session: DbSession):
-    if not settings.kafka_enabled:
-        raise ServiceUnavailableError("Async processing requires Kafka — not available in this deployment")
-    """Publish an outfit generation job and return immediately."""
-    request_id = uuid4()
-    user_uuid = UUID(user_id)
-    closet = await _get_closet_as_dicts(session, user_uuid)
-    profile = await _resolve_user_profile(session, user_uuid, body.user_profile)
-    payload = {
-        "closet_items": closet,
-        "occasion": body.occasion,
-        "weather": body.weather,
-        "temperature": body.temperature,
-        "user_profile": profile,
-    }
-    await create_request(session, request_id=request_id, user_id=user_uuid, request_type=topics.OUTFIT_REQUESTED, input_payload=payload)
-    # Commit before Kafka so workers read a committed ai_requests row (see app.db.session).
-    await session.commit()
-    await event_producer.publish(
-        topics.OUTFIT_REQUESTED,
-        EventEnvelope(event_type=topics.OUTFIT_REQUESTED, request_id=request_id, user_id=user_uuid, payload=payload),
-    )
-    return AsyncAcceptedResponse(request_id=request_id, event_type=topics.OUTFIT_REQUESTED, message="Outfit generation queued")
 
 
 @router.post("/outfit/stream")
@@ -472,31 +420,6 @@ async def packing(body: PackingRequest, user_id: CurrentUser, session: DbSession
         user_style_profile=prof,
     )
 
-
-@router.post("/packing/async", response_model=AsyncAcceptedResponse, status_code=status.HTTP_202_ACCEPTED)
-async def packing_async(body: PackingRequest, user_id: CurrentUser, session: DbSession):
-    if not settings.kafka_enabled:
-        raise ServiceUnavailableError("Async processing requires Kafka — not available in this deployment")
-    """Publish a trip planning/packing job and return immediately."""
-    request_id = uuid4()
-    user_uuid = UUID(user_id)
-    closet = await _get_closet_as_dicts(session, user_uuid)
-    payload = {
-        "destination": body.destination,
-        "start_date": body.start_date,
-        "end_date": body.end_date,
-        "purpose": body.purpose,
-        "notes": body.notes,
-        "closet_items": closet,
-    }
-    await create_request(session, request_id=request_id, user_id=user_uuid, request_type=topics.TRIP_PLANNED, input_payload=payload)
-    # Commit before Kafka so workers read a committed ai_requests row (see app.db.session).
-    await session.commit()
-    await event_producer.publish(
-        topics.TRIP_PLANNED,
-        EventEnvelope(event_type=topics.TRIP_PLANNED, request_id=request_id, user_id=user_uuid, payload=payload),
-    )
-    return AsyncAcceptedResponse(request_id=request_id, event_type=topics.TRIP_PLANNED, message="Trip packing plan queued")
 
 
 @router.post("/packing/stream")

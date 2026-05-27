@@ -29,7 +29,7 @@ GREEN        = HexColor("#059669")
 AMBER        = HexColor("#D97706")
 RED          = HexColor("#DC2626")
 
-OUTPUT = "/Users/phanidharreddy/Desktop/my_project/closetiq-integrated/CLOZEHIVE_Master_Outline.pdf"
+OUTPUT = "/Users/phanidharreddy/Desktop/my_project/Clozehive/CLOZEHIVE_Master_Outline.pdf"
 
 # ── Document ───────────────────────────────────────────────────────────────────
 doc = SimpleDocTemplate(

@@ -1,5 +1,5 @@
 """
-Smart bulk ingestion pipeline for ClosetIQ.
+Smart bulk ingestion pipeline for ClozeHive.
 
 Flow
 ----
@@ -20,10 +20,10 @@ Flow
 
 Redis schema
 ------------
-Key  ``closetiq:ingest:{job_id}``       TTL 86 400 s (24 h)
+Key  ``clozehive:ingest:{job_id}``       TTL 86 400 s (24 h)
 Value  JSON blob (IngestJob model)
 
-Key  ``closetiq:ingest:{job_id}:items`` TTL 86 400 s (24 h)
+Key  ``clozehive:ingest:{job_id}:items`` TTL 86 400 s (24 h)
 Value  JSON array of ReviewItem dicts
 
 Why Redis instead of a new DB table
@@ -56,8 +56,8 @@ logger = get_logger("bulk_ingest_service")
 _JOB_TTL = 86_400        # 24 h — enough for any review session
 _ITEM_REVIEW_TTL = 86_400
 
-_JOB_KEY = "closetiq:ingest:{}"
-_ITEMS_KEY = "closetiq:ingest:{}:items"
+_JOB_KEY = "clozehive:ingest:{}"
+_ITEMS_KEY = "clozehive:ingest:{}:items"
 
 
 # ── Pydantic-free data models (dicts serialised to/from Redis JSON) ───────────

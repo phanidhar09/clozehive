@@ -1,4 +1,4 @@
-# Clozehive / ClosetIQ — Operations Runbook
+# ClozeHive — Operations Runbook
 
 This document helps operators and developers run the stack locally, verify quality, deploy, debug common failures, and roll back safely.
 

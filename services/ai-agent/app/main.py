@@ -37,13 +37,7 @@ async def lifespan(app: FastAPI):
         cache_logger_on_first_use=True,
     )
 
-    logger.info(
-        "ai_agent_starting",
-        enable_mcp_tools=settings.enable_mcp_tools,
-        mcp_endpoints_summary=(
-            settings.mcp_endpoints_for_logging() if settings.enable_mcp_tools else []
-        ),
-    )
+    logger.info("ai_agent_starting")
 
     agent = get_agent()
     try:
@@ -115,8 +109,7 @@ def create_app() -> FastAPI:
             "version": settings.app_version,
             "agent_ready": agent.is_ready,
             "openai_configured": settings.has_valid_openai_key,
-            "enable_mcp_tools": settings.enable_mcp_tools,
-            "mcp_tools_loaded_count": len(agent.available_tools),
+            "tools_count": len(agent.available_tools),
             "tools": agent.available_tools,
         }
 

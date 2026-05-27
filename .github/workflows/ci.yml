@@ -50,7 +50,7 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: closetiq_test
+          POSTGRES_DB: clozehive_test
         ports:
           - 5432:5432
         options: >-
@@ -68,7 +68,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/closetiq_test
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/clozehive_test
       REDIS_URL: redis://localhost:6379
       JWT_SECRET: ci-test-secret-with-at-least-thirty-two-characters
       GOOGLE_CLIENT_ID: ci-google-client-id
@@ -106,6 +106,6 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       - name: Build api-gateway image
-        run: docker build -t closetiq-api:${{ github.sha }} services/api-gateway
+        run: docker build -t clozehive-api:${{ github.sha }} services/api-gateway
       - name: Build frontend image
-        run: docker build -t closetiq-frontend:${{ github.sha }} frontend
+        run: docker build -t clozehive-frontend:${{ github.sha }} frontend

@@ -24,7 +24,6 @@ from app.core.exceptions import AppError, app_error_handler, http_exception_hand
 from app.core.logging import get_logger, setup_logging
 from app.core.rate_limit import limiter
 from app.db.session import connect as db_connect, disconnect as db_disconnect
-from app.events import producer as event_producer, result_listener
 from app.middleware.logging import AccessLogMiddleware
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
@@ -102,13 +101,6 @@ async def lifespan(app: FastAPI):
     if not redis_ok:
         logger.warning("redis_unavailable", msg="Cache disabled — running without Redis")
 
-    # Kafka producer + result listener (best-effort so local tests can run without Kafka)
-    try:
-        await event_producer.start()
-        await result_listener.start()
-    except Exception as exc:
-        logger.warning("kafka_unavailable", error=str(exc))
-
     logger.info("api_gateway_ready", port=settings.port)
 
     if settings.sentry_dsn:
@@ -126,8 +118,6 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
-    await result_listener.stop()
-    await event_producer.stop()
     await db_disconnect()
     await cache_service.close()
     await ai_client.close_client()

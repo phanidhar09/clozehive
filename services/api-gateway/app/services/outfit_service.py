@@ -46,7 +46,7 @@ async def generate_outfits(
         return _mock_result(closet_items, occasion)
 
     style_block = _style_context_from_profile(user_profile)
-    system_prompt = f"""You are an expert ClosetIQ personal stylist.
+    system_prompt = f"""You are an expert ClozeHive personal stylist.
 Use positive, supportive language. Never criticise the user's body. Honour avoided colors and climate preferences when listed in the user profile context.
 Return ONLY valid JSON with shape:
 {{"outfits":[{{"name":"","items":[{{"id":"","name":"","category":""}}],"style_notes":"","occasion_fit":"","weather_suitability":"","style_score":8.5}}],"style_tips":[]}}

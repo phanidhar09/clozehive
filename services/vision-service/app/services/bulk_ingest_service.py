@@ -21,8 +21,8 @@ logger = get_logger("bulk_ingest_service")
 _JOB_TTL = 86_400
 _ITEM_REVIEW_TTL = 86_400
 
-_JOB_KEY = "closetiq:ingest:{}"
-_ITEMS_KEY = "closetiq:ingest:{}:items"
+_JOB_KEY = "clozehive:ingest:{}"
+_ITEMS_KEY = "clozehive:ingest:{}:items"
 
 
 # ── Pydantic-free data models ─────────────────────────────────────────────────

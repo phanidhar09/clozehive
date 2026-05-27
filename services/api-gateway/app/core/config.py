@@ -161,13 +161,6 @@ class Settings(BaseSettings):
     # Directory where FAISS indexes are persisted to disk (only used when rag_vector_store=faiss).
     faiss_index_dir: str = "./faiss_indexes"
 
-    # ── Kafka / Redpanda ──────────────────────────────────────────────────────
-    kafka_enabled: bool = False
-    kafka_bootstrap_servers: str = "redpanda:9092"
-    kafka_client_id: str = "clozehive-api-gateway"
-    kafka_result_group_id: str = "clozehive-api-gateway-results"
-    kafka_request_timeout_ms: int = 10_000
-
     model_config = SettingsConfigDict(
         env_file=(str(_ENV_FILE), ".env"),  # project root first, then local CWD override
         env_file_encoding="utf-8",

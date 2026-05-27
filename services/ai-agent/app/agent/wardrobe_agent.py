@@ -1,12 +1,8 @@
 """
-Production-hardened CLOZEHIVE Wardrobe Agent.
+CLOZEHIVE Wardrobe Agent — inline tools edition.
 
-Hardening features:
-  - asyncio.wait_for() for end-to-end timeout
-  - tenacity retry on transient tool failures
-  - Per-tool-call structured logging
-  - Input validation before tool dispatch
-  - Graceful degradation when MCP servers are unavailable
+Tools (weather, outfit, packing) run in-process as LangChain @tool functions.
+No external MCP server connections; no startup delay.
 """
 
 from __future__ import annotations
@@ -18,8 +14,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import structlog
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 from tenacity import (
@@ -29,41 +24,12 @@ from tenacity import (
     wait_exponential,
 )
 
-from app.agent.prompts import (
-    WARDROBE_AGENT_LLM_ONLY_SYSTEM_PROMPT,
-    WARDROBE_AGENT_SYSTEM_PROMPT,
-)
+from app.agent.prompts import WARDROBE_AGENT_SYSTEM_PROMPT
 from app.core.config import get_settings
+from app.tools import ALL_TOOLS
 
 logger = structlog.get_logger("wardrobe_agent")
 settings = get_settings()
-
-
-class ToolCallLogger:
-    """Wraps a LangChain tool and logs every call + result."""
-
-    def __init__(self, tool) -> None:
-        self._tool = tool
-        self.name = tool.name
-        self.description = tool.description
-
-    async def ainvoke(self, inputs: dict[str, Any]) -> Any:
-        start = time.perf_counter()
-        log = logger.bind(tool=self.name, inputs=_safe_truncate(inputs))
-        log.info("tool_call_start")
-        try:
-            result = await self._tool.ainvoke(inputs)
-            elapsed = round((time.perf_counter() - start) * 1000, 1)
-            log.info("tool_call_success", elapsed_ms=elapsed, output_len=len(str(result)))
-            return result
-        except Exception as exc:
-            elapsed = round((time.perf_counter() - start) * 1000, 1)
-            log.error("tool_call_error", elapsed_ms=elapsed, error=str(exc))
-            raise
-
-    # Passthrough attributes so LangChain can use this as a normal tool
-    def __getattr__(self, name: str):
-        return getattr(self._tool, name)
 
 
 def _safe_truncate(data: Any, max_len: int = 200) -> str:
@@ -72,25 +38,6 @@ def _safe_truncate(data: Any, max_len: int = 200) -> str:
         return s[:max_len] + "…" if len(s) > max_len else s
     except Exception:
         return str(data)[:max_len]
-
-
-def _exception_causes(exc: BaseException, max_depth: int = 8) -> list[str]:
-    """Flatten ExceptionGroup / TaskGroup failures for logs."""
-    lines: list[str] = []
-    if max_depth <= 0:
-        return lines
-    if isinstance(exc, BaseExceptionGroup):
-        for sub in exc.exceptions:
-            lines.extend(_exception_causes(sub, max_depth - 1))
-        if not lines:
-            lines.append(str(exc))
-        return lines
-    lines.append(str(exc))
-    if exc.__cause__ is not None:
-        lines.extend(_exception_causes(exc.__cause__, max_depth - 1))
-    elif exc.__context__ is not None and not isinstance(exc.__context__, BaseExceptionGroup):
-        lines.extend(_exception_causes(exc.__context__, max_depth - 1))
-    return lines
 
 
 def _validate_chat_input(message: str, history: list[dict]) -> None:
@@ -103,115 +50,15 @@ def _validate_chat_input(message: str, history: list[dict]) -> None:
 
 
 class WardrobeAgent:
-    """
-    Persistent agent that holds one MultiServerMCPClient connection for its
-    entire lifetime. Call start() once and stop() on shutdown.
-    """
+    """Agent that uses inline LangChain tools — no external MCP connections."""
 
     def __init__(self) -> None:
-        self._client: MultiServerMCPClient | None = None
         self._agent = None
-        self._tools: list = []
         self._ready = False
 
     async def start(self) -> None:
-        """
-        Optionally connect to MCP tool servers (when ``enable_mcp_tools`` is True).
-
-        When MCP is disabled (MVP default), skip network calls entirely — no
-        connection attempts to ``mcp-*`` hosts. The agent runs LLM-only with an
-        appropriate system prompt.
-
-        When MCP is enabled but servers are missing, degrade to LLM-only (empty tools),
-        same as today, without failing startup.
-        """
-        self._client = None
-        self._tools = []
-
-        if not settings.enable_mcp_tools:
-            logger.info(
-                "mcp_tools_disabled_by_config",
-                enable_mcp_tools=False,
-                hint=(
-                    "Set ENABLE_MCP_TOOLS=true and start mcp-* (compose --profile legacy-mcp) "
-                    "to load LangChain MCP tools."
-                ),
-            )
-        else:
-            logger.info(
-                "mcp_tools_enabled_connecting",
-                enable_mcp_tools=True,
-                endpoints=settings.mcp_endpoints_for_logging(),
-            )
-            # Brief initial pause: Docker's embedded DNS needs a moment to register
-            # newly started container names. Without this, the first connection
-            # attempt races against DNS propagation and gets NXDOMAIN.
-            await asyncio.sleep(5)
-
-            # Connect to each MCP server independently so one failure doesn't
-            # take down all tools.
-            all_tools: list = []
-            server_configs = settings.mcp_server_config
-            for server_name, server_cfg in server_configs.items():
-                _max_attempts = 3
-                _delay = 3.0
-                loaded = False
-                for _attempt in range(_max_attempts):
-                    try:
-                        client = MultiServerMCPClient({server_name: server_cfg})
-                        server_tools = await client.get_tools()
-                        all_tools.extend(server_tools)
-                        logger.info(
-                            "mcp_server_loaded",
-                            server=server_name,
-                            tools=[t.name for t in server_tools],
-                            attempt=_attempt + 1,
-                        )
-                        loaded = True
-                        break
-                    except BaseException as exc:
-                        if _attempt < _max_attempts - 1:
-                            logger.warning(
-                                "mcp_server_retrying",
-                                server=server_name,
-                                attempt=_attempt + 1,
-                                delay_s=_delay,
-                                error=str(exc)[:200],
-                            )
-                            await asyncio.sleep(_delay)
-                            _delay = min(_delay * 1.5, 10.0)
-                        else:
-                            logger.warning(
-                                "mcp_server_skipped",
-                                server=server_name,
-                                error=str(exc)[:200],
-                                hint="This server's tools will be unavailable this session.",
-                            )
-                if not loaded:
-                    continue  # skip — already warned above
-
-            self._tools = all_tools
-            if self._tools:
-                logger.info(
-                    "mcp_tools_loaded",
-                    count=len(self._tools),
-                    names=[t.name for t in self._tools],
-                )
-            else:
-                logger.warning(
-                    "mcp_tool_load_skipped",
-                    hint=(
-                        "All MCP servers unreachable — running LLM-only. "
-                        "Start MCP: docker compose --profile legacy-mcp up -d"
-                    ),
-                )
-
-        system_prompt = (
-            WARDROBE_AGENT_SYSTEM_PROMPT
-            if self._tools
-            else WARDROBE_AGENT_LLM_ONLY_SYSTEM_PROMPT
-        )
-
+        logger.info("wardrobe_agent_starting", tool_count=len(ALL_TOOLS),
+                    tools=[t.name for t in ALL_TOOLS])
         try:
             model = ChatOpenAI(
                 model=settings.openai_model,
@@ -220,28 +67,20 @@ class WardrobeAgent:
                 base_url=settings.openai_api_base_url,
                 streaming=True,
             )
-
             self._agent = create_react_agent(
                 model,
-                self._tools,
-                prompt=system_prompt,
+                ALL_TOOLS,
+                prompt=WARDROBE_AGENT_SYSTEM_PROMPT,
             )
             self._ready = True
-            logger.info(
-                "agent_ready",
-                tool_count=len(self._tools),
-                llm_only=len(self._tools) == 0,
-            )
-
+            logger.info("wardrobe_agent_ready", tool_count=len(ALL_TOOLS))
         except Exception as exc:
             logger.error("agent_start_failed", error=str(exc))
             self._ready = False
             raise
 
     async def stop(self) -> None:
-        self._client = None
         self._agent = None
-        self._tools = []
         self._ready = False
         logger.info("agent_stopped")
 
@@ -251,18 +90,8 @@ class WardrobeAgent:
 
     @property
     def available_tools(self) -> list[str]:
-        return [t.name for t in self._tools]
+        return [t.name for t in ALL_TOOLS]
 
-    @retry(
-        stop=stop_after_attempt(settings.retry_max_attempts),
-        wait=wait_exponential(
-            multiplier=1,
-            min=settings.retry_min_wait,
-            max=settings.retry_max_wait,
-        ),
-        retry=retry_if_exception_type((asyncio.TimeoutError,)),
-        reraise=True,
-    )
     async def chat(
         self,
         message: str,
@@ -274,15 +103,9 @@ class WardrobeAgent:
         Args:
             message: The user's latest message (max 4000 chars).
             history: Prior turns as [{'role': 'user'|'assistant', 'content': str}].
-                     Capped at 10 turns to keep context windows manageable.
 
         Returns:
             The agent's plain-text response.
-
-        Raises:
-            RuntimeError: If the agent is not started.
-            asyncio.TimeoutError: If the agent exceeds agent_timeout_seconds.
-            ValueError: If inputs fail validation.
         """
         if not self.is_ready:
             raise RuntimeError("Agent not started — call await agent.start() first")
@@ -291,7 +114,7 @@ class WardrobeAgent:
         _validate_chat_input(message, history)
 
         messages = []
-        for turn in history[-10:]:  # cap at last 10 turns
+        for turn in history[-10:]:
             role = turn.get("role", "user")
             content = turn.get("content", "")
             if role == "user":
@@ -340,7 +163,7 @@ class WardrobeAgent:
         message: str,
         history: list[dict[str, str]] | None = None,
     ) -> AsyncIterator[str]:
-        """Stream model tokens as they are produced by LangGraph/LangChain."""
+        """Stream model tokens as they are produced by LangGraph."""
         if not self.is_ready:
             raise RuntimeError("Agent not started — call await agent.start() first")
 

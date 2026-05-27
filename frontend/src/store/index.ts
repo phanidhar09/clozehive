@@ -54,7 +54,7 @@ export function useApp() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const USER_KEY = 'ch_user'
-const COLOR_SCHEME_KEY = 'closetiq-color-scheme'
+const COLOR_SCHEME_KEY = 'clozehive-color-scheme'
 
 function getSystemColorScheme(): ColorScheme {
   if (typeof window === 'undefined') return 'light'

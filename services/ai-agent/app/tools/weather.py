@@ -1,17 +1,19 @@
-"""Weather service — climate-profile-based forecast generator."""
+"""Weather tool — climate-profile-based forecast wrapped as LangChain tools."""
 
 from __future__ import annotations
 
+import json
 import math
 from collections import Counter
 from datetime import date, timedelta
 
-from shared.schemas import WeatherDay, WeatherSummary
+from langchain_core.tools import tool
+
+from app.tools.schemas import WeatherDay, WeatherSummary
 
 # ── Climate profiles (condition, temp_high, temp_low) ─────────────────────────
 
 _PROFILES: dict[str, tuple[str, float, float]] = {
-    # Tropical / hot
     "dubai": ("Sunny", 38.0, 28.0),
     "bangkok": ("Humid", 34.0, 26.0),
     "mumbai": ("Humid", 32.0, 25.0),
@@ -20,8 +22,6 @@ _PROFILES: dict[str, tuple[str, float, float]] = {
     "cancun": ("Sunny", 33.0, 26.0),
     "bali": ("Partly Cloudy", 29.0, 23.0),
     "rio": ("Sunny", 28.0, 21.0),
-
-    # Temperate / European
     "london": ("Cloudy", 15.0, 9.0),
     "paris": ("Partly Cloudy", 18.0, 10.0),
     "amsterdam": ("Rainy", 13.0, 7.0),
@@ -33,8 +33,6 @@ _PROFILES: dict[str, tuple[str, float, float]] = {
     "vienna": ("Partly Cloudy", 17.0, 9.0),
     "prague": ("Cloudy", 15.0, 7.0),
     "zurich": ("Rainy", 14.0, 6.0),
-
-    # North America
     "new york": ("Partly Cloudy", 18.0, 10.0),
     "los angeles": ("Sunny", 26.0, 16.0),
     "san francisco": ("Foggy", 18.0, 11.0),
@@ -42,8 +40,6 @@ _PROFILES: dict[str, tuple[str, float, float]] = {
     "toronto": ("Partly Cloudy", 16.0, 8.0),
     "vancouver": ("Rainy", 13.0, 7.0),
     "montreal": ("Snowy", 0.0, -8.0),
-
-    # Asia-Pacific
     "tokyo": ("Partly Cloudy", 20.0, 13.0),
     "seoul": ("Clear", 18.0, 9.0),
     "beijing": ("Hazy", 22.0, 12.0),
@@ -51,14 +47,10 @@ _PROFILES: dict[str, tuple[str, float, float]] = {
     "sydney": ("Sunny", 22.0, 15.0),
     "melbourne": ("Changeable", 17.0, 10.0),
     "auckland": ("Partly Cloudy", 19.0, 12.0),
-
-    # Middle East / Africa
     "cairo": ("Sunny", 35.0, 22.0),
     "cape town": ("Sunny", 24.0, 15.0),
     "nairobi": ("Partly Cloudy", 25.0, 14.0),
     "marrakech": ("Sunny", 30.0, 18.0),
-
-    # India
     "delhi": ("Hazy", 36.0, 24.0),
     "hyderabad": ("Partly Cloudy", 33.0, 22.0),
     "bangalore": ("Partly Cloudy", 28.0, 18.0),
@@ -67,11 +59,7 @@ _PROFILES: dict[str, tuple[str, float, float]] = {
 }
 
 _DEFAULT = ("Partly Cloudy", 20.0, 12.0)
-
-_CONDITION_CYCLE = [
-    "Sunny", "Partly Cloudy", "Cloudy", "Rainy", "Partly Cloudy", "Sunny", "Sunny",
-]
-
+_CONDITION_CYCLE = ["Sunny", "Partly Cloudy", "Cloudy", "Rainy", "Partly Cloudy", "Sunny", "Sunny"]
 _RAINY = {"Rainy", "Showers", "Humid", "Thunderstorms", "Drizzle"}
 _COLD  = {"Snowy", "Freezing"}
 
@@ -80,7 +68,6 @@ def _profile(destination: str) -> tuple[str, float, float]:
     key = destination.strip().lower()
     if key in _PROFILES:
         return _PROFILES[key]
-    # fuzzy match on first word
     first_word = key.split()[0]
     for k, v in _PROFILES.items():
         if first_word in k:
@@ -89,11 +76,8 @@ def _profile(destination: str) -> tuple[str, float, float]:
 
 
 def _day_condition(base_condition: str, offset: int) -> str:
-    """Vary the condition slightly across days for realism."""
     cycle_pos = offset % len(_CONDITION_CYCLE)
     cycle_cond = _CONDITION_CYCLE[cycle_pos]
-
-    # Blend: 60 % base, 40 % cycle
     if offset % 3 == 0:
         return base_condition
     return cycle_cond
@@ -117,23 +101,17 @@ def _description(condition: str, high: float, low: float) -> str:
     return templates.get(condition, f"{condition}, high {high:.0f}°C / low {low:.0f}°C.")
 
 
-def fetch_weather(destination: str, start_date: str, end_date: str) -> list[WeatherDay]:
-    """Generate a realistic day-by-day forecast for a destination."""
+def _fetch_weather(destination: str, start_date: str, end_date: str) -> list[WeatherDay]:
     base_cond, base_high, base_low = _profile(destination)
-
     start = date.fromisoformat(start_date)
     end   = date.fromisoformat(end_date)
     days: list[WeatherDay] = []
-
     for i in range((end - start).days + 1):
         current = start + timedelta(days=i)
         condition = _day_condition(base_cond, i)
-
-        # ± small temp variation per day
         variation = math.sin(i * 0.7) * 2.0
         high = round(base_high + variation, 1)
         low  = round(base_low  + variation * 0.6, 1)
-
         days.append(WeatherDay(
             date=current.isoformat(),
             condition=condition,
@@ -141,15 +119,12 @@ def fetch_weather(destination: str, start_date: str, end_date: str) -> list[Weat
             temp_low=low,
             description=_description(condition, high, low),
         ))
-
     return days
 
 
-def summarise_weather(days: list[WeatherDay]) -> WeatherSummary:
-    """Collapse a day list into a concise trip summary."""
+def _summarise_weather(days: list[WeatherDay]) -> WeatherSummary:
     conditions = [d.condition for d in days]
     dominant = Counter(conditions).most_common(1)[0][0]
-
     avg_high = round(sum(d.temp_high for d in days) / len(days), 1)
     avg_low  = round(sum(d.temp_low  for d in days) / len(days), 1)
     rainy    = sum(1 for d in days if d.condition in _RAINY)
@@ -174,3 +149,53 @@ def summarise_weather(days: list[WeatherDay]) -> WeatherSummary:
         recommendation=rec,
         days=days,
     )
+
+
+# ── LangChain tools ───────────────────────────────────────────────────────────
+
+@tool
+async def get_weather_forecast(destination: str, start_date: str, end_date: str) -> str:
+    """
+    Fetch a day-by-day weather forecast for a travel destination.
+
+    Args:
+        destination: City or country name (e.g. 'London', 'Dubai', 'New York').
+        start_date:  Trip start date in YYYY-MM-DD format.
+        end_date:    Trip end date in YYYY-MM-DD format.
+
+    Returns:
+        JSON array of WeatherDay objects: date, condition, temp_high, temp_low, description.
+    """
+    if not destination.strip():
+        return json.dumps({"error": "destination cannot be empty"})
+    if start_date > end_date:
+        return json.dumps({"error": "start_date must be before end_date"})
+    try:
+        days = _fetch_weather(destination, start_date, end_date)
+        return json.dumps([d.model_dump() for d in days], indent=2)
+    except Exception as exc:
+        return json.dumps({"error": str(exc)})
+
+
+@tool
+async def get_weather_summary(destination: str, start_date: str, end_date: str) -> str:
+    """
+    Fetch and summarise weather — dominant condition, avg temps, rainy days, recommendation.
+
+    Args:
+        destination: City or country name.
+        start_date:  Trip start in YYYY-MM-DD format.
+        end_date:    Trip end in YYYY-MM-DD format.
+
+    Returns:
+        JSON WeatherSummary with dominant_condition, avg_high, avg_low, rainy_days,
+        recommendation, and a days[] list.
+    """
+    if not destination.strip():
+        return json.dumps({"error": "destination cannot be empty"})
+    try:
+        days = _fetch_weather(destination, start_date, end_date)
+        summary = _summarise_weather(days)
+        return summary.model_dump_json(indent=2)
+    except Exception as exc:
+        return json.dumps({"error": str(exc)})

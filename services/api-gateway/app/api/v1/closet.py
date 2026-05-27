@@ -10,7 +10,7 @@ import asyncio
 from typing import Optional, Any, cast
 
 from pathlib import Path
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, Request, UploadFile, status
 from pydantic import BaseModel, Field
@@ -23,8 +23,6 @@ from app.core.rate_limit import limiter
 from app.db.session import get_session
 from app.constants.wardrobe import CLOSET_SECTIONS
 from app.core.exceptions import BadRequestError
-from app.events import producer as event_producer, topics
-from app.events.schemas import AsyncAcceptedResponse, EventEnvelope
 from app.schemas.closet import (
     BulkAnalyzePreviewFileResult,
     BulkAnalyzePreviewResponse,
@@ -354,60 +352,6 @@ async def bulk_upload_items(
         await cache_service.invalidate_user_ai_cache(await get_redis(), user_id)
     return BulkUploadResponse(created=created, failed=failed)
 
-
-@router.post(
-    "/upload/async",
-    response_model=AsyncAcceptedResponse,
-    status_code=status.HTTP_202_ACCEPTED,
-    summary="Upload garment image and queue async AI Vision analysis",
-)
-async def upload_item_async(
-    user_id: CurrentUser,
-    session: AsyncSession = Depends(get_session),  # Postgres session only needed for create_request
-    file: UploadFile = File(...),
-    name: Optional[str] = None,
-    category: Optional[str] = None,
-):
-    image_bytes, content_type = await read_validated_image(file)
-
-    request_id = uuid4()
-    upload_id = uuid4()
-    suffix = Path(file.filename or "upload.jpg").suffix or ".jpg"
-    upload_path = settings.upload_path / f"{upload_id}{suffix}"
-    upload_path.write_bytes(image_bytes)
-
-    user_uuid = UUID(user_id)
-    payload = {
-        "upload_id": str(upload_id),
-        "file_path": str(upload_path),
-        "media_type": content_type,
-        "original_filename": file.filename,
-        "name_override": name,
-        "category_override": category,
-    }
-    await create_request(
-        session,
-        request_id=request_id,
-        user_id=user_uuid,
-        request_type=topics.IMAGE_UPLOADED,
-        input_payload=payload,
-    )
-    # Commit before Kafka so the upload worker reads a committed ai_requests row.
-    await session.commit()
-    await event_producer.publish(
-        topics.IMAGE_UPLOADED,
-        EventEnvelope(
-            event_type=topics.IMAGE_UPLOADED,
-            request_id=request_id,
-            user_id=user_uuid,
-            payload=payload,
-        ),
-    )
-    return AsyncAcceptedResponse(
-        request_id=request_id,
-        event_type=topics.IMAGE_UPLOADED,
-        message="Image analysis queued",
-    )
 
 
 # ── Update / delete ───────────────────────────────────────────────────────────

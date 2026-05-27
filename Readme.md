@@ -4,8 +4,6 @@ ClozeHive is a **wardrobe intelligence** application: a digital closet, outfit b
 
 **Repository:** [github.com/phanidhar09/clozehive](https://github.com/phanidhar09/clozehive)
 
-The local folder may still be named `closetiq-integrated`; **ClozeHive** is the product name used in docs and env templates.
-
 **Environment variables, Docker, GCP, migrations, tests, and troubleshooting:** see **[docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)**.
 
 ---

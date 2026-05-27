@@ -1,30 +1,16 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-#  CLOZEHIVE — Hybrid AI Architecture
+#  CLOZEHIVE — Simplified Architecture
 #
 #  ── Default stack ──────────────────────────────────────────────────────────────
-#  Starts: postgres, redis, api-gateway, ai-agent, mcp-weather, mcp-outfit,
-#          mcp-packing, frontend, nginx, migrate
+#  Starts: postgres, redis, api-gateway, ai-agent, vision-service, frontend, nginx, migrate
 #  Command:
 #    docker compose up --build
 #
 #  Architecture:
 #    Frontend → nginx → api-gateway (auth/CRUD)
-#                    └→ api-gateway /ai/* → ai-agent → MCP tools
+#                    └→ api-gateway /ai/* → ai-agent (inline tools: weather/outfit/packing)
 #
-#  The api-gateway handles auth, closet, trips, and profile CRUD.
-#  Chat/outfit generation use OpenAI from the gateway; WebSocket chat and trip packing
-#  call ai-agent (MCP tools). Host .env may set AI_AGENT_URL=localhost — the gateway
-#  service below forces http://ai-agent:8001 so Docker networking is never wrong.
-#  ai-agent MCP tools:
-#    - mcp-weather  :8010  weather forecasts
-#    - mcp-outfit   :8012  outfit suggestions
-#    - mcp-packing  :8013  trip packing lists
-#  The api-gateway falls back to in-gateway packing_service if ai-agent is down.
-#
-#  ── Optional: Kafka async stack ───────────────────────────────────────────────
-#  Command:
-#    docker compose --profile worker up --build
-#  Set KAFKA_ENABLED=true in .env to enable async /ai/* routes and ai-worker.
+#  ai-agent runs weather, outfit, and packing logic in-process — no external MCP servers.
 #
 #  ── Optional: Vision MCP (GPU / high-memory) ──────────────────────────────────
 #  Command:
@@ -97,127 +83,6 @@ services:
       timeout: 3s
       retries: 5
 
-  # ── Kafka (optional — profiles ai + worker) ─────────────────────────────────
-
-  redpanda:
-    profiles: ["worker"]
-    image: redpandadata/redpanda:v24.2.9
-    <<: [*restart, *logging]
-    command:
-      - redpanda
-      - start
-      - --smp
-      - "1"
-      - --memory
-      - 1G
-      - --reserve-memory
-      - 0M
-      - --overprovisioned
-      - --node-id
-      - "0"
-      - --check=false
-      - --kafka-addr
-      - PLAINTEXT://0.0.0.0:9092,OUTSIDE://0.0.0.0:19092
-      - --advertise-kafka-addr
-      - PLAINTEXT://redpanda:9092,OUTSIDE://localhost:19092
-    ports:
-      - "${KAFKA_HOST_PORT:-19092}:19092"
-      - "${REDPANDA_ADMIN_HOST_PORT:-19644}:9644"
-    volumes:
-      - redpanda_data:/var/lib/redpanda/data
-    healthcheck:
-      test: ["CMD-SHELL", "rpk cluster info --brokers 127.0.0.1:9092 >/dev/null 2>&1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
-  kafka-topics:
-    profiles: ["worker"]
-    image: redpandadata/redpanda:v24.2.9
-    depends_on:
-      redpanda:
-        condition: service_healthy
-    environment:
-      KAFKA_BROKERS: redpanda:9092
-      KAFKA_PARTITIONS: ${KAFKA_PARTITIONS:-6}
-      KAFKA_REPLICATION_FACTOR: ${KAFKA_REPLICATION_FACTOR:-1}
-      KAFKA_RETENTION_MS: ${KAFKA_RETENTION_MS:-604800000}
-    volumes:
-      - ./infra/kafka/create-topics.sh:/create-topics.sh:ro
-    entrypoint: ["/bin/sh", "/create-topics.sh"]
-    restart: "no"
-
-  redpanda-console:
-    profiles: ["worker"]
-    image: redpandadata/console:v2.7.2
-    <<: [*restart, *logging]
-    environment:
-      KAFKA_BROKERS: redpanda:9092
-    ports:
-      - "${REDPANDA_CONSOLE_HOST_PORT:-8080}:8080"
-    depends_on:
-      redpanda:
-        condition: service_healthy
-
-  # ── MCP Tool Servers (default — core AI features) ────────────────────────
-  #
-  # These are called exclusively by ai-agent via LangChain MCP adapters (SSE).
-  # The api-gateway never calls them directly; it sends all AI requests to ai-agent.
-
-  mcp-weather:
-    build:
-      context: ./services/mcp
-      dockerfile: weather/Dockerfile
-    <<: [*restart, *logging]
-    environment:
-      <<: *python-env
-      WEATHER_PORT: "8010"
-      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
-    ports:
-      - "8010:8010"
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import socket,sys; s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1',8010)); s.close()\""]
-      interval: 20s
-      timeout: 5s
-      start_period: 15s
-      retries: 3
-
-  mcp-outfit:
-    build:
-      context: ./services/mcp
-      dockerfile: outfit/Dockerfile
-    <<: [*restart, *logging]
-    environment:
-      <<: *python-env
-      OUTFIT_PORT: "8012"
-      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
-    ports:
-      - "8012:8012"
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import socket,sys; s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1',8012)); s.close()\""]
-      interval: 20s
-      timeout: 5s
-      start_period: 15s
-      retries: 3
-
-  mcp-packing:
-    build:
-      context: ./services/mcp
-      dockerfile: packing/Dockerfile
-    <<: [*restart, *logging]
-    environment:
-      <<: *python-env
-      PACKING_PORT: "8013"
-      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
-    ports:
-      - "8013:8013"
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import socket,sys; s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1',8013)); s.close()\""]
-      interval: 20s
-      timeout: 5s
-      start_period: 15s
-      retries: 3
-
   # ── Vision MCP (optional — higher resource usage) ───────────────────────────
   mcp-vision:
     profiles: ["vision", "legacy-mcp"]
@@ -238,7 +103,7 @@ services:
       start_period: 15s
       retries: 3
 
-  # ── AI Agent (default — hybrid AI layer) ─────────────────────────────────────
+  # ── AI Agent (default — tools run in-process) ────────────────────────────────
 
   ai-agent:
     build:
@@ -252,15 +117,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       VECTOR_STORE: pgvector
       OPENAI_MODEL: gpt-4o
-      # MCP tools are ON by default — mcp-weather, mcp-outfit, mcp-packing always start.
-      ENABLE_MCP_TOOLS: ${ENABLE_MCP_TOOLS:-true}
-      ENABLE_MCP_VISION: ${ENABLE_MCP_VISION:-false}
-      MCP_WEATHER_URL: ${MCP_WEATHER_URL:-http://mcp-weather:8010/sse}
-      MCP_OUTFIT_URL: ${MCP_OUTFIT_URL:-http://mcp-outfit:8012/sse}
-      MCP_PACKING_URL: ${MCP_PACKING_URL:-http://mcp-packing:8013/sse}
-      MCP_VISION_URL: ${MCP_VISION_URL:-http://mcp-vision:8011/sse}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
-      # Pin official OpenAI API in containers; override with compose.override.yml for Azure/other bases.
       OPENAI_API_BASE_URL: https://api.openai.com/v1
     ports:
       - "8001:8001"
@@ -269,17 +126,11 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-      mcp-weather:
-        condition: service_healthy
-      mcp-outfit:
-        condition: service_healthy
-      mcp-packing:
-        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health')\""]
       interval: 30s
       timeout: 15s
-      start_period: 60s
+      start_period: 30s
       retries: 3
 
   # ── API Gateway (MVP default) ────────────────────────────────────────────────
@@ -306,8 +157,6 @@ services:
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
       # Override stale OPENAI_* proxy URLs from .env for predictable behavior in Compose.
       OPENAI_API_BASE_URL: https://api.openai.com/v1
-      KAFKA_ENABLED: ${KAFKA_ENABLED:-false}
-      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-redpanda:9092}
       JWT_SECRET: ${JWT_SECRET}
       ALLOWED_ORIGINS: http://localhost,http://localhost:80,http://localhost:3000,http://localhost:3001,http://localhost:5173
       # Google OAuth — set these in your .env file
@@ -387,32 +236,6 @@ services:
       - uploads:/app/uploads
       - ./gcp-sa.json:/run/secrets/gcp-sa.json:ro
 
-  # ── AI Worker (optional — profile worker) ───────────────────────────────────
-
-  ai-worker:
-    profiles: ["worker"]
-    build:
-      context: ./services/ai-worker
-      dockerfile: Dockerfile
-    <<: [*restart, *logging]
-    environment:
-      <<: *python-env
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
-      AI_AGENT_URL: http://ai-agent:8001
-      MAX_ATTEMPTS: "5"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redpanda:
-        condition: service_healthy
-      kafka-topics:
-        condition: service_completed_successfully
-      ai-agent:
-        condition: service_started
-    volumes:
-      - uploads:/app/uploads
-
   # ── DB Migrations (MVP default — run-once container) ───────────────────────
 
   migrate:
@@ -462,5 +285,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
-  redpanda_data:
   uploads:

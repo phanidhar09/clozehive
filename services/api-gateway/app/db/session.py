@@ -12,16 +12,6 @@ handlers that depend on it:
 - **Do not** call ``session.commit()`` from services or from routes except
   for documented exceptions below.
 
-Exceptions (explicit commit **before** out-of-process side effects)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Some routes **must** commit so other connections (Kafka consumers, workers)
-see rows immediately. In those cases commit in the route **after** DB writes
-and **before** ``publish``::
-
-    await create_request(session, ...)
-    await session.commit()  # required: consumer reads ai_requests
-    await event_producer.publish(...)
-
 A second commit at the end of the request (from ``get_session``) is harmless:
 the session begins a new transaction after an explicit commit, and an empty
 commit is a no-op.

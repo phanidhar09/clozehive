@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from functools import lru_cache
 from typing import Literal
-from urllib.parse import urlparse
 
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -45,16 +44,6 @@ class Settings(BaseSettings):
     openai_embedding_model: str = "text-embedding-3-small"
     # Passed explicitly into clients so OS OPENAI_BASE_URL cannot hijack calls.
     openai_api_base_url: str = "https://api.openai.com/v1"
-    # MCP tools — ON by default (weather, outfit, packing run in the default stack)
-    enable_mcp_tools: bool = True
-
-    # MCP Server URLs (SSE) — only included when the corresponding server is available
-    mcp_weather_url: str = "http://mcp-weather:8010/sse"
-    mcp_outfit_url: str = "http://mcp-outfit:8012/sse"
-    mcp_packing_url: str = "http://mcp-packing:8013/sse"
-    # Vision MCP is optional (high-resource, behind --profile vision)
-    mcp_vision_url: str = ""
-    enable_mcp_vision: bool = False
 
     # Redis
     redis_url: str = "redis://redis:6379/1"
@@ -90,16 +79,6 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
-    @field_validator("enable_mcp_tools", mode="before")
-    @classmethod
-    def _parse_enable_mcp_tools(cls, v: object) -> bool:
-        if v is True or v is False:
-            return v
-        if v is None or v == "":
-            return False
-        s = str(v).strip().lower()
-        return s in {"1", "true", "yes", "on"}
-
     @model_validator(mode="after")
     def _sanitize_openai_base_url(self):
         self.openai_api_base_url = _sanitize_openai_api_base(self.openai_api_base_url)
@@ -118,46 +97,6 @@ class Settings(BaseSettings):
         key = self.openai_api_key.strip()
         return key.startswith("sk-") and key not in {"sk-your-openai-key", "sk-test"}
 
-    @property
-    def mcp_server_config(self) -> dict[str, dict]:
-        auth_headers: dict[str, str] = {}
-        if self.internal_service_token:
-            auth_headers = {"Authorization": f"Bearer {self.internal_service_token}"}
-
-        def _entry(url: str) -> dict:
-            entry: dict = {"transport": "sse", "url": url}
-            if auth_headers:
-                entry["headers"] = auth_headers
-            return entry
-
-        config = {
-            "weather": _entry(self.mcp_weather_url),
-            "outfit":  _entry(self.mcp_outfit_url),
-            "packing": _entry(self.mcp_packing_url),
-        }
-        # Vision MCP is optional — only add it when explicitly enabled and URL is set
-        if self.enable_mcp_vision and self.mcp_vision_url:
-            config["vision"] = _entry(self.mcp_vision_url)
-        return config
-
-    def mcp_endpoints_for_logging(self) -> list[dict[str, str]]:
-        """Structured MCP targets for logs (host + path; no secrets expected in these URLs)."""
-        out: list[dict[str, str]] = []
-        for name, cfg in self.mcp_server_config.items():
-            url = cfg.get("url") or ""
-            try:
-                p = urlparse(url)
-                host = p.netloc or "invalid"
-                path = p.path or "/"
-            except Exception:
-                host, path = "unparsed", ""
-            out.append({
-                "name": name,
-                "host": host,
-                "path": path,
-                "transport": str(cfg.get("transport", "sse")),
-            })
-        return out
 
 
 @lru_cache

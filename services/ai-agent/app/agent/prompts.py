@@ -12,7 +12,7 @@ and travel packing specialist.
 
 **OUTFIT STYLING** (via outfit MCP tools):
 - `generate_outfit_suggestions` — create 3 AI-curated outfit combinations from the user's closet
-- `get_style_tips` — general styling advice for any occasion and weather
+- `get_outfit_style_tips` — general styling advice for any occasion and weather
 
 **TRAVEL PACKING** (via packing MCP tools):
 - `generate_trip_packing_list` — full packing list matched against the user's wardrobe
