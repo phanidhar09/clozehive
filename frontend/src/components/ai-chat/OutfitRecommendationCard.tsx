@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { Bookmark, ThumbsUp, ThumbsDown, RefreshCw, Star, ChevronDown, ChevronUp, Sparkles } from 'lucide-react'
+import { Bookmark, CheckCircle2, ThumbsUp, ThumbsDown, RefreshCw, Shirt, Star, ChevronDown, ChevronUp, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { resolveUploadUrl } from '@/lib/api'
-import { saveRecommendedOutfit, submitOutfitFeedback } from '@/services/aiChatApi'
+import { logOutfitWorn, saveRecommendedOutfit, submitOutfitFeedback } from '@/services/aiChatApi'
 import type { RecommendedOutfit, AIChatItemRef } from '@/types'
 
 interface Props {
@@ -66,6 +66,7 @@ export default function OutfitRecommendationCard({ outfit, rank = 0, sessionId, 
   const [expanded, setExpanded] = useState(rank === 0)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [worn, setWorn] = useState(false)
   const [feedbackSent, setFeedbackSent] = useState<'up' | 'down' | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
 
@@ -227,60 +228,85 @@ export default function OutfitRecommendationCard({ outfit, rank = 0, sessionId, 
           )}
 
           {/* Actions */}
-          <div className="flex items-center justify-between pt-1 border-t border-cream-100 dark:border-slate-700">
-            <div className="flex gap-2">
-              <button
-                onClick={() => handleFeedback('up')}
-                className={cn(
-                  'p-1.5 rounded-lg transition-colors',
-                  feedbackSent === 'up'
-                    ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600'
-                    : 'hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400',
-                )}
-                title="Love this outfit"
-              >
-                <ThumbsUp size={14} />
-              </button>
-              <button
-                onClick={() => handleFeedback('down')}
-                className={cn(
-                  'p-1.5 rounded-lg transition-colors',
-                  feedbackSent === 'down'
-                    ? 'bg-red-100 dark:bg-red-900/40 text-red-500'
-                    : 'hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400',
-                )}
-                title="Not for me"
-              >
-                <ThumbsDown size={14} />
-              </button>
-              {onRegenerate && (
-                <button
-                  onClick={onRegenerate}
-                  className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 transition-colors"
-                  title="Regenerate"
-                >
-                  <RefreshCw size={14} />
-                </button>
-              )}
-            </div>
+          <div className="space-y-2 pt-1 border-t border-cream-100 dark:border-slate-700">
 
-            <div className="flex flex-col items-end gap-0.5">
-              <button
-                onClick={handleSave}
-                disabled={saving || saved || outfit.items.length === 0}
-                className={cn(
-                  'flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all',
-                  saved
-                    ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
-                    : 'bg-gradient-brand text-white hover:opacity-90 disabled:opacity-40',
-                )}
-              >
-                <Bookmark size={12} className={saved ? 'fill-emerald-600' : ''} />
-                {saved ? 'Saved!' : saving ? 'Saving…' : 'Save Outfit'}
-              </button>
-              {saveError && (
-                <span className="text-[10px] text-red-500">{saveError}</span>
+            {/* Primary CTA — Wear this today */}
+            <button
+              onClick={async () => {
+                if (worn || outfit.items.length === 0) return
+                setWorn(true)
+                await logOutfitWorn(outfit.items.map(i => i.id))
+              }}
+              disabled={worn || outfit.items.length === 0}
+              className={cn(
+                'w-full flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold transition-all',
+                worn
+                  ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 cursor-default'
+                  : 'bg-gradient-brand text-white hover:opacity-90 active:scale-[0.98] disabled:opacity-40',
               )}
+            >
+              {worn ? (
+                <><CheckCircle2 size={13} className="fill-emerald-500 stroke-white dark:stroke-emerald-900" /> Wearing this today!</>
+              ) : (
+                <><Shirt size={13} /> Wear this today</>
+              )}
+            </button>
+
+            <div className="flex items-center justify-between">
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleFeedback('up')}
+                  className={cn(
+                    'p-1.5 rounded-lg transition-colors',
+                    feedbackSent === 'up'
+                      ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600'
+                      : 'hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400',
+                  )}
+                  title="Love this outfit"
+                >
+                  <ThumbsUp size={14} />
+                </button>
+                <button
+                  onClick={() => handleFeedback('down')}
+                  className={cn(
+                    'p-1.5 rounded-lg transition-colors',
+                    feedbackSent === 'down'
+                      ? 'bg-red-100 dark:bg-red-900/40 text-red-500'
+                      : 'hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400',
+                  )}
+                  title="Not for me"
+                >
+                  <ThumbsDown size={14} />
+                </button>
+                {onRegenerate && (
+                  <button
+                    onClick={onRegenerate}
+                    className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 transition-colors"
+                    title="Regenerate"
+                  >
+                    <RefreshCw size={14} />
+                  </button>
+                )}
+              </div>
+
+              <div className="flex flex-col items-end gap-0.5">
+                <button
+                  onClick={handleSave}
+                  disabled={saving || saved || outfit.items.length === 0}
+                  className={cn(
+                    'flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all',
+                    saved
+                      ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400'
+                      : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600 disabled:opacity-40',
+                  )}
+                >
+                  <Bookmark size={12} className={saved ? 'fill-emerald-600' : ''} />
+                  {saved ? 'Saved!' : saving ? 'Saving…' : 'Save'}
+                </button>
+                {saveError && (
+                  <span className="text-[10px] text-red-500">{saveError}</span>
+                )}
+              </div>
             </div>
           </div>
         </div>

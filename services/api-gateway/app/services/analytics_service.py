@@ -16,7 +16,9 @@ from app.schemas.analytics import (
     ClosetSummary,
     ColorStats,
     OutfitReadiness,
+    PurchaseGapInsight,
 )
+from app.services.purchase_gap_service import detect_and_save_gaps
 
 
 class AnalyticsService:
@@ -34,6 +36,37 @@ class AnalyticsService:
         category_stats = self._compute_category_stats(items)
         outfit_readiness = self._compute_outfit_readiness(items)
 
+        # ── RAG: semantic purchase-gap detection ──────────────────────────────
+        purchase_gap_insights: list[PurchaseGapInsight] = []
+        try:
+            closet_dicts = [
+                {
+                    "id": str(item.id),
+                    "name": item.name,
+                    "category": item.category,
+                    "color": item.color or "",
+                    "occasion": item.occasion or [],
+                }
+                for item in items
+            ]
+            gap_records = await detect_and_save_gaps(
+                self.session,
+                str(user_id),
+                closet_dicts,
+            )
+            purchase_gap_insights = [
+                PurchaseGapInsight(
+                    gap_type=g.gap_type,
+                    missing_category=g.missing_category,
+                    reason=g.reason or "",
+                    priority_score=float(g.priority_score or 0),
+                    suggested_attributes=g.suggested_attributes,
+                )
+                for g in gap_records
+            ]
+        except Exception:
+            pass  # Gap analysis is best-effort; never break the analytics response
+
         return ClosetAnalyticsResponse(
             summary=summary,
             category_coverage=category_coverage,
@@ -41,6 +74,7 @@ class AnalyticsService:
             category_stats=category_stats,
             outfit_readiness=outfit_readiness,
             usage_insights=None,
+            purchase_gap_insights=purchase_gap_insights,
         )
 
     def _compute_summary(self, items: list[ClosetItem]) -> ClosetSummary:

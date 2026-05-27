@@ -57,11 +57,23 @@ CAPABILITIES:
 • Give styling tips for specific body types, occasions, or moods
 • Help the user understand their own style identity
 
+PERSONAL PROFILE MANDATE — Apply to every response without exception:
+1. Gender / style identity: Tailor every recommendation to the user's stated gender identity. Use gender-appropriate styling language and silhouette guidance (e.g. "a relaxed masculine fit", "a feminine A-line silhouette", "a gender-neutral oversized look").
+2. Body type + fit preferences: Choose items that suit the stated body type(s) and fit preferences. Silently favour cuts that flatter; briefly note if a closet item is a less ideal fit for their build.
+3. Height: Factor proportions into every recommendation. Cropped tops + high-waist bottoms elongate petite frames; wide-leg trousers and longline coats complement taller builds. Adapt shoe-to-leg ratio guidance accordingly.
+4. Favorite colors: Lead with these whenever available in the wardrobe. When two equally good items exist, prefer the one in a favourite colour.
+5. Avoided colors: NEVER include items in avoided colors unless the user explicitly requests it in this message.
+6. Style preferences / archetype: Stay on-brand. Streetwear user → avoid purely formal combos. Classic/minimalist → avoid loud prints. Bohemian → lean into layering and texture.
+7. Occasion coverage (CRITICAL): When the user does NOT name a specific occasion (e.g. "what should I wear?", "build me outfits", "dress me for the week"), return ONE outfit card per occasion from the user's occasion_preferences list (max 4). Title each card clearly: "Casual Day Look", "Work Meeting Outfit", "Date Night Pick", "Weekend Brunch". If occasion_preferences is empty, default to: casual, work, and evening.
+8. Age range: Adapt style guidance to be age-appropriate while respecting personal taste.
+9. Climate preferences: Note suitability for the user's typical climate when recommending layers or fabrics.
+10. Never ask the user to complete their profile mid-chat. Apply what is known silently. Only ask for specific missing context (e.g. destination city, event date) when it is essential to the request.
+
 STRICT RULES FOR OUTFIT RECOMMENDATIONS:
 1. Outfit items MUST come exclusively from [WARDROBE CONTEXT]. NEVER invent items.
 2. Always use the exact item id and name from the wardrobe list.
 3. matching_score must equal color + occasion + fit + style + weather + preference (max 100).
-4. For every outfit, explain WHY it works in "reasoning".
+4. For every outfit, explain WHY it works in "reasoning" — reference the user's body type, colors, and style preferences where relevant.
 5. List 1–3 actionable "improvement_tips" — reference specific closet items where possible.
 6. List "fashion_rules_used" as short strings (e.g. "color harmony", "60-30-10 rule").
 7. If wardrobe has <3 suitable items, fill "purchase_gaps" with what is missing.
@@ -70,11 +82,14 @@ STYLING SUGGESTIONS:
 • When asked to improve styling or "how can I look better", provide "styling_suggestions" — an array of specific, actionable tips.
 • Each suggestion should reference real items from the wardrobe when possible (use their exact names).
 • Suggestions can cover: adding accessories, trying different color combos, re-purposing items, layering ideas.
+• Always factor in the user's body type, fit preferences, and avoided colors.
 
-GENERAL QUESTIONS:
-• When the question is general (trends, color theory, care, fashion rules, body type advice), answer in "reply" conversationally.
-• You may still suggest closet items if they're relevant.
-• Skip "recommended_outfits" array (leave empty []) for purely general questions.
+WHEN TO RETURN OUTFIT CARDS (important):
+• ANY question that mentions wearing something, getting dressed, an outfit, an occasion, or "what should I wear" MUST return at least one outfit in "recommended_outfits".
+• When no specific occasion is mentioned, cover ALL occasions from the user's profile (see rule 7 above) — do not default to casual only.
+• Even vague requests like "dress me", "outfit today", "I have a date" — build an outfit from the wardrobe.
+• Only skip "recommended_outfits" (leave []) for purely theoretical questions: color theory, care instructions, trend news — where no specific outfit is being built.
+• When in doubt, include outfit cards. Users came here to see outfits, not just read text.
 
 RESPONSE SCHEMA — always return valid JSON, no markdown fences, no prose outside JSON:
 {{
@@ -314,15 +329,67 @@ def _validate_item_ids(
     return cleaned
 
 
+async def _fetch_image_lookup(
+    session: AsyncSession, item_ids: set[str]
+) -> dict[str, str | None]:
+    """Query image URLs for a specific set of item IDs in one round-trip.
+
+    This is intentionally separate from the RAG closet load: the RAG window is
+    capped at 25 items, but FANI may reference items from earlier conversation
+    turns that fell outside the current RAG window.  We always look up images
+    directly so we never miss a photo.
+    """
+    if not item_ids:
+        return {}
+    uuids = []
+    for raw in item_ids:
+        try:
+            uuids.append(UUID(raw))
+        except (ValueError, AttributeError):
+            pass
+    if not uuids:
+        return {}
+    rows = await session.execute(
+        select(
+            ClosetItem.id,
+            ClosetItem.processed_image_url,
+            ClosetItem.image_url,
+            ClosetItem.original_image_url,
+        ).where(ClosetItem.id.in_(uuids))
+    )
+    return {
+        str(row.id): (
+            row.processed_image_url
+            or row.image_url
+            or row.original_image_url
+        )
+        for row in rows
+    }
+
+
 def _enrich_items_with_images(
-    outfits: list[dict[str, Any]], closet_map: dict[str, dict[str, Any]]
+    outfits: list[dict[str, Any]],
+    image_lookup: dict[str, str | None],
+    closet_map: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Add image_url to each outfit item from the closet map."""
+    """Stamp image_url onto each outfit item.
+
+    Priority: direct DB image_lookup → closet_map fallback → None.
+    The direct lookup covers items from prior conversation turns that may not
+    be in the current RAG closet_map window.
+    """
     for outfit in outfits:
         enriched = []
         for it in outfit.get("items") or []:
-            full = closet_map.get(it.get("id") or "")
-            enriched.append({**it, "image_url": full.get("image_url") if full else None})
+            item_id = it.get("id") or ""
+            # Prefer the fresh DB lookup; fall back to the RAG closet_map
+            if item_id in image_lookup:
+                url = image_lookup[item_id]
+            elif closet_map and item_id in closet_map:
+                url = (closet_map[item_id] or {}).get("image_url")
+            else:
+                url = None
+            enriched.append({**it, "image_url": url})
         outfit["items"] = enriched
     return outfits
 
@@ -360,13 +427,19 @@ async def process_chat_message(
     import asyncio
 
     ctx = context or {}
-    occasion = ctx.get("occasion") or "casual"
+    # None means "no specific occasion requested" — let profile occasion_preferences drive variety.
+    # "casual" is only used when the user explicitly passes it.
+    occasion: str | None = ctx.get("occasion") or None
     location = ctx.get("location")
     weather_required = ctx.get("weather_required", False)
     mood = ctx.get("mood") or ""
 
     # ── Step 1: Embed the user message (used for all vector searches) ─────────
-    rag_query = f"{message} occasion:{occasion}"
+    # Do NOT bias the RAG query with "casual" when no occasion was provided —
+    # that skews vector search away from formal/workwear items the user may need.
+    rag_query = message
+    if occasion:
+        rag_query += f" occasion:{occasion}"
     if mood:
         rag_query += f" mood:{mood}"
 
@@ -467,9 +540,12 @@ async def process_chat_message(
     if mood:
         safe_mood = sanitize_user_text(mood, field="notes", max_len=50)
         augmented_message += f"\n\n[User mood: {safe_mood}]"
-    if occasion and occasion != "casual":
+    if occasion:
         safe_occasion = sanitize_user_text(occasion, field="notes", max_len=60)
         augmented_message += f"\n[Occasion: {safe_occasion}]"
+    else:
+        # No specific occasion given — instruct FANI to cover all profile occasions
+        augmented_message += "\n[No specific occasion requested — please build outfits for all occasions in the user's occasion_preferences profile list (max 4). If empty, default to: casual, work, and evening.]"
     messages.append({"role": "user", "content": augmented_message})
 
     # ── Call AI ───────────────────────────────────────────────────────────────
@@ -486,7 +562,17 @@ async def process_chat_message(
     # ── Validate & enrich ─────────────────────────────────────────────────────
     outfits = data.get("recommended_outfits") or []
     outfits = _validate_item_ids(outfits, valid_ids)
-    outfits = _enrich_items_with_images(outfits, closet_map)
+
+    # Collect the exact item IDs FANI chose and fetch their images in one query.
+    # This covers items from prior chat turns that fall outside the RAG window.
+    suggested_ids = {
+        it.get("id") or ""
+        for outfit in outfits
+        for it in outfit.get("items") or []
+        if it.get("id")
+    }
+    image_lookup = await _fetch_image_lookup(session, suggested_ids)
+    outfits = _enrich_items_with_images(outfits, image_lookup, closet_map)
     data["recommended_outfits"] = outfits
 
     return {

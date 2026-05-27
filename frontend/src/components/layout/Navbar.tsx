@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   Menu, Search, LogOut, User, Settings, UserPlus, UserCheck, Loader2, X,
-  Moon, Sun, Sparkles, Heart, BarChart3, ShoppingBag, ChevronRight,
+  Moon, Sun, Sparkles, Heart, BarChart3, ShoppingBag, ShoppingCart, ChevronRight,
 } from 'lucide-react'
 import { useApp } from '@/store'
 import { useColorScheme } from '@/hooks/useColorScheme'
@@ -25,14 +25,16 @@ const TITLES: Record<string, string> = {
   '/profile':          'Profile',
   '/saved-outfits':    'Saved Outfits',
   '/purchase-gaps':    'Wardrobe Gaps',
+  '/shopping-check':   'Shop Smart Check',
 }
 
 /* ── Premium profile hover dropdown ────────────────────────────────────────── */
 
 const WARDROBE_LINKS = [
-  { to: '/saved-outfits',  label: 'Saved Outfits',    icon: Heart,      gradient: 'from-rose-500 to-pink-500',    desc: 'Your FANI-curated looks' },
-  { to: '/analytics',      label: 'Closet Insights',  icon: BarChart3,  gradient: 'from-violet-500 to-indigo-500', desc: 'Wear analytics & trends' },
-  { to: '/purchase-gaps',  label: 'Wardrobe Gaps',    icon: ShoppingBag,gradient: 'from-amber-500 to-orange-500', desc: 'What your closet is missing' },
+  { to: '/shopping-check', label: 'Shop Smart Check', icon: ShoppingCart, gradient: 'from-green-500 to-emerald-500',  desc: 'Buy or skip in-store items' },
+  { to: '/saved-outfits',  label: 'Saved Outfits',    icon: Heart,        gradient: 'from-rose-500 to-pink-500',     desc: 'Your FANI-curated looks' },
+  { to: '/analytics',      label: 'Closet Insights',  icon: BarChart3,    gradient: 'from-violet-500 to-indigo-500', desc: 'Wear analytics & trends' },
+  { to: '/purchase-gaps',  label: 'Wardrobe Gaps',    icon: ShoppingBag,  gradient: 'from-amber-500 to-orange-500',  desc: 'What your closet is missing' },
 ]
 
 function ProfileDropdown({ onNavigate }: { onNavigate: (to: string) => void }) {

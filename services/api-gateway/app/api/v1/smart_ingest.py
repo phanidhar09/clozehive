@@ -42,6 +42,7 @@ from app.models.closet import ClosetItem
 from app.repositories.user_repo import UserRepository
 from app.schemas.closet import ClosetItemCreate
 from app.services import bulk_ingest_service, cache_service, similarity_service
+from app.services.closet_similarity_service import check_similar_for_new_item
 from app.services.upload_service import persist_upload, read_validated_image
 from app.core.redis import get_redis
 
@@ -103,10 +104,20 @@ class ApproveRequest(BaseModel):
     )
 
 
+class SimilarItemWarning(BaseModel):
+    """RAG-detected duplicate warning returned with the approval response."""
+    new_item_name: str
+    similar_item_id: str
+    similar_item_name: str
+    similarity_score: int
+    similarity_reason: str
+
+
 class ApproveResponse(BaseModel):
     approved: int
     failed: int
     closet_item_ids: list[str]
+    similarity_warnings: list[SimilarItemWarning] = []
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -343,9 +354,45 @@ async def approve_items(
 
     created_ids: list[str] = []
     failed = 0
+    similarity_warnings: list[SimilarItemWarning] = []
 
     for review_item in to_approve:
         try:
+            # ── RAG duplicate pre-check ───────────────────────────────────────
+            # Run a vector similarity check BEFORE saving so the user gets
+            # warned about near-identical items they may already own.
+            try:
+                source_meta = {
+                    "name": review_item.get("name") or "",
+                    "category": review_item.get("category", "other"),
+                    "color": review_item.get("primary_color") or "",
+                    "material": review_item.get("material") or "",
+                    "pattern": review_item.get("pattern") or "",
+                }
+                similar_items = await check_similar_for_new_item(
+                    session, user_id, source_meta, limit=1, threshold_score=75
+                )
+                if similar_items:
+                    top = similar_items[0]
+                    similarity_warnings.append(
+                        SimilarItemWarning(
+                            new_item_name=source_meta["name"] or "New item",
+                            similar_item_id=str(top.get("item_id") or top.get("id") or ""),
+                            similar_item_name=top.get("name") or "",
+                            similarity_score=int(top.get("similarity_score") or 0),
+                            similarity_reason=top.get("similarity_reason") or "Similar item detected",
+                        )
+                    )
+                    logger.info(
+                        "ingest_duplicate_warning",
+                        new_item=source_meta["name"],
+                        similar_id=str(top.get("item_id") or top.get("id")),
+                        score=top.get("similarity_score"),
+                        user_id=user_id,
+                    )
+            except Exception as sim_exc:
+                logger.debug("ingest_similarity_check_skipped", error=str(sim_exc))
+
             # Map review item → ClosetItemCreate
             item_create = ClosetItemCreate(
                 name=review_item.get("name") or "Clothing Item",
@@ -416,6 +463,7 @@ async def approve_items(
         approved=len(created_ids),
         failed=failed,
         closet_item_ids=created_ids,
+        similarity_warnings=similarity_warnings,
     )
 
 

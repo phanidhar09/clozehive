@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useMemo } from 'react'
-import { Image, Sparkles, CheckCircle, X } from 'lucide-react'
+import { Image, Sparkles, CheckCircle, X, ChevronLeft, ChevronRight, SkipForward } from 'lucide-react'
 import Button from '@/components/ui/Button'
 import BackButton from '@/components/ui/BackButton'
 import Input, { Select } from '@/components/ui/Input'
@@ -84,6 +84,13 @@ type PreviewGroup = {
   saved?: boolean
 }
 
+type WizardItem = {
+  sessionId: string
+  filename: string
+  draft: ItemDraft
+  saved: boolean
+}
+
 export default function Upload() {
   const { fetchClosetItems } = useApp()
   const [dragging, setDragging] = useState(false)
@@ -93,9 +100,10 @@ export default function Upload() {
   const [uploadProgress, setUploadProgress] = useState<string | null>(null)
   const [previewGroups, setPreviewGroups] = useState<PreviewGroup[]>([])
   const [analyzeFailures, setAnalyzeFailures] = useState<{ filename: string; error: string }[]>([])
-  const [savingSessionId, setSavingSessionId] = useState<string | null>(null)
+  const [savingAll, setSavingAll] = useState(false)
   const [saveOkMessage, setSaveOkMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [wizardIndex, setWizardIndex] = useState(0)
   const inputRef = useRef<HTMLInputElement>(null)
 
   // Similarity check state — keyed by detected_item_id
@@ -106,10 +114,26 @@ export default function Upload() {
   const inPreview = previewGroups.length > 0
   const hasFailures = analyzeFailures.length > 0
 
-  const totalDetections = useMemo(
-    () => previewGroups.reduce((n, g) => n + g.drafts.length, 0),
+  /** Flat ordered list of all items across all groups for the wizard. */
+  const allWizardItems = useMemo<WizardItem[]>(
+    () =>
+      previewGroups.flatMap(g =>
+        g.drafts.map(d => ({
+          sessionId: g.sessionId,
+          filename: g.filename,
+          draft: d,
+          saved: g.saved ?? false,
+        })),
+      ),
     [previewGroups],
   )
+
+  const totalDetections = allWizardItems.length
+  const currentWizardItem = allWizardItems[wizardIndex] ?? null
+  const isFirstItem = wizardIndex === 0
+  const isLastItem = wizardIndex === totalDetections - 1
+  const selectedCount = allWizardItems.filter(wi => wi.draft.selected).length
+  const allSaved = previewGroups.length > 0 && previewGroups.every(g => g.saved)
 
   const handleFiles = useCallback((selected: File[]) => {
     const images = selected.filter(f => f.type.startsWith('image/')).slice(0, 20)
@@ -120,7 +144,7 @@ export default function Upload() {
     setAnalyzeFailures([])
     setSaveOkMessage(null)
     setError(null)
-    // Reset similarity state when new files are selected
+    setWizardIndex(0)
     setSimilarItemsMap({})
     setSimilarLoadingIds(new Set())
     setSimilarErrorIds(new Set())
@@ -173,6 +197,7 @@ export default function Upload() {
     setUploadProgress(null)
     setSaveOkMessage(null)
     setError(null)
+    setWizardIndex(0)
     setSimilarItemsMap({})
     setSimilarLoadingIds(new Set())
     setSimilarErrorIds(new Set())
@@ -211,6 +236,7 @@ export default function Upload() {
     setSaveOkMessage(null)
     setAnalyzeFailures([])
     setPreviewGroups([])
+    setWizardIndex(0)
     setSimilarItemsMap({})
     setSimilarLoadingIds(new Set())
     setSimilarErrorIds(new Set())
@@ -228,7 +254,6 @@ export default function Upload() {
         if (results.length === 0 && failed.length > 0) {
           setError('Could not analyze any files. Check errors below.')
         } else {
-          // Kick off similarity checks for all detected drafts (non-blocking)
           void runSimilarityChecks(newGroups.flatMap(g => g.drafts))
         }
         return
@@ -246,7 +271,6 @@ export default function Upload() {
           'No clothing items were detected in this photo. Try a clearer, well-lit image of a single item on a plain background.',
         )
       } else {
-        // Kick off similarity checks for all detected drafts (non-blocking)
         void runSimilarityChecks(newGroups.flatMap(g => g.drafts))
       }
     } catch (err: unknown) {
@@ -273,54 +297,84 @@ export default function Upload() {
     )
   }
 
-  const confirmGroup = async (group: PreviewGroup) => {
-    setSavingSessionId(group.sessionId)
+  const confirmGroup = async (group: PreviewGroup): Promise<number> => {
+    const selected = group.drafts.filter(d => d.selected)
+    if (selected.length === 0) return 0
+    const priceNum = (s: string): number | undefined => {
+      const t = s.trim()
+      if (!t) return undefined
+      const n = Number(t)
+      return Number.isFinite(n) ? n : undefined
+    }
+    const { total_saved } = await closetApi.confirmPreview({
+      preview_session_id: group.sessionId,
+      items: group.drafts.map(d => ({
+        slot_index: d.slot_index,
+        detected_item_id: d.detected_item_id,
+        selected: d.selected,
+        name: d.name.trim() || 'Clothing Item',
+        category: d.category,
+        color: d.color.trim() || undefined,
+        fabric: d.material.trim() || undefined,
+        material: d.material.trim() || undefined,
+        pattern: d.pattern.trim() || undefined,
+        season: parseCommaList(d.seasonStr),
+        occasion: parseCommaList(d.occasionStr).length ? parseCommaList(d.occasionStr) : undefined,
+        notes: d.notes.trim() || undefined,
+        brand: d.brand.trim() || undefined,
+        size: d.size.trim() || undefined,
+        price: priceNum(d.priceStr),
+      })),
+    })
+    setPreviewGroups(gs => gs.map(g => (g.sessionId === group.sessionId ? { ...g, saved: true } : g)))
+    return total_saved
+  }
+
+  /** Save every group that has at least one selected item. */
+  const confirmAllGroups = async () => {
+    setSavingAll(true)
     setError(null)
     setSaveOkMessage(null)
-    const selected = group.drafts.filter(d => d.selected)
-    if (selected.length === 0) {
-      setError('Select at least one item to save.')
-      setSavingSessionId(null)
-      return
-    }
     try {
-      const priceNum = (s: string): number | undefined => {
-        const t = s.trim()
-        if (!t) return undefined
-        const n = Number(t)
-        return Number.isFinite(n) ? n : undefined
+      let totalSaved = 0
+      for (const group of previewGroups) {
+        if (!group.saved && group.drafts.some(d => d.selected)) {
+          totalSaved += await confirmGroup(group)
+        }
       }
-      const { saved, total_saved } = await closetApi.confirmPreview({
-        preview_session_id: group.sessionId,
-        items: group.drafts.map(d => ({
-          slot_index: d.slot_index,
-          // Send detected_item_id so backend can validate image↔metadata correlation.
-          detected_item_id: d.detected_item_id,
-          selected: d.selected,
-          name: d.name.trim() || 'Clothing Item',
-          category: d.category,
-          color: d.color.trim() || undefined,
-          fabric: d.material.trim() || undefined,
-          material: d.material.trim() || undefined,
-          pattern: d.pattern.trim() || undefined,
-          season: parseCommaList(d.seasonStr),
-          occasion: parseCommaList(d.occasionStr).length ? parseCommaList(d.occasionStr) : undefined,
-          notes: d.notes.trim() || undefined,
-          brand: d.brand.trim() || undefined,
-          size: d.size.trim() || undefined,
-          price: priceNum(d.priceStr),
-        })),
-      })
       await fetchClosetItems()
-      setSaveOkMessage(`Saved ${total_saved} item(s) to your closet.`)
-      setPreviewGroups(gs => gs.map(g => (g.sessionId === group.sessionId ? { ...g, saved: true } : g)))
-      if (saved.length) {
-        /* keep preview visible with saved badge; user can discard to upload more */
+      if (totalSaved > 0) {
+        setSaveOkMessage(`${totalSaved} item${totalSaved === 1 ? '' : 's'} saved to your closet!`)
+      } else {
+        setError('No items were selected to save. Skip or go back and select some.')
       }
     } catch (err: unknown) {
       setError(`Save failed: ${extractErr(err)}`)
     } finally {
-      setSavingSessionId(null)
+      setSavingAll(false)
+    }
+  }
+
+  // Wizard navigation helpers
+  const wizardNext = () => {
+    if (isLastItem) {
+      void confirmAllGroups()
+    } else {
+      setWizardIndex(i => i + 1)
+    }
+  }
+
+  const wizardBack = () => {
+    if (!isFirstItem) setWizardIndex(i => i - 1)
+  }
+
+  const wizardSkip = () => {
+    if (!currentWizardItem) return
+    updateDraft(currentWizardItem.sessionId, currentWizardItem.draft.slot_index, { selected: false })
+    if (isLastItem) {
+      void confirmAllGroups()
+    } else {
+      setWizardIndex(i => i + 1)
     }
   }
 
@@ -334,7 +388,7 @@ export default function Upload() {
       <div>
         <h2 className="font-display font-bold text-xl text-slate-800 dark:text-slate-100">Add to Your Closet</h2>
         <p className="text-sm text-slate-400 mt-0.5">
-          Upload a photo and our AI will detect your clothing items — review and confirm before saving
+          Upload a photo and our AI will detect your clothing items — review each one and save
         </p>
       </div>
 
@@ -347,6 +401,7 @@ export default function Upload() {
       )}
 
       <div className="grid md:grid-cols-2 gap-6">
+        {/* ── Left panel: upload zone ── */}
         <div className="space-y-4">
           <div
             className={cn(
@@ -436,6 +491,7 @@ export default function Upload() {
                   setAnalyzeFailures([])
                   setSaveOkMessage(null)
                   setError(null)
+                  setWizardIndex(0)
                   setSimilarItemsMap({})
                   setSimilarLoadingIds(new Set())
                   setSimilarErrorIds(new Set())
@@ -450,6 +506,7 @@ export default function Upload() {
           )}
         </div>
 
+        {/* ── Right panel: wizard review ── */}
         <div className="space-y-4">
           {!inPreview && files.length === 0 && (
             <div className="card p-6 text-center text-slate-500 dark:text-slate-400 text-sm">
@@ -457,156 +514,223 @@ export default function Upload() {
             </div>
           )}
 
-          {inPreview && (
-            <>
-              <div className="flex items-center justify-between flex-wrap gap-2">
-                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">
-                  {totalDetections} detected item{totalDetections === 1 ? '' : 's'} — edit, uncheck to skip, then save
-                </p>
-                {previewGroups.some(g => g.saved) && (
-                  <Badge variant="green">Saved</Badge>
-                )}
+          {/* Wizard — one item at a time */}
+          {inPreview && totalDetections === 0 && (
+            <div className="card p-6 text-center text-amber-600 dark:text-amber-400 text-sm">
+              No clothing items were detected.
+            </div>
+          )}
+
+          {inPreview && allSaved && (
+            <div className="card p-6 text-center space-y-2">
+              <CheckCircle size={32} className="text-emerald-500 mx-auto" />
+              <p className="font-semibold text-slate-700 dark:text-slate-200">All items saved!</p>
+              <p className="text-sm text-slate-400">Upload another photo to keep growing your closet.</p>
+            </div>
+          )}
+
+          {inPreview && !allSaved && currentWizardItem && (
+            <div className="card overflow-hidden">
+              {/* Progress bar */}
+              <div className="px-4 pt-4 pb-2 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-medium text-slate-600 dark:text-slate-300">
+                    Item {wizardIndex + 1} <span className="text-slate-400">of {totalDetections}</span>
+                  </span>
+                  <div className="flex items-center gap-2">
+                    {previewGroups.length > 1 && (
+                      <span className="text-slate-400 truncate max-w-[120px]">{currentWizardItem.filename}</span>
+                    )}
+                    {currentWizardItem.draft.selected ? (
+                      <Badge variant="green">Include</Badge>
+                    ) : (
+                      <Badge variant="gray">Skipped</Badge>
+                    )}
+                  </div>
+                </div>
+                {/* Step dots */}
+                <div className="flex gap-1">
+                  {allWizardItems.map((wi, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setWizardIndex(idx)}
+                      className={cn(
+                        'h-1.5 rounded-full flex-1 transition-all',
+                        idx === wizardIndex
+                          ? 'bg-brand-500'
+                          : wi.draft.selected
+                          ? 'bg-brand-200 dark:bg-brand-800'
+                          : 'bg-slate-200 dark:bg-slate-700',
+                      )}
+                    />
+                  ))}
+                </div>
               </div>
 
-              {previewGroups.map(group => (
-                <div key={group.sessionId} className="card p-4 space-y-4 border border-cream-200 dark:border-slate-700">
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{group.filename}</p>
-                    {group.saved && <Badge variant="green">In closet</Badge>}
-                  </div>
-
-                  {group.drafts.length === 0 && (
-                    <p className="text-sm text-amber-600 dark:text-amber-400">No items for this file.</p>
-                  )}
-
-                  {group.drafts.map(d => {
-                    const imgSrc = resolveUploadUrl(d.preview_image_url) ?? d.preview_image_url
-                    return (
-                      <div
-                        key={`${group.sessionId}-${d.detected_item_id}`}
-                        className="rounded-xl border border-slate-200 dark:border-slate-600 p-3 space-y-3 bg-white/50 dark:bg-slate-900/40"
-                      >
-                        <label className="flex items-start gap-3 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            className="mt-1 rounded border-slate-300"
-                            checked={d.selected}
-                            onChange={e => updateDraft(group.sessionId, d.slot_index, { selected: e.target.checked })}
-                          />
-                          <div className="flex gap-3 flex-1 min-w-0">
-                            {imgSrc && (
-                              <img
-                                src={imgSrc}
-                                alt=""
-                                className="w-20 h-24 object-cover rounded-lg shrink-0 bg-slate-100 dark:bg-slate-800"
-                              />
-                            )}
-                            <div className="space-y-1 min-w-0">
-                              <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">{d.name}</p>
-                              <div className="flex flex-wrap gap-1">
-                                <Badge variant="purple">{d.category}</Badge>
-                                {d.subcategory.trim() ? <Badge variant="gray">{d.subcategory}</Badge> : null}
-                                {d.background_removed && <Badge variant="gray">BG removed</Badge>}
-                                <span className="text-[10px] text-slate-400">conf {(d.confidence * 100).toFixed(0)}%</span>
-                              </div>
-                              {d.bg_status && d.bg_status !== 'success_rembg' && d.bg_status !== 'success_pil' && (
-                                <p className="text-[10px] text-slate-400">BG: {d.bg_status}</p>
-                              )}
-                            </div>
-                          </div>
-                        </label>
-
-                        {/* Similarity warning — shown after AI analysis, before save */}
-                        <SimilarityWarningBanner
-                          loading={similarLoadingIds.has(d.detected_item_id)}
-                          error={similarErrorIds.has(d.detected_item_id)}
-                          items={similarItemsMap[d.detected_item_id] ?? []}
-                          itemName={d.name}
-                        />
-
-                        <div className="grid gap-2 sm:grid-cols-2">
-                          <Input
-                            label="Name"
-                            value={d.name}
-                            onChange={e => updateDraft(group.sessionId, d.slot_index, { name: e.target.value })}
-                          />
-                          <Select
-                            label="Category"
-                            options={CATEGORY_OPTIONS}
-                            value={d.category}
-                            onChange={e => updateDraft(group.sessionId, d.slot_index, { category: e.target.value })}
-                          />
-                          <Input
-                            label="Color"
-                            value={d.color}
-                            onChange={e => updateDraft(group.sessionId, d.slot_index, { color: e.target.value })}
-                          />
-                          <Input
-                            label="Material"
-                            value={d.material}
-                            onChange={e => updateDraft(group.sessionId, d.slot_index, { material: e.target.value })}
-                          />
-                          <Input
-                            label="Pattern"
-                            value={d.pattern}
-                            onChange={e => updateDraft(group.sessionId, d.slot_index, { pattern: e.target.value })}
-                          />
-                          <Input
-                            label="Season (comma-separated)"
-                            value={d.seasonStr}
-                            onChange={e => updateDraft(group.sessionId, d.slot_index, { seasonStr: e.target.value })}
-                            placeholder="spring, summer"
-                          />
-                          <Input
-                            label="Occasion (comma-separated)"
-                            value={d.occasionStr}
-                            onChange={e => updateDraft(group.sessionId, d.slot_index, { occasionStr: e.target.value })}
-                            placeholder="casual, work"
-                          />
-                          <Input
-                            label="Brand"
-                            value={d.brand}
-                            onChange={e => updateDraft(group.sessionId, d.slot_index, { brand: e.target.value })}
-                          />
-                          <Input
-                            label="Size"
-                            value={d.size}
-                            onChange={e => updateDraft(group.sessionId, d.slot_index, { size: e.target.value })}
-                          />
-                          <Input
-                            label="Price"
-                            value={d.priceStr}
-                            onChange={e => updateDraft(group.sessionId, d.slot_index, { priceStr: e.target.value })}
-                            type="number"
-                            step="0.01"
+              <div className="px-4 pb-4 space-y-4 border-t border-cream-100 dark:border-slate-700 pt-3">
+                {/* Item image — large */}
+                {(() => {
+                  const d = currentWizardItem.draft
+                  const imgSrc = resolveUploadUrl(d.preview_image_url) ?? d.preview_image_url
+                  return (
+                    <>
+                      {imgSrc && (
+                        <div className="flex justify-center">
+                          <img
+                            src={imgSrc}
+                            alt={d.name}
+                            className="h-44 w-auto max-w-full object-contain rounded-xl bg-slate-50 dark:bg-slate-800 border border-cream-200 dark:border-slate-700"
                           />
                         </div>
-                        <div>
-                          <label className="label">Description</label>
-                          <textarea
-                            rows={2}
-                            className="input resize-none w-full"
-                            value={d.notes}
-                            onChange={e => updateDraft(group.sessionId, d.slot_index, { notes: e.target.value })}
-                          />
+                      )}
+
+                      {/* Name + badges */}
+                      <div className="space-y-1.5">
+                        <p className="font-semibold text-sm text-slate-800 dark:text-slate-100">{d.name}</p>
+                        <div className="flex flex-wrap gap-1">
+                          <Badge variant="purple">{d.category}</Badge>
+                          {d.subcategory.trim() ? <Badge variant="gray">{d.subcategory}</Badge> : null}
+                          {d.background_removed && <Badge variant="gray">BG removed</Badge>}
+                          <span className="text-[10px] text-slate-400 self-center">
+                            {(d.confidence * 100).toFixed(0)}% confidence
+                          </span>
                         </div>
+                        {d.bg_status && d.bg_status !== 'success_rembg' && d.bg_status !== 'success_pil' && (
+                          <p className="text-[10px] text-slate-400">BG: {d.bg_status}</p>
+                        )}
                       </div>
-                    )
-                  })}
 
-                  {!group.saved && (
-                    <Button
-                      className="w-full"
-                      loading={savingSessionId === group.sessionId}
-                      icon={<CheckCircle size={15} />}
-                      onClick={() => confirmGroup(group)}
-                    >
-                      Save selected items from this photo
-                    </Button>
-                  )}
+                      {/* Similarity warning — RAG vector search results */}
+                      <SimilarityWarningBanner
+                        loading={similarLoadingIds.has(d.detected_item_id)}
+                        error={similarErrorIds.has(d.detected_item_id)}
+                        items={similarItemsMap[d.detected_item_id] ?? []}
+                        itemName={d.name}
+                        newItemImageUrl={resolveUploadUrl(d.preview_image_url) ?? d.preview_image_url}
+                      />
+
+                      {/* Editable fields */}
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <Input
+                          label="Name"
+                          value={d.name}
+                          onChange={e => updateDraft(currentWizardItem.sessionId, d.slot_index, { name: e.target.value })}
+                        />
+                        <Select
+                          label="Category"
+                          options={CATEGORY_OPTIONS}
+                          value={d.category}
+                          onChange={e => updateDraft(currentWizardItem.sessionId, d.slot_index, { category: e.target.value })}
+                        />
+                        <Input
+                          label="Color"
+                          value={d.color}
+                          onChange={e => updateDraft(currentWizardItem.sessionId, d.slot_index, { color: e.target.value })}
+                        />
+                        <Input
+                          label="Material"
+                          value={d.material}
+                          onChange={e => updateDraft(currentWizardItem.sessionId, d.slot_index, { material: e.target.value })}
+                        />
+                        <Input
+                          label="Pattern"
+                          value={d.pattern}
+                          onChange={e => updateDraft(currentWizardItem.sessionId, d.slot_index, { pattern: e.target.value })}
+                        />
+                        <Input
+                          label="Season"
+                          value={d.seasonStr}
+                          onChange={e => updateDraft(currentWizardItem.sessionId, d.slot_index, { seasonStr: e.target.value })}
+                          placeholder="spring, summer"
+                        />
+                        <Input
+                          label="Occasion"
+                          value={d.occasionStr}
+                          onChange={e => updateDraft(currentWizardItem.sessionId, d.slot_index, { occasionStr: e.target.value })}
+                          placeholder="casual, work"
+                        />
+                        <Input
+                          label="Brand"
+                          value={d.brand}
+                          onChange={e => updateDraft(currentWizardItem.sessionId, d.slot_index, { brand: e.target.value })}
+                        />
+                        <Input
+                          label="Size"
+                          value={d.size}
+                          onChange={e => updateDraft(currentWizardItem.sessionId, d.slot_index, { size: e.target.value })}
+                        />
+                        <Input
+                          label="Price"
+                          value={d.priceStr}
+                          onChange={e => updateDraft(currentWizardItem.sessionId, d.slot_index, { priceStr: e.target.value })}
+                          type="number"
+                          step="0.01"
+                        />
+                      </div>
+                      <div>
+                        <label className="label">Description</label>
+                        <textarea
+                          rows={2}
+                          className="input resize-none w-full"
+                          value={d.notes}
+                          onChange={e => updateDraft(currentWizardItem.sessionId, d.slot_index, { notes: e.target.value })}
+                        />
+                      </div>
+                    </>
+                  )
+                })()}
+
+                {/* Navigation */}
+                <div className="flex items-center gap-2 pt-1 border-t border-cream-100 dark:border-slate-700">
+                  {/* Back */}
+                  <button
+                    onClick={wizardBack}
+                    disabled={isFirstItem || savingAll}
+                    className={cn(
+                      'flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-medium transition-colors border',
+                      isFirstItem
+                        ? 'border-slate-200 dark:border-slate-700 text-slate-300 dark:text-slate-600 cursor-default'
+                        : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800',
+                    )}
+                  >
+                    <ChevronLeft size={14} />
+                    Back
+                  </button>
+
+                  {/* Skip */}
+                  <button
+                    onClick={wizardSkip}
+                    disabled={savingAll}
+                    className="flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-medium transition-colors border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-700 disabled:opacity-40"
+                    title="Skip this item (won't be saved)"
+                  >
+                    <SkipForward size={14} />
+                    Skip
+                  </button>
+
+                  {/* Next / Save */}
+                  <button
+                    onClick={wizardNext}
+                    disabled={savingAll}
+                    className={cn(
+                      'flex items-center justify-center gap-1.5 flex-1 py-2 rounded-xl text-xs font-semibold transition-all',
+                      isLastItem
+                        ? 'bg-gradient-brand text-white hover:opacity-90 active:scale-[0.98]'
+                        : 'bg-brand-500 text-white hover:bg-brand-600 active:scale-[0.98]',
+                      savingAll && 'opacity-60 cursor-default',
+                    )}
+                  >
+                    {savingAll ? (
+                      <><LoadingSpinner size="sm" /> Saving…</>
+                    ) : isLastItem ? (
+                      <><CheckCircle size={13} /> Save {selectedCount > 0 ? `${selectedCount} item${selectedCount === 1 ? '' : 's'}` : 'All'}</>
+                    ) : (
+                      <>Next <ChevronRight size={14} /></>
+                    )}
+                  </button>
                 </div>
-              ))}
-            </>
+              </div>
+            </div>
           )}
         </div>
       </div>

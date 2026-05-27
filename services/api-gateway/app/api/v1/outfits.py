@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Request, status
@@ -33,6 +34,7 @@ from app.services.outfit_history_service import (
     get_outfit_history_for_prompt,
     save_outfit_history,
 )
+from app.services.embedding_service import generate_text_embedding, pgvector_cosine_search
 from app.services.purchase_gap_service import detect_and_save_gaps
 
 router = APIRouter(prefix="/outfits", tags=["Outfits"])
@@ -354,28 +356,12 @@ async def shuffle_outfit(
         for r in current_rows.scalars().all()
     ]
 
-    # Load the rest of the closet (excluding current items)
+    # Load the rest of the closet — RAG-filtered by occasion so the AI receives
+    # the most relevant alternatives first; fall back to wear_count order.
     current_ids = {str(i) for i in item_uuids}
-    all_rows = await session.execute(
-        select(ClosetItem)
-        .where(ClosetItem.user_id == uid, ClosetItem.is_archived == False)  # noqa: E712
-        .order_by(ClosetItem.wear_count.desc())
-        .limit(80)
-    )
-    available = [
-        {
-            "id": str(r.id), "name": r.name, "category": r.category,
-            "color": r.color or "", "fabric": r.fabric or "",
-            "pattern": r.pattern or "", "occasion": r.occasion or [],
-            "season": r.season or [], "tags": r.tags or [],
-            "image_url": r.processed_image_url or r.image_url or r.original_image_url,
-        }
-        for r in all_rows.scalars().all()
-        if str(r.id) not in current_ids
-    ]
-
-    # Resolve weather if location provided
     weather_str = ""
+
+    # Resolve weather first (needed for RAG query and AI prompt)
     if body.location:
         try:
             w = await get_weather_by_city(body.location)
@@ -383,12 +369,69 @@ async def shuffle_outfit(
         except Exception:
             pass
 
+    rag_query = f"outfit for {body.occasion} occasion weather:{weather_str or 'mild'}"
+    embedding = await generate_text_embedding(rag_query)
+    available: list[dict] = []
+    if embedding:
+        vector_rows = await pgvector_cosine_search(
+            session,
+            table="closet_items",
+            embedding=embedding,
+            user_id=str(uid),
+            limit=60,
+            threshold=0.20,
+            filter_archived=True,
+        )
+        available = [
+            {
+                "id": str(r["id"]), "name": r.get("name") or "",
+                "category": r.get("category") or "", "color": r.get("color") or "",
+                "fabric": r.get("fabric") or "", "pattern": r.get("pattern") or "",
+                "occasion": r.get("occasion") or [], "season": r.get("season") or [],
+                "tags": r.get("tags") or [],
+                "image_url": r.get("processed_image_url") or r.get("image_url") or r.get("original_image_url"),
+            }
+            for r in vector_rows
+            if str(r["id"]) not in current_ids
+        ]
+
+    if not available:
+        # Fallback: wear_count order when no embeddings exist yet
+        all_rows = await session.execute(
+            select(ClosetItem)
+            .where(ClosetItem.user_id == uid, ClosetItem.is_archived == False)  # noqa: E712
+            .order_by(ClosetItem.wear_count.desc())
+            .limit(80)
+        )
+        available = [
+            {
+                "id": str(r.id), "name": r.name, "category": r.category,
+                "color": r.color or "", "fabric": r.fabric or "",
+                "pattern": r.pattern or "", "occasion": r.occasion or [],
+                "season": r.season or [], "tags": r.tags or [],
+                "image_url": r.processed_image_url or r.image_url or r.original_image_url,
+            }
+            for r in all_rows.scalars().all()
+            if str(r.id) not in current_ids
+        ]
+
+    # Fetch fashion knowledge + past outfit history in parallel for richer recommendations
+    fashion_ctx, history_ctx = await asyncio.gather(
+        get_fashion_context_for_prompt(session, rag_query),
+        get_outfit_history_for_prompt(session, str(uid), body.occasion),
+        return_exceptions=True,
+    )
+    fashion_context = fashion_ctx if isinstance(fashion_ctx, str) else ""
+    history_context = history_ctx if isinstance(history_ctx, str) else ""
+
     alternatives = await outfit_ai_service.shuffle_outfit(
         current_items=current_items,
         available_closet=available,
         occasion=body.occasion,
         weather=weather_str,
         seed_category=body.seed_category,
+        fashion_context=fashion_context,
+        history_context=history_context,
     )
 
     # Enrich alternatives with image_urls from full closet

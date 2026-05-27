@@ -132,6 +132,23 @@ async def list_sessions(user_id: CurrentUser, session: DbSession) -> dict[str, A
     }
 
 
+@router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_session(
+    session_id: str, user_id: CurrentUser, session: DbSession
+) -> None:
+    """Delete a chat session and all its messages. Validates ownership."""
+    uid = UUID(user_id)
+    try:
+        sid = UUID(session_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid session id")
+
+    chat_session = await _assert_session_owner(session, sid, uid)
+    await session.delete(chat_session)
+    # AIChatMessage rows cascade-delete via FK ondelete="CASCADE"
+    logger.info("chat_session_deleted", session_id=session_id, user_id=user_id)
+
+
 @router.get("/sessions/{session_id}/messages")
 async def get_messages(
     session_id: str, user_id: CurrentUser, session: DbSession

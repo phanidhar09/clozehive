@@ -472,6 +472,8 @@ async def shuffle_outfit(
     occasion: str,
     weather: str = "",
     seed_category: str | None = None,
+    fashion_context: str = "",
+    history_context: str = "",
 ) -> list[dict[str, Any]]:
     """Suggest 1-2 alternative outfit combinations from the user's closet.
 
@@ -479,6 +481,14 @@ async def shuffle_outfit(
     """
     if not available_closet:
         return []
+
+    rag_block = ""
+    if fashion_context.strip():
+        rag_block += f"\n\n[FASHION KNOWLEDGE]\n{fashion_context.strip()}\n[END FASHION KNOWLEDGE]"
+    if history_context.strip():
+        rag_block += f"\n\n[PAST OUTFIT HISTORY]\n{history_context.strip()}\n[END PAST OUTFIT HISTORY]"
+
+    system_prompt = _SHUFFLE_OUTFIT_PROMPT + rag_block
 
     payload = json.dumps({
         "occasion": occasion,
@@ -491,7 +501,7 @@ async def shuffle_outfit(
     try:
         raw = await ai_service.chat(
             [{"role": "user", "content": payload}],
-            _SHUFFLE_OUTFIT_PROMPT,
+            system_prompt,
         )
         data = json.loads(_clean_json(raw))
         alternatives = data.get("alternatives")

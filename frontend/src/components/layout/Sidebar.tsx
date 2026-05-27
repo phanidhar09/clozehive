@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 import {
   Home, Shirt, Plane,
   X, Moon, Sun, LogOut, Wand2, PlusCircle,
-  Sparkles, Heart, BarChart3, ShoppingBag,
+  Sparkles, Heart, BarChart3, ShoppingBag, ShoppingCart,
   type LucideIcon,
 } from 'lucide-react'
 import { useApp } from '@/store'
@@ -27,6 +27,7 @@ const NAV_MAIN: SidebarNavItem[] = [
 
 const NAV_WARDROBE: SidebarNavItem[] = [
   { to: '/ai-stylist',      label: 'FANI AI Stylist',     icon: Sparkles,     gradient: 'from-violet-500 to-fuchsia-600' },
+  { to: '/shopping-check',  label: 'Shop Smart Check',    icon: ShoppingCart, gradient: 'from-green-500 to-emerald-600' },
   { to: '/saved-outfits',   label: 'Saved Outfits',       icon: Heart },
   { to: '/analytics',       label: 'Style Insights',      icon: BarChart3 },
   { to: '/purchase-gaps',   label: 'Wardrobe Gaps',       icon: ShoppingBag },

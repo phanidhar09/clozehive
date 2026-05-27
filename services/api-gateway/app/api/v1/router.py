@@ -6,7 +6,7 @@ from app.api.v1 import (
     admin, ai, ai_chat, analytics, auth, closet, health, outfits, profile,
     trips, weather,
     fashion_rag, outfit_history, packing_memory, purchase_gaps, closet_similarity,
-    rag, ws,
+    rag, ws, shopping_check,
 )
 # from app.api.v1 import social  # Non-MVP: re-enable for Phase 2 social features
 
@@ -29,4 +29,5 @@ api_router.include_router(fashion_rag.router)           # RAG: fashion knowledge
 api_router.include_router(purchase_gaps.router)         # RAG: purchase gaps
 api_router.include_router(rag.router)                   # RAG: unified /rag/* endpoints
 api_router.include_router(ws.router)                    # Real-time WebSocket notifications
+api_router.include_router(shopping_check.router)        # Shopping: in-store buy advisor
 # api_router.include_router(social.router)  # Non-MVP: re-enable for Phase 2 social features

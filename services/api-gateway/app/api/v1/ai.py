@@ -27,6 +27,8 @@ from app.repositories.user_repo import UserRepository
 from app.services.style_profile_context import load_merged_user_profile_for_ai
 from app.services import ai_service, cache_service, outfit_service, packing_service, vision_service, weather_service
 from app.services.embedding_service import generate_text_embedding, pgvector_cosine_search
+from app.services.fashion_rag_service import get_fashion_context_for_prompt
+from app.services.outfit_history_service import get_outfit_history_for_prompt
 from app.services.upload_service import read_validated_image
 
 router = APIRouter(prefix="/ai", tags=["AI"])
@@ -218,11 +220,18 @@ _STREAM_HEADERS = {
 async def chat(body: ChatRequest, user_id: CurrentUser, session: DbSession):
     """Send a message to the CLOZEHIVE wardrobe AI."""
     uid = UUID(user_id)
-    closet = await _get_closet_as_dicts(session, uid) if body.include_closet else []
+    # RAG-aware closet: embed the user message and retrieve semantically relevant items
+    closet = await _get_closet_for_occasion(session, uid, body.message) if body.include_closet else []
     weather, user_profile = await asyncio.gather(
         _resolve_weather_context(session, uid),
         _resolve_user_profile(session, uid, None),
     )
+    # Fetch fashion knowledge relevant to this message
+    fashion_ctx = ""
+    try:
+        fashion_ctx = await get_fashion_context_for_prompt(session, body.message)
+    except Exception:
+        pass
     messages = _chat_messages(body)
     cache_key = cache_service.build_cache_key(
         user_id, messages,
@@ -236,7 +245,10 @@ async def chat(body: ChatRequest, user_id: CurrentUser, session: DbSession):
             logger.info("AI cache hit", user_id=user_id, key=cache_key)
             return ChatResponse(reply=cached)
         logger.info("AI cache miss", user_id=user_id, key=cache_key)
-    reply = await ai_service.chat(messages, _build_stylist_system_prompt(closet, weather, user_profile))
+    system_prompt = _build_stylist_system_prompt(closet, weather, user_profile)
+    if fashion_ctx.strip():
+        system_prompt += f"\n\n[FASHION KNOWLEDGE]\n{fashion_ctx.strip()}\n[END FASHION KNOWLEDGE]"
+    reply = await ai_service.chat(messages, system_prompt)
     if settings.ai_cache_enabled:
         await cache_service.cache_response(await get_redis(), cache_key, reply, settings.ai_cache_ttl)
     return ChatResponse(reply=reply)
@@ -251,11 +263,17 @@ async def chat_stream(body: ChatRequest, user_id: CurrentUser, session: DbSessio
         try:
             yield _sse({"type": "status", "message": "Thinking…"})
             uid = UUID(user_id)
-            closet = await _get_closet_as_dicts(session, uid) if body.include_closet else []
+            # RAG-aware: embed the message and retrieve relevant closet items
+            closet = await _get_closet_for_occasion(session, uid, body.message) if body.include_closet else []
             weather, user_profile = await asyncio.gather(
                 _resolve_weather_context(session, uid),
                 _resolve_user_profile(session, uid, None),
             )
+            fashion_ctx = ""
+            try:
+                fashion_ctx = await get_fashion_context_for_prompt(session, body.message)
+            except Exception:
+                pass
             messages = _chat_messages(body)
             cache_key = cache_service.build_cache_key(
                 user_id, messages,
@@ -272,7 +290,10 @@ async def chat_stream(body: ChatRequest, user_id: CurrentUser, session: DbSessio
                     return
                 logger.info("AI cache miss", user_id=user_id, key=cache_key)
             full_response = []
-            async for chunk in ai_service.stream_chat(messages, _build_stylist_system_prompt(closet, weather, user_profile)):
+            system_prompt = _build_stylist_system_prompt(closet, weather, user_profile)
+            if fashion_ctx.strip():
+                system_prompt += f"\n\n[FASHION KNOWLEDGE]\n{fashion_ctx.strip()}\n[END FASHION KNOWLEDGE]"
+            async for chunk in ai_service.stream_chat(messages, system_prompt):
                 full_response.append(chunk)
                 yield _sse({"type": "token", "content": chunk})
             if settings.ai_cache_enabled:
@@ -294,10 +315,19 @@ async def chat_stream(body: ChatRequest, user_id: CurrentUser, session: DbSessio
 async def outfit(body: OutfitRequest, user_id: CurrentUser, session: DbSession):
     """Generate 3 AI outfit suggestions from the user's closet."""
     uid = UUID(user_id)
-    closet = await _get_closet_as_dicts(session, uid)
+    # RAG: load only occasion-relevant items + fetch fashion/history context
+    closet = await _get_closet_for_occasion(session, uid, body.occasion, body.weather)
     profile = await _resolve_user_profile(session, uid, body.user_profile)
+    rag_query = f"outfit for {body.occasion} weather:{body.weather or 'mild'}"
+    fashion_ctx, history_ctx = await asyncio.gather(
+        get_fashion_context_for_prompt(session, rag_query),
+        get_outfit_history_for_prompt(session, user_id, body.occasion),
+        return_exceptions=True,
+    )
     return await outfit_service.generate_outfits(
         closet, body.occasion, body.weather, body.temperature, user_profile=profile,
+        fashion_context=fashion_ctx if isinstance(fashion_ctx, str) else "",
+        history_context=history_ctx if isinstance(history_ctx, str) else "",
     )
 
 
@@ -309,10 +339,19 @@ async def outfit_stream(body: OutfitRequest, user_id: CurrentUser, session: DbSe
     async def events():
         try:
             yield _sse({"type": "status", "message": "Generating outfits…"})
-            closet = await _get_closet_as_dicts(session, uid)
+            # RAG: vector-filtered closet + fashion knowledge + outfit history
+            closet = await _get_closet_for_occasion(session, uid, body.occasion, body.weather)
             profile = await _resolve_user_profile(session, uid, body.user_profile)
+            rag_query = f"outfit for {body.occasion} weather:{body.weather or 'mild'}"
+            fashion_ctx, history_ctx = await asyncio.gather(
+                get_fashion_context_for_prompt(session, rag_query),
+                get_outfit_history_for_prompt(session, user_id, body.occasion),
+                return_exceptions=True,
+            )
             data = await outfit_service.generate_outfits(
                 closet, body.occasion, body.weather, body.temperature, user_profile=profile,
+                fashion_context=fashion_ctx if isinstance(fashion_ctx, str) else "",
+                history_context=history_ctx if isinstance(history_ctx, str) else "",
             )
             yield _sse({"type": "result", "data": data})
             yield _sse({"type": "done"})
@@ -408,8 +447,15 @@ async def outfit_of_day(user_id: CurrentUser, session: DbSession):
 async def packing(body: PackingRequest, user_id: CurrentUser, session: DbSession):
     """Generate a smart travel packing list matched against the user's closet."""
     uid = UUID(user_id)
-    closet = await _get_closet_as_dicts(session, uid)
+    # RAG: load closet relevant to destination+purpose, inject fashion/packing knowledge
+    rag_query = f"packing for {body.destination} trip purpose:{body.purpose}"
+    closet = await _get_closet_for_occasion(session, uid, rag_query)
     prof = await load_merged_user_profile_for_ai(session, uid, None)
+    packing_ctx = ""
+    try:
+        packing_ctx = await get_fashion_context_for_prompt(session, rag_query)
+    except Exception:
+        pass
     return await packing_service.generate_packing_list(
         body.destination,
         body.start_date,
@@ -418,6 +464,7 @@ async def packing(body: PackingRequest, user_id: CurrentUser, session: DbSession
         closet,
         notes=body.notes,
         user_style_profile=prof,
+        rag_context=packing_ctx or None,
     )
 
 
@@ -428,8 +475,15 @@ async def packing_stream(body: PackingRequest, user_id: CurrentUser, session: Db
         try:
             yield _sse({"type": "status", "message": "Fetching weather…"})
             uid = UUID(user_id)
-            closet = await _get_closet_as_dicts(session, uid)
+            # RAG: vector-filtered closet + fashion/packing knowledge context
+            rag_query = f"packing for {body.destination} trip purpose:{body.purpose}"
+            closet = await _get_closet_for_occasion(session, uid, rag_query)
             prof = await load_merged_user_profile_for_ai(session, uid, None)
+            packing_ctx = ""
+            try:
+                packing_ctx = await get_fashion_context_for_prompt(session, rag_query)
+            except Exception:
+                pass
             data = await packing_service.generate_packing_list(
                 body.destination,
                 body.start_date,
@@ -438,6 +492,7 @@ async def packing_stream(body: PackingRequest, user_id: CurrentUser, session: Db
                 closet,
                 notes=body.notes,
                 user_style_profile=prof,
+                rag_context=packing_ctx or None,
             )
             yield _sse({"type": "status", "message": "Matching wardrobe…"})
             summary = str(data.get("summary") or "") if isinstance(data, dict) else ""

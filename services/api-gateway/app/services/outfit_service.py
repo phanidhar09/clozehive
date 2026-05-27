@@ -41,16 +41,23 @@ async def generate_outfits(
     weather: str = "",
     temperature: float | None = None,
     user_profile: dict[str, Any] | None = None,
+    fashion_context: str = "",
+    history_context: str = "",
 ) -> dict[str, Any]:
     if not closet_items:
         return _mock_result(closet_items, occasion)
 
     style_block = _style_context_from_profile(user_profile)
+    rag_block = ""
+    if fashion_context.strip():
+        rag_block += f"\n\n[FASHION KNOWLEDGE]\n{fashion_context.strip()}\n[END FASHION KNOWLEDGE]"
+    if history_context.strip():
+        rag_block += f"\n\n[PAST OUTFIT HISTORY]\n{history_context.strip()}\n[END PAST OUTFIT HISTORY]"
     system_prompt = f"""You are an expert ClozeHive personal stylist.
 Use positive, supportive language. Never criticise the user's body. Honour avoided colors and climate preferences when listed in the user profile context.
 Return ONLY valid JSON with shape:
 {{"outfits":[{{"name":"","items":[{{"id":"","name":"","category":""}}],"style_notes":"","occasion_fit":"","weather_suitability":"","style_score":8.5}}],"style_tips":[]}}
-Hard rules: only use items from the provided wardrobe, refer to exact item names, and do not invent missing items.{style_block}"""
+Hard rules: only use items from the provided wardrobe, refer to exact item names, and do not invent missing items.{style_block}{rag_block}"""
     user_prompt = json.dumps({
         "occasion": occasion,
         "weather": weather,

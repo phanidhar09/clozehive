@@ -1124,3 +1124,58 @@ export async function streamChat(
     finish()
   }
 }
+
+// ── Shopping Check API ────────────────────────────────────────────────────────
+
+export interface ShoppingMatchedItem {
+  id: string
+  name: string
+  category: string
+  color: string
+  image_url: string | null
+  similarity_score: number
+  is_duplicate: boolean
+}
+
+export interface ShoppingCheckResult {
+  check_id: string
+  item_analysis: Record<string, unknown>
+  matched_items: ShoppingMatchedItem[]
+  buy_score: number
+  buy_recommendation: 'buy' | 'consider' | 'skip'
+  closet_boost_pct: number
+  reasoning: string
+}
+
+export interface ShoppingHistoryEntry extends ShoppingCheckResult {
+  image_url: string | null
+  purchase_decision: boolean | null
+  decision_at: string | null
+  created_at: string
+}
+
+export const shoppingCheckApi = {
+  async checkItem(file: File): Promise<ShoppingCheckResult> {
+    const form = new FormData()
+    form.append('file', file)
+    const { data } = await api.post<ShoppingCheckResult>('/shopping/check', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    return data
+  },
+
+  async recordDecision(checkId: string, bought: boolean): Promise<void> {
+    await api.patch(`/shopping/${checkId}/decision`, { bought })
+  },
+
+  async getHistory(limit = 30): Promise<ShoppingHistoryEntry[]> {
+    const { data } = await api.get<{ checks: ShoppingHistoryEntry[] }>('/shopping/history', {
+      params: { limit },
+    })
+    return data.checks ?? []
+  },
+
+  async deleteCheck(checkId: string): Promise<void> {
+    await api.delete(`/shopping/${checkId}`)
+  },
+}

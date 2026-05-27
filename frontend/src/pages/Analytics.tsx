@@ -3,14 +3,14 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell,
 } from 'recharts'
-import { TrendingUp, Shirt, Star, Loader2, BarChart3 } from 'lucide-react'
+import { TrendingUp, Shirt, Star, Loader2, BarChart3, ShoppingBag, AlertTriangle } from 'lucide-react'
 import { useApp } from '@/store'
 import Badge from '@/components/ui/Badge'
 import GlassCard from '@/components/ui/GlassCard'
 import EmptyState from '@/components/ui/EmptyState'
 import { analyticsApi } from '@/lib/api'
 import { useAsyncError } from '@/hooks/useAsyncError'
-import type { ClosetAnalytics, CategoryCoverageItem, ColorStats } from '@/types'
+import type { ClosetAnalytics, CategoryCoverageItem, ColorStats, PurchaseGapInsight } from '@/types'
 
 type TooltipChartPayload = {
   active?: boolean
@@ -263,6 +263,64 @@ export default function Analytics() {
           </div>
         </div>
       </GlassCard>
+
+      {/* ── AI Purchase Gap Insights (RAG) ──────────────────────────────────── */}
+      {(analytics.purchase_gap_insights ?? []).length > 0 && (
+        <div>
+          <h3 className="font-semibold text-slate-800 dark:text-white mb-3 flex items-center gap-2">
+            <ShoppingBag size={16} className="text-rose-500" />
+            Wardrobe Gaps
+            <span className="ml-1 text-xs font-normal text-purple-600 dark:text-purple-400 bg-purple-100 dark:bg-purple-900/30 px-2 py-0.5 rounded-full">
+              AI · Vector Search
+            </span>
+          </h3>
+          <p className="text-xs text-slate-500 dark:text-white/40 mb-3">
+            FANI analysed your wardrobe semantically and flagged these missing pieces.
+          </p>
+          <div className="grid sm:grid-cols-2 gap-3">
+            {(analytics.purchase_gap_insights ?? []).map((gap: PurchaseGapInsight, i: number) => (
+              <GlassCard key={i} padding="md">
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 shrink-0">
+                    <AlertTriangle
+                      size={15}
+                      className={
+                        gap.priority_score >= 0.8
+                          ? 'text-red-500'
+                          : gap.priority_score >= 0.6
+                          ? 'text-amber-500'
+                          : 'text-slate-400'
+                      }
+                    />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-slate-800 dark:text-white capitalize text-sm">
+                      {gap.missing_category}
+                      <span className="ml-2 text-xs text-slate-400 capitalize font-normal">({gap.gap_type.replace('_', ' ')})</span>
+                    </p>
+                    <p className="text-xs text-slate-500 dark:text-white/50 mt-0.5 leading-snug">{gap.reason}</p>
+                    {gap.suggested_attributes && Object.keys(gap.suggested_attributes).length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1.5">
+                        {Object.entries(gap.suggested_attributes).map(([k, v]) => (
+                          <span key={k} className="text-[10px] bg-slate-100 dark:bg-white/10 text-slate-600 dark:text-white/60 rounded px-1.5 py-0.5 capitalize">
+                            {k}: {v}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <span className="text-xs font-bold text-slate-700 dark:text-white/70">
+                      {Math.round(gap.priority_score * 100)}%
+                    </span>
+                    <p className="text-[10px] text-slate-400 dark:text-white/30">priority</p>
+                  </div>
+                </div>
+              </GlassCard>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -44,6 +44,10 @@ export const aiChatSessionsApi = {
     )
     return data.messages ?? []
   },
+
+  async deleteSession(sessionId: string): Promise<void> {
+    await api.delete(`/ai-chat/sessions/${sessionId}`)
+  },
 }
 
 // ── Messaging ─────────────────────────────────────────────────────────────────
@@ -123,6 +127,22 @@ export async function saveRecommendedOutfit(payload: SaveOutfitPayload): Promise
 }> {
   const { data } = await api.post('/ai-chat/save-outfit', payload)
   return data as { id: string; name: string; message: string }
+}
+
+// ── Wear logging ──────────────────────────────────────────────────────────────
+
+/**
+ * Increment the wear counter for every item in an outfit.
+ * Fires all requests in parallel; individual failures are silently ignored
+ * so a single bad item ID doesn't break the whole interaction.
+ */
+export async function logOutfitWorn(itemIds: string[]): Promise<void> {
+  const today = new Date().toISOString().slice(0, 10) // YYYY-MM-DD
+  await Promise.allSettled(
+    itemIds.map(id =>
+      api.post(`/closet/${id}/wear`, { worn_date: today }),
+    ),
+  )
 }
 
 // ── Outfit Shuffle ────────────────────────────────────────────────────────────

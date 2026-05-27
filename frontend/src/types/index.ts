@@ -455,6 +455,14 @@ export interface ClosetSummary {
   best_covered_occasion?: string | null
 }
 
+export interface PurchaseGapInsight {
+  gap_type: string
+  missing_category: string
+  reason: string
+  priority_score: number
+  suggested_attributes?: Record<string, string> | null
+}
+
 export interface ClosetAnalytics {
   summary: ClosetSummary
   category_coverage: CategoryCoverageItem[]
@@ -462,6 +470,7 @@ export interface ClosetAnalytics {
   category_stats: CategoryStats[]
   outfit_readiness: OutfitReadiness
   usage_insights?: UsageInsights | null
+  purchase_gap_insights?: PurchaseGapInsight[]
 }
 
 // ── Social ────────────────────────────────────────────────────────────────────

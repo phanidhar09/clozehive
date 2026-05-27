@@ -45,6 +45,15 @@ class UsageInsights(BaseModel):
     not_worn_recently: list[dict]
 
 
+class PurchaseGapInsight(BaseModel):
+    """A wardrobe gap identified by the RAG purchase-gap detector."""
+    gap_type: str
+    missing_category: str
+    reason: str
+    priority_score: float
+    suggested_attributes: Optional[dict] = None
+
+
 class ClosetAnalyticsResponse(BaseModel):
     summary: ClosetSummary
     category_coverage: list[CategoryCoverageItem]
@@ -52,3 +61,4 @@ class ClosetAnalyticsResponse(BaseModel):
     category_stats: list[CategoryStats]
     outfit_readiness: OutfitReadiness
     usage_insights: Optional[UsageInsights] = None
+    purchase_gap_insights: list[PurchaseGapInsight] = []

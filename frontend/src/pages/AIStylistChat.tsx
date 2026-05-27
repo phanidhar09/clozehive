@@ -21,11 +21,13 @@ import {
   MessageSquare,
   RefreshCw,
   Sparkles,
+  Trash2,
   X,
 } from 'lucide-react'
 import { useApp } from '@/store'
 import { generateId } from '@/lib/utils'
 import { sendMessage, aiChatSessionsApi } from '@/services/aiChatApi'
+import { cn } from '@/lib/utils'
 import ChatInput from '@/components/ai-chat/ChatInput'
 import OutfitRecommendationCard from '@/components/ai-chat/OutfitRecommendationCard'
 import type { StylistChatMessage, AIChatContext, StylingHint, AIChatSession } from '@/types'
@@ -233,16 +235,20 @@ function HistorySidebar({
   open,
   onClose,
   onLoadSession,
+  onDeleteSession,
   currentSessionId,
 }: {
   open: boolean
   onClose: () => void
   onLoadSession: (sessionId: string, title: string) => void
+  onDeleteSession: (sessionId: string) => void
   currentSessionId: string | null
 }) {
   const [sessions, setSessions] = useState<AIChatSession[]>([])
   const [loading, setLoading] = useState(false)
   const [loadingSession, setLoadingSession] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deleteInProgress, setDeleteInProgress] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -254,12 +260,27 @@ function HistorySidebar({
   }, [open])
 
   const handleClick = async (session: AIChatSession) => {
-    if (loadingSession === session.id) return
+    if (loadingSession === session.id || deletingId === session.id) return
+    setDeletingId(null)
     setLoadingSession(session.id)
     try {
       onLoadSession(session.id, session.title)
     } finally {
       setLoadingSession(null)
+    }
+  }
+
+  const handleDeleteConfirm = async (sessionId: string) => {
+    setDeleteInProgress(sessionId)
+    try {
+      await aiChatSessionsApi.deleteSession(sessionId)
+      setSessions(prev => prev.filter(s => s.id !== sessionId))
+      onDeleteSession(sessionId)
+    } catch {
+      // silent — session list still shows; user can retry
+    } finally {
+      setDeleteInProgress(null)
+      setDeletingId(null)
     }
   }
 
@@ -296,7 +317,10 @@ function HistorySidebar({
                 <History size={15} className="text-brand-500" />
                 <span className="font-semibold text-sm text-slate-800 dark:text-white">Chat History</span>
               </div>
-              <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
+              <button
+                onClick={onClose}
+                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+              >
                 <X size={14} />
               </button>
             </div>
@@ -314,31 +338,105 @@ function HistorySidebar({
                   <p className="text-xs text-slate-300 dark:text-slate-600">Start chatting and your sessions will appear here</p>
                 </div>
               ) : (
-                sessions.map(session => (
-                  <button
-                    key={session.id}
-                    type="button"
-                    onClick={() => handleClick(session)}
-                    className={`w-full text-left px-4 py-3 flex items-start gap-3 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors ${currentSessionId === session.id ? 'bg-brand-50 dark:bg-brand-900/20 border-l-2 border-brand-500' : ''}`}
-                  >
-                    <div className={`w-7 h-7 rounded-lg flex-shrink-0 flex items-center justify-center mt-0.5 ${currentSessionId === session.id ? 'bg-brand-100 dark:bg-brand-500/20' : 'bg-slate-100 dark:bg-slate-800'}`}>
-                      {loadingSession === session.id ? (
-                        <div className="h-3 w-3 rounded-full border-2 border-brand-400 border-t-transparent animate-spin" />
-                      ) : (
-                        <MessageSquare size={12} className={currentSessionId === session.id ? 'text-brand-500' : 'text-slate-400'} />
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className={`text-sm font-medium truncate ${currentSessionId === session.id ? 'text-brand-700 dark:text-brand-300' : 'text-slate-700 dark:text-slate-200'}`}>
-                        {session.title}
-                      </p>
-                      <p className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5">
-                        <Clock size={9} />
-                        {relTime(session.updated_at)}
-                      </p>
-                    </div>
-                  </button>
-                ))
+                <div className="space-y-0.5 px-1">
+                  {sessions.map(session => {
+                    const isActive = currentSessionId === session.id
+                    const isConfirming = deletingId === session.id
+                    const isDeleting = deleteInProgress === session.id
+                    const isLoadingThis = loadingSession === session.id
+
+                    return (
+                      <div
+                        key={session.id}
+                        className={cn(
+                          'rounded-xl overflow-hidden transition-colors',
+                          isActive && !isConfirming
+                            ? 'bg-brand-50 dark:bg-brand-900/20 ring-1 ring-brand-200 dark:ring-brand-800/50'
+                            : 'hover:bg-slate-50 dark:hover:bg-slate-800/60',
+                        )}
+                      >
+                        {/* Row */}
+                        <div className="flex items-center group">
+                          <button
+                            type="button"
+                            onClick={() => handleClick(session)}
+                            disabled={isLoadingThis || isDeleting}
+                            className="flex-1 text-left px-3 py-2.5 flex items-start gap-2.5 min-w-0"
+                          >
+                            <div className={cn(
+                              'w-6 h-6 rounded-lg flex-shrink-0 flex items-center justify-center mt-0.5',
+                              isActive ? 'bg-brand-100 dark:bg-brand-500/20' : 'bg-slate-100 dark:bg-slate-800',
+                            )}>
+                              {isLoadingThis ? (
+                                <div className="h-3 w-3 rounded-full border-2 border-brand-400 border-t-transparent animate-spin" />
+                              ) : (
+                                <MessageSquare size={11} className={isActive ? 'text-brand-500' : 'text-slate-400'} />
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className={cn(
+                                'text-sm font-medium truncate leading-snug',
+                                isActive ? 'text-brand-700 dark:text-brand-300' : 'text-slate-700 dark:text-slate-200',
+                              )}>
+                                {session.title}
+                              </p>
+                              <p className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
+                                <Clock size={9} />
+                                {relTime(session.updated_at)}
+                              </p>
+                            </div>
+                          </button>
+
+                          {/* Delete trigger — appears on row hover */}
+                          <button
+                            type="button"
+                            onClick={e => { e.stopPropagation(); setDeletingId(isConfirming ? null : session.id) }}
+                            disabled={isDeleting}
+                            title="Delete this chat"
+                            className={cn(
+                              'flex-shrink-0 p-2 mr-1 rounded-lg transition-all',
+                              isConfirming
+                                ? 'opacity-100 text-red-500 bg-red-50 dark:bg-red-900/20'
+                                : 'opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20',
+                            )}
+                          >
+                            {isDeleting ? (
+                              <div className="h-3.5 w-3.5 rounded-full border-2 border-red-400 border-t-transparent animate-spin" />
+                            ) : (
+                              <Trash2 size={13} />
+                            )}
+                          </button>
+                        </div>
+
+                        {/* Inline delete confirmation */}
+                        {isConfirming && (
+                          <div className="flex items-center justify-between gap-2 px-3 py-2 bg-red-50 dark:bg-red-900/20 border-t border-red-100 dark:border-red-800/40">
+                            <p className="text-xs text-red-700 dark:text-red-400 font-medium">
+                              Delete this chat?
+                            </p>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setDeletingId(null)}
+                                className="text-[11px] font-medium text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteConfirm(session.id)}
+                                disabled={isDeleting}
+                                className="text-[11px] font-bold text-white bg-red-500 hover:bg-red-600 px-2.5 py-1 rounded-lg transition-colors disabled:opacity-50"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
               )}
             </div>
           </motion.aside>
@@ -478,14 +576,21 @@ export default function AIStylistChat() {
 
   const stopStreaming = () => { cancelRef.current = true; setStreaming(false) }
 
-  const newChat = () => {
+  const newChat = useCallback(() => {
     cancelRef.current = true
     setStreaming(false)
     setMessages([WELCOME])
     setSessionId(null)
     setSessionTitle('FANI — AI Stylist')
     setError(null)
-  }
+  }, [])
+
+  // If the user deletes the currently-active session, start a fresh chat
+  const handleDeleteSession = useCallback((deletedId: string) => {
+    if (deletedId === sessionId) {
+      newChat()
+    }
+  }, [sessionId, newChat])
 
   const isAtStart = messages.length === 1 && messages[0].id === 'welcome'
 
@@ -501,6 +606,7 @@ export default function AIStylistChat() {
         open={showHistory}
         onClose={() => setShowHistory(false)}
         onLoadSession={loadSession}
+        onDeleteSession={handleDeleteSession}
         currentSessionId={sessionId}
       />
 
