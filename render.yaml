@@ -100,13 +100,7 @@ services:
       - key: OPENWEATHER_API_KEY
         sync: false
       - key: ENABLE_MCP_TOOLS
-        value: "true"
-      - key: MCP_WEATHER_URL
-        sync: false
-      - key: MCP_OUTFIT_URL
-        sync: false
-      - key: MCP_PACKING_URL
-        sync: false
+        value: "false"
       - key: INTERNAL_SERVICE_TOKEN
         sync: false
       - key: ENVIRONMENT
@@ -151,38 +145,6 @@ services:
       - key: LOG_LEVEL
         value: INFO
 
-  # ── MCP Weather ──────────────────────────────────────────────────────────────
-  - type: web
-    name: clozehive-mcp-weather
-    runtime: docker
-    dockerfilePath: services/mcp/weather/Dockerfile
-    dockerContext: services/mcp
-    plan: free
-    envVars:
-      - key: OPENWEATHER_API_KEY
-        sync: false
-
-  # ── MCP Outfit ───────────────────────────────────────────────────────────────
-  - type: web
-    name: clozehive-mcp-outfit
-    runtime: docker
-    dockerfilePath: services/mcp/outfit/Dockerfile
-    dockerContext: services/mcp
-    plan: free
-    envVars:
-      - key: DATABASE_URL
-        sync: false
-
-  # ── MCP Packing ──────────────────────────────────────────────────────────────
-  - type: web
-    name: clozehive-mcp-packing
-    runtime: docker
-    dockerfilePath: services/mcp/packing/Dockerfile
-    dockerContext: services/mcp
-    plan: free
-    envVars:
-      - key: DATABASE_URL
-        sync: false
 
   # ── Frontend (Static Site) ───────────────────────────────────────────────────
   - type: web
