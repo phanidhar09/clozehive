@@ -58,6 +58,7 @@ def _enrich_agent_packing_for_trips(data: dict[str, Any]) -> dict[str, Any]:
 
     return data
 
+
 # ── Shared async HTTP client (lifecycle managed in main.py) ──────────────────
 
 _client: httpx.AsyncClient | None = None
@@ -77,9 +78,9 @@ def get_client() -> httpx.AsyncClient:
                 pool=5.0,
             ),
             headers={
-            "Content-Type": "application/json",
-            **({"X-Internal-Token": settings.internal_service_token} if settings.internal_service_token else {}),
-        },
+                "Content-Type": "application/json",
+                **({"X-Internal-Token": settings.internal_service_token} if settings.internal_service_token else {}),
+            },
         )
     return _client
 

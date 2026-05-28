@@ -13,17 +13,6 @@ from sqlalchemy import select, desc
 from app.core.deps import CurrentUser, DbSession
 from app.core.exceptions import BadRequestError
 from app.core.logging import get_logger
-
-def _ws_push(user_id: str, data: dict) -> None:
-    """Fire-and-forget WebSocket push — never raises."""
-    try:
-        import asyncio
-        from app.api.v1.ws import manager as _ws_manager
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            asyncio.ensure_future(_ws_manager.broadcast_to_user(user_id, data))
-    except Exception:
-        pass
 from app.models.closet import ClosetItem, Outfit
 from app.services.style_profile_context import load_merged_user_profile_for_ai
 from app.schemas.outfit_ai import AnalyzeOutfitRequest, AnalyzeOutfitResponse
@@ -36,6 +25,18 @@ from app.services.outfit_history_service import (
 )
 from app.services.embedding_service import generate_text_embedding, pgvector_cosine_search
 from app.services.purchase_gap_service import detect_and_save_gaps
+
+
+def _ws_push(user_id: str, data: dict) -> None:
+    """Fire-and-forget WebSocket push — never raises."""
+    try:
+        from app.api.v1.ws import manager as _ws_manager
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.ensure_future(_ws_manager.broadcast_to_user(user_id, data))
+    except Exception:
+        pass
+
 
 router = APIRouter(prefix="/outfits", tags=["Outfits"])
 logger = get_logger("outfits.routes")

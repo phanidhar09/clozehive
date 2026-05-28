@@ -308,7 +308,6 @@ async def chat_stream(body: ChatRequest, user_id: CurrentUser, session: DbSessio
     return StreamingResponse(events(), media_type="text/event-stream", headers=_STREAM_HEADERS)
 
 
-
 # ── Outfit ────────────────────────────────────────────────────────────────────
 
 @router.post("/outfit")
@@ -329,7 +328,6 @@ async def outfit(body: OutfitRequest, user_id: CurrentUser, session: DbSession):
         fashion_context=fashion_ctx if isinstance(fashion_ctx, str) else "",
         history_context=history_ctx if isinstance(history_ctx, str) else "",
     )
-
 
 
 @router.post("/outfit/stream")
@@ -466,7 +464,6 @@ async def packing(body: PackingRequest, user_id: CurrentUser, session: DbSession
         user_style_profile=prof,
         rag_context=packing_ctx or None,
     )
-
 
 
 @router.post("/packing/stream")

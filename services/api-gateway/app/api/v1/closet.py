@@ -55,6 +55,7 @@ def _ws_push(user_id: str, data: dict) -> None:
     except Exception:
         pass
 
+
 router = APIRouter(prefix="/closet", tags=["Closet"])
 settings = get_settings()
 
@@ -351,7 +352,6 @@ async def bulk_upload_items(
     if created:
         await cache_service.invalidate_user_ai_cache(await get_redis(), user_id)
     return BulkUploadResponse(created=created, failed=failed)
-
 
 
 # ── Update / delete ───────────────────────────────────────────────────────────
