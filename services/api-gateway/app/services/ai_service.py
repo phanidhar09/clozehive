@@ -27,21 +27,26 @@ def _get_client():
     return _client
 
 
-def _normalise_messages(messages: list[dict[str, Any]]) -> list[dict[str, str]]:
-    normalised: list[dict[str, str]] = []
+def _normalise_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    normalised: list[dict[str, Any]] = []
     for message in messages:
         role = str(message.get("role", "user"))
         if role not in {"user", "assistant"}:
             continue
         content = message.get("content", "")
-        if not isinstance(content, str):
-            content = str(content)
-        if content.strip():
-            normalised.append({"role": role, "content": content})
+        if isinstance(content, list):
+            # Vision message — pass through as-is (OpenAI multimodal content array)
+            if content:
+                normalised.append({"role": role, "content": content})
+        else:
+            if not isinstance(content, str):
+                content = str(content)
+            if content.strip():
+                normalised.append({"role": role, "content": content})
     return normalised
 
 
-def _chat_messages(system_prompt: str, messages: list[dict[str, Any]]) -> list[dict[str, str]]:
+def _chat_messages(system_prompt: str, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [{"role": "system", "content": system_prompt}, *_normalise_messages(messages)]
 
 

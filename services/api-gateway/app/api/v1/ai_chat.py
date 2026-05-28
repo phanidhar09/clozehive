@@ -47,6 +47,7 @@ class SendMessageRequest(BaseModel):
     session_id: Optional[str] = None  # if None, creates a new session
     context: Optional[ChatContext] = None
     history: list[dict[str, str]] = Field(default_factory=list)
+    images: list[str] = Field(default_factory=list, max_length=3)  # base64 data-URLs
 
 
 class FeedbackRequest(BaseModel):
@@ -228,6 +229,7 @@ async def send_message(
             message=body.message,
             context=ctx,
             chat_history=body.history,
+            images=body.images or [],
         )
     except Exception as exc:
         logger.error("ai_stylist_chat_error", error=str(exc), user_id=user_id)

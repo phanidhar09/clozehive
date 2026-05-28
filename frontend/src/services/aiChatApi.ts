@@ -57,6 +57,7 @@ export interface SendMessageOptions {
   sessionId?: string | null
   context?: AIChatContext
   history?: Array<{ role: string; content: string }>
+  images?: string[]  // base64 data-URL strings (compressed client-side)
 }
 
 export interface SendMessageResponse {
@@ -75,6 +76,7 @@ export async function sendMessage(opts: SendMessageOptions): Promise<SendMessage
     session_id: opts.sessionId ?? null,
     context: opts.context ?? {},
     history: opts.history ?? [],
+    images: opts.images ?? [],
   })
   return data
 }

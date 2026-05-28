@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   Menu, Search, LogOut, User, Settings, UserPlus, UserCheck, Loader2, X,
-  Moon, Sun, Sparkles, Heart, BarChart3, ShoppingBag, ShoppingCart, ChevronRight,
+  Moon, Sun, Sparkles, Heart, BarChart3, ShoppingBag, ShoppingCart, ChevronRight, Plane,
 } from 'lucide-react'
 import { useApp } from '@/store'
 import { useColorScheme } from '@/hooks/useColorScheme'
@@ -30,11 +30,12 @@ const TITLES: Record<string, string> = {
 
 /* ── Premium profile hover dropdown ────────────────────────────────────────── */
 
-const WARDROBE_LINKS = [
-  { to: '/shopping-check', label: 'Shop Smart Check', icon: ShoppingCart, gradient: 'from-green-500 to-emerald-500',  desc: 'Buy or skip in-store items' },
+const MORE_LINKS = [
   { to: '/saved-outfits',  label: 'Saved Outfits',    icon: Heart,        gradient: 'from-rose-500 to-pink-500',     desc: 'Your FANI-curated looks' },
-  { to: '/analytics',      label: 'Closet Insights',  icon: BarChart3,    gradient: 'from-violet-500 to-indigo-500', desc: 'Wear analytics & trends' },
+  { to: '/analytics',      label: 'Style Insights',   icon: BarChart3,    gradient: 'from-violet-500 to-indigo-500', desc: 'Wear analytics & trends' },
   { to: '/purchase-gaps',  label: 'Wardrobe Gaps',    icon: ShoppingBag,  gradient: 'from-amber-500 to-orange-500',  desc: 'What your closet is missing' },
+  { to: '/shopping-check', label: 'Shop Smart Check', icon: ShoppingCart, gradient: 'from-green-500 to-emerald-500', desc: 'Buy or skip in-store items' },
+  { to: '/travel',         label: 'Travel Packing',   icon: Plane,        gradient: 'from-sky-500 to-cyan-500',      desc: 'Pack smart for any trip' },
 ]
 
 function ProfileDropdown({ onNavigate }: { onNavigate: (to: string) => void }) {
@@ -87,13 +88,13 @@ function ProfileDropdown({ onNavigate }: { onNavigate: (to: string) => void }) {
         </div>
       </div>
 
-      {/* ── My Wardrobe section ───────────────────────────────────────────── */}
+      {/* ── More section ──────────────────────────────────────────────────── */}
       <div className="px-3 pt-3 pb-1">
         <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate-400 dark:text-white/30 px-2 mb-1.5">
-          My Wardrobe
+          More
         </p>
         <div className="space-y-0.5">
-          {WARDROBE_LINKS.map(({ to, label, icon: Icon, gradient, desc }) => (
+          {MORE_LINKS.map(({ to, label, icon: Icon, gradient, desc }) => (
             <button
               key={to}
               onClick={() => go(to)}

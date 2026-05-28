@@ -412,6 +412,7 @@ async def process_chat_message(
     message: str,
     context: dict[str, Any] | None = None,
     chat_history: list[dict[str, str]] | None = None,
+    images: list[str] | None = None,
 ) -> dict[str, Any]:
     """
     Full RAG pipeline for a single AI stylist chat turn.
@@ -516,6 +517,14 @@ async def process_chat_message(
     )
 
     # ── Step 4: Assemble system prompt ────────────────────────────────────────
+    user_images = [img for img in (images or []) if img.startswith("data:image/")][:3]
+    image_instruction = (
+        "\n[IMAGE ANALYSIS] The user has attached image(s) showing their outfit or clothing. "
+        "Carefully analyse the visible items — colours, fit, silhouette, style, and occasion-appropriateness. "
+        "Reference specific details you observe in the image when giving feedback. "
+        "Cross-reference with their wardrobe to suggest complementary pieces they already own.\n"
+        if user_images else ""
+    )
     system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(
         wardrobe_block=_build_wardrobe_block(closet_items),
         profile_block=_build_profile_block(user_profile),
@@ -523,7 +532,7 @@ async def process_chat_message(
         feedback_block=_build_feedback_block(feedback_text),
         fashion_rules_block=f"\n{fashion_rules_block}",
         knowledge_block=_build_knowledge_block(knowledge_text),
-    )
+    ) + image_instruction
 
     # ── Step 5: Build conversation messages ───────────────────────────────────
     # Sanitise every user-supplied string before it enters the conversation.
@@ -546,7 +555,20 @@ async def process_chat_message(
     else:
         # No specific occasion given — instruct FANI to cover all profile occasions
         augmented_message += "\n[No specific occasion requested — please build outfits for all occasions in the user's occasion_preferences profile list (max 4). If empty, default to: casual, work, and evening.]"
-    messages.append({"role": "user", "content": augmented_message})
+
+    # Build vision message when images are attached
+    user_images = [img for img in (images or []) if img.startswith("data:image/")][:3]
+    if user_images:
+        content: list[dict[str, Any]] = [{"type": "text", "text": augmented_message}]
+        for img_b64 in user_images:
+            content.append({
+                "type": "image_url",
+                "image_url": {"url": img_b64, "detail": "high"},
+            })
+        messages.append({"role": "user", "content": content})
+        logger.info("vision_message_built", user_id=str(user_id), image_count=len(user_images))
+    else:
+        messages.append({"role": "user", "content": augmented_message})
 
     # ── Call AI ───────────────────────────────────────────────────────────────
     try:

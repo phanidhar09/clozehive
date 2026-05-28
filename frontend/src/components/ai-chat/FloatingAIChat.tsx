@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { AnimatePresence, motion, useMotionValue } from 'framer-motion'
-import { Lightbulb, Sparkles, X, Maximize2, Send, Square, AlertTriangle, RefreshCw } from 'lucide-react'
+import { Lightbulb, Sparkles, X, Maximize2, Send, Square, AlertTriangle, RefreshCw, ImagePlus } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { generateId } from '@/lib/utils'
@@ -60,7 +60,20 @@ function Bubble({ msg, streaming = false, sessionId, onFollowUp }: BubbleProps) 
       </div>
 
       <div className={cn('flex flex-col gap-2 max-w-[80%]', isUser && 'items-end')}>
-        {msg.content && (
+        {/* User image thumbnails */}
+        {isUser && msg.images && msg.images.length > 0 && (
+          <div className="flex gap-1.5 flex-wrap justify-end">
+            {msg.images.map((src, i) => (
+              <img
+                key={i}
+                src={src}
+                alt="uploaded"
+                className="w-20 h-20 object-cover rounded-xl rounded-tr-sm shadow-sm"
+              />
+            ))}
+          </div>
+        )}
+        {msg.content && msg.content !== '(see attached image)' && (
           <div className={cn(
             'px-3 py-2 rounded-2xl text-xs leading-relaxed',
             isUser
@@ -159,16 +172,43 @@ function Bubble({ msg, streaming = false, sessionId, onFollowUp }: BubbleProps) 
 
 // ── Draggable floating button + chat popup ────────────────────────────────────
 
+const MAX_IMAGES = 3
+
+function compressImage(file: File, maxPx = 1120, quality = 0.82): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const img = new Image()
+      img.onload = () => {
+        const scale = Math.min(1, maxPx / Math.max(img.width, img.height))
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.round(img.width * scale)
+        canvas.height = Math.round(img.height * scale)
+        const ctx = canvas.getContext('2d')
+        if (!ctx) { reject(new Error('canvas')); return }
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+        resolve(canvas.toDataURL('image/jpeg', quality))
+      }
+      img.onerror = reject
+      img.src = e.target!.result as string
+    }
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
+
 export default function FloatingAIChat() {
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState<StylistChatMessage[]>([WELCOME])
   const [input, setInput] = useState('')
+  const [images, setImages] = useState<string[]>([])
   const [streaming, setStreaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const cancelRef = useRef(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const isDragging = useRef(false)
 
   // ── Persisted drag position ───────────────────────────────────────────────
@@ -214,14 +254,23 @@ export default function FloatingAIChat() {
   }, [messages, open])
 
   // ── Send message ──────────────────────────────────────────────────────────
-  const send = useCallback(async (text: string, ctx?: AIChatContext) => {
+  const send = useCallback(async (text: string, ctx?: AIChatContext, imgs?: string[]) => {
     const trimmed = text.trim()
-    if (!trimmed || streaming) return
+    const attachedImages = imgs ?? images
+    if (!trimmed && attachedImages.length === 0) return
+    if (streaming) return
     cancelRef.current = false
 
-    const userMsg: StylistChatMessage = { id: generateId(), role: 'user', content: trimmed, timestamp: new Date() }
+    const userMsg: StylistChatMessage = {
+      id: generateId(),
+      role: 'user',
+      content: trimmed || '(see attached image)',
+      images: attachedImages.length > 0 ? attachedImages : undefined,
+      timestamp: new Date(),
+    }
     setMessages(m => [...m, userMsg])
     setInput('')
+    setImages([])
     setStreaming(true)
     setError(null)
 
@@ -233,7 +282,13 @@ export default function FloatingAIChat() {
         .filter(m => m.role !== 'assistant' || m.id !== 'welcome')
         .map(m => ({ role: m.role, content: m.content }))
 
-      const res = await sendMessage({ message: trimmed, sessionId, context: ctx, history })
+      const res = await sendMessage({
+        message: trimmed || '(see attached image)',
+        sessionId,
+        context: ctx,
+        history,
+        images: attachedImages.length > 0 ? attachedImages : undefined,
+      })
       if (cancelRef.current) return
 
       setSessionId(res.session_id)
@@ -259,10 +314,19 @@ export default function FloatingAIChat() {
     } finally {
       setStreaming(false)
     }
-  }, [streaming, messages, sessionId])
+  }, [streaming, messages, sessionId, images])
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? [])
+    if (!files.length) return
+    const remaining = MAX_IMAGES - images.length
+    const compressed = await Promise.all(files.slice(0, remaining).map(f => compressImage(f)))
+    setImages(prev => [...prev, ...compressed])
+    e.target.value = ''
+  }
 
   const stopStreaming = () => { cancelRef.current = true; setStreaming(false) }
-  const newChat = () => { cancelRef.current = true; setStreaming(false); setMessages([WELCOME]); setSessionId(null); setError(null) }
+  const newChat = () => { cancelRef.current = true; setStreaming(false); setMessages([WELCOME]); setSessionId(null); setError(null); setImages([]) }
 
   return (
     <>
@@ -410,28 +474,80 @@ export default function FloatingAIChat() {
             )}
 
             {/* Input */}
-            <div className="px-3 pb-3 flex-shrink-0 border-t border-cream-100 dark:border-slate-700 pt-2">
-              <div className="flex gap-2 items-end">
+            <div className="px-3 pb-3 flex-shrink-0 border-t border-cream-100 dark:border-slate-700 pt-2 space-y-2">
+              {/* Image thumbnails */}
+              {images.length > 0 && (
+                <div className="flex gap-1.5 flex-wrap">
+                  {images.map((src, i) => (
+                    <div key={i} className="relative group w-12 h-12 rounded-lg overflow-hidden border border-cream-200 dark:border-slate-600 flex-shrink-0">
+                      <img src={src} alt="" className="w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={() => setImages(prev => prev.filter((_, j) => j !== i))}
+                        className="absolute inset-0 bg-black/50 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <X size={10} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex gap-1.5 items-center">
+                {/* Image upload button */}
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={streaming || images.length >= MAX_IMAGES}
+                  title="Attach photo"
+                  className={cn(
+                    'w-8 h-8 rounded-xl border flex items-center justify-center flex-shrink-0 transition-colors',
+                    images.length > 0
+                      ? 'bg-brand-50 dark:bg-brand-900/30 border-brand-300 dark:border-brand-700 text-brand-500'
+                      : 'border-cream-200 dark:border-slate-600 bg-slate-50 dark:bg-slate-800 text-slate-400 hover:border-brand-400 hover:text-brand-500',
+                    (streaming || images.length >= MAX_IMAGES) && 'opacity-40 cursor-not-allowed',
+                  )}
+                >
+                  <ImagePlus size={13} />
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={handleFileChange}
+                />
+
                 <input
                   ref={inputRef}
                   value={input}
                   onChange={e => setInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input) } }}
-                  placeholder="Ask about outfits…"
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      send(input)
+                    }
+                  }}
+                  placeholder={images.length > 0 ? 'Add a note…' : 'Ask about outfits…'}
                   disabled={streaming}
                   className="flex-1 bg-slate-50 dark:bg-slate-800 border border-cream-200 dark:border-slate-600 rounded-xl px-3 py-2 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-brand-400 disabled:opacity-50"
                 />
                 {streaming ? (
-                  <button onClick={stopStreaming} className="w-9 h-9 rounded-xl bg-red-500 hover:bg-red-600 flex items-center justify-center flex-shrink-0">
-                    <Square size={12} className="text-white fill-white" />
+                  <button onClick={stopStreaming} className="w-8 h-8 rounded-xl bg-red-500 hover:bg-red-600 flex items-center justify-center flex-shrink-0">
+                    <Square size={11} className="text-white fill-white" />
                   </button>
                 ) : (
-                  <button onClick={() => send(input)} disabled={!input.trim()} className="w-9 h-9 rounded-xl bg-gradient-brand flex items-center justify-center flex-shrink-0 hover:opacity-90 active:scale-95 transition-all disabled:opacity-40">
-                    <Send size={13} className="text-white" />
+                  <button
+                    onClick={() => send(input)}
+                    disabled={!input.trim() && images.length === 0}
+                    className="w-8 h-8 rounded-xl bg-gradient-brand flex items-center justify-center flex-shrink-0 hover:opacity-90 active:scale-95 transition-all disabled:opacity-40"
+                  >
+                    <Send size={12} className="text-white" />
                   </button>
                 )}
               </div>
-              <button onClick={newChat} className="mt-1.5 text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
+              <button onClick={newChat} className="text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
                 + New chat
               </button>
             </div>

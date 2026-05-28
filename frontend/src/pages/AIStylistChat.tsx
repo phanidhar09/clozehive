@@ -84,13 +84,27 @@ function apiMsgToStylist(m: {
 
 // ── Bubble sub-components ─────────────────────────────────────────────────────
 
-function UserBubble({ content }: { content: string }) {
+function UserBubble({ content, images }: { content: string; images?: string[] }) {
   return (
     <div className="flex justify-end gap-3 animate-slide-up">
-      <div className="max-w-[75%]">
-        <div className="px-4 py-3 rounded-2xl rounded-tr-sm text-sm leading-relaxed bg-gradient-brand text-white shadow-sm">
-          <span style={{ whiteSpace: 'pre-wrap' }}>{content}</span>
-        </div>
+      <div className="max-w-[75%] flex flex-col items-end gap-2">
+        {images && images.length > 0 && (
+          <div className="flex gap-2 flex-wrap justify-end">
+            {images.map((src, i) => (
+              <img
+                key={i}
+                src={src}
+                alt="uploaded"
+                className="w-28 h-28 object-cover rounded-2xl rounded-tr-sm shadow-sm border border-white/20"
+              />
+            ))}
+          </div>
+        )}
+        {content && content !== '(see attached image)' && (
+          <div className="px-4 py-3 rounded-2xl rounded-tr-sm text-sm leading-relaxed bg-gradient-brand text-white shadow-sm">
+            <span style={{ whiteSpace: 'pre-wrap' }}>{content}</span>
+          </div>
+        )}
       </div>
       <div className="w-8 h-8 rounded-full bg-gradient-brand flex-shrink-0 flex items-center justify-center text-white text-xs font-bold shadow-sm mt-0.5 select-none">
         You
@@ -522,12 +536,19 @@ export default function AIStylistChat() {
   }, [])
 
   // ── Send message ─────────────────────────────────────────────────────────────
-  const send = useCallback(async (text: string, ctx?: AIChatContext) => {
+  const send = useCallback(async (text: string, ctx?: AIChatContext, images?: string[]) => {
     const trimmed = text.trim()
-    if (!trimmed || streaming) return
+    if (!trimmed && (!images || images.length === 0)) return
+    if (streaming) return
     cancelRef.current = false
 
-    const userMsg: StylistChatMessage = { id: generateId(), role: 'user', content: trimmed, timestamp: new Date() }
+    const userMsg: StylistChatMessage = {
+      id: generateId(),
+      role: 'user',
+      content: trimmed || '(see attached image)',
+      images,
+      timestamp: new Date(),
+    }
     setMessages(m => [...m, userMsg])
     setStreaming(true)
     setError(null)
@@ -541,7 +562,7 @@ export default function AIStylistChat() {
         .slice(-12)
         .map(m => ({ role: m.role, content: m.content }))
 
-      const res = await sendMessage({ message: trimmed, sessionId, context: ctx, history })
+      const res = await sendMessage({ message: trimmed || '(see attached image)', sessionId, context: ctx, history, images })
       if (cancelRef.current) return
 
       setSessionId(res.session_id)
@@ -674,7 +695,7 @@ export default function AIStylistChat() {
           <div className="flex-1 overflow-y-auto chat-scroll space-y-4 pb-4 min-h-0">
             {messages.map(msg =>
               msg.role === 'user' ? (
-                <UserBubble key={msg.id} content={msg.content} />
+                <UserBubble key={msg.id} content={msg.content} images={msg.images} />
               ) : (
                 <AssistantBubble
                   key={msg.id}

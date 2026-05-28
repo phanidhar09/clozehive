@@ -741,6 +741,7 @@ export interface StylistChatMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
+  images?: string[]             // base64 data-URL strings attached by the user
   structured?: AIChatStructuredResponse | null
   timestamp: Date
 }

@@ -1,9 +1,9 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
-  Home, Shirt, Plane,
+  Home, Shirt,
   X, Moon, Sun, LogOut, Wand2, PlusCircle,
-  Sparkles, Heart, BarChart3, ShoppingBag, ShoppingCart,
+  Sparkles,
   type LucideIcon,
 } from 'lucide-react'
 import { useApp } from '@/store'
@@ -18,19 +18,11 @@ type SidebarNavItem = {
 }
 
 const NAV_MAIN: SidebarNavItem[] = [
-  { to: '/dashboard',       label: 'Home',                icon: Home },
-  { to: '/closet',          label: 'My Closet',           icon: Shirt },
-  { to: '/outfit-builder',  label: 'Outfit Builder',      icon: Wand2,        gradient: 'from-pink-500 to-rose-600' },
-  { to: '/upload',          label: 'Add to Your Closet',  icon: PlusCircle,   gradient: 'from-violet-500 to-indigo-600' },
-  { to: '/travel',          label: 'Travel Packing',      icon: Plane },
-]
-
-const NAV_WARDROBE: SidebarNavItem[] = [
-  { to: '/ai-stylist',      label: 'FANI AI Stylist',     icon: Sparkles,     gradient: 'from-violet-500 to-fuchsia-600' },
-  { to: '/shopping-check',  label: 'Shop Smart Check',    icon: ShoppingCart, gradient: 'from-green-500 to-emerald-600' },
-  { to: '/saved-outfits',   label: 'Saved Outfits',       icon: Heart },
-  { to: '/analytics',       label: 'Style Insights',      icon: BarChart3 },
-  { to: '/purchase-gaps',   label: 'Wardrobe Gaps',       icon: ShoppingBag },
+  { to: '/dashboard',      label: 'Home',               icon: Home },
+  { to: '/closet',         label: 'My Closet',          icon: Shirt },
+  { to: '/outfit-builder', label: 'Outfit Builder',     icon: Wand2,     gradient: 'from-pink-500 to-rose-600' },
+  { to: '/upload',         label: 'Add to Closet',      icon: PlusCircle, gradient: 'from-violet-500 to-indigo-600' },
+  { to: '/ai-stylist',     label: 'FANI AI Stylist',    icon: Sparkles,  gradient: 'from-violet-500 to-fuchsia-600' },
 ]
 
 export default function Sidebar() {
@@ -99,10 +91,6 @@ export default function Sidebar() {
 
         {/* ── Navigation ───────────────────────────────────────────────── */}
         <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-0.5">
-          <p className="text-[10px] font-semibold uppercase tracking-widest
-                        text-slate-400 dark:text-white/25 px-3 mb-2">
-            Wardrobe
-          </p>
           {NAV_MAIN.map(({ to, label, icon: Icon, gradient }) => (
             <NavLink
               key={to}
@@ -115,37 +103,6 @@ export default function Sidebar() {
                   {isActive && (
                     <motion.div
                       layoutId="sidebar-active-main"
-                      className="absolute inset-0 rounded-xl bg-slate-100 dark:bg-white/[0.10]"
-                      transition={{ duration: 0.18, ease: 'easeOut' }}
-                    />
-                  )}
-                  <span className={cn('relative z-10 flex-shrink-0', gradient && `flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br ${gradient} text-white`)}>
-                    <Icon size={17} />
-                  </span>
-                  <span className="relative z-10">{label}</span>
-                </>
-              )}
-            </NavLink>
-          ))}
-
-          <div className="pt-4 pb-1">
-            <p className="text-[10px] font-semibold uppercase tracking-widest
-                          text-slate-400 dark:text-white/25 px-3 mb-2">
-              Discover
-            </p>
-          </div>
-          {NAV_WARDROBE.map(({ to, label, icon: Icon, gradient }) => (
-            <NavLink
-              key={to}
-              to={to}
-              onClick={() => setSidebarOpen(false)}
-              className={({ isActive }) => cn('nav-item relative overflow-hidden', isActive && 'active')}
-            >
-              {({ isActive }) => (
-                <>
-                  {isActive && (
-                    <motion.div
-                      layoutId="sidebar-active-wardrobe"
                       className="absolute inset-0 rounded-xl bg-slate-100 dark:bg-white/[0.10]"
                       transition={{ duration: 0.18, ease: 'easeOut' }}
                     />
