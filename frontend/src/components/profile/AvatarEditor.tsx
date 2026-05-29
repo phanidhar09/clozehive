@@ -118,7 +118,7 @@ function Pill({ label, selected, onClick }: { label: string; selected: boolean; 
       className={cn(
         'px-3 py-1.5 rounded-lg text-xs font-semibold transition-all',
         selected
-          ? 'bg-gradient-to-r from-indigo-500 to-violet-600 text-white shadow-glow-sm'
+          ? 'bg-gradient-to-r from-brand-600 to-brand-700 text-white shadow-glow-sm'
           : 'bg-cream-100 dark:bg-white/[0.06] text-slate-600 dark:text-white/70 hover:bg-cream-200 dark:hover:bg-white/[0.10]',
       )}
     >
@@ -134,7 +134,7 @@ function Swatch({ color, label, selected, onClick }: { color: string; label: str
       title={label}
       className={cn(
         'w-8 h-8 rounded-full border-2 transition-all',
-        selected ? 'border-indigo-500 scale-110 shadow-md' : 'border-transparent hover:scale-105',
+        selected ? 'border-brand-500 scale-110 shadow-md' : 'border-transparent hover:scale-105',
       )}
       style={{ backgroundColor: color }}
     />
@@ -183,7 +183,7 @@ export default function AvatarEditor({ config, onChange, compact = false }: Avat
       </div>
 
       <div className={cn(compact ? '' : 'md:col-span-2')}>
-        <div className="rounded-2xl bg-gradient-to-b from-indigo-50 to-cream-100 dark:from-indigo-500/[0.08] dark:to-white/[0.02] border border-cream-200 dark:border-white/[0.06] p-4 aspect-square max-w-[280px] mx-auto">
+        <div className="rounded-2xl bg-gradient-to-b from-brand-50 to-cream-100 dark:from-brand-600/[0.08] dark:to-white/[0.02] border border-cream-200 dark:border-white/[0.06] p-4 aspect-square max-w-[280px] mx-auto">
           <AvatarSVG config={c} />
         </div>
       </div>

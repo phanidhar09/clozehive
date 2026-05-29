@@ -166,9 +166,9 @@ function AddToClosetButton({ checkId }: { checkId: string }) {
       onClick={handleAdd}
       disabled={status === 'loading'}
       className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold
-                 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400
-                 hover:bg-indigo-100 dark:hover:bg-indigo-900/40
-                 border border-indigo-200 dark:border-indigo-700/40
+                 bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-400
+                 hover:bg-brand-100 dark:hover:bg-brand-900/40
+                 border border-brand-200 dark:border-brand-700/40
                  transition-colors disabled:opacity-50"
     >
       {status === 'loading'
@@ -242,9 +242,9 @@ function ResultCard({
         {/* Closet boost */}
         {result.closet_boost_pct > 0 && (
           <div className="mt-4 flex items-center gap-2 px-3 py-2 rounded-xl
-                          bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800/30">
-            <TrendingUp size={15} className="text-indigo-500 flex-shrink-0" />
-            <p className="text-sm text-indigo-700 dark:text-indigo-400">
+                          bg-brand-50 dark:bg-brand-900/20 border border-brand-100 dark:border-brand-800/30">
+            <TrendingUp size={15} className="text-brand-500 flex-shrink-0" />
+            <p className="text-sm text-brand-700 dark:text-brand-400">
               Buying this would boost your wardrobe completeness by{' '}
               <span className="font-bold">+{result.closet_boost_pct}%</span>
             </p>
@@ -255,7 +255,7 @@ function ResultCard({
       {/* Reasoning */}
       <GlassCard className="p-4 space-y-2">
         <div className="flex items-center gap-2">
-          <Sparkles size={15} className="text-violet-500" />
+          <Sparkles size={15} className="text-brand-500" />
           <h3 className="text-sm font-semibold text-slate-800 dark:text-white">FANI's Take</h3>
         </div>
         <p className="text-sm text-slate-600 dark:text-white/70 leading-relaxed">{result.reasoning}</p>
@@ -329,9 +329,9 @@ function ResultCard({
       <button
         onClick={onReset}
         className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold
-                   text-indigo-600 dark:text-indigo-400
-                   hover:bg-indigo-50 dark:hover:bg-indigo-900/20
-                   border border-indigo-200 dark:border-indigo-700/40
+                   text-brand-600 dark:text-brand-400
+                   hover:bg-brand-50 dark:hover:bg-brand-900/20
+                   border border-brand-200 dark:border-brand-700/40
                    transition-colors"
       >
         <RotateCcw size={14} />
@@ -487,8 +487,8 @@ function UploadZone({ onFile }: { onFile: (f: File) => void }) {
         'p-10 flex flex-col items-center justify-center gap-4 cursor-pointer',
         'border-2 border-dashed transition-colors',
         dragging
-          ? 'border-indigo-400 bg-indigo-50/50 dark:bg-indigo-900/10'
-          : 'border-slate-300 dark:border-white/20 hover:border-indigo-400',
+          ? 'border-brand-400 bg-brand-50/50 dark:bg-brand-900/10'
+          : 'border-slate-300 dark:border-white/20 hover:border-brand-400',
       )}
       onClick={() => inputRef.current?.click()}
       onDragOver={e => { e.preventDefault(); setDragging(true) }}
@@ -509,7 +509,7 @@ function UploadZone({ onFile }: { onFile: (f: File) => void }) {
         onChange={e => { const f = e.target.files?.[0]; if (f) handle(f) }}
       />
 
-      <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600
+      <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-brand-600 to-brand-700
                       flex items-center justify-center shadow-glow-sm">
         <Camera size={30} className="text-white" />
       </div>
@@ -608,9 +608,9 @@ export default function ShoppingCheck() {
         <a
           href="/closet-match"
           className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold
-                     bg-violet-50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-400
-                     border border-violet-200 dark:border-violet-700/40 hover:bg-violet-100
-                     dark:hover:bg-violet-900/40 transition-colors whitespace-nowrap"
+                     bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-400
+                     border border-brand-200 dark:border-brand-700/40 hover:bg-brand-100
+                     dark:hover:bg-brand-900/40 transition-colors whitespace-nowrap"
         >
           <Shirt size={13} />
           Complete My Look
@@ -626,7 +626,7 @@ export default function ShoppingCheck() {
             { icon: TrendingUp, label: 'See the impact', desc: 'How it completes your closet' },
           ].map(({ icon: Icon, label, desc }) => (
             <GlassCard key={label} className="p-3 text-center space-y-1.5">
-              <Icon size={20} className="mx-auto text-indigo-500 dark:text-indigo-400" />
+              <Icon size={20} className="mx-auto text-brand-500 dark:text-brand-400" />
               <p className="text-xs font-semibold text-slate-800 dark:text-white">{label}</p>
               <p className="text-[11px] text-slate-500 dark:text-white/45">{desc}</p>
             </GlassCard>
@@ -664,7 +664,7 @@ export default function ShoppingCheck() {
             <AlertCircle size={18} />
             <p className="text-sm font-medium">{error}</p>
           </div>
-          <button onClick={reset} className="text-sm text-indigo-600 dark:text-indigo-400 hover:underline">
+          <button onClick={reset} className="text-sm text-brand-600 dark:text-brand-400 hover:underline">
             Try again
           </button>
         </GlassCard>

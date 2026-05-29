@@ -53,7 +53,7 @@ function ScoreBar({ label, value, max }: { label: string; value: number; max: nu
       <span className="w-20 text-slate-500 dark:text-slate-400 capitalize">{label}</span>
       <div className="flex-1 h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
         <div
-          className="h-full rounded-full bg-gradient-to-r from-brand-400 to-violet-500"
+          className="h-full rounded-full bg-gradient-to-r from-brand-400 to-brand-600"
           style={{ width: `${pct}%` }}
         />
       </div>

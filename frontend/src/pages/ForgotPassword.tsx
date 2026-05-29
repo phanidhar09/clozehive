@@ -76,8 +76,8 @@ export default function ForgotPassword() {
 
         <div className="text-center space-y-2">
           <div className="flex justify-center">
-            <div className="w-14 h-14 rounded-2xl bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center">
-              <Mail className="text-violet-500" size={28} />
+            <div className="w-14 h-14 rounded-2xl bg-brand-100 dark:bg-brand-900/30 flex items-center justify-center">
+              <Mail className="text-brand-500" size={28} />
             </div>
           </div>
           <h1 className="font-display font-bold text-2xl text-slate-800 dark:text-white">
@@ -103,7 +103,7 @@ export default function ForgotPassword() {
               placeholder="you@example.com"
               className="w-full rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5
                          px-4 py-2.5 text-sm text-slate-800 dark:text-white placeholder:text-slate-400
-                         focus:outline-none focus:ring-2 focus:ring-violet-500 transition"
+                         focus:outline-none focus:ring-2 focus:ring-brand-500 transition"
             />
           </div>
 
@@ -114,7 +114,7 @@ export default function ForgotPassword() {
           <button
             type="submit"
             disabled={loading || !email}
-            className="w-full rounded-xl bg-gradient-to-r from-brand-500 to-violet-500 text-white
+            className="w-full rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 text-white
                        py-2.5 text-sm font-semibold shadow-sm hover:opacity-90 disabled:opacity-50
                        transition flex items-center justify-center gap-2"
           >

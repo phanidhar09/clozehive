@@ -21,7 +21,7 @@ const NAV_MAIN: SidebarNavItem[] = [
   { to: '/dashboard',  label: 'Home',            icon: Home },
   { to: '/closet',     label: 'My Closet',       icon: Shirt },
   { to: '/travel',     label: 'Travel Packing',  icon: Plane,    gradient: 'from-sky-500 to-cyan-500' },
-  { to: '/ai-stylist', label: 'FANI AI Stylist', icon: Sparkles, gradient: 'from-violet-500 to-fuchsia-600' },
+  { to: '/ai-stylist', label: 'FANI AI Stylist', icon: Sparkles, gradient: 'from-brand-500 to-brand-600' },
 ]
 
 export default function Sidebar() {
@@ -64,7 +64,7 @@ export default function Sidebar() {
         <div className="flex items-center justify-between px-5 h-16 border-b border-cream-200 dark:border-white/[0.07] flex-shrink-0">
           <div className="flex items-center gap-3">
             {/* Logo mark with glow */}
-            <div className="relative w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600
+            <div className="relative w-9 h-9 rounded-xl bg-gradient-to-br from-brand-600 to-brand-700
                             flex items-center justify-center text-sm font-bold text-white
                             shadow-glow-sm">
               <span className="relative z-10">C</span>
@@ -129,7 +129,7 @@ export default function Sidebar() {
           >
             {colorScheme === 'dark'
               ? <Sun size={16} className="text-amber-400" />
-              : <Moon size={16} className="text-indigo-400" />}
+              : <Moon size={16} className="text-brand-400" />}
             {colorScheme === 'dark' ? 'Light mode' : 'Dark mode'}
           </button>
 
@@ -143,9 +143,9 @@ export default function Sidebar() {
                 className="flex items-center gap-3 px-3 py-2.5 min-h-[44px]
                            hover:bg-slate-100 dark:hover:bg-white/[0.05] transition-colors"
               >
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-600 to-brand-700
                                 flex items-center justify-center text-xs font-bold text-white flex-shrink-0
-                                ring-2 ring-indigo-400/20 overflow-hidden">
+                                ring-2 ring-brand-400/20 overflow-hidden">
                   {currentUser.avatar_url
                     ? <img src={currentUser.avatar_url} alt="" className="w-full h-full object-cover" />
                     : initials}
@@ -174,7 +174,7 @@ export default function Sidebar() {
             <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl
                             bg-slate-50 dark:bg-white/[0.04]
                             border border-cream-200 dark:border-white/[0.07]">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-600 to-brand-700
                               flex items-center justify-center text-xs font-bold text-white">?</div>
               <div className="text-sm text-slate-400 dark:text-white/40">Not signed in</div>
             </div>

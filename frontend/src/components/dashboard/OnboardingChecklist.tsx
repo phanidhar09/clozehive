@@ -100,7 +100,7 @@ export default function OnboardingChecklist() {
   }
 
   return (
-    <div className="relative rounded-3xl border border-indigo-200/70 bg-gradient-to-br from-indigo-50/90 via-white/60 to-violet-50/80 p-5 dark:border-indigo-500/20 dark:from-indigo-950/40 dark:via-slate-900/20 dark:to-violet-950/30">
+    <div className="relative rounded-3xl border border-brand-200/70 bg-gradient-to-br from-brand-50/90 via-white/60 to-brand-50/80 p-5 dark:border-brand-500/20 dark:from-brand-900/40 dark:via-slate-900/20 dark:to-brand-900/30">
 
       {/* Dismiss */}
       <button
@@ -115,7 +115,7 @@ export default function OnboardingChecklist() {
       <div className="mb-4 pr-6">
         {allDone ? (
           <div className="flex items-center gap-2">
-            <PartyPopper size={18} className="text-violet-500" />
+            <PartyPopper size={18} className="text-brand-500" />
             <div>
               <h3 className="font-display font-bold text-slate-800 dark:text-white">You're all set!</h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">Your wardrobe is ready. Dismiss this whenever.</p>
@@ -132,9 +132,9 @@ export default function OnboardingChecklist() {
       </div>
 
       {/* Progress bar */}
-      <div className="mb-4 h-1.5 overflow-hidden rounded-full bg-indigo-100 dark:bg-indigo-900/40">
+      <div className="mb-4 h-1.5 overflow-hidden rounded-full bg-brand-100 dark:bg-brand-900/40">
         <div
-          className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-violet-500 transition-all duration-500 ease-out"
+          className="h-full rounded-full bg-gradient-to-r from-brand-600 to-brand-600 transition-all duration-500 ease-out"
           style={{ width: `${progress}%` }}
         />
       </div>
@@ -160,14 +160,14 @@ export default function OnboardingChecklist() {
               to={step.href}
               className="group flex items-center gap-3 rounded-2xl px-3 py-2.5 transition-all hover:bg-white/70 dark:hover:bg-white/[0.05]"
             >
-              <Circle size={17} className="flex-shrink-0 text-indigo-300 dark:text-indigo-600" />
+              <Circle size={17} className="flex-shrink-0 text-brand-300 dark:text-brand-600" />
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold text-slate-700 dark:text-white">{step.label}</p>
                 <p className="text-xs text-slate-400 dark:text-white/40">{step.hint}</p>
               </div>
               <ChevronRight
                 size={14}
-                className="flex-shrink-0 text-slate-300 transition-colors group-hover:text-indigo-500 dark:text-white/20 dark:group-hover:text-indigo-400"
+                className="flex-shrink-0 text-slate-300 transition-colors group-hover:text-brand-500 dark:text-white/20 dark:group-hover:text-brand-400"
               />
             </Link>
           )

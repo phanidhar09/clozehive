@@ -23,16 +23,16 @@ const ARCHETYPE_META: Record<string, { emoji: string; color: string; tagline: st
   'Classic Minimalist':    { emoji: '🤍', color: 'from-slate-400 to-slate-600',    tagline: 'Clean, timeless, never overdressed.' },
   'Streetwear Edge':       { emoji: '🧢', color: 'from-zinc-600 to-zinc-900',      tagline: 'Urban energy, graphic intensity.' },
   'Bohemian Free Spirit':  { emoji: '🌸', color: 'from-amber-400 to-orange-500',   tagline: 'Earthy layers, flowing freedom.' },
-  'Corporate Power':       { emoji: '💼', color: 'from-indigo-500 to-indigo-700',  tagline: 'Sharp silhouettes, boardroom authority.' },
+  'Corporate Power':       { emoji: '💼', color: 'from-brand-600 to-brand-700',  tagline: 'Sharp silhouettes, boardroom authority.' },
   'Casual Comfort':        { emoji: '👕', color: 'from-sky-400 to-sky-600',        tagline: 'Effortless ease, everyday confidence.' },
   'Romantic Feminine':     { emoji: '🌹', color: 'from-rose-400 to-pink-600',      tagline: 'Soft details, elegant femininity.' },
   'Athleisure Athlete':    { emoji: '⚡', color: 'from-emerald-400 to-teal-600',   tagline: 'Performance meets street style.' },
   'Vintage Revivalist':    { emoji: '🎞️', color: 'from-amber-600 to-yellow-700',  tagline: 'Timeless classics, retro soul.' },
-  'Eclectic Creative':     { emoji: '🎨', color: 'from-purple-400 to-violet-600',  tagline: 'Bold mixes, no rules, all you.' },
+  'Eclectic Creative':     { emoji: '🎨', color: 'from-brand-400 to-brand-700',  tagline: 'Bold mixes, no rules, all you.' },
   'Outdoorsy Explorer':    { emoji: '🏕️', color: 'from-green-500 to-emerald-700', tagline: 'Durable, functional, adventure-proof.' },
 }
 
-const DEFAULT_META = { emoji: '✨', color: 'from-brand-400 to-violet-600', tagline: 'A style uniquely yours.' }
+const DEFAULT_META = { emoji: '✨', color: 'from-brand-400 to-brand-700', tagline: 'A style uniquely yours.' }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -178,7 +178,7 @@ export default function StyleProfileResult() {
               <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-400 mb-2">Where You Wear</p>
               <div className="flex flex-wrap gap-1.5">
                 {occasions.slice(0, 5).map(o => (
-                  <span key={o} className="rounded-full bg-violet-50 dark:bg-violet-500/15 border border-violet-200 dark:border-violet-500/30 text-violet-700 dark:text-violet-300 px-2.5 py-0.5 text-xs font-medium">
+                  <span key={o} className="rounded-full bg-brand-50 dark:bg-brand-500/15 border border-brand-200 dark:border-brand-500/30 text-brand-700 dark:text-brand-300 px-2.5 py-0.5 text-xs font-medium">
                     {label(OCCASION_LABELS, o)}
                   </span>
                 ))}

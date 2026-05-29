@@ -72,7 +72,7 @@ export default function OAuthCallback() {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center gap-6 bg-white dark:bg-slate-900">
-      <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-brand-500 to-violet-600 flex items-center justify-center shadow-lg">
+      <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center shadow-lg">
         <Sparkles size={26} className="text-white" />
       </div>
 

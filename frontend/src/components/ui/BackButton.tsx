@@ -39,7 +39,7 @@ export function BackButton({
         // Colours (light / dark)
         'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100',
         // Focus ring
-        'rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500',
+        'rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500',
         // Transition
         'transition-colors duration-150',
         className,

@@ -26,8 +26,8 @@ interface Props {
 
 function RAGBadge() {
   return (
-    <span className="inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-400 border border-violet-200 dark:border-violet-700/40">
-      <Zap size={8} className="fill-violet-600 dark:fill-violet-400" />
+    <span className="inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full bg-brand-100 dark:bg-brand-900/30 text-brand-700 dark:text-brand-400 border border-brand-200 dark:border-brand-700/40">
+      <Zap size={8} className="fill-brand-600 dark:fill-brand-400" />
       AI Vector Search
     </span>
   )
@@ -151,7 +151,7 @@ export default function SimilarityWarningBanner({ loading, error, items, itemNam
         'text-xs text-slate-500 dark:text-slate-400',
         className,
       )}>
-        <Loader2 size={13} className="animate-spin flex-shrink-0 text-violet-500" />
+        <Loader2 size={13} className="animate-spin flex-shrink-0 text-brand-500" />
         <span>FANI is scanning your closet for similar items…</span>
         <RAGBadge />
       </div>

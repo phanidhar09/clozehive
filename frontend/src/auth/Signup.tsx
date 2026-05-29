@@ -133,11 +133,11 @@ export default function Signup() {
     <div className="min-h-screen flex">
       {/* ── Left branding panel ──────────────────────────────── */}
       <div className="hidden lg:flex lg:w-[45%] relative overflow-hidden flex-col justify-between p-12"
-        style={{ background: 'linear-gradient(135deg, #18143A 0%, #3B35A0 50%, #7670F1 100%)' }}>
+        style={{ background: 'linear-gradient(135deg, #134E4A 0%, #0D9488 50%, #059669 100%)' }}>
 
         <div className="absolute -top-24 -right-24 w-72 h-72 rounded-full bg-white/5 blur-2xl" />
         <div className="absolute -bottom-32 -left-16 w-96 h-96 rounded-full bg-brand-500/20 blur-3xl" />
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 rounded-full bg-violet-400/10 blur-2xl" />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 rounded-full bg-brand-400/10 blur-2xl" />
 
         {/* Logo */}
         <div className="relative flex items-center gap-3">

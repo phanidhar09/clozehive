@@ -73,7 +73,7 @@ function GapCard({ gap, onResolve }: { gap: PurchaseGap; onResolve: (id: string)
       {gap.suggested_attributes && Object.keys(gap.suggested_attributes).length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {Object.entries(gap.suggested_attributes).map(([k, v]) => (
-            <span key={k} className="text-[11px] px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 capitalize">
+            <span key={k} className="text-[11px] px-2 py-0.5 rounded-full bg-brand-50 dark:bg-brand-900/30 text-brand-600 dark:text-brand-400 capitalize">
               {k}: {String(v)}
             </span>
           ))}

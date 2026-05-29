@@ -44,7 +44,7 @@
   ::-webkit-scrollbar-thumb   { @apply rounded-full bg-slate-200 dark:bg-white/10; }
   ::-webkit-scrollbar-thumb:hover { @apply bg-slate-300 dark:bg-white/20; }
 
-  ::selection { @apply bg-indigo-500/30 text-white; }
+  ::selection { @apply bg-brand-500/30 text-white; }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -73,7 +73,7 @@
     @apply card transition-all duration-300 cursor-pointer;
     /* Light lift */
     @apply hover:-translate-y-0.5 hover:shadow-card-hover;
-    /* Dark glass lift + indigo glow */
+    /* Dark glass lift + teal glow */
     @apply dark:hover:bg-white/[0.07] dark:hover:border-white/[0.14]
            dark:hover:shadow-glass-card-hover dark:hover:-translate-y-1;
   }
@@ -101,7 +101,7 @@
   .btn-primary {
     @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl
            font-semibold text-sm text-white
-           bg-gradient-to-r from-indigo-500 to-violet-600
+           bg-gradient-to-r from-brand-600 to-brand-700
            shadow-glow-sm
            hover:shadow-glow-md hover:-translate-y-px
            active:scale-[.97] active:shadow-glow-sm
@@ -148,8 +148,8 @@
            text-slate-800 dark:text-white
            placeholder-slate-400 dark:placeholder-white/30
            focus:outline-none
-           focus:ring-2 focus:ring-indigo-500/40
-           focus:border-indigo-400 dark:focus:border-indigo-500/60
+           focus:ring-2 focus:ring-brand-500/40
+           focus:border-brand-400 dark:focus:border-brand-500/60
            transition-all duration-200;
   }
 
@@ -179,7 +179,7 @@
            dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08)];
   }
 
-  /* Active nav — indigo left accent */
+  /* Active nav — teal left accent */
   .dark .nav-item.active {
     position: relative;
   }
@@ -191,7 +191,7 @@
     bottom: 25%;
     width: 2px;
     border-radius: 999px;
-    background: linear-gradient(180deg, #6366f1, #7c3aed);
+    background: linear-gradient(180deg, #0D9488, #059669);
   }
 
   /* ── PAGE ENTER ─────────────────────────────────────────────────────────── */
@@ -211,7 +211,7 @@
 
   /* Gradient text */
   .text-gradient {
-    @apply bg-gradient-to-r from-indigo-400 via-violet-400 to-cyan-400
+    @apply bg-gradient-to-r from-brand-400 via-brand-600 to-highlight-500
            bg-clip-text text-transparent;
   }
 
@@ -224,8 +224,8 @@
 
   /* Glow border via box-shadow */
   .border-glow {
-    box-shadow: 0 0 0 1px rgba(99,102,241,0.40),
-                0 0 12px rgba(99,102,241,0.20);
+    box-shadow: 0 0 0 1px rgba(13,148,136,0.40),
+                0 0 12px rgba(13,148,136,0.20);
   }
 }
 
@@ -239,8 +239,8 @@
    DRAG-DROP GLOW
 ───────────────────────────────────────────────────────────────────────────── */
 .drop-zone-active {
-  @apply border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20;
-  box-shadow: 0 0 0 3px rgba(99,102,241,0.25);
+  @apply border-brand-500 bg-brand-50 dark:bg-brand-900/20;
+  box-shadow: 0 0 0 3px rgba(13,148,136,0.25);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────

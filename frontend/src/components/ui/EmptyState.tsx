@@ -38,7 +38,7 @@ function ActionButton({
 
   const styles = {
     primary:
-      'bg-gradient-to-r from-brand-500 to-violet-600 text-white shadow-md shadow-brand-500/25 hover:shadow-brand-500/40 hover:-translate-y-0.5 active:translate-y-0',
+      'bg-gradient-to-r from-brand-500 to-brand-700 text-white shadow-md shadow-brand-500/25 hover:shadow-brand-500/40 hover:-translate-y-0.5 active:translate-y-0',
     secondary:
       'border border-slate-200 dark:border-white/10 bg-white/70 dark:bg-white/5 text-slate-700 dark:text-white/80 hover:bg-white dark:hover:bg-white/10 hover:-translate-y-0.5 active:translate-y-0 backdrop-blur-sm',
   }
@@ -96,7 +96,7 @@ export default function EmptyState({
           aria-hidden="true"
           className={cn(
             'mb-5 flex items-center justify-center rounded-2xl',
-            'bg-gradient-to-br from-brand-500/10 to-violet-500/10 dark:from-brand-400/10 dark:to-violet-400/10',
+            'bg-gradient-to-br from-brand-500/10 to-brand-600/10 dark:from-brand-400/10 dark:to-brand-400/10',
             'ring-1 ring-brand-200/60 dark:ring-brand-500/20',
             isInline ? 'h-14 w-14 rounded-xl' : 'h-20 w-20',
           )}

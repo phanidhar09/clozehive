@@ -275,7 +275,7 @@ export default function EditItemModal({ item, open, onClose, onSaved }: Props) {
           <button
             type="submit"
             disabled={saving}
-            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand-500 to-violet-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-brand-500/25 hover:opacity-90 transition-opacity disabled:opacity-50"
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-brand-500/25 hover:opacity-90 transition-opacity disabled:opacity-50"
           >
             {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
             {saving ? 'Saving…' : 'Save Changes'}

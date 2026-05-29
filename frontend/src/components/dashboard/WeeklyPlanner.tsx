@@ -75,7 +75,7 @@ export default function WeeklyPlanner() {
         <CalendarDays size={28} className="mx-auto mb-3 opacity-30" />
         <p className="font-semibold text-slate-700 dark:text-white/80">Plan your week</p>
         <p className="text-sm mt-1">
-          Enable location in <Link to="/profile?tab=settings" className="underline text-indigo-600 dark:text-indigo-400">Profile → Settings</Link> to get a 7-day outfit plan based on local weather.
+          Enable location in <Link to="/profile?tab=settings" className="underline text-brand-600 dark:text-brand-400">Profile → Settings</Link> to get a 7-day outfit plan based on local weather.
         </p>
       </GlassCard>
     )
@@ -97,7 +97,7 @@ export default function WeeklyPlanner() {
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h3 className="font-semibold text-base text-slate-800 dark:text-white flex items-center gap-2">
-            <CalendarDays size={16} className="text-indigo-500" /> Weekly planner
+            <CalendarDays size={16} className="text-brand-500" /> Weekly planner
           </h3>
           <p className="text-xs text-slate-500 dark:text-white/50 mt-1">
             7-day outfit plan from local weather + your style + closet.

@@ -258,7 +258,7 @@ function ColorSwatch({
         className="relative w-11 h-11 rounded-full border-2 shadow-sm cursor-pointer transition-transform hover:scale-110"
         style={{
           backgroundColor: swatch.hex,
-          borderColor: selected ? '#6366f1' : avoided ? '#ef4444' : 'transparent',
+          borderColor: selected ? '#0D9488' : avoided ? '#ef4444' : 'transparent',
         }}
         title={swatch.label}
       >

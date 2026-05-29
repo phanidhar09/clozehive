@@ -430,8 +430,8 @@ function DayPlanCard({ day, startDate }: { day: RichDayPlan; startDate: string }
   const slotColors: Record<string, string> = {
     morning: 'bg-amber-50 dark:bg-amber-900/10 border-amber-200/60 dark:border-amber-700/20 text-amber-700 dark:text-amber-400',
     afternoon: 'bg-sky-50 dark:bg-sky-900/10 border-sky-200/60 dark:border-sky-700/20 text-sky-700 dark:text-sky-400',
-    evening: 'bg-violet-50 dark:bg-violet-900/10 border-violet-200/60 dark:border-violet-700/20 text-violet-700 dark:text-violet-400',
-    night: 'bg-indigo-50 dark:bg-indigo-900/10 border-indigo-200/60 dark:border-indigo-700/20 text-indigo-700 dark:text-indigo-400',
+    evening: 'bg-brand-50 dark:bg-brand-900/10 border-brand-200/60 dark:border-brand-700/20 text-brand-700 dark:text-brand-400',
+    night: 'bg-brand-50 dark:bg-brand-900/10 border-brand-200/60 dark:border-brand-700/20 text-brand-700 dark:text-brand-400',
     full_day: 'bg-teal-50 dark:bg-teal-900/10 border-teal-200/60 dark:border-teal-700/20 text-teal-700 dark:text-teal-400',
   }
   const slotEmoji: Record<string, string> = {
@@ -515,8 +515,8 @@ function DayPlanCard({ day, startDate }: { day: RichDayPlan; startDate: string }
               {/* Notes */}
               <div className="space-y-1.5">
                 {outfit.styling_notes && (
-                  <div className="flex items-start gap-2 text-xs text-slate-600 dark:text-white/50 bg-violet-50/50 dark:bg-violet-900/10 rounded-lg px-2.5 py-1.5">
-                    <Sparkles size={11} className="text-violet-500 flex-shrink-0 mt-0.5" />
+                  <div className="flex items-start gap-2 text-xs text-slate-600 dark:text-white/50 bg-brand-50/50 dark:bg-brand-900/10 rounded-lg px-2.5 py-1.5">
+                    <Sparkles size={11} className="text-brand-500 flex-shrink-0 mt-0.5" />
                     <span>{outfit.styling_notes}</span>
                   </div>
                 )}
@@ -773,7 +773,7 @@ function TripSummaryBanner({ trip, plan }: { trip: Trip; plan: PackingPlan }) {
     'text-red-600 dark:text-red-400'
 
   return (
-    <div className="rounded-2xl border border-brand-200/60 dark:border-brand-500/20 bg-gradient-to-br from-brand-500/[0.06] via-violet-500/[0.04] to-transparent p-4 space-y-3">
+    <div className="rounded-2xl border border-brand-200/60 dark:border-brand-500/20 bg-gradient-to-br from-brand-500/[0.06] via-brand-500/[0.04] to-transparent p-4 space-y-3">
       <div className="flex items-start gap-3 flex-wrap">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -1510,7 +1510,7 @@ export default function TravelPlanner() {
               {packingPlan && !loading && (
                 <>
                   {/* Save CTA */}
-                  <div className="rounded-2xl border border-brand-200/60 dark:border-brand-500/20 bg-gradient-to-r from-brand-500/[0.07] to-violet-500/[0.07] p-4">
+                  <div className="rounded-2xl border border-brand-200/60 dark:border-brand-500/20 bg-gradient-to-r from-brand-500/[0.07] to-brand-600/[0.07] p-4">
                     {plannerSaved ? (
                       <div className="flex items-center justify-between gap-4 flex-wrap">
                         <div className="flex items-center gap-3">

@@ -33,12 +33,12 @@ const TITLES: Record<string, string> = {
 
 const MORE_LINKS = [
   { to: '/outfit-builder', label: 'Outfit Builder',   icon: Wand2,        gradient: 'from-pink-500 to-rose-600',     desc: 'Design & save your looks' },
-  { to: '/upload',         label: 'Add to Closet',    icon: PlusCircle,   gradient: 'from-violet-500 to-indigo-600', desc: 'Upload new items' },
+  { to: '/upload',         label: 'Add to Closet',    icon: PlusCircle,   gradient: 'from-brand-500 to-brand-700', desc: 'Upload new items' },
   { to: '/saved-outfits',  label: 'Saved Outfits',    icon: Heart,        gradient: 'from-rose-500 to-pink-500',     desc: 'Your FANI-curated looks' },
-  { to: '/analytics',      label: 'Style Insights',   icon: BarChart3,    gradient: 'from-violet-500 to-indigo-500', desc: 'Wear analytics & trends' },
+  { to: '/analytics',      label: 'Style Insights',   icon: BarChart3,    gradient: 'from-brand-500 to-brand-600', desc: 'Wear analytics & trends' },
   { to: '/purchase-gaps',  label: 'Wardrobe Gaps',    icon: ShoppingBag,  gradient: 'from-amber-500 to-orange-500',  desc: 'What your closet is missing' },
   { to: '/shopping-check', label: 'Shop Smart Check', icon: ShoppingCart, gradient: 'from-green-500 to-emerald-500', desc: 'Buy or skip in-store items' },
-  { to: '/closet-match',   label: 'Closet Match',     icon: Wand2,        gradient: 'from-violet-500 to-fuchsia-500', desc: 'Complete your look' },
+  { to: '/closet-match',   label: 'Closet Match',     icon: Wand2,        gradient: 'from-brand-500 to-brand-500', desc: 'Complete your look' },
 ]
 
 function ProfileDropdown({ onNavigate }: { onNavigate: (to: string) => void }) {
@@ -65,7 +65,7 @@ function ProfileDropdown({ onNavigate }: { onNavigate: (to: string) => void }) {
                  animate-slide-up origin-top-right"
     >
       {/* ── Header — gradient avatar banner ──────────────────────────────── */}
-      <div className="relative px-5 pt-5 pb-4 bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-500 overflow-hidden">
+      <div className="relative px-5 pt-5 pb-4 bg-gradient-to-br from-brand-700 via-brand-600 to-brand-500 overflow-hidden">
         {/* Decorative blur orb */}
         <div className="pointer-events-none absolute -top-6 -right-6 w-28 h-28 rounded-full bg-white/10 blur-2xl" />
 
@@ -177,7 +177,7 @@ function ProfileDropdown({ onNavigate }: { onNavigate: (to: string) => void }) {
                      border border-slate-200 dark:border-white/[0.07]
                      transition-colors"
         >
-          {isDark ? <Sun size={13} className="text-amber-400" /> : <Moon size={13} className="text-indigo-400" />}
+          {isDark ? <Sun size={13} className="text-amber-400" /> : <Moon size={13} className="text-brand-400" />}
           {isDark ? 'Light mode' : 'Dark mode'}
         </button>
 
@@ -249,7 +249,7 @@ function UserSearch() {
       <div className="flex items-center gap-2 px-3 py-2 rounded-xl w-52
                       bg-slate-100 dark:bg-white/[0.06]
                       border border-cream-300 dark:border-white/[0.08]
-                      focus-within:border-indigo-400 dark:focus-within:border-indigo-500/60
+                      focus-within:border-brand-400 dark:focus-within:border-brand-500/60
                       focus-within:bg-white dark:focus-within:bg-white/[0.09]
                       transition-all duration-200">
         <Search size={13} className="text-slate-400 dark:text-white/30 flex-shrink-0" />
@@ -297,7 +297,7 @@ function UserSearch() {
               <div key={u.id} className="flex items-center gap-3 px-3 py-2.5
                                          hover:bg-slate-50 dark:hover:bg-white/[0.05]
                                          transition-colors">
-                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-violet-600
+                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-brand-600 to-brand-700
                                 flex items-center justify-center text-xs font-bold text-white
                                 flex-shrink-0 overflow-hidden">
                   {u.avatar_url ? <img src={u.avatar_url} alt="" className="w-full h-full object-cover" /> : initials}
@@ -313,7 +313,7 @@ function UserSearch() {
                               transition-all flex-shrink-0 ${
                     u.is_following
                       ? 'bg-slate-100 dark:bg-white/[0.08] text-slate-600 dark:text-white/60 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/15'
-                      : 'bg-gradient-to-r from-indigo-500 to-violet-600 text-white shadow-glow-sm hover:shadow-glow-md'
+                      : 'bg-gradient-to-r from-brand-600 to-brand-700 text-white shadow-glow-sm hover:shadow-glow-md'
                   } disabled:opacity-50`}
                 >
                   {pendingFollow === u.id
@@ -431,9 +431,9 @@ export default function Navbar() {
           <button
             aria-label="Open profile menu"
             className="min-h-[44px] min-w-[44px] rounded-full
-                       bg-gradient-to-br from-indigo-500 to-violet-600
+                       bg-gradient-to-br from-brand-600 to-brand-700
                        flex items-center justify-center text-sm font-bold text-white
-                       ring-2 ring-transparent hover:ring-indigo-400/50
+                       ring-2 ring-transparent hover:ring-brand-400/50
                        ring-offset-2 ring-offset-white dark:ring-offset-slate-950
                        transition-all duration-200 shadow-glow-sm hover:shadow-glow-md
                        overflow-hidden cursor-pointer"

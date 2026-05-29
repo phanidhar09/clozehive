@@ -246,7 +246,7 @@ function ContextBar({ occasion, timeOfDay, mood, weather, location, fetchingWeat
       </span>
       {/* Mood */}
       {moodOpt && (
-        <span className="flex items-center gap-1 rounded-full bg-violet-50 dark:bg-violet-500/10 text-violet-700 dark:text-violet-300 px-2.5 py-1 font-semibold">
+        <span className="flex items-center gap-1 rounded-full bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300 px-2.5 py-1 font-semibold">
           <span>{moodOpt.emoji}</span> {moodOpt.label}
         </span>
       )}
@@ -771,10 +771,10 @@ interface SuggestedPairingsShelfProps {
 function SuggestedPairingsShelf({ pairings, alreadyAddedIds, onAdd }: SuggestedPairingsShelfProps) {
   if (pairings.length === 0) return null
   return (
-    <div className="rounded-3xl border border-violet-200 bg-white/90 shadow-card dark:border-violet-500/30 dark:bg-slate-900/90">
+    <div className="rounded-3xl border border-brand-200 bg-white/90 shadow-card dark:border-brand-500/30 dark:bg-slate-900/90">
       <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-4 dark:border-slate-800">
-        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-100 dark:bg-violet-500/15">
-          <Sparkles size={14} className="text-violet-600 dark:text-violet-400" />
+        <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-100 dark:bg-brand-500/15">
+          <Sparkles size={14} className="text-brand-600 dark:text-brand-400" />
         </div>
         <div>
           <p className="font-display text-sm font-bold text-slate-800 dark:text-white">AI-Suggested Pairings</p>
@@ -816,7 +816,7 @@ function SuggestedPairingsShelf({ pairings, alreadyAddedIds, onAdd }: SuggestedP
                     className={`w-full flex items-center justify-center gap-1.5 rounded-xl py-1.5 text-[11px] font-semibold transition-all ${
                       added
                         ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400 cursor-default border border-emerald-200 dark:border-emerald-500/30'
-                        : 'bg-violet-50 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300 hover:bg-violet-100 dark:hover:bg-violet-500/25 border border-violet-200 dark:border-violet-500/30'
+                        : 'bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300 hover:bg-brand-100 dark:hover:bg-brand-500/25 border border-brand-200 dark:border-brand-500/30'
                     }`}
                   >
                     {added ? <><Check size={11} /> Added</> : <><Plus size={11} /> Add to Outfit</>}
@@ -1424,8 +1424,8 @@ export default function OutfitBuilder() {
                       className={cn(
                         'flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-all',
                         mood === m.value
-                          ? 'bg-violet-600 text-white shadow-sm'
-                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-violet-50 dark:hover:bg-violet-500/10 hover:text-violet-700 dark:hover:text-violet-300',
+                          ? 'bg-brand-600 text-white shadow-sm'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-brand-50 dark:hover:bg-brand-500/10 hover:text-brand-700 dark:hover:text-brand-300',
                       )}
                     >
                       <span>{m.emoji}</span>{m.label}
@@ -1514,7 +1514,7 @@ export default function OutfitBuilder() {
                 </button>
 
                 <button
-                  className="flex items-center gap-2 rounded-2xl bg-gradient-to-r from-brand-500 to-violet-500 px-4 py-2.5 text-sm font-semibold text-white shadow transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex items-center gap-2 rounded-2xl bg-gradient-to-r from-brand-500 to-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                   disabled={canvasItems.length === 0 || analyzing}
                   onClick={analyzeWithAI}
                 >
@@ -1602,7 +1602,7 @@ export default function OutfitBuilder() {
           {/* Drawer header */}
           <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800 sticky top-0 bg-white dark:bg-slate-900 z-10 flex-shrink-0">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-brand-500 to-violet-500 flex items-center justify-center flex-shrink-0">
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-brand-500 to-brand-600 flex items-center justify-center flex-shrink-0">
                 <Sparkles size={15} className="text-white" />
               </div>
               <div>

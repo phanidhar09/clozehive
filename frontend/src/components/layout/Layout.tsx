@@ -21,12 +21,12 @@ export default function Layout() {
 
         {/* Orb 1 — indigo, top-left */}
         <div className="absolute -top-32 -left-32 w-[560px] h-[560px] rounded-full
-                        bg-brand-400/10 dark:bg-indigo-500/12
+                        bg-brand-400/10 dark:bg-brand-500/12
                         blur-[120px] animate-float-1" />
 
         {/* Orb 2 — violet, bottom-right */}
         <div className="absolute -bottom-32 -right-32 w-[520px] h-[520px] rounded-full
-                        bg-violet-400/8 dark:bg-violet-500/10
+                        bg-brand-400/8 dark:bg-brand-500/10
                         blur-[110px] animate-float-2" />
 
         {/* Orb 3 — cyan, center-ish */}

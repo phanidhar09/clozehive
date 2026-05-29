@@ -36,7 +36,7 @@ function CategoryTab({
       className={cn(
         'flex flex-col items-center gap-1.5 px-4 py-2.5 rounded-2xl text-xs font-semibold transition-all duration-200 flex-shrink-0',
         active
-          ? 'bg-gradient-to-br from-brand-500 to-violet-500 text-white shadow-lg shadow-brand-500/30 scale-105'
+          ? 'bg-gradient-to-br from-brand-500 to-brand-600 text-white shadow-lg shadow-brand-500/30 scale-105'
           : 'bg-white/60 dark:bg-white/5 text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-white/10 border border-white/80 dark:border-white/10',
       )}
     >
@@ -270,9 +270,9 @@ export default function Closet() {
         <Link
           to="/upload"
           className="flex items-center gap-3 px-4 py-3 rounded-2xl
-                     bg-gradient-to-br from-violet-500 to-indigo-600
-                     text-white shadow-md shadow-violet-500/20
-                     hover:shadow-violet-500/35 hover:-translate-y-0.5
+                     bg-gradient-to-br from-brand-500 to-brand-700
+                     text-white shadow-md shadow-brand-500/20
+                     hover:shadow-brand-500/35 hover:-translate-y-0.5
                      transition-all duration-200"
         >
           <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center flex-shrink-0">
@@ -449,7 +449,7 @@ export default function Closet() {
           <div className="flex gap-3">
             <Link
               to="/upload"
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold bg-gradient-to-r from-brand-500 to-violet-500 text-white shadow-md hover:opacity-90 transition-opacity"
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold bg-gradient-to-r from-brand-500 to-brand-600 text-white shadow-md hover:opacity-90 transition-opacity"
             >
               <Sparkles size={15} /> Add with AI
             </Link>
@@ -516,9 +516,9 @@ export default function Closet() {
 
       {/* ── Floating Smart Upload banner (when closet has items) ── */}
       {closetItems.length > 0 && closetItems.length < 10 && (
-        <div className="rounded-2xl bg-gradient-to-r from-brand-500/10 to-violet-500/10 border border-brand-200 dark:border-brand-800/50 p-4 flex items-center justify-between gap-4">
+        <div className="rounded-2xl bg-gradient-to-r from-brand-500/10 to-brand-600/10 border border-brand-200 dark:border-brand-800/50 p-4 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-500 to-violet-500 flex items-center justify-center flex-shrink-0">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-500 to-brand-600 flex items-center justify-center flex-shrink-0">
               <Sparkles size={18} className="text-white" />
             </div>
             <div>
@@ -528,7 +528,7 @@ export default function Closet() {
           </div>
           <Link
             to="/upload"
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold bg-gradient-to-r from-brand-500 to-violet-500 text-white flex-shrink-0 hover:opacity-90 transition-opacity"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold bg-gradient-to-r from-brand-500 to-brand-600 text-white flex-shrink-0 hover:opacity-90 transition-opacity"
           >
             Add Items <ChevronRight size={14} />
           </Link>

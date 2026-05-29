@@ -36,7 +36,7 @@ function getOutfitRating(
     (tipCount >= 2 ? 1 : 0)
 
   if (signals >= 4) return { label: 'Best Fit',  gradient: 'from-amber-400 to-orange-400',   stars: 5, note: 'Stylist-approved — wear it with confidence.' }
-  if (signals === 3) return { label: 'Excellent', gradient: 'from-violet-500 to-fuchsia-500', stars: 4, note: 'Well-coordinated — a small accessory perfects it.' }
+  if (signals === 3) return { label: 'Excellent', gradient: 'from-brand-500 to-brand-500', stars: 4, note: 'Well-coordinated — a small accessory perfects it.' }
   if (signals === 2) return { label: 'Good',      gradient: 'from-emerald-500 to-teal-400',   stars: 3, note: 'Solid look — try adding a colour accent.' }
   if (signals === 1) return { label: 'Average',   gradient: 'from-slate-400 to-slate-500',    stars: 2, note: 'Decent base — mix in a statement piece.' }
   return               { label: 'Needs Work', gradient: 'from-rose-500 to-pink-500',       stars: 1, note: 'Try pairing with complementary colours.' }
@@ -70,7 +70,7 @@ function WardrobePulse({ closetItems }: { closetItems: ClosetItem[] }) {
       label: 'Most Worn',
       value: mostWorn?.name ? mostWorn.name.split(' ').slice(0, 3).join(' ') : '—',
       sub:   mostWorn?.wear_count ? `${mostWorn.wear_count} wear${mostWorn.wear_count === 1 ? '' : 's'}` : 'Start tracking',
-      accent: 'bg-violet-500',
+      accent: 'bg-brand-500',
     },
     {
       label: 'Never Worn',
@@ -115,19 +115,19 @@ function WardrobePulse({ closetItems }: { closetItems: ClosetItem[] }) {
 function StyleTipCard() {
   const { tip, tag } = FANI_TIPS[new Date().getDay()]
   return (
-    <div className="rounded-2xl border border-violet-200/60 dark:border-violet-500/20
-                    bg-gradient-to-br from-violet-50 to-fuchsia-50
-                    dark:from-violet-950/30 dark:to-fuchsia-950/20 p-4">
+    <div className="rounded-2xl border border-brand-200/60 dark:border-brand-500/20
+                    bg-gradient-to-br from-brand-50 to-brand-50
+                    dark:from-brand-900/30 dark:to-brand-900/20 p-4">
       <div className="flex items-center gap-2 mb-2">
-        <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500 to-fuchsia-500
+        <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-brand-500 to-brand-500
                         flex items-center justify-center flex-shrink-0">
           <Zap size={13} className="text-white" />
         </div>
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-widest text-violet-500 dark:text-violet-400">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-brand-500 dark:text-brand-400">
             FANI Tip
           </p>
-          <p className="text-[10px] text-violet-400 dark:text-violet-500">{tag}</p>
+          <p className="text-[10px] text-brand-400 dark:text-brand-500">{tag}</p>
         </div>
       </div>
       <p className="text-sm text-slate-700 dark:text-white/80 leading-relaxed">{tip}</p>
@@ -181,7 +181,7 @@ function TodaysLookCard({ closetItems }: { closetItems: ClosetItem[] }) {
       <div className="flex items-center justify-between px-5 py-4
                       border-b border-cream-200 dark:border-white/[0.06]">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-brand-500 to-brand-500
                           flex items-center justify-center flex-shrink-0 shadow-sm">
             <Sparkles size={14} className="text-white" />
           </div>
@@ -212,7 +212,7 @@ function TodaysLookCard({ closetItems }: { closetItems: ClosetItem[] }) {
             title="Regenerate outfit"
             className="w-8 h-8 flex items-center justify-center rounded-xl
                        border border-cream-200 dark:border-white/[0.09]
-                       text-slate-400 hover:text-violet-600 dark:hover:text-violet-400
+                       text-slate-400 hover:text-brand-600 dark:hover:text-brand-400
                        hover:bg-slate-50 dark:hover:bg-white/[0.06]
                        disabled:opacity-40 transition-colors"
           >
@@ -225,9 +225,9 @@ function TodaysLookCard({ closetItems }: { closetItems: ClosetItem[] }) {
       <div className="p-5">
         {loading && (
           <div className="flex flex-col items-center gap-3 py-12">
-            <div className="w-10 h-10 rounded-full bg-violet-50 dark:bg-violet-500/10
+            <div className="w-10 h-10 rounded-full bg-brand-50 dark:bg-brand-500/10
                             flex items-center justify-center">
-              <Loader2 size={20} className="animate-spin text-violet-500" />
+              <Loader2 size={20} className="animate-spin text-brand-500" />
             </div>
             <p className="text-sm text-slate-400 dark:text-slate-500">Curating your look…</p>
           </div>
@@ -310,9 +310,9 @@ function TodaysLookCard({ closetItems }: { closetItems: ClosetItem[] }) {
                 <div className="flex flex-wrap gap-1.5 mt-4">
                   {data.style_tips.slice(0, 3).map((tip, i) => (
                     <span key={i}
-                          className="rounded-full border border-violet-200 bg-violet-50/80
-                                     px-3 py-1 text-xs text-violet-700
-                                     dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-300">
+                          className="rounded-full border border-brand-200 bg-brand-50/80
+                                     px-3 py-1 text-xs text-brand-700
+                                     dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-300">
                       ✦ {tip}
                     </span>
                   ))}
@@ -329,7 +329,7 @@ function TodaysLookCard({ closetItems }: { closetItems: ClosetItem[] }) {
                               transition disabled:opacity-50 disabled:cursor-not-allowed ${
                     saved
                       ? 'border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300'
-                      : 'bg-gradient-to-r from-violet-600 to-fuchsia-500 text-white shadow-sm hover:opacity-90 active:scale-[0.98]'
+                      : 'bg-gradient-to-r from-brand-600 to-brand-500 text-white shadow-sm hover:opacity-90 active:scale-[0.98]'
                   }`}
                 >
                   {saving ? <><Loader2 size={13} className="animate-spin" /> Saving…</>
@@ -337,8 +337,8 @@ function TodaysLookCard({ closetItems }: { closetItems: ClosetItem[] }) {
                     : <><Bookmark size={13} /> Save Look</>}
                 </button>
                 <Link to="/outfit-builder"
-                      className="flex items-center gap-1 text-sm font-medium text-violet-600
-                                 hover:text-violet-700 dark:text-violet-400 dark:hover:text-violet-300
+                      className="flex items-center gap-1 text-sm font-medium text-brand-600
+                                 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300
                                  transition-colors">
                   Customise <ChevronRight size={14} />
                 </Link>
@@ -349,16 +349,16 @@ function TodaysLookCard({ closetItems }: { closetItems: ClosetItem[] }) {
 
         {!loading && !error && !data?.outfit && closetItems.length === 0 && (
           <div className="py-10 text-center space-y-3">
-            <div className="w-12 h-12 rounded-2xl bg-violet-50 dark:bg-violet-500/10
+            <div className="w-12 h-12 rounded-2xl bg-brand-50 dark:bg-brand-500/10
                             flex items-center justify-center mx-auto">
-              <Shirt size={20} className="text-violet-400" />
+              <Shirt size={20} className="text-brand-400" />
             </div>
             <p className="text-sm text-slate-500 dark:text-slate-400 max-w-xs mx-auto">
               Add items to your wardrobe and FANI will pick a personalised look each morning.
             </p>
             <Link to="/upload"
                   className="inline-flex items-center gap-1 text-sm font-semibold
-                             text-violet-600 hover:text-violet-700 dark:text-violet-400
+                             text-brand-600 hover:text-brand-700 dark:text-brand-400
                              transition-colors">
               Add your first piece <ChevronRight size={14} />
             </Link>
@@ -421,14 +421,14 @@ export default function Dashboard() {
 
       {/* ── Hero ──────────────────────────────────────────────────────────── */}
       <div className="relative overflow-hidden rounded-3xl
-                      bg-gradient-to-br from-indigo-600 via-violet-600 to-fuchsia-500
+                      bg-gradient-to-br from-brand-700 via-brand-600 to-brand-500
                       text-white shadow-xl">
         {/* Subtle dot grid */}
         <div className="pointer-events-none absolute inset-0 opacity-[0.07]"
              style={{ backgroundImage: 'radial-gradient(rgba(255,255,255,0.7) 1px, transparent 1px)', backgroundSize: '22px 22px' }} />
         {/* Decorative orbs */}
         <div className="pointer-events-none absolute -top-24 -right-24 w-80 h-80 rounded-full bg-white/10 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-28 -left-10 w-72 h-72 rounded-full bg-violet-400/20 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-28 -left-10 w-72 h-72 rounded-full bg-brand-400/20 blur-3xl" />
 
         <div className="relative px-6 py-8 lg:px-10 lg:py-10">
           {/* Date */}
@@ -480,7 +480,7 @@ export default function Dashboard() {
           {closetLoading && (
             <div className="rounded-2xl border border-cream-200 dark:border-white/[0.07]
                             bg-white dark:bg-white/[0.03] flex items-center justify-center py-20">
-              <Loader2 size={24} className="animate-spin text-violet-500" />
+              <Loader2 size={24} className="animate-spin text-brand-500" />
             </div>
           )}
         </div>
@@ -540,8 +540,8 @@ export default function Dashboard() {
               Recent Pieces
             </h3>
             <Link to="/closet"
-                  className="flex items-center gap-1 text-sm font-medium text-violet-600
-                             hover:text-violet-700 dark:text-violet-400 dark:hover:text-violet-300
+                  className="flex items-center gap-1 text-sm font-medium text-brand-600
+                             hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300
                              transition-colors">
               View all <ArrowRight size={14} />
             </Link>

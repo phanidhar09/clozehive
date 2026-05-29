@@ -70,8 +70,8 @@ function SuggestionCard({ s, index }: { s: ClosetMatchSuggestion; index: number 
           {/* Occasions */}
           {s.occasions.slice(0, 2).map(o => (
             <span key={o}
-              className="text-[11px] px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/20
-                         text-indigo-600 dark:text-indigo-400 capitalize">
+              className="text-[11px] px-2 py-0.5 rounded-full bg-brand-50 dark:bg-brand-900/20
+                         text-brand-600 dark:text-brand-400 capitalize">
               {o}
             </span>
           ))}
@@ -136,7 +136,7 @@ function ResultPanel({ result, onClear }: { result: ClosetMatchResult; onClear: 
       {/* FANI's styling tip */}
       {result.styling_tip && (
         <GlassCard className="p-4 flex gap-3">
-          <Sparkles size={16} className="text-violet-500 flex-shrink-0 mt-0.5" />
+          <Sparkles size={16} className="text-brand-500 flex-shrink-0 mt-0.5" />
           <p className="text-sm text-slate-600 dark:text-white/70 leading-relaxed">
             {result.styling_tip}
           </p>
@@ -174,7 +174,7 @@ function ResultPanel({ result, onClear }: { result: ClosetMatchResult; onClear: 
       {/* Shopping suggestions */}
       <div className="space-y-2">
         <div className="flex items-center gap-2 px-1">
-          <ShoppingBag size={14} className="text-indigo-500" />
+          <ShoppingBag size={14} className="text-brand-500" />
           <p className="text-xs font-semibold text-slate-700 dark:text-white/70 uppercase tracking-wider">
             What to shop for next
           </p>
@@ -250,7 +250,7 @@ function ClosetItemGrid({
           className="w-full pl-9 pr-4 py-2.5 text-sm rounded-xl
                      bg-white dark:bg-white/[0.06] border border-slate-200 dark:border-white/10
                      text-slate-800 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/30
-                     focus:outline-none focus:ring-2 focus:ring-indigo-400/40 transition"
+                     focus:outline-none focus:ring-2 focus:ring-brand-400/40 transition"
         />
       </div>
 
@@ -273,10 +273,10 @@ function ClosetItemGrid({
                 onClick={() => onSelect(item.id)}
                 className={cn(
                   'relative rounded-2xl overflow-hidden group transition-all duration-200 text-left',
-                  'focus:outline-none focus:ring-2 focus:ring-indigo-400/50',
+                  'focus:outline-none focus:ring-2 focus:ring-brand-400/50',
                   isSelected
-                    ? 'ring-2 ring-indigo-500 scale-[0.97]'
-                    : 'hover:scale-[0.97] hover:ring-2 hover:ring-indigo-300',
+                    ? 'ring-2 ring-brand-500 scale-[0.97]'
+                    : 'hover:scale-[0.97] hover:ring-2 hover:ring-brand-300',
                 )}
               >
                 {/* Image */}
@@ -302,7 +302,7 @@ function ClosetItemGrid({
 
                 {/* Selected overlay */}
                 {isSelected && (
-                  <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-indigo-500
+                  <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-brand-500
                                   flex items-center justify-center">
                     <CheckCircle2 size={12} className="text-white" />
                   </div>
@@ -352,7 +352,7 @@ export default function ClosetMatch() {
 
       {/* Page header */}
       <div className="flex items-center gap-3 mt-1 mb-6">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-600
+        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-500 to-brand-600
                         flex items-center justify-center shadow-glow-sm">
           <Sparkles size={20} className="text-white" />
         </div>
@@ -383,11 +383,11 @@ export default function ClosetMatch() {
             { icon: ShoppingBag, step: '3', label: 'Shop smarter',    desc: 'Get a prioritised shopping list' },
           ].map(({ icon: Icon, step, label, desc }) => (
             <GlassCard key={step} className="p-3 text-center space-y-1.5">
-              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-600
+              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-brand-500 to-brand-600
                               text-white text-xs font-bold flex items-center justify-center mx-auto">
                 {step}
               </div>
-              <Icon size={18} className="mx-auto text-indigo-500 dark:text-indigo-400" />
+              <Icon size={18} className="mx-auto text-brand-500 dark:text-brand-400" />
               <p className="text-xs font-semibold text-slate-800 dark:text-white">{label}</p>
               <p className="text-[11px] text-slate-500 dark:text-white/45">{desc}</p>
             </GlassCard>
@@ -422,7 +422,7 @@ export default function ClosetMatch() {
               exit={{ opacity: 0 }}
               className="flex flex-col items-center justify-center gap-4 py-16"
             >
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-500 to-fuchsia-600
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-brand-500 to-brand-600
                               flex items-center justify-center shadow-glow-sm">
                 <Loader2 size={26} className="text-white animate-spin" />
               </div>
@@ -449,7 +449,7 @@ export default function ClosetMatch() {
                 </div>
                 <button
                   onClick={handleClear}
-                  className="text-sm text-indigo-600 dark:text-indigo-400 hover:underline"
+                  className="text-sm text-brand-600 dark:text-brand-400 hover:underline"
                 >
                   Try another item
                 </button>

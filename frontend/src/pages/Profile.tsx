@@ -101,7 +101,7 @@ export default function Profile() {
       <BackButton fallback="/dashboard" label="Back to Dashboard" />
 
       {searchParams.get('onboarding') === '1' && (
-        <div className="rounded-2xl border border-indigo-200 dark:border-indigo-500/35 bg-indigo-50/90 dark:bg-indigo-950/35 p-4 text-sm text-slate-700 dark:text-slate-200">
+        <div className="rounded-2xl border border-brand-200 dark:border-brand-500/35 bg-brand-50/90 dark:bg-brand-900/35 p-4 text-sm text-slate-700 dark:text-slate-200">
           <p className="font-semibold mb-2">Welcome — finish your setup</p>
           <ol className="list-decimal list-inside space-y-1 text-slate-600 dark:text-slate-300">
             <li>Add your body profile and style preferences using the tabs below.</li>
@@ -120,7 +120,7 @@ export default function Profile() {
 
       {/* ── Header card ──────────────────────────────────────── */}
       <GlassCard padding="none" className="overflow-hidden">
-        <div className="h-28 bg-gradient-to-r from-indigo-600 via-violet-600 to-fuchsia-500 relative">
+        <div className="h-28 bg-gradient-to-r from-brand-700 via-brand-600 to-brand-500 relative">
           <div className="absolute inset-0 opacity-[0.07]"
                style={{ backgroundImage: 'radial-gradient(rgba(255,255,255,0.6) 1px, transparent 1px)', backgroundSize: '20px 20px' }} />
         </div>
@@ -128,7 +128,7 @@ export default function Profile() {
         <div className="px-5 pb-5">
           <div className="-mt-10 mb-3 flex items-end justify-between">
             <div className="w-20 h-20 rounded-full ring-4 ring-white dark:ring-slate-950
-                            bg-gradient-to-br from-indigo-500 to-violet-600
+                            bg-gradient-to-br from-brand-600 to-brand-700
                             flex items-center justify-center text-2xl font-bold text-white
                             shadow-glow-md overflow-hidden">
               {currentUser.avatar_url
@@ -310,7 +310,7 @@ function OverviewTab({
     <div className="grid md:grid-cols-2 gap-4 animate-fade-in">
       <GlassCard padding="md">
         <h3 className="font-semibold text-sm text-slate-700 dark:text-white/80 mb-3 flex items-center gap-2">
-          <Brain size={14} className="text-indigo-500" /> Personalization status
+          <Brain size={14} className="text-brand-500" /> Personalization status
         </h3>
         <ul className="space-y-2 text-sm">
           <StatusRow label="Avatar"          done={false} cta="Edit" onAction={() => onJump('avatar')} optional />
@@ -322,7 +322,7 @@ function OverviewTab({
 
       <GlassCard padding="md">
         <h3 className="font-semibold text-sm text-slate-700 dark:text-white/80 mb-3 flex items-center gap-2">
-          <Sparkles size={14} className="text-violet-500" /> Wardrobe pulse
+          <Sparkles size={14} className="text-brand-500" /> Wardrobe pulse
         </h3>
         {insight.totalItems === 0 ? (
           <p className="text-sm text-slate-400 dark:text-white/40">
@@ -343,7 +343,7 @@ function OverviewTab({
           <h3 className="font-semibold text-sm text-slate-700 dark:text-white/80 flex items-center gap-2">
             <Shirt size={14} className="text-emerald-500" /> Closet preview
           </h3>
-          <button onClick={() => navigate('/closet')} className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline">
+          <button onClick={() => navigate('/closet')} className="text-xs font-semibold text-brand-600 dark:text-brand-400 hover:underline">
             View all{profile?.item_count ? ` (${profile.item_count})` : ''}
           </button>
         </div>
@@ -376,7 +376,7 @@ function StatusRow({
         <span className={cn('w-1.5 h-1.5 rounded-full', done ? 'bg-emerald-500' : 'bg-amber-500')} />
         {label} {optional && <span className="text-[10px] text-slate-400">optional</span>}
       </span>
-      <button onClick={onAction} className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline">
+      <button onClick={onAction} className="text-xs font-semibold text-brand-600 dark:text-brand-400 hover:underline">
         {cta}
       </button>
     </li>
@@ -561,7 +561,7 @@ function StyleTab({
               className={cn(
                 'px-3 py-1.5 rounded-lg text-xs font-semibold transition-all',
                 selected.includes(t.value)
-                  ? 'bg-gradient-to-r from-indigo-500 to-violet-600 text-white shadow-glow-sm'
+                  ? 'bg-gradient-to-r from-brand-600 to-brand-700 text-white shadow-glow-sm'
                   : 'bg-cream-100 dark:bg-white/[0.06] text-slate-600 dark:text-white/70 hover:bg-cream-200 dark:hover:bg-white/[0.10]',
               )}
             >
@@ -584,8 +584,8 @@ function StyleTab({
 
       {/* Behavioural learning panel */}
       {insight.totalItems > 0 && (
-        <div className="rounded-xl p-3 bg-indigo-50/60 dark:bg-indigo-500/[0.08] border border-indigo-200/60 dark:border-indigo-500/20">
-          <p className="text-xs font-semibold text-indigo-700 dark:text-indigo-300 mb-1">Closet-derived style</p>
+        <div className="rounded-xl p-3 bg-brand-50/60 dark:bg-brand-500/[0.08] border border-brand-200/60 dark:border-brand-500/20">
+          <p className="text-xs font-semibold text-brand-700 dark:text-brand-300 mb-1">Closet-derived style</p>
           <p className="text-sm text-slate-700 dark:text-white/80">
             Based on {insight.totalItems} item{insight.totalItems === 1 ? '' : 's'},
             your wardrobe leans <strong className="capitalize">{insight.dominantStyle ?? '—'}</strong>
@@ -593,7 +593,7 @@ function StyleTab({
           </p>
           {insight.dominantStyle && (
             <button onClick={adoptLearned} disabled={saving}
-                    className="mt-2 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline disabled:opacity-40">
+                    className="mt-2 text-xs font-semibold text-brand-600 dark:text-brand-400 hover:underline disabled:opacity-40">
               Use this as my learned style →
             </button>
           )}
@@ -639,7 +639,7 @@ function InsightsTab({
     <div className="space-y-4 animate-fade-in">
       <GlassCard padding="md">
         <h3 className="font-semibold text-sm text-slate-700 dark:text-white/80 mb-3 flex items-center gap-2">
-          <Brain size={14} className="text-indigo-500" /> Style breakdown
+          <Brain size={14} className="text-brand-500" /> Style breakdown
         </h3>
         {!insight.confident && (
           <p className="text-xs text-amber-600 dark:text-amber-400 mb-2">
@@ -655,7 +655,7 @@ function InsightsTab({
                 <span className="text-slate-400 dark:text-white/40">{score}</span>
               </div>
               <div className="h-1.5 rounded-full bg-cream-200 dark:bg-white/[0.06] overflow-hidden">
-                <div className="h-full bg-gradient-to-r from-indigo-500 to-violet-500" style={{ width: `${(score / max) * 100}%` }} />
+                <div className="h-full bg-gradient-to-r from-brand-600 to-brand-600" style={{ width: `${(score / max) * 100}%` }} />
               </div>
             </div>
           ))}
@@ -974,7 +974,7 @@ function SettingsTab({
       {/* ── Sticky section sidebar (desktop) ──────────────────── */}
       <aside className="hidden lg:block w-60 flex-shrink-0">
         <div className="sticky top-24 rounded-2xl overflow-hidden border border-cream-200 dark:border-white/[0.07] shadow-sm">
-          <div className="px-4 py-3 bg-gradient-to-br from-indigo-600 to-violet-600">
+          <div className="px-4 py-3 bg-gradient-to-br from-brand-700 to-brand-700">
             <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-white/60">Settings</p>
             <p className="text-sm font-bold text-white mt-0.5">Account & Preferences</p>
           </div>
@@ -986,14 +986,14 @@ function SettingsTab({
                 'w-full flex items-center gap-3 px-4 py-3.5 text-left transition-colors',
                 i > 0 && 'border-t border-cream-100 dark:border-white/[0.04]',
                 activeSection === s.id
-                  ? 'bg-indigo-50 dark:bg-indigo-500/10'
+                  ? 'bg-brand-50 dark:bg-brand-500/10'
                   : 'bg-white dark:bg-slate-900/50 hover:bg-slate-50 dark:hover:bg-white/[0.04]',
               )}
             >
               <span className={cn(
                 'w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors',
                 activeSection === s.id
-                  ? 'bg-indigo-100 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400'
+                  ? 'bg-brand-100 dark:bg-brand-500/20 text-brand-600 dark:text-brand-400'
                   : 'bg-cream-100 dark:bg-white/[0.06] text-slate-400 dark:text-white/30',
               )}>
                 {s.icon}
@@ -1001,14 +1001,14 @@ function SettingsTab({
               <div className="min-w-0">
                 <p className={cn(
                   'text-[13px] font-semibold leading-tight truncate',
-                  activeSection === s.id ? 'text-indigo-700 dark:text-indigo-300' : 'text-slate-700 dark:text-white/70',
+                  activeSection === s.id ? 'text-brand-700 dark:text-brand-300' : 'text-slate-700 dark:text-white/70',
                 )}>
                   {s.label}
                 </p>
                 <p className="text-[11px] text-slate-400 dark:text-white/30 mt-0.5 truncate">{s.desc}</p>
               </div>
               {activeSection === s.id && (
-                <div className="ml-auto w-0.5 h-8 rounded-full bg-indigo-500 flex-shrink-0" />
+                <div className="ml-auto w-0.5 h-8 rounded-full bg-brand-500 flex-shrink-0" />
               )}
             </button>
           ))}
@@ -1021,15 +1021,15 @@ function SettingsTab({
         {/* ── Public Profile ──────────────────────────────────── */}
         <div ref={profileRef}>
           <SettingsSectionCard
-            gradient="from-violet-500 to-fuchsia-500"
-            icon={<UserIcon size={15} className="text-violet-500" />}
+            gradient="from-brand-500 to-brand-500"
+            icon={<UserIcon size={15} className="text-brand-500" />}
             title="Public Profile"
             desc="This information appears on your CLOZEHIVE profile and is visible to the community."
           >
             {/* Avatar row */}
             <div className="flex items-center gap-4 p-4 rounded-2xl bg-slate-50 dark:bg-white/[0.03]
                             border border-cream-200 dark:border-white/[0.06]">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-brand-600 to-brand-700
                               flex items-center justify-center text-xl font-bold text-white
                               flex-shrink-0 ring-4 ring-white dark:ring-slate-900 shadow-lg overflow-hidden">
                 {avatarUrl
@@ -1043,7 +1043,7 @@ function SettingsTab({
                 </p>
                 <button
                   onClick={() => navigate('/profile?tab=avatar')}
-                  className="mt-2 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
+                  className="mt-2 text-xs font-semibold text-brand-600 dark:text-brand-400 hover:underline"
                 >
                   Edit avatar →
                 </button>
@@ -1174,8 +1174,8 @@ function SettingsTab({
         {/* ── FANI Preferences ────────────────────────────────── */}
         <div ref={preferencesRef}>
           <SettingsSectionCard
-            gradient="from-violet-500 to-indigo-500"
-            icon={<Sparkles size={15} className="text-violet-500" />}
+            gradient="from-brand-500 to-brand-600"
+            icon={<Sparkles size={15} className="text-brand-500" />}
             title="FANI Preferences"
             desc="Shape how FANI curates outfits for you. These preferences are read for every suggestion."
           >
@@ -1191,7 +1191,7 @@ function SettingsTab({
                     className={cn(
                       'px-3 py-1.5 rounded-xl text-xs font-semibold capitalize transition-all',
                       prefs.occasion_focus.includes(o)
-                        ? 'bg-gradient-to-r from-indigo-500 to-violet-600 text-white shadow-glow-sm'
+                        ? 'bg-gradient-to-r from-brand-600 to-brand-700 text-white shadow-glow-sm'
                         : 'bg-cream-100 dark:bg-white/[0.06] text-slate-600 dark:text-white/60 hover:bg-cream-200 dark:hover:bg-white/[0.10]',
                     )}
                   >
@@ -1249,8 +1249,8 @@ function SettingsTab({
             desc="Control what FANI can access and how your account connects with external services."
           >
             <PremiumToggle
-              icon={<Calendar size={15} className="text-indigo-500" />}
-              iconBg="bg-indigo-50 dark:bg-indigo-500/10"
+              icon={<Calendar size={15} className="text-brand-500" />}
+              iconBg="bg-brand-50 dark:bg-brand-500/10"
               title="Calendar integration"
               desc="FANI will plan outfits around your upcoming meetings, events, and travel."
               badge="Coming soon"
@@ -1313,7 +1313,7 @@ function ReEmbedSection() {
   return (
     <GlassCard className="p-5 space-y-4">
       <div className="flex items-center gap-2">
-        <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600
+        <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-brand-500 to-brand-700
                         flex items-center justify-center flex-shrink-0">
           <Sparkles size={13} className="text-white" />
         </div>
@@ -1347,9 +1347,9 @@ function ReEmbedSection() {
           onClick={() => handleReEmbed(false)}
           disabled={status === 'loading'}
           className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs
-                     font-semibold bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700
-                     dark:text-indigo-400 border border-indigo-200 dark:border-indigo-700/40
-                     hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors
+                     font-semibold bg-brand-50 dark:bg-brand-900/20 text-brand-700
+                     dark:text-brand-400 border border-brand-200 dark:border-brand-700/40
+                     hover:bg-brand-100 dark:hover:bg-brand-900/40 transition-colors
                      disabled:opacity-50"
         >
           {status === 'loading' ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
@@ -1507,7 +1507,7 @@ function SettingsSaveButton({
         'flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all',
         saved
           ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30'
-          : 'bg-gradient-to-r from-indigo-500 to-violet-600 text-white shadow-glow-sm hover:opacity-90',
+          : 'bg-gradient-to-r from-brand-600 to-brand-700 text-white shadow-glow-sm hover:opacity-90',
         (saving || disabled) && 'opacity-50 cursor-not-allowed',
       )}
     >
@@ -1538,7 +1538,7 @@ function PremiumToggle({
     <div className={cn(
       'flex items-start gap-3.5 p-4 rounded-2xl border transition-colors',
       checked
-        ? 'bg-indigo-50/50 dark:bg-indigo-500/[0.06] border-indigo-200/60 dark:border-indigo-500/20'
+        ? 'bg-brand-50/50 dark:bg-brand-500/[0.06] border-brand-200/60 dark:border-brand-500/20'
         : 'bg-slate-50 dark:bg-white/[0.03] border-cream-200 dark:border-white/[0.06]',
     )}>
       <div className={cn('w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0', iconBg)}>
@@ -1566,7 +1566,7 @@ function PremiumToggle({
         className={cn(
           'relative w-11 h-6 rounded-full flex-shrink-0 transition-colors duration-200 disabled:opacity-50',
           checked
-            ? 'bg-gradient-to-r from-indigo-500 to-violet-600 shadow-glow-sm'
+            ? 'bg-gradient-to-r from-brand-600 to-brand-700 shadow-glow-sm'
             : 'bg-slate-200 dark:bg-white/[0.10]',
         )}
       >
@@ -1604,7 +1604,7 @@ function PillRow({
           className={cn(
             'px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-all',
             value === o.value
-              ? 'bg-gradient-to-r from-indigo-500 to-violet-600 text-white shadow-glow-sm'
+              ? 'bg-gradient-to-r from-brand-600 to-brand-700 text-white shadow-glow-sm'
               : 'bg-cream-100 dark:bg-white/[0.06] text-slate-600 dark:text-white/70 hover:bg-cream-200 dark:hover:bg-white/[0.10]',
           )}
         >
