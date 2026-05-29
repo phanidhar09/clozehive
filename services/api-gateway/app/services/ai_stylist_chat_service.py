@@ -28,6 +28,7 @@ from app.core.llm_safety import (
     sanitize_user_text,
     wrap_untrusted,
 )
+from app.models.ai_chat import AIChatSession
 from app.models.closet import ClosetItem
 from app.repositories.user_repo import UserRepository
 from app.services import ai_service, weather_service
@@ -413,6 +414,7 @@ async def process_chat_message(
     context: dict[str, Any] | None = None,
     chat_history: list[dict[str, str]] | None = None,
     images: list[str] | None = None,
+    chat_session: AIChatSession | None = None,
 ) -> dict[str, Any]:
     """
     Full RAG pipeline for a single AI stylist chat turn.
@@ -516,6 +518,20 @@ async def process_chat_message(
         closet_items[:20], occasion, weather_cond, user_profile
     )
 
+    # ── Step 3b: Conversation summarization (long-chat memory) ───────────────
+    summary_block = ""
+    history_for_prompt = list(chat_history or [])
+    if chat_session is not None and history_for_prompt:
+        # Lazy import — avoids a circular dependency with the streaming module.
+        from app.services.ai_stylist_streaming import (
+            _build_summary_block,
+            summarize_history,
+        )
+        summary_text, history_for_prompt = await summarize_history(
+            session, chat_session, history_for_prompt
+        )
+        summary_block = _build_summary_block(summary_text)
+
     # ── Step 4: Assemble system prompt ────────────────────────────────────────
     user_images = [img for img in (images or []) if img.startswith("data:image/")][:3]
     image_instruction = (
@@ -532,12 +548,12 @@ async def process_chat_message(
         feedback_block=_build_feedback_block(feedback_text),
         fashion_rules_block=f"\n{fashion_rules_block}",
         knowledge_block=_build_knowledge_block(knowledge_text),
-    ) + image_instruction
+    ) + summary_block + image_instruction
 
     # ── Step 5: Build conversation messages ───────────────────────────────────
     # Sanitise every user-supplied string before it enters the conversation.
     messages: list[dict[str, str]] = []
-    for h in (chat_history or [])[-10:]:
+    for h in history_for_prompt[-10:]:
         role = h.get("role")
         content = h.get("content")
         if role in ("user", "assistant") and content:

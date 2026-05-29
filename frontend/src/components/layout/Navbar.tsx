@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   Menu, Search, LogOut, User, Settings, UserPlus, UserCheck, Loader2, X,
-  Moon, Sun, Sparkles, Heart, BarChart3, ShoppingBag, ShoppingCart, ChevronRight, Plane,
+  Moon, Sun, Sparkles, Heart, BarChart3, ShoppingBag, ShoppingCart, ChevronRight, Wand2, PlusCircle,
 } from 'lucide-react'
 import { useApp } from '@/store'
 import { useColorScheme } from '@/hooks/useColorScheme'
@@ -26,16 +26,19 @@ const TITLES: Record<string, string> = {
   '/saved-outfits':    'Saved Outfits',
   '/purchase-gaps':    'Wardrobe Gaps',
   '/shopping-check':   'Shop Smart Check',
+  '/closet-match':     'Complete My Look',
 }
 
 /* ── Premium profile hover dropdown ────────────────────────────────────────── */
 
 const MORE_LINKS = [
+  { to: '/outfit-builder', label: 'Outfit Builder',   icon: Wand2,        gradient: 'from-pink-500 to-rose-600',     desc: 'Design & save your looks' },
+  { to: '/upload',         label: 'Add to Closet',    icon: PlusCircle,   gradient: 'from-violet-500 to-indigo-600', desc: 'Upload new items' },
   { to: '/saved-outfits',  label: 'Saved Outfits',    icon: Heart,        gradient: 'from-rose-500 to-pink-500',     desc: 'Your FANI-curated looks' },
   { to: '/analytics',      label: 'Style Insights',   icon: BarChart3,    gradient: 'from-violet-500 to-indigo-500', desc: 'Wear analytics & trends' },
   { to: '/purchase-gaps',  label: 'Wardrobe Gaps',    icon: ShoppingBag,  gradient: 'from-amber-500 to-orange-500',  desc: 'What your closet is missing' },
   { to: '/shopping-check', label: 'Shop Smart Check', icon: ShoppingCart, gradient: 'from-green-500 to-emerald-500', desc: 'Buy or skip in-store items' },
-  { to: '/travel',         label: 'Travel Packing',   icon: Plane,        gradient: 'from-sky-500 to-cyan-500',      desc: 'Pack smart for any trip' },
+  { to: '/closet-match',   label: 'Closet Match',     icon: Wand2,        gradient: 'from-violet-500 to-fuchsia-500', desc: 'Complete your look' },
 ]
 
 function ProfileDropdown({ onNavigate }: { onNavigate: (to: string) => void }) {

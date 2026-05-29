@@ -11,7 +11,8 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, func
+from datetime import date as date_type
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -31,11 +32,52 @@ class AIChatSession(Base):
         index=True,
     )
     title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # Rolling LLM-generated summary of older turns once a session exceeds the
+    # short-window threshold. Lets unlimited-length conversations stay coherent
+    # without blowing the context budget.
+    summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Number of historical messages already folded into `summary` so we only
+    # ever summarise *new* turns on each pass.
+    summary_through_msg_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class DailyNudge(Base):
+    """One proactive FANI message per user per day.
+
+    Generated lazily: the first request to /ai-chat/nudges/today on a given
+    date triggers generation based on weather, recent additions, unworn items,
+    and upcoming calendar events. Users can dismiss to suppress until tomorrow.
+    """
+
+    __tablename__ = "daily_nudges"
+    __table_args__ = (
+        UniqueConstraint("user_id", "nudge_date", name="uq_daily_nudges_user_date"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    nudge_date: Mapped[date_type] = mapped_column(Date, nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    # weather_outfit | new_arrival | unworn_pick | calendar_prep | streak | generic
+    nudge_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    payload: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    dismissed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
 

@@ -4,10 +4,10 @@ import BackButton from '@/components/ui/BackButton'
 import {
   Search, Users, UserCheck, Loader2, Edit3, Check, Shirt,
   User as UserIcon, Ruler, Palette, Brain, MapPin, Calendar, Sparkles,
-  Bell, Shield, Globe, Lock,
+  Bell, Shield, Globe, Lock, RefreshCw,
 } from 'lucide-react'
 import { useApp } from '@/store'
-import { socialApi, authApi } from '@/lib/api'
+import { socialApi, authApi, closetApi } from '@/lib/api'
 import type {
   AuthUser, AvatarConfig, BodyProfile, ClosetItem, SocialUser,
   StyleProfile, StyleTag, UserPermissions, UserPreferences,
@@ -1282,11 +1282,93 @@ function SettingsTab({
           </SettingsSectionCard>
         </div>
 
+        {/* ── Wardrobe AI Maintenance ───────────────────────── */}
+        <ReEmbedSection />
+
         {/* ── GDPR: Your Data ──────────────────────────────── */}
         <GdprSection />
 
       </div>
     </div>
+  )
+}
+
+function ReEmbedSection() {
+  const [status, setStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
+  const [message, setMessage] = useState('')
+
+  const handleReEmbed = async (force: boolean) => {
+    setStatus('loading')
+    setMessage('')
+    try {
+      const result = await closetApi.reEmbed(force)
+      setStatus('done')
+      setMessage(result.message)
+    } catch {
+      setStatus('error')
+      setMessage('Failed to start re-embedding. Please try again.')
+    }
+  }
+
+  return (
+    <GlassCard className="p-5 space-y-4">
+      <div className="flex items-center gap-2">
+        <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-500 to-indigo-600
+                        flex items-center justify-center flex-shrink-0">
+          <Sparkles size={13} className="text-white" />
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-slate-800 dark:text-white">
+            Wardrobe AI Maintenance
+          </p>
+          <p className="text-xs text-slate-500 dark:text-white/40">
+            Refresh the AI similarity index for better matching
+          </p>
+        </div>
+      </div>
+
+      <p className="text-xs text-slate-500 dark:text-white/50 leading-relaxed">
+        If your closet similarity suggestions feel off or inaccurate, regenerating the AI index
+        will fix it. Run this after adding many new items or if the app was recently updated.
+      </p>
+
+      {message && (
+        <p className={`text-xs leading-relaxed px-3 py-2 rounded-xl border ${
+          status === 'done'
+            ? 'text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-700/40'
+            : 'text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-700/40'
+        }`}>
+          {message}
+        </p>
+      )}
+
+      <div className="flex gap-2">
+        <button
+          onClick={() => handleReEmbed(false)}
+          disabled={status === 'loading'}
+          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs
+                     font-semibold bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700
+                     dark:text-indigo-400 border border-indigo-200 dark:border-indigo-700/40
+                     hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors
+                     disabled:opacity-50"
+        >
+          {status === 'loading' ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+          Fix missing
+        </button>
+        <button
+          onClick={() => handleReEmbed(true)}
+          disabled={status === 'loading'}
+          className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs
+                     font-semibold bg-slate-100 dark:bg-white/[0.06] text-slate-600
+                     dark:text-white/60 border border-slate-200 dark:border-white/10
+                     hover:bg-slate-200 dark:hover:bg-white/10 transition-colors
+                     disabled:opacity-50"
+        >
+          {status === 'loading' ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+          Rebuild all
+        </button>
+      </div>
+    </GlassCard>
   )
 }
 

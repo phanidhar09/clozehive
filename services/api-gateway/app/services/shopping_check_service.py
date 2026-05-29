@@ -30,6 +30,7 @@ from app.services.embedding_service import (
 )
 from app.services.vision_service import analyze_for_bulk
 from app.services.upload_service import persist_upload
+from app.services import ai_service
 
 logger = get_logger("shopping_check_service")
 
@@ -49,18 +50,31 @@ _MAX_COMPATIBILITY_BOOST = 20.0
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _build_item_text(analysis: dict[str, Any]) -> str:
-    """Convert vision analysis payload into embedding text."""
+    """
+    Convert vision analysis payload into embedding text.
+    Pass both alias variants so item_to_embedding_text resolves whichever is populated.
+    """
     return item_to_embedding_text({
-        "name": analysis.get("name", ""),
-        "category": analysis.get("category", ""),
-        "color": analysis.get("primary_color") or analysis.get("color", ""),
-        "fabric": analysis.get("material", ""),
-        "pattern": analysis.get("pattern", ""),
-        "season": analysis.get("season_tags") or [],
-        "occasion": analysis.get("occasion_tags") or [],
-        "tags": analysis.get("style_tags") or [],
-        "notes": analysis.get("description", ""),
-        "brand": analysis.get("brand", ""),
+        # Both naming conventions kept — _resolve() picks the first non-empty one
+        "name":         analysis.get("name", ""),
+        "category":     analysis.get("category", ""),
+        "subcategory":  analysis.get("subcategory", ""),
+        "color":        analysis.get("color", ""),
+        "primary_color": analysis.get("primary_color", ""),
+        "fabric":       analysis.get("fabric", ""),
+        "material":     analysis.get("material", ""),
+        "pattern":      analysis.get("pattern", ""),
+        "fit":          analysis.get("fit", ""),
+        "season":       analysis.get("season") or [],
+        "season_tags":  analysis.get("season_tags") or [],
+        "occasion":     analysis.get("occasion") or [],
+        "occasion_tags": analysis.get("occasion_tags") or [],
+        "tags":         analysis.get("tags") or [],
+        "style_tags":   analysis.get("style_tags") or [],
+        "notes":        analysis.get("notes", ""),
+        "description":  analysis.get("description", ""),
+        "brand":        analysis.get("brand", ""),
+        "secondary_colors": analysis.get("secondary_colors") or [],
     })
 
 
@@ -120,7 +134,7 @@ async def analyze_shopping_item(
     # 2. Embed the new item
     embedding = await generate_text_embedding(item_text)
 
-    # 3. Similarity search against closet
+    # 3. Similarity search against closet — fetch extra candidates, re-rank below
     similar_items: list[dict[str, Any]] = []
     if embedding:
         similar_items = await pgvector_cosine_search(
@@ -128,7 +142,7 @@ async def analyze_shopping_item(
             table="closet_items",
             embedding=embedding,
             user_id=user_id,
-            limit=10,
+            limit=20,                  # fetch more, trim after scoring
             threshold=_MATCH_THRESHOLD,
             filter_archived=True,
         )
@@ -347,3 +361,236 @@ async def delete_shopping_check(
     await session.execute(delete_sql, {"cid": check_id, "uid": user_id})
     await session.commit()
     return True, row.get("image_url")
+
+
+# ── Closet → Shopping: "Complete My Look" ────────────────────────────────────
+
+_MATCH_SUGGESTIONS_SYSTEM = """You are FANI, a professional AI fashion stylist.
+Given a wardrobe item and the user's existing closet context, recommend specific shopping items
+that would complete outfits and maximise the item's versatility.
+
+Return ONLY a valid JSON object with this exact structure:
+{
+  "outfit_potential": "high" | "medium" | "low",
+  "styling_tip": "<1-2 sentence overall styling advice for this item>",
+  "suggestions": [
+    {
+      "category": "<specific item type to shop for, e.g. 'slim-fit chinos'>",
+      "reason": "<why this pairs well — one sentence>",
+      "colors": ["<color1>", "<color2>"],
+      "occasions": ["<occasion1>"],
+      "priority": "high" | "medium" | "low",
+      "price_range": "<budget hint e.g. '$30–$80'>"
+    }
+  ]
+}
+Return 4–6 suggestions ordered by priority. No markdown fences, raw JSON only."""
+
+
+async def get_closet_match_suggestions(
+    closet_item_id: str,
+    user_id: str,
+    session: AsyncSession,
+) -> dict[str, Any]:
+    """
+    Given a closet item, return AI shopping suggestions for what would pair well.
+
+    Flow:
+    1. Fetch the closet item and its metadata.
+    2. Find existing items that already pair with it (pgvector search).
+    3. Ask the AI to identify the *missing* pieces and return actionable shopping advice.
+    """
+    import json as _json
+
+    # 1. Fetch closet item
+    item_sql = text("""
+        SELECT id, name, category, color, fabric, pattern, brand, season,
+               occasion, tags, notes, image_url, processed_image_url
+        FROM closet_items
+        WHERE id = CAST(:iid AS uuid)
+          AND user_id = CAST(:uid AS uuid)
+          AND is_archived = false
+    """)
+    res = await session.execute(item_sql, {"iid": closet_item_id, "uid": user_id})
+    item_row = res.mappings().first()
+    if not item_row:
+        return {}
+
+    item = dict(item_row)
+
+    # 2. Build item text + embedding for similarity search
+    item_text = item_to_embedding_text({
+        "name":     item.get("name", ""),
+        "category": item.get("category", ""),
+        "color":    item.get("color", ""),
+        "fabric":   item.get("fabric", ""),
+        "pattern":  item.get("pattern", ""),
+        "season":   item.get("season") or [],
+        "occasion": item.get("occasion") or [],
+        "tags":     item.get("tags") or [],
+        "notes":    item.get("notes", ""),
+        "brand":    item.get("brand", ""),
+    })
+    embedding = await generate_text_embedding(item_text)
+
+    # 3. Existing pairing items
+    existing_pairs: list[dict[str, Any]] = []
+    if embedding:
+        rows = await pgvector_cosine_search(
+            session=session,
+            table="closet_items",
+            embedding=embedding,
+            user_id=user_id,
+            limit=8,
+            threshold=0.55,
+            filter_archived=True,
+        )
+        # Exclude the item itself
+        existing_pairs = [r for r in rows if str(r.get("id")) != closet_item_id][:5]
+
+    # 4. Build AI prompt
+    existing_desc = (
+        ", ".join(f"{r.get('name','')} ({r.get('category','')})" for r in existing_pairs)
+        if existing_pairs else "none found"
+    )
+    item_desc = (
+        f"{item.get('name','Item')}: {item.get('category','')}, {item.get('color','')} "
+        f"{item.get('fabric','')} {item.get('pattern','')}. "
+        f"Occasions: {', '.join(item.get('occasion') or [])}. "
+        f"Seasons: {', '.join(item.get('season') or [])}."
+    )
+    user_msg = (
+        f"My wardrobe item: {item_desc}\n"
+        f"Items I already own that pair with it: {existing_desc}\n"
+        "What should I shop for next to get the most out of this piece?"
+    )
+
+    # 5. Call AI
+    raw_response = await ai_service.chat(
+        messages=[{"role": "user", "content": user_msg}],
+        system_prompt=_MATCH_SUGGESTIONS_SYSTEM,
+    )
+
+    # 6. Parse JSON
+    suggestions_data: dict[str, Any] = {}
+    try:
+        # Strip markdown fences if present
+        cleaned = raw_response.strip().strip("```json").strip("```").strip()
+        suggestions_data = _json.loads(cleaned)
+    except Exception:
+        logger.warning("Failed to parse closet-match AI response: %s", raw_response[:200])
+        suggestions_data = {
+            "outfit_potential": "medium",
+            "styling_tip": "This item has great pairing potential. Explore complementary pieces!",
+            "suggestions": [],
+        }
+
+    # 7. Build response
+    image_url = item.get("processed_image_url") or item.get("image_url")
+    return {
+        "closet_item": {
+            "id": str(item["id"]),
+            "name": item.get("name", ""),
+            "category": item.get("category", ""),
+            "color": item.get("color", ""),
+            "image_url": image_url,
+            "occasion": item.get("occasion") or [],
+            "season": item.get("season") or [],
+        },
+        "existing_pairs": [
+            {
+                "id": str(r.get("id", "")),
+                "name": r.get("name", ""),
+                "category": r.get("category", ""),
+                "image_url": r.get("processed_image_url") or r.get("image_url"),
+                "similarity_score": round(float(r.get("similarity_score", 0)), 3),
+            }
+            for r in existing_pairs
+        ],
+        "outfit_potential": suggestions_data.get("outfit_potential", "medium"),
+        "styling_tip": suggestions_data.get("styling_tip", ""),
+        "suggestions": suggestions_data.get("suggestions", []),
+    }
+
+
+async def add_shopping_item_to_closet(
+    check_id: str,
+    user_id: str,
+    session: AsyncSession,
+) -> dict[str, Any] | None:
+    """
+    Create a closet item from an already-analyzed shopping check record.
+    Reuses the AI analysis data so no re-analysis is needed.
+    """
+    import json as _json
+
+    # Fetch the shopping check
+    fetch_sql = text("""
+        SELECT id, image_url, item_analysis FROM shopping_checks
+        WHERE id = CAST(:cid AS uuid)
+          AND user_id = CAST(:uid AS uuid)
+    """)
+    res = await session.execute(fetch_sql, {"cid": check_id, "uid": user_id})
+    row = res.mappings().first()
+    if not row:
+        return None
+
+    analysis = row["item_analysis"]
+    if isinstance(analysis, str):
+        analysis = _json.loads(analysis)
+
+    # Build embedding text
+    item_text = item_to_embedding_text({
+        "name":     analysis.get("name", ""),
+        "category": analysis.get("category", ""),
+        "color":    analysis.get("primary_color") or analysis.get("color", ""),
+        "fabric":   analysis.get("material", ""),
+        "pattern":  analysis.get("pattern", ""),
+        "season":   analysis.get("season_tags") or [],
+        "occasion": analysis.get("occasion_tags") or [],
+        "tags":     analysis.get("style_tags") or [],
+        "notes":    analysis.get("description", ""),
+        "brand":    analysis.get("brand", ""),
+    })
+    embedding = await generate_text_embedding(item_text)
+    emb_literal = vector_literal(embedding) if embedding else None
+
+    new_id = str(uuid.uuid4())
+    insert_sql = text("""
+        INSERT INTO closet_items
+            (id, user_id, name, category, color, fabric, pattern, brand,
+             season, occasion, tags, notes, image_url,
+             wear_count, is_archived, created_at
+             {emb_col})
+        VALUES
+            (CAST(:id AS uuid), CAST(:uid AS uuid),
+             :name, :category, :color, :fabric, :pattern, :brand,
+             CAST(:season AS jsonb), CAST(:occasion AS jsonb), CAST(:tags AS jsonb),
+             :notes, :image_url,
+             0, false, NOW()
+             {emb_val})
+        RETURNING id, name, category, color, image_url, created_at
+    """.format(
+        emb_col=", embedding" if emb_literal else "",
+        emb_val=f", {emb_literal}" if emb_literal else "",
+    ))
+
+    import json
+    result = await session.execute(insert_sql, {
+        "id":       new_id,
+        "uid":      user_id,
+        "name":     analysis.get("name") or analysis.get("category") or "Shopping Item",
+        "category": analysis.get("category", ""),
+        "color":    analysis.get("primary_color") or analysis.get("color", ""),
+        "fabric":   analysis.get("material", ""),
+        "pattern":  analysis.get("pattern", ""),
+        "brand":    analysis.get("brand", ""),
+        "season":   json.dumps(analysis.get("season_tags") or []),
+        "occasion": json.dumps(analysis.get("occasion_tags") or []),
+        "tags":     json.dumps(analysis.get("style_tags") or []),
+        "notes":    analysis.get("description", ""),
+        "image_url": row.get("image_url"),
+    })
+    await session.commit()
+    created = result.mappings().first()
+    return dict(created) if created else {"id": new_id}

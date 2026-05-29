@@ -614,6 +614,11 @@ export const closetApi = {
     const { data } = await api.patch<Record<string, unknown>>(`/closet/${id}`, patch)
     return mapClosetItem(data)
   },
+
+  async reEmbed(force = false): Promise<{ status: string; items_queued: number; message: string }> {
+    const { data } = await api.post('/closet/re-embed', null, { params: { force } })
+    return data as { status: string; items_queued: number; message: string }
+  },
 }
 
 // ── Outfits / AI ───────────────────────────────────────────────────────────
@@ -1154,6 +1159,37 @@ export interface ShoppingHistoryEntry extends ShoppingCheckResult {
   created_at: string
 }
 
+export interface ClosetMatchSuggestion {
+  category: string
+  reason: string
+  colors: string[]
+  occasions: string[]
+  priority: 'high' | 'medium' | 'low'
+  price_range?: string
+}
+
+export interface ClosetMatchResult {
+  closet_item: {
+    id: string
+    name: string
+    category: string
+    color: string
+    image_url: string | null
+    occasion: string[]
+    season: string[]
+  }
+  existing_pairs: Array<{
+    id: string
+    name: string
+    category: string
+    image_url: string | null
+    similarity_score: number
+  }>
+  outfit_potential: 'high' | 'medium' | 'low'
+  styling_tip: string
+  suggestions: ClosetMatchSuggestion[]
+}
+
 export const shoppingCheckApi = {
   async checkItem(file: File): Promise<ShoppingCheckResult> {
     const form = new FormData()
@@ -1177,5 +1213,17 @@ export const shoppingCheckApi = {
 
   async deleteCheck(checkId: string): Promise<void> {
     await api.delete(`/shopping/${checkId}`)
+  },
+
+  async addToCloset(checkId: string): Promise<{ closet_item: Record<string, unknown> }> {
+    const { data } = await api.post(`/shopping/${checkId}/add-to-closet`)
+    return data
+  },
+
+  async getClosetMatchSuggestions(closetItemId: string): Promise<ClosetMatchResult> {
+    const { data } = await api.post<ClosetMatchResult>('/shopping/closet-match', {
+      closet_item_id: closetItemId,
+    })
+    return data
   },
 }

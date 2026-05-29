@@ -1,8 +1,8 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
-  Home, Shirt,
-  X, Moon, Sun, LogOut, Wand2, PlusCircle,
+  Home, Shirt, Plane,
+  X, Moon, Sun, LogOut,
   Sparkles,
   type LucideIcon,
 } from 'lucide-react'
@@ -18,11 +18,10 @@ type SidebarNavItem = {
 }
 
 const NAV_MAIN: SidebarNavItem[] = [
-  { to: '/dashboard',      label: 'Home',               icon: Home },
-  { to: '/closet',         label: 'My Closet',          icon: Shirt },
-  { to: '/outfit-builder', label: 'Outfit Builder',     icon: Wand2,     gradient: 'from-pink-500 to-rose-600' },
-  { to: '/upload',         label: 'Add to Closet',      icon: PlusCircle, gradient: 'from-violet-500 to-indigo-600' },
-  { to: '/ai-stylist',     label: 'FANI AI Stylist',    icon: Sparkles,  gradient: 'from-violet-500 to-fuchsia-600' },
+  { to: '/dashboard',  label: 'Home',            icon: Home },
+  { to: '/closet',     label: 'My Closet',       icon: Shirt },
+  { to: '/travel',     label: 'Travel Packing',  icon: Plane,    gradient: 'from-sky-500 to-cyan-500' },
+  { to: '/ai-stylist', label: 'FANI AI Stylist', icon: Sparkles, gradient: 'from-violet-500 to-fuchsia-600' },
 ]
 
 export default function Sidebar() {

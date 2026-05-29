@@ -385,3 +385,84 @@ async def delete_item(
 async def log_wear(item_id: UUID, body: LogWearRequest, user_id: CurrentUser, session: AsyncSession = Depends(get_session)):
     svc = _get_svc(session)
     return await svc.log_wear(item_id, UUID(user_id), body.worn_date)
+
+
+# ── Re-embed all items ────────────────────────────────────────────────────────
+
+@router.post("/re-embed", status_code=status.HTTP_202_ACCEPTED)
+async def re_embed_closet(
+    user_id: CurrentUser,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_session),
+    force: bool = Query(False, description="Re-embed even items that already have an embedding"),
+):
+    """
+    Regenerate embeddings for all closet items owned by the current user.
+
+    **Must be called after:**
+    - Upgrading the embedding model (e.g. ada-002 → text-embedding-3-small)
+    - Changing item_to_embedding_text() to include additional fields
+
+    Runs in the background; returns immediately with a task summary.
+    Embeddings are updated in batches of 20 with a small delay to avoid
+    rate-limiting the OpenAI Embeddings API.
+    """
+    from sqlalchemy import text as sql_text
+    from app.services.similarity_service import generate_item_embedding
+    from app.models.closet import ClosetItem
+    from sqlalchemy import select
+
+    # Count items first (fast)
+    count_sql = sql_text(
+        "SELECT COUNT(*) FROM closet_items WHERE user_id = CAST(:uid AS uuid) AND is_archived = false"
+        + ("" if force else " AND embedding IS NULL")
+    )
+    count_result = await session.execute(count_sql, {"uid": user_id})
+    total = count_result.scalar() or 0
+
+    async def _run_re_embed(uid: str, do_force: bool) -> None:
+        """Background task: batch re-embed all user's items."""
+        import asyncio
+        from app.db.session import AsyncSessionLocal
+
+        async with AsyncSessionLocal() as bg_session:
+            stmt = select(ClosetItem).where(
+                ClosetItem.user_id == UUID(uid),
+                ClosetItem.is_archived.is_(False),
+            )
+            if not do_force:
+                stmt = stmt.where(ClosetItem.embedding.is_(None))
+
+            result = await bg_session.execute(stmt)
+            items = result.scalars().all()
+
+            succeeded = 0
+            failed = 0
+            for i, item in enumerate(items):
+                try:
+                    item.embedding = await generate_item_embedding(item)
+                    succeeded += 1
+                except Exception as exc:
+                    failed += 1
+                    import logging
+                    logging.getLogger("re_embed").warning(
+                        "re_embed_item_failed", item_id=str(item.id), error=str(exc)
+                    )
+                # Commit in batches of 20
+                if (i + 1) % 20 == 0:
+                    await bg_session.commit()
+                    await asyncio.sleep(0.3)   # brief pause for API rate limits
+
+            await bg_session.commit()
+
+    background_tasks.add_task(_run_re_embed, user_id, force)
+
+    return {
+        "status": "started",
+        "items_queued": total,
+        "force": force,
+        "message": (
+            f"Re-embedding {total} item(s) in the background. "
+            "New similarity searches will reflect the updated embeddings once complete."
+        ),
+    }

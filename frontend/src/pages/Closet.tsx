@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react'
 import {
   Search, SlidersHorizontal, Loader2, RefreshCw, Trash2, X,
-  Sparkles, Upload, ChevronRight, Clock, TrendingUp, Plus,
+  Sparkles, Upload, ChevronRight, Clock, TrendingUp, Plus, Wand2,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useApp } from '@/store'
@@ -246,25 +246,14 @@ export default function Closet() {
                 : `${closetItems.length} items in your wardrobe`}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={fetchClosetItems}
-            disabled={closetLoading}
-            className="btn-ghost p-2 min-h-[44px] min-w-[44px] rounded-xl"
-            title="Refresh"
-          >
-            <RefreshCw size={15} className={closetLoading ? 'animate-spin text-brand-500' : ''} />
-          </button>
-          {/* Add to Closet CTA */}
-          <Link
-            to="/upload"
-            className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold bg-gradient-to-r from-brand-500 to-violet-500 text-white shadow-md shadow-brand-500/25 hover:shadow-brand-500/40 hover:-translate-y-0.5 transition-all duration-200 min-h-[44px]"
-          >
-            <Plus size={15} />
-            <span className="hidden sm:inline">Add to Closet</span>
-            <span className="sm:hidden">Add</span>
-          </Link>
-        </div>
+        <button
+          onClick={fetchClosetItems}
+          disabled={closetLoading}
+          className="btn-ghost p-2 min-h-[44px] min-w-[44px] rounded-xl"
+          title="Refresh wardrobe"
+        >
+          <RefreshCw size={15} className={closetLoading ? 'animate-spin text-brand-500' : ''} />
+        </button>
       </div>
 
       {/* ── Error banner ── */}
@@ -275,6 +264,42 @@ export default function Closet() {
           </RetryButton>
         </InlineError>
       )}
+
+      {/* ── Closet actions strip ── */}
+      <div className="grid grid-cols-2 gap-2.5">
+        <Link
+          to="/upload"
+          className="flex items-center gap-3 px-4 py-3 rounded-2xl
+                     bg-gradient-to-br from-violet-500 to-indigo-600
+                     text-white shadow-md shadow-violet-500/20
+                     hover:shadow-violet-500/35 hover:-translate-y-0.5
+                     transition-all duration-200"
+        >
+          <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center flex-shrink-0">
+            <Plus size={16} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-bold leading-tight">Add Items</p>
+            <p className="text-[11px] text-white/70 leading-tight">Upload new clothing</p>
+          </div>
+        </Link>
+        <Link
+          to="/outfit-builder"
+          className="flex items-center gap-3 px-4 py-3 rounded-2xl
+                     bg-gradient-to-br from-pink-500 to-rose-600
+                     text-white shadow-md shadow-pink-500/20
+                     hover:shadow-pink-500/35 hover:-translate-y-0.5
+                     transition-all duration-200"
+        >
+          <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center flex-shrink-0">
+            <Wand2 size={16} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-bold leading-tight">Build Outfit</p>
+            <p className="text-[11px] text-white/70 leading-tight">Mix & match your closet</p>
+          </div>
+        </Link>
+      </div>
 
       {/* ── Category tabs (horizontal scroll) ── */}
       <div className="relative">
@@ -475,7 +500,7 @@ export default function Closet() {
             </div>
           )}
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3">
             {filtered.map(item => (
               <ClosetItemCard
                 key={item.id}

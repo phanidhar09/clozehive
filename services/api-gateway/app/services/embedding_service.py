@@ -73,34 +73,106 @@ async def generate_text_embedding(text_input: str) -> list[float] | None:
         return None
 
 
+def _resolve(item: dict[str, Any], *keys: str) -> str:
+    """Return the first non-empty string value among the given key aliases."""
+    for k in keys:
+        v = item.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+        if isinstance(v, list) and v:
+            return str(v[0]).strip()
+    return ""
+
+
+def _resolve_list(item: dict[str, Any], *keys: str) -> list[str]:
+    """Return first non-empty list found among the given key aliases."""
+    for k in keys:
+        v = item.get(k)
+        if isinstance(v, list) and v:
+            return [str(x).strip() for x in v if str(x).strip()]
+        if isinstance(v, str) and v.strip():
+            return [v.strip()]
+    return []
+
+
 def item_to_embedding_text(item: dict[str, Any]) -> str:
-    """Normalise closet item metadata into a single searchable string."""
-    parts = [
-        f"Category: {item.get('category', '')}",
-        f"Name: {item.get('name', '')}",
-    ]
-    if item.get("color"):
-        parts.append(f"Color: {item['color']}")
-    if item.get("fabric"):
-        parts.append(f"Material: {item['fabric']}")
-    if item.get("pattern"):
-        parts.append(f"Pattern: {item['pattern']}")
-    seasons = item.get("season") or []
-    if isinstance(seasons, list) and seasons:
-        parts.append(f"Season: {', '.join(seasons)}")
-    elif isinstance(seasons, str) and seasons:
-        parts.append(f"Season: {seasons}")
-    occasions = item.get("occasion") or []
-    if isinstance(occasions, list) and occasions:
-        parts.append(f"Occasions: {', '.join(occasions)}")
-    tags = item.get("tags") or []
-    if isinstance(tags, list) and tags:
-        parts.append(f"Tags: {', '.join(tags)}")
-    if item.get("notes"):
-        parts.append(f"Description: {item['notes']}")
-    if item.get("brand"):
-        parts.append(f"Brand: {item['brand']}")
-    return ". ".join(p for p in parts if p.split(": ", 1)[-1].strip()) + "."
+    """
+    Convert closet item metadata into a rich, semantically dense string for embedding.
+
+    Handles both DB-column names (color, fabric, occasion, season, tags, notes)
+    AND vision-analysis field names (primary_color, material, occasion_tags,
+    season_tags, style_tags, description, subcategory, fit) so the same function
+    works for stored items *and* freshly-analysed items that haven't been saved yet.
+
+    Key design choices:
+    - Lead with the most discriminating fields (category + name + color + material)
+    - Repeat category and color at the end — embedding models benefit from emphasis
+    - Use natural-language phrasing ("A navy blue slim-fit chino pant…") rather
+      than "Key: Value" format — better semantic neighbourhood clustering
+    - Include all available metadata so semantically similar items end up close
+      in vector space regardless of which fields are populated
+    """
+    # ── Field resolution (handles both naming conventions) ───────────────────
+    category    = _resolve(item, "category")
+    subcategory = _resolve(item, "subcategory")
+    name        = _resolve(item, "name")
+    color       = _resolve(item, "color", "primary_color")
+    material    = _resolve(item, "fabric", "material")
+    pattern     = _resolve(item, "pattern")
+    fit         = _resolve(item, "fit")
+    brand       = _resolve(item, "brand")
+    description = _resolve(item, "notes", "description")
+
+    occasions   = _resolve_list(item, "occasion", "occasion_tags")
+    seasons     = _resolve_list(item, "season", "season_tags")
+    tags        = _resolve_list(item, "tags", "style_tags")
+    sec_colors  = _resolve_list(item, "secondary_colors")
+
+    # ── Build natural-language sentence ──────────────────────────────────────
+    # Format: "<color> <material> <fit> <subcategory or category> called '<name>'"
+    item_type = subcategory or category
+    descriptor_parts = [p for p in [color, material, fit, item_type] if p]
+    headline = " ".join(descriptor_parts)
+    if name and name.lower() != item_type.lower():
+        headline = f"{headline} called '{name}'"
+
+    parts: list[str] = [headline] if headline.strip() else []
+
+    if description:
+        parts.append(description)
+
+    if brand:
+        parts.append(f"Brand: {brand}")
+
+    if pattern and pattern.lower() not in ("solid", "unknown", ""):
+        parts.append(f"Pattern: {pattern}")
+
+    if seasons:
+        parts.append(f"Suitable for {', '.join(seasons)}")
+
+    if occasions:
+        parts.append(f"Worn for {', '.join(occasions)}")
+
+    if tags:
+        parts.append(f"Style: {', '.join(tags)}")
+
+    if sec_colors:
+        parts.append(f"Also features {', '.join(sec_colors)}")
+
+    # ── Repeat key discriminators at the end for embedding emphasis ──────────
+    # Embedding models weight earlier tokens more; repeating the most important
+    # attributes at the end improves retrieval precision significantly.
+    tail: list[str] = []
+    if category:
+        tail.append(category)
+    if color:
+        tail.append(color)
+    if material:
+        tail.append(material)
+    if tail:
+        parts.append(" · ".join(tail))
+
+    return ". ".join(p for p in parts if p.strip()) + "."
 
 
 def vector_literal(embedding: list[float]) -> str:

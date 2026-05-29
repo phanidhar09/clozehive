@@ -88,7 +88,10 @@ class Settings(BaseSettings):
     openweather_api_key: str = ""
     ai_cache_enabled: bool = True
     ai_cache_ttl: int = 600
-    embedding_model: str = "text-embedding-ada-002"
+    # text-embedding-3-small: same 1536-dim output as ada-002 but ~20% better on
+    # semantic retrieval benchmarks and cheaper.  Changing this requires running
+    # POST /api/v1/closet/re-embed to regenerate all stored embeddings.
+    embedding_model: str = "text-embedding-3-small"
     openai_api_key: str = ""
     # Base URL passed explicitly to AsyncOpenAI (SDK ignores stray OS OPENAI_BASE_URL).
     # Use for Azure/other OpenAI-compatible gateways; leave default for api.openai.com.
@@ -99,7 +102,7 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_model: str = "gemini-1.5-flash-latest"
 
-    # Closet POST /closet/analyze-preview: skip per-item BG removal + second OpenAI pass on each crop.
+# Closet POST /closet/analyze-preview: skip per-item BG removal + second OpenAI pass on each crop.
     # Much faster; detection metadata still comes from the first vision call. Set false for max quality.
     vision_preview_fast: bool = True
 

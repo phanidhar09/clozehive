@@ -14,6 +14,7 @@ from app.core.logging import get_logger
 from app.core.openai_tracing import make_openai_client, wrap_openai_client
 from app.db.session import AsyncSessionLocal
 from app.models.closet import ClosetItem
+from app.services.embedding_service import item_to_embedding_text
 
 settings = get_settings()
 logger = get_logger("similarity_service")
@@ -32,7 +33,27 @@ def _embedding_client() -> AsyncOpenAI:
 
 @traceable(name="gateway_openai_embedding", run_type="embedding")
 async def generate_item_embedding(item: ClosetItem) -> list[float]:
-    description = f"{item.name} {item.category} {item.color or ''} {' '.join(item.tags or [])}".strip()
+    """
+    Generate a rich embedding for a saved ClosetItem.
+
+    Uses the same item_to_embedding_text() function as pgvector search queries
+    so stored vectors and query vectors are always in the same semantic space.
+    Previously this used a thin 4-field concat (name + category + color + tags)
+    which caused stored embeddings and search embeddings to differ, degrading
+    cosine similarity results.
+    """
+    description = item_to_embedding_text({
+        "name":     item.name,
+        "category": item.category,
+        "color":    item.color or "",
+        "fabric":   item.fabric or "",
+        "pattern":  item.pattern or "",
+        "season":   item.season or [],
+        "occasion": item.occasion or [],
+        "tags":     item.tags or [],
+        "notes":    item.notes or "",
+        "brand":    item.brand or "",
+    })
     if not settings.openai_api_key:
         logger.warning("embedding_fallback", reason="OPENAI_API_KEY not set", item_id=str(item.id))
         return [0.0] * 1536
@@ -42,6 +63,7 @@ async def generate_item_embedding(item: ClosetItem) -> list[float]:
         timeout=20.0,
     )
     vector = response.data[0].embedding
+    # text-embedding-3-small and ada-002 both produce 1536 dims by default
     if len(vector) != 1536:
         raise ValueError(f"Embedding model returned {len(vector)} dimensions; expected 1536")
     return [float(v) for v in vector]

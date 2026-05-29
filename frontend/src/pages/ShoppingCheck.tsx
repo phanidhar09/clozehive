@@ -1,7 +1,9 @@
 import { useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Camera, Upload, ShoppingCart, CheckCircle, XCircle, AlertCircle,
   Loader2, RotateCcw, Star, TrendingUp, Package, Sparkles, Trash2,
+  PlusCircle, Shirt,
 } from 'lucide-react'
 import BackButton from '@/components/ui/BackButton'
 import GlassCard from '@/components/ui/GlassCard'
@@ -132,6 +134,51 @@ function PurchasePrompt({
 
 // ── Result card ───────────────────────────────────────────────────────────────
 
+function AddToClosetButton({ checkId }: { checkId: string }) {
+  const navigate = useNavigate()
+  const [status, setStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
+
+  const handleAdd = async () => {
+    setStatus('loading')
+    try {
+      await shoppingCheckApi.addToCloset(checkId)
+      setStatus('done')
+    } catch {
+      setStatus('error')
+    }
+  }
+
+  if (status === 'done') {
+    return (
+      <button
+        onClick={() => navigate('/closet')}
+        className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold
+                   bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400
+                   border border-emerald-200 dark:border-emerald-700/40 transition-colors"
+      >
+        <Shirt size={14} /> View in My Closet
+      </button>
+    )
+  }
+
+  return (
+    <button
+      onClick={handleAdd}
+      disabled={status === 'loading'}
+      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold
+                 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-400
+                 hover:bg-indigo-100 dark:hover:bg-indigo-900/40
+                 border border-indigo-200 dark:border-indigo-700/40
+                 transition-colors disabled:opacity-50"
+    >
+      {status === 'loading'
+        ? <Loader2 size={14} className="animate-spin" />
+        : <PlusCircle size={14} />}
+      {status === 'error' ? 'Failed — try again' : 'Add to My Closet'}
+    </button>
+  )
+}
+
 function ResultCard({
   result,
   previewUrl,
@@ -177,15 +224,15 @@ function ResultCard({
 
             {/* Item quick-facts */}
             <div className="mt-3 flex flex-wrap gap-1.5">
-              {analysis.category && (
+              {Boolean(analysis.category) && (
                 <Badge variant="gray" className="text-xs capitalize">{String(analysis.category)}</Badge>
               )}
-              {(analysis.primary_color || analysis.color) && (
+              {Boolean(analysis.primary_color ?? analysis.color) && (
                 <Badge variant="gray" className="text-xs capitalize">
-                  {String(analysis.primary_color || analysis.color)}
+                  {String(analysis.primary_color ?? analysis.color)}
                 </Badge>
               )}
-              {analysis.material && (
+              {Boolean(analysis.material) && (
                 <Badge variant="gray" className="text-xs capitalize">{String(analysis.material)}</Badge>
               )}
             </div>
@@ -260,7 +307,7 @@ function ResultCard({
       )}
 
       {/* Purchase decision */}
-      <GlassCard className="p-4">
+      <GlassCard className="p-4 space-y-3">
         {bought === null ? (
           <PurchasePrompt checkId={result.check_id} onDecision={b => setBought(b)} />
         ) : (
@@ -274,6 +321,8 @@ function ResultCard({
             {bought ? 'Great pick! Added to your purchase history.' : 'Good call — your closet thanks you!'}
           </div>
         )}
+        {/* Always show "Add to Closet" so they can save it regardless of decision */}
+        <AddToClosetButton checkId={result.check_id} />
       </GlassCard>
 
       {/* Check another */}
@@ -543,17 +592,29 @@ export default function ShoppingCheck() {
       <BackButton fallback="/dashboard" label="Back to Dashboard" />
 
       {/* Page header */}
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600
-                        flex items-center justify-center shadow-glow-sm">
-          <ShoppingCart size={20} className="text-white" />
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600
+                          flex items-center justify-center shadow-glow-sm">
+            <ShoppingCart size={20} className="text-white" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-slate-900 dark:text-white">Shop Smart Check</h1>
+            <p className="text-sm text-slate-500 dark:text-white/50">
+              Snap any item in-store — FANI tells you if it belongs in your closet
+            </p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-white">Shop Smart Check</h1>
-          <p className="text-sm text-slate-500 dark:text-white/50">
-            Snap any item in-store — FANI tells you if it belongs in your closet
-          </p>
-        </div>
+        <a
+          href="/closet-match"
+          className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold
+                     bg-violet-50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-400
+                     border border-violet-200 dark:border-violet-700/40 hover:bg-violet-100
+                     dark:hover:bg-violet-900/40 transition-colors whitespace-nowrap"
+        >
+          <Shirt size={13} />
+          Complete My Look
+        </a>
       </div>
 
       {/* How it works strip */}

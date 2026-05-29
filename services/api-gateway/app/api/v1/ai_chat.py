@@ -12,22 +12,38 @@ Endpoints:
 
 from __future__ import annotations
 
+import json
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select, desc
 
 from app.core.deps import CurrentUser, DbSession
 from app.core.rate_limit import limiter
 from app.core.logging import get_logger
-from app.models.ai_chat import AIChatMessage, AIChatSession, OutfitFeedback
+from app.db.session import AsyncSessionLocal
+from app.models.ai_chat import (
+    AIChatMessage,
+    AIChatSession,
+    DailyNudge,
+    OutfitFeedback,
+)
 from app.models.closet import ClosetItem, Outfit
 from app.services.ai_stylist_chat_service import process_chat_message
-from app.services.outfit_history_service import save_outfit_history_background
+from app.services.ai_stylist_streaming import stream_chat_message
+from app.services.daily_nudges_service import (
+    fetch_or_generate_today_nudge,
+    serialize_nudge,
+)
+from app.services.outfit_history_service import (
+    save_outfit_history,
+    save_outfit_history_background,
+)
 
 router = APIRouter(prefix="/ai-chat", tags=["AI Chat"])
 logger = get_logger("ai_chat.routes")
@@ -230,6 +246,7 @@ async def send_message(
             context=ctx,
             chat_history=body.history,
             images=body.images or [],
+            chat_session=chat_session,
         )
     except Exception as exc:
         logger.error("ai_stylist_chat_error", error=str(exc), user_id=user_id)
@@ -284,6 +301,201 @@ async def send_message(
         "purchase_gaps": ai_response.get("purchase_gaps") or [],
         "follow_up_questions": ai_response.get("follow_up_questions") or [],
     }
+
+
+def _sse(payload: dict[str, Any]) -> bytes:
+    """Encode a JSON payload as one Server-Sent Events frame."""
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode("utf-8")
+
+
+@router.post("/stream")
+@limiter.limit("20/minute")
+async def stream_message(
+    request: Request,
+    body: SendMessageRequest,
+    user_id: CurrentUser,
+) -> StreamingResponse:
+    """Stream FANI's response via Server-Sent Events.
+
+    Wire format (one ``data:`` frame per event):
+        {"type": "session",    "session_id": "..."}
+        {"type": "token",      "content": "..."}             (many)
+        {"type": "structured", "recommended_outfits": [...],
+                               "styling_suggestions": [...],
+                               "purchase_gaps": [...],
+                               "follow_up_questions": [...]}
+        {"type": "done",       "message_id": "...", "session_id": "..."}
+        {"type": "error",      "detail": "..."}              (on failure)
+    """
+    uid = UUID(user_id)
+    ctx = body.context.model_dump() if body.context else {}
+
+    async def event_generator():
+        # Open a fresh DB session for the lifetime of the stream — the
+        # request-scoped session is closed once the handler returns, but
+        # this async generator continues yielding well after that.
+        async with AsyncSessionLocal() as session:
+            try:
+                # ── Resolve or create chat session ───────────────────────────
+                if body.session_id:
+                    try:
+                        sid = UUID(body.session_id)
+                    except ValueError:
+                        yield _sse({"type": "error", "detail": "Invalid session_id"})
+                        return
+                    chat_session = await _assert_session_owner(session, sid, uid)
+                else:
+                    chat_session = AIChatSession(
+                        user_id=uid,
+                        title=_session_title_from_message(body.message),
+                    )
+                    session.add(chat_session)
+                    await session.flush()
+
+                # Persist the user message immediately so it survives a
+                # mid-stream disconnect.
+                user_msg = AIChatMessage(
+                    session_id=chat_session.id,
+                    user_id=uid,
+                    role="user",
+                    message=body.message,
+                )
+                session.add(user_msg)
+                await session.commit()
+                await session.refresh(chat_session)
+
+                yield _sse({"type": "session", "session_id": str(chat_session.id)})
+
+                # ── Stream tokens + final structured payload ─────────────────
+                final_payload: dict[str, Any] | None = None
+                async for event in stream_chat_message(
+                    session=session,
+                    user_id=uid,
+                    message=body.message,
+                    chat_session=chat_session,
+                    context=ctx,
+                    chat_history=body.history,
+                    images=body.images or [],
+                ):
+                    if event.get("type") == "structured":
+                        final_payload = event
+                    yield _sse(event)
+
+                # ── Persist assistant message + outfit history ───────────────
+                if final_payload is not None:
+                    assistant_msg = AIChatMessage(
+                        session_id=chat_session.id,
+                        user_id=uid,
+                        role="assistant",
+                        message=str(final_payload.get("reply") or ""),
+                        structured_response={
+                            k: v for k, v in final_payload.items() if k != "type"
+                        },
+                    )
+                    session.add(assistant_msg)
+                    if not body.session_id:
+                        chat_session.title = _session_title_from_message(body.message)
+                    await session.commit()
+                    await session.refresh(assistant_msg)
+
+                    outfits = final_payload.get("recommended_outfits") or []
+                    occasion = ctx.get("occasion") or "casual"
+                    weather = ctx.get("location") or ""
+                    for outfit in outfits[:2]:
+                        item_ids = [
+                            it.get("id")
+                            for it in (outfit.get("items") or [])
+                            if it.get("id")
+                        ]
+                        item_names = [
+                            it.get("name")
+                            for it in (outfit.get("items") or [])
+                            if it.get("name")
+                        ]
+                        if item_ids:
+                            try:
+                                await save_outfit_history(
+                                    session=session,
+                                    user_id=user_id,
+                                    occasion=occasion,
+                                    weather=weather,
+                                    selected_item_ids=item_ids,
+                                    item_names=item_names,
+                                    matching_score=outfit.get("matching_score"),
+                                    recommendation_text=outfit.get("reasoning")
+                                    or final_payload.get("reply")
+                                    or "",
+                                    improvement_tips=outfit.get("improvement_tips") or [],
+                                )
+                            except Exception as exc:  # noqa: BLE001
+                                logger.warning("stream_save_history_failed", error=str(exc))
+
+                    yield _sse(
+                        {
+                            "type": "done",
+                            "session_id": str(chat_session.id),
+                            "message_id": str(assistant_msg.id),
+                        }
+                    )
+                else:
+                    yield _sse({"type": "error", "detail": "No structured response received"})
+
+            except HTTPException as exc:
+                yield _sse({"type": "error", "detail": exc.detail})
+            except Exception as exc:  # noqa: BLE001
+                logger.error("stream_endpoint_failed", error=str(exc), user_id=user_id)
+                yield _sse({"type": "error", "detail": "AI stylist is temporarily unavailable"})
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",  # disable nginx buffering for SSE
+            "Connection": "keep-alive",
+        },
+    )
+
+
+# ── Daily FANI nudges ─────────────────────────────────────────────────────────
+
+
+@router.get("/nudges/today")
+async def get_today_nudge(
+    user_id: CurrentUser, session: DbSession
+) -> dict[str, Any]:
+    """Return today's proactive FANI nudge.
+
+    Generates the nudge on first call of the day; subsequent calls return the
+    cached row. Returns ``{"nudge": null}`` if the user has nothing actionable
+    (empty wardrobe, AI unavailable) so the UI can hide the surface gracefully.
+    """
+    uid = UUID(user_id)
+    nudge = await fetch_or_generate_today_nudge(session, uid)
+    return {"nudge": serialize_nudge(nudge) if nudge else None}
+
+
+@router.post("/nudges/{nudge_id}/dismiss", status_code=status.HTTP_200_OK)
+async def dismiss_nudge(
+    nudge_id: str, user_id: CurrentUser, session: DbSession
+) -> dict[str, Any]:
+    """Mark a nudge as dismissed so the UI hides it until tomorrow."""
+    uid = UUID(user_id)
+    try:
+        nid = UUID(nudge_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid nudge id")
+
+    result = await session.execute(
+        select(DailyNudge).where(DailyNudge.id == nid, DailyNudge.user_id == uid)
+    )
+    nudge = result.scalar_one_or_none()
+    if not nudge:
+        raise HTTPException(status_code=404, detail="Nudge not found")
+
+    nudge.dismissed = True
+    await session.flush()
+    return {"id": str(nudge.id), "dismissed": True}
 
 
 @router.get("/history")

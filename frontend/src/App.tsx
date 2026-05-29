@@ -33,6 +33,7 @@ const Profile = lazy(() => import('@/pages/Profile'))
 const PurchaseGaps = lazy(() => import('@/pages/PurchaseGaps'))
 const SavedOutfits = lazy(() => import('@/pages/SavedOutfits'))
 const ShoppingCheck = lazy(() => import('@/pages/ShoppingCheck'))
+const ClosetMatch   = lazy(() => import('@/pages/ClosetMatch'))
 
 import { useWebSocket } from '@/hooks/useWebSocket'
 
@@ -161,6 +162,7 @@ function AnimatedRoutes() {
           <Route path="purchase-gaps" element={<PageBoundary><PurchaseGaps /></PageBoundary>} />
           <Route path="saved-outfits" element={<PageBoundary><SavedOutfits /></PageBoundary>} />
           <Route path="shopping-check" element={<PageBoundary><ShoppingCheck /></PageBoundary>} />
+          <Route path="closet-match"   element={<PageBoundary><ClosetMatch /></PageBoundary>} />
         </Route>
 
         {/* Catch-all → login */}

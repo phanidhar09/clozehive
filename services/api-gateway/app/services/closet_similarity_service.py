@@ -22,6 +22,8 @@ from app.services.embedding_service import (
     generate_text_embedding,
     item_to_embedding_text,
     pgvector_cosine_search,
+    _resolve,
+    _resolve_list,
 )
 from app.services.similarity_service import generate_item_embedding
 
@@ -232,6 +234,19 @@ async def find_similar_by_item_id(
     if not source or str(source.user_id) != user_id or source.is_archived:
         return []
 
+    source_dict = _normalise_source({
+        "name":     source.name,
+        "category": source.category,
+        "color":    source.color or "",
+        "fabric":   source.fabric or "",
+        "pattern":  source.pattern or "",
+        "season":   source.season or [],
+        "occasion": source.occasion or [],
+        "tags":     source.tags or [],
+        "notes":    source.notes or "",
+        "brand":    source.brand or "",
+    })
+
     embedding = await _ensure_item_embedding(session, source)
     if embedding:
         rows = await pgvector_cosine_search(
@@ -239,32 +254,18 @@ async def find_similar_by_item_id(
             table="closet_items",
             embedding=embedding,
             user_id=user_id,
-            limit=limit,
-            threshold=0.60,
+            limit=limit * 3,
+            threshold=0.50,
             filter_archived=True,
             exclude_id=item_id,
         )
         if rows:
-            source_dict = {
-                "category": source.category,
-                "color": source.color,
-                "occasion_tags": source.occasion,
-                "season_tags": source.season,
-                "pattern": source.pattern,
-                "material": source.fabric,
-            }
-            return _format_similarity_results(rows, source_dict)
+            reranked = _hybrid_rerank(rows, source_dict)
+            filtered = [r for r in reranked if r["similarity_score"] >= 0.55]
+            return _format_similarity_results(filtered[:limit], source_dict)
 
     # Metadata fallback
-    return await _metadata_fallback_search(session, user_id, item_id, {
-        "category": source.category,
-        "color": source.color,
-        "occasion_tags": source.occasion,
-        "season_tags": source.season,
-        "pattern": source.pattern,
-        "material": source.fabric,
-        "style_tags": source.tags,
-    }, limit)
+    return await _metadata_fallback_search(session, user_id, item_id, source_dict, limit)
 
 
 async def find_similar_by_text(
@@ -302,6 +303,121 @@ async def find_similar_by_image_url(
     return await find_similar_by_text(session, fallback_text, user_id, limit)
 
 
+# ── Vision-metadata normalisation ─────────────────────────────────────────────
+
+def _normalise_source(source_metadata: dict[str, Any]) -> dict[str, Any]:
+    """
+    Produce a canonical dict with both DB-column names AND vision-analysis aliases
+    so item_to_embedding_text() resolves all fields correctly.
+
+    Vision analysis returns: primary_color, material, occasion_tags, season_tags,
+    style_tags, description, subcategory, fit.
+
+    DB columns use: color, fabric, occasion, season, tags, notes.
+
+    We keep BOTH so _resolve() / _resolve_list() always finds a value.
+    """
+    color    = _resolve(source_metadata, "color", "primary_color")
+    fabric   = _resolve(source_metadata, "fabric", "material")
+    occasion = _resolve_list(source_metadata, "occasion", "occasion_tags")
+    season   = _resolve_list(source_metadata, "season", "season_tags")
+    tags     = _resolve_list(source_metadata, "tags", "style_tags")
+    notes    = _resolve(source_metadata, "notes", "description")
+
+    return {
+        **source_metadata,          # keep originals so callers still work
+        "color":    color,
+        "primary_color": color,
+        "fabric":   fabric,
+        "material": fabric,
+        "occasion": occasion,
+        "occasion_tags": occasion,
+        "season":   season,
+        "season_tags": season,
+        "tags":     tags,
+        "style_tags": tags,
+        "notes":    notes,
+        "description": notes,
+    }
+
+
+# ── Category-aware post-filtering ─────────────────────────────────────────────
+
+# Items flagged as "similar" should be in the same category family.
+# Cross-category results are valid pairings but NOT "similar items".
+_CATEGORY_GROUPS: list[frozenset[str]] = [
+    frozenset({"tops", "shirt", "t-shirt", "blouse", "sweater", "hoodie",
+               "jumper", "polo", "tank", "top", "turtleneck", "henley"}),
+    frozenset({"bottoms", "pants", "trousers", "jeans", "shorts", "skirt",
+               "leggings", "chinos", "joggers", "slacks"}),
+    frozenset({"outerwear", "jacket", "coat", "blazer", "cardigan", "vest",
+               "puffer", "windbreaker", "parka", "trench"}),
+    frozenset({"shoes", "sneakers", "boots", "heels", "flats", "sandals",
+               "loafers", "oxfords", "mules", "pumps", "footwear"}),
+    frozenset({"dresses", "dress", "jumpsuit", "romper", "gown", "playsuit"}),
+    frozenset({"accessories", "bag", "belt", "scarf", "hat", "cap", "watch",
+               "jewelry", "sunglasses", "tie", "pocket square", "gloves"}),
+    frozenset({"activewear", "sport", "gym", "athletic", "sportswear",
+               "leggings", "sports bra", "shorts"}),
+]
+
+
+def _same_category_family(cat_a: str, cat_b: str) -> bool:
+    a, b = cat_a.lower().strip(), cat_b.lower().strip()
+    if a == b:
+        return True
+    for grp in _CATEGORY_GROUPS:
+        if a in grp and b in grp:
+            return True
+    return False
+
+
+def _hybrid_rerank(
+    rows: list[dict[str, Any]],
+    source: dict[str, Any],
+    boost_same_category: float = 0.05,
+    penalise_cross_category: float = 0.15,
+) -> list[dict[str, Any]]:
+    """
+    Adjust raw cosine scores based on category compatibility and key metadata
+    matches, then re-sort.  This corrects cases where the embedding model places
+    semantically unrelated items close together (e.g. a white sneaker near a
+    white blouse just because of the shared colour token).
+
+    Rules:
+    - Same category family  → +boost_same_category to cosine score
+    - Different category    → -penalise_cross_category (hard penalty)
+    - Exact same color      → +0.03
+    - Exact same pattern    → +0.02
+    """
+    src_cat   = source.get("category", "").lower()
+    src_color = _resolve(source, "color", "primary_color").lower()
+    src_pat   = _resolve(source, "pattern").lower()
+
+    adjusted: list[dict[str, Any]] = []
+    for r in rows:
+        score = float(r.get("similarity_score", 0))
+        row_cat   = (r.get("category") or "").lower()
+        row_color = (r.get("color") or "").lower()
+        row_pat   = (r.get("pattern") or "").lower()
+
+        if src_cat and row_cat:
+            if _same_category_family(src_cat, row_cat):
+                score += boost_same_category
+            else:
+                score -= penalise_cross_category
+
+        if src_color and row_color and src_color == row_color:
+            score += 0.03
+        if src_pat and row_pat and src_pat == row_pat and src_pat not in ("solid", "unknown", ""):
+            score += 0.02
+
+        adjusted.append({**r, "similarity_score": max(0.0, min(1.0, score))})
+
+    adjusted.sort(key=lambda x: x["similarity_score"], reverse=True)
+    return adjusted
+
+
 # ── Similarity check for NEW (not-yet-saved) items ────────────────────────────
 
 async def check_similar_for_new_item(
@@ -309,27 +425,22 @@ async def check_similar_for_new_item(
     user_id: str,
     source_metadata: dict[str, Any],
     limit: int = 5,
-    threshold_score: int = 55,
+    threshold_score: int = 50,
 ) -> list[dict[str, Any]]:
     """
     Check if a newly uploaded item (not saved yet) is similar to existing closet items.
 
     Strategy:
-    1. Try embedding-based search using metadata text
-    2. Fall back to rule-based metadata scoring if embeddings fail
+    1. Normalise field names (handles both vision-analysis and DB-column naming)
+    2. Embedding-based pgvector search
+    3. Hybrid category-aware re-ranking to remove false positives
+    4. Metadata fallback if embeddings unavailable
     """
-    # Build text from the new item metadata and try embedding search first
-    text = item_to_embedding_text({
-        "name": source_metadata.get("name", ""),
-        "category": source_metadata.get("category", ""),
-        "color": source_metadata.get("color") or (source_metadata.get("colors") or [""])[0],
-        "fabric": source_metadata.get("material", ""),
-        "pattern": source_metadata.get("pattern", ""),
-        "season": source_metadata.get("season_tags", []),
-        "occasion": source_metadata.get("occasion_tags", []),
-        "tags": source_metadata.get("style_tags", []),
-    })
+    normalised = _normalise_source(source_metadata)
+    text = item_to_embedding_text(normalised)
 
+    # Use a lower cosine threshold (0.50) and re-rank — better precision than
+    # a high hard cutoff that silently drops valid matches
     embedding = await generate_text_embedding(text)
     if embedding:
         rows = await pgvector_cosine_search(
@@ -337,16 +448,19 @@ async def check_similar_for_new_item(
             table="closet_items",
             embedding=embedding,
             user_id=user_id,
-            limit=limit,
-            threshold=threshold_score / 100,
+            limit=limit * 3,          # fetch more, then re-rank and trim
+            threshold=0.50,
             filter_archived=True,
         )
         if rows:
-            return _format_similarity_results(rows, source_metadata)
+            reranked = _hybrid_rerank(rows, normalised)
+            # Apply final threshold after re-ranking
+            filtered = [r for r in reranked if r["similarity_score"] >= threshold_score / 100]
+            return _format_similarity_results(filtered[:limit], normalised)
 
     # Fallback: metadata scoring against all items in same/compatible category
     return await _metadata_fallback_search(
-        session, user_id, None, source_metadata, limit, threshold_score
+        session, user_id, None, normalised, limit, threshold_score
     )
 
 

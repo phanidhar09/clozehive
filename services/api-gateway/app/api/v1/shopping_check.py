@@ -1,4 +1,4 @@
-"""Shopping Check endpoints — in-store buy/skip advisor."""
+"""Shopping Check endpoints — in-store buy/skip advisor + closet match."""
 
 from __future__ import annotations
 
@@ -106,3 +106,49 @@ async def delete_shopping_check(
         raise NotFoundError("Shopping check not found")
     if image_url:
         background_tasks.add_task(delete_upload, image_url)
+
+
+# ── Closet → Shopping ─────────────────────────────────────────────────────────
+
+class ClosetMatchRequest(BaseModel):
+    closet_item_id: str
+
+
+@router.post("/closet-match", status_code=status.HTTP_200_OK)
+async def get_closet_match_suggestions(
+    body: ClosetMatchRequest,
+    user_id: CurrentUser,
+    session: DbSession,
+):
+    """
+    Given a closet item, return AI shopping suggestions for what to buy next
+    to maximise outfit versatility (the "Complete My Look" flow).
+    """
+    result = await shopping_check_service.get_closet_match_suggestions(
+        closet_item_id=body.closet_item_id,
+        user_id=user_id,
+        session=session,
+    )
+    if not result:
+        raise NotFoundError("Closet item not found")
+    return result
+
+
+@router.post("/{check_id}/add-to-closet", status_code=status.HTTP_201_CREATED)
+async def add_shopping_item_to_closet(
+    check_id: UUID,
+    user_id: CurrentUser,
+    session: DbSession,
+):
+    """
+    Create a closet item directly from an analysed shopping check — no
+    re-upload needed. Use this when the user decides to buy the item.
+    """
+    item = await shopping_check_service.add_shopping_item_to_closet(
+        check_id=str(check_id),
+        user_id=user_id,
+        session=session,
+    )
+    if not item:
+        raise NotFoundError("Shopping check not found")
+    return {"closet_item": item}
