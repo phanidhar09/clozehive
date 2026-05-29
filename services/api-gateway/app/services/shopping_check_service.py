@@ -31,6 +31,7 @@ from app.services.embedding_service import (
 from app.services.vision_service import analyze_for_bulk
 from app.services.upload_service import persist_upload
 from app.services import ai_service
+from app.services.fashion_rag_service import get_fashion_context_for_prompt
 
 logger = get_logger("shopping_check_service")
 
@@ -366,17 +367,37 @@ async def delete_shopping_check(
 # ── Closet → Shopping: "Complete My Look" ────────────────────────────────────
 
 _MATCH_SUGGESTIONS_SYSTEM = """You are FANI, a professional AI fashion stylist.
-Given a wardrobe item and the user's existing closet context, recommend specific shopping items
-that would complete outfits and maximise the item's versatility.
+You help the user "Complete My Look" around ONE wardrobe item they selected.
+
+You are given the selected item plus the user's full closet inventory (each owned item is
+numbered). Your job:
+1. Work out the complementary slots needed to build complete outfits around the selected item
+   (e.g. for a blazer: a bottom, a shirt, footwear, maybe a belt).
+2. For EACH slot, FIRST check the numbered closet inventory. If the user ALREADY OWNS an item
+   that fills that slot well, reference it in "closet_pairings" by its number — DO NOT tell them
+   to buy it.
+3. ONLY recommend buying (in "suggestions") for slots the closet CANNOT fill from owned items.
+   If the closet already completes the look, return an empty "suggestions" array.
+
+Prefer using what the user already owns. Be honest — never invent owned items, only use the
+provided numbers.
 
 Return ONLY a valid JSON object with this exact structure:
 {
   "outfit_potential": "high" | "medium" | "low",
   "styling_tip": "<1-2 sentence overall styling advice for this item>",
+  "closet_pairings": [
+    {
+      "item_number": <integer index from the inventory list>,
+      "role": "<the slot it fills, e.g. 'bottom', 'footwear', 'layer'>",
+      "reason": "<why it works with the selected item — one short sentence>"
+    }
+  ],
   "suggestions": [
     {
       "category": "<specific item type to shop for, e.g. 'slim-fit chinos'>",
-      "reason": "<why this pairs well — one sentence>",
+      "role": "<the slot this fills>",
+      "reason": "<why this completes the look and why the closet can't already — one sentence>",
       "colors": ["<color1>", "<color2>"],
       "occasions": ["<occasion1>"],
       "priority": "high" | "medium" | "low",
@@ -384,7 +405,8 @@ Return ONLY a valid JSON object with this exact structure:
     }
   ]
 }
-Return 4–6 suggestions ordered by priority. No markdown fences, raw JSON only."""
+List closet_pairings first (best matches first). Provide at most 4 suggestions, only for genuine
+gaps. No markdown fences, raw JSON only."""
 
 
 async def get_closet_match_suggestions(
@@ -393,16 +415,19 @@ async def get_closet_match_suggestions(
     session: AsyncSession,
 ) -> dict[str, Any]:
     """
-    Given a closet item, return AI shopping suggestions for what would pair well.
+    Given a closet item, "Complete My Look": surface owned items that complete an outfit
+    around it FIRST, and only suggest buying for slots the closet cannot fill.
 
     Flow:
-    1. Fetch the closet item and its metadata.
-    2. Find existing items that already pair with it (pgvector search).
-    3. Ask the AI to identify the *missing* pieces and return actionable shopping advice.
+    1. Fetch the selected closet item and its metadata.
+    2. Fetch the user's full closet inventory (numbered) as matching context.
+    3. Ask the AI to fill complementary slots from owned items first, and only recommend
+       purchases for the remaining gaps.
+    4. Resolve the AI's owned-item references back to real closet rows (id + image).
     """
     import json as _json
 
-    # 1. Fetch closet item
+    # 1. Fetch selected closet item
     item_sql = text("""
         SELECT id, name, category, color, fabric, pattern, brand, season,
                occasion, tags, notes, image_url, processed_image_url
@@ -418,72 +443,102 @@ async def get_closet_match_suggestions(
 
     item = dict(item_row)
 
-    # 2. Build item text + embedding for similarity search
-    item_text = item_to_embedding_text({
-        "name":     item.get("name", ""),
-        "category": item.get("category", ""),
-        "color":    item.get("color", ""),
-        "fabric":   item.get("fabric", ""),
-        "pattern":  item.get("pattern", ""),
-        "season":   item.get("season") or [],
-        "occasion": item.get("occasion") or [],
-        "tags":     item.get("tags") or [],
-        "notes":    item.get("notes", ""),
-        "brand":    item.get("brand", ""),
-    })
-    embedding = await generate_text_embedding(item_text)
+    # 2. Fetch full closet inventory (excluding the selected item) as matching context
+    inv_sql = text("""
+        SELECT id, name, category, color, occasion, image_url, processed_image_url
+        FROM closet_items
+        WHERE user_id = CAST(:uid AS uuid)
+          AND is_archived = false
+          AND id <> CAST(:iid AS uuid)
+        ORDER BY created_at DESC
+        LIMIT 60
+    """)
+    inv_res = await session.execute(inv_sql, {"uid": user_id, "iid": closet_item_id})
+    inventory = [dict(r) for r in inv_res.mappings().all()]
 
-    # 3. Existing pairing items
-    existing_pairs: list[dict[str, Any]] = []
-    if embedding:
-        rows = await pgvector_cosine_search(
-            session=session,
-            table="closet_items",
-            embedding=embedding,
-            user_id=user_id,
-            limit=8,
-            threshold=0.55,
-            filter_archived=True,
-        )
-        # Exclude the item itself
-        existing_pairs = [r for r in rows if str(r.get("id")) != closet_item_id][:5]
-
-    # 4. Build AI prompt
-    existing_desc = (
-        ", ".join(f"{r.get('name','')} ({r.get('category','')})" for r in existing_pairs)
-        if existing_pairs else "none found"
-    )
+    # 3. Build AI prompt — number each owned item so the AI can reference it reliably
     item_desc = (
         f"{item.get('name','Item')}: {item.get('category','')}, {item.get('color','')} "
         f"{item.get('fabric','')} {item.get('pattern','')}. "
         f"Occasions: {', '.join(item.get('occasion') or [])}. "
         f"Seasons: {', '.join(item.get('season') or [])}."
     )
+    if inventory:
+        inv_lines = "\n".join(
+            f"[{i + 1}] {r.get('name','')} — {r.get('category','')}"
+            f"{', ' + r.get('color') if r.get('color') else ''}"
+            f"{' (' + ', '.join(r.get('occasion')) + ')' if r.get('occasion') else ''}"
+            for i, r in enumerate(inventory)
+        )
+    else:
+        inv_lines = "(the closet is otherwise empty)"
+
+    # RAG: ground the styling reasoning in retrieved fashion knowledge (color theory,
+    # pairing rules, occasion guidance). Degrades to "" if unavailable.
+    knowledge_text = ""
+    try:
+        rag_query = (
+            f"How to complete an outfit around a {item.get('color','')} "
+            f"{item.get('category','')}; what pieces pair well for "
+            f"{', '.join(item.get('occasion') or ['everyday'])}"
+        )
+        knowledge_text = await get_fashion_context_for_prompt(session, rag_query, limit=3)
+    except Exception as exc:  # noqa: BLE001 — RAG is best-effort context
+        logger.warning("closet_match_rag_failed: %s", exc)
+
+    knowledge_block = f"\n\n{knowledge_text}\n" if knowledge_text else ""
+
     user_msg = (
-        f"My wardrobe item: {item_desc}\n"
-        f"Items I already own that pair with it: {existing_desc}\n"
-        "What should I shop for next to get the most out of this piece?"
+        f"Selected item to build a look around: {item_desc}\n\n"
+        f"My closet inventory (owned items, numbered):\n{inv_lines}\n"
+        f"{knowledge_block}\n"
+        "Complete the look: pair owned items first, and only suggest buying for gaps the "
+        "closet cannot fill. Use the fashion knowledge above to justify pairings where relevant."
     )
 
-    # 5. Call AI
+    # 4. Call AI
     raw_response = await ai_service.chat(
         messages=[{"role": "user", "content": user_msg}],
         system_prompt=_MATCH_SUGGESTIONS_SYSTEM,
     )
 
-    # 6. Parse JSON
-    suggestions_data: dict[str, Any] = {}
+    # 5. Parse JSON
+    data: dict[str, Any] = {}
     try:
-        # Strip markdown fences if present
         cleaned = raw_response.strip().strip("```json").strip("```").strip()
-        suggestions_data = _json.loads(cleaned)
+        data = _json.loads(cleaned)
     except Exception:
         logger.warning("Failed to parse closet-match AI response: %s", raw_response[:200])
-        suggestions_data = {
+        data = {
             "outfit_potential": "medium",
             "styling_tip": "This item has great pairing potential. Explore complementary pieces!",
+            "closet_pairings": [],
             "suggestions": [],
         }
+
+    # 6. Resolve AI owned-item references (1-based) back to real closet rows
+    closet_pairings: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for p in data.get("closet_pairings", []) or []:
+        try:
+            idx = int(p.get("item_number", 0)) - 1
+        except (TypeError, ValueError):
+            continue
+        if idx < 0 or idx >= len(inventory):
+            continue
+        row = inventory[idx]
+        row_id = str(row.get("id", ""))
+        if not row_id or row_id in seen_ids:
+            continue
+        seen_ids.add(row_id)
+        closet_pairings.append({
+            "id": row_id,
+            "name": row.get("name", ""),
+            "category": row.get("category", ""),
+            "image_url": row.get("processed_image_url") or row.get("image_url"),
+            "role": str(p.get("role", "")),
+            "reason": str(p.get("reason", "")),
+        })
 
     # 7. Build response
     image_url = item.get("processed_image_url") or item.get("image_url")
@@ -497,19 +552,11 @@ async def get_closet_match_suggestions(
             "occasion": item.get("occasion") or [],
             "season": item.get("season") or [],
         },
-        "existing_pairs": [
-            {
-                "id": str(r.get("id", "")),
-                "name": r.get("name", ""),
-                "category": r.get("category", ""),
-                "image_url": r.get("processed_image_url") or r.get("image_url"),
-                "similarity_score": round(float(r.get("similarity_score", 0)), 3),
-            }
-            for r in existing_pairs
-        ],
-        "outfit_potential": suggestions_data.get("outfit_potential", "medium"),
-        "styling_tip": suggestions_data.get("styling_tip", ""),
-        "suggestions": suggestions_data.get("suggestions", []),
+        "closet_pairings": closet_pairings,
+        "outfit_potential": data.get("outfit_potential", "medium"),
+        "styling_tip": data.get("styling_tip", ""),
+        "suggestions": data.get("suggestions", []),
+        "grounded_in_knowledge": bool(knowledge_text),
     }
 
 

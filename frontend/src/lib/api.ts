@@ -1161,11 +1161,22 @@ export interface ShoppingHistoryEntry extends ShoppingCheckResult {
 
 export interface ClosetMatchSuggestion {
   category: string
+  role?: string
   reason: string
   colors: string[]
   occasions: string[]
   priority: 'high' | 'medium' | 'low'
   price_range?: string
+}
+
+/** An item the user already owns that completes the look. */
+export interface ClosetPairing {
+  id: string
+  name: string
+  category: string
+  image_url: string | null
+  role: string
+  reason: string
 }
 
 export interface ClosetMatchResult {
@@ -1178,16 +1189,14 @@ export interface ClosetMatchResult {
     occasion: string[]
     season: string[]
   }
-  existing_pairs: Array<{
-    id: string
-    name: string
-    category: string
-    image_url: string | null
-    similarity_score: number
-  }>
+  /** Owned items that complete the look — shown first. */
+  closet_pairings: ClosetPairing[]
   outfit_potential: 'high' | 'medium' | 'low'
   styling_tip: string
+  /** Items to buy — only for slots the closet cannot fill. */
   suggestions: ClosetMatchSuggestion[]
+  /** True when the styling advice was grounded in retrieved fashion knowledge (RAG). */
+  grounded_in_knowledge?: boolean
 }
 
 export const shoppingCheckApi = {

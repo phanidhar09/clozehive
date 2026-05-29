@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 import BackButton from '@/components/ui/BackButton'
 import GlassCard from '@/components/ui/GlassCard'
-import { shoppingCheckApi, type ClosetMatchResult, type ClosetMatchSuggestion } from '@/lib/api'
+import { shoppingCheckApi, type ClosetMatchResult, type ClosetMatchSuggestion, type ClosetPairing } from '@/lib/api'
 import { resolveUploadUrl } from '@/lib/api'
 import { useApp } from '@/store'
 import { cn } from '@/lib/utils'
@@ -46,9 +46,16 @@ function SuggestionCard({ s, index }: { s: ClosetMatchSuggestion; index: number 
       <GlassCard className="p-4 space-y-2.5 hover:shadow-md transition-shadow group">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-slate-800 dark:text-white capitalize leading-snug">
-              {s.category}
-            </p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-sm font-semibold text-slate-800 dark:text-white capitalize leading-snug">
+                {s.category}
+              </p>
+              {s.role && (
+                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-white/[0.06] text-slate-500 dark:text-white/50 capitalize">
+                  {s.role}
+                </span>
+              )}
+            </div>
             <p className="mt-1 text-xs text-slate-500 dark:text-white/55 leading-relaxed">
               {s.reason}
             </p>
@@ -82,6 +89,52 @@ function SuggestionCard({ s, index }: { s: ClosetMatchSuggestion; index: number 
             </span>
           )}
         </div>
+      </GlassCard>
+    </motion.div>
+  )
+}
+
+// ── Closet pairing card (item the user already owns) ───────────────────────────
+
+function ClosetPairingCard({ p, index }: { p: ClosetPairing; index: number }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.06 }}
+    >
+      <GlassCard className="p-3 flex items-center gap-3 ring-1 ring-emerald-400/30 dark:ring-emerald-500/20">
+        {/* Thumbnail */}
+        <div className="w-14 h-14 rounded-xl overflow-hidden bg-slate-100 dark:bg-white/[0.06] flex-shrink-0 ring-2 ring-emerald-400/40">
+          {p.image_url
+            ? <img src={resolveUploadUrl(p.image_url)} alt={p.name} className="w-full h-full object-cover" />
+            : <div className="w-full h-full flex items-center justify-center">
+                <Package size={18} className="text-slate-300 dark:text-white/20" />
+              </div>
+          }
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-sm font-semibold text-slate-800 dark:text-white capitalize truncate leading-snug">
+              {p.name}
+            </p>
+            {p.role && (
+              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 capitalize">
+                {p.role}
+              </span>
+            )}
+          </div>
+          {p.reason && (
+            <p className="mt-0.5 text-xs text-slate-500 dark:text-white/55 leading-relaxed line-clamp-2">
+              {p.reason}
+            </p>
+          )}
+        </div>
+        {/* Owned badge */}
+        <span className="flex-shrink-0 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full
+                         bg-emerald-100 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400">
+          <CheckCircle2 size={11} /> In closet
+        </span>
       </GlassCard>
     </motion.div>
   )
@@ -137,69 +190,77 @@ function ResultPanel({ result, onClear }: { result: ClosetMatchResult; onClear: 
       {result.styling_tip && (
         <GlassCard className="p-4 flex gap-3">
           <Sparkles size={16} className="text-brand-500 flex-shrink-0 mt-0.5" />
-          <p className="text-sm text-slate-600 dark:text-white/70 leading-relaxed">
-            {result.styling_tip}
-          </p>
+          <div className="min-w-0">
+            <p className="text-sm text-slate-600 dark:text-white/70 leading-relaxed">
+              {result.styling_tip}
+            </p>
+            {result.grounded_in_knowledge && (
+              <span className="mt-2 inline-flex items-center gap-1 text-[10px] font-semibold
+                               text-brand-600 dark:text-brand-400 bg-brand-50 dark:bg-brand-900/30
+                               px-2 py-0.5 rounded-full">
+                <Sparkles size={9} /> Grounded in fashion knowledge · RAG
+              </span>
+            )}
+          </div>
         </GlassCard>
       )}
 
-      {/* Existing pairs */}
-      {result.existing_pairs.length > 0 && (
+      {/* From your closet — owned items that complete the look (shown first) */}
+      {result.closet_pairings.length > 0 && (
         <div className="space-y-2">
-          <p className="text-xs font-semibold text-slate-500 dark:text-white/40 uppercase tracking-wider px-1">
-            Already pairs with
-          </p>
-          <div className="flex gap-2.5 overflow-x-auto pb-1">
-            {result.existing_pairs.map(p => (
-              <div key={p.id} className="flex-shrink-0 w-14 space-y-1 text-center">
-                <div className="w-14 h-14 rounded-xl overflow-hidden bg-slate-100 dark:bg-white/[0.06]
-                                ring-2 ring-emerald-400/40">
-                  {p.image_url
-                    ? <img src={resolveUploadUrl(p.image_url)} alt={p.name}
-                        className="w-full h-full object-cover" />
-                    : <div className="w-full h-full flex items-center justify-center">
-                        <Package size={18} className="text-slate-300 dark:text-white/20" />
-                      </div>
-                  }
-                </div>
-                <p className="text-[10px] text-slate-500 dark:text-white/50 truncate leading-tight">
-                  {p.name}
-                </p>
-              </div>
+          <div className="flex items-center gap-2 px-1">
+            <Shirt size={14} className="text-emerald-500" />
+            <p className="text-xs font-semibold text-slate-700 dark:text-white/70 uppercase tracking-wider">
+              From your closet — wear it with
+            </p>
+            <span className="ml-auto text-[11px] text-slate-400 dark:text-white/30">
+              {result.closet_pairings.length} {result.closet_pairings.length === 1 ? 'match' : 'matches'}
+            </span>
+          </div>
+          <div className="space-y-2">
+            {result.closet_pairings.map((p, i) => (
+              <ClosetPairingCard key={p.id} p={p} index={i} />
             ))}
           </div>
         </div>
       )}
 
-      {/* Shopping suggestions */}
-      <div className="space-y-2">
-        <div className="flex items-center gap-2 px-1">
-          <ShoppingBag size={14} className="text-brand-500" />
-          <p className="text-xs font-semibold text-slate-700 dark:text-white/70 uppercase tracking-wider">
-            What to shop for next
-          </p>
-          <span className="ml-auto text-[11px] text-slate-400 dark:text-white/30">
-            {result.suggestions.length} suggestions
-          </span>
-        </div>
-        {result.suggestions.length === 0 ? (
-          <GlassCard className="p-6 text-center">
-            <CheckCircle2 size={24} className="mx-auto text-emerald-500 mb-2" />
-            <p className="text-sm font-medium text-slate-700 dark:text-white/70">
-              Your wardrobe already covers this well!
+      {/* Shop to complete — only for slots the closet can't fill */}
+      {result.suggestions.length > 0 ? (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 px-1">
+            <ShoppingBag size={14} className="text-brand-500" />
+            <p className="text-xs font-semibold text-slate-700 dark:text-white/70 uppercase tracking-wider">
+              {result.closet_pairings.length > 0 ? 'Shop to complete the look' : 'What to shop for next'}
             </p>
-            <p className="text-xs text-slate-400 dark:text-white/40 mt-1">
-              No major gaps found for this piece.
+            <span className="ml-auto text-[11px] text-slate-400 dark:text-white/30">
+              {result.suggestions.length} {result.suggestions.length === 1 ? 'gap' : 'gaps'}
+            </span>
+          </div>
+          {result.closet_pairings.length > 0 && (
+            <p className="text-[11px] text-slate-400 dark:text-white/40 px-1 -mt-1">
+              Your closet can&apos;t fully cover these — here&apos;s what to add.
             </p>
-          </GlassCard>
-        ) : (
+          )}
           <div className="space-y-2">
             {result.suggestions.map((s, i) => (
               <SuggestionCard key={`${s.category}-${i}`} s={s} index={i} />
             ))}
           </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        <GlassCard className="p-6 text-center">
+          <CheckCircle2 size={24} className="mx-auto text-emerald-500 mb-2" />
+          <p className="text-sm font-medium text-slate-700 dark:text-white/70">
+            {result.closet_pairings.length > 0
+              ? 'Your closet already completes this look!'
+              : 'Your wardrobe already covers this well!'}
+          </p>
+          <p className="text-xs text-slate-400 dark:text-white/40 mt-1">
+            No shopping needed — everything you need is already in your closet.
+          </p>
+        </GlassCard>
+      )}
 
       {/* CTA */}
       <a
