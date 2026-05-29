@@ -5,6 +5,7 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import BackButton from '@/components/ui/BackButton'
+import PageHeader from '@/components/ui/PageHeader'
 import { usePageState } from '@/hooks/usePageState'
 import {
   Plane, Calendar, MapPin, Loader2, ArrowLeft, CheckCircle2,
@@ -1192,16 +1193,12 @@ export default function TravelPlanner() {
       <BackButton fallback="/dashboard" label="Back to Dashboard" />
 
       {/* ── Header + tabs ─────────────────────────────────────────────── */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h2 className="font-display font-bold text-xl text-slate-800 dark:text-slate-100 flex items-center gap-2">
-            <Plane size={20} className="text-brand-500" /> Travel Packing Planner
-          </h2>
-          <p className="text-sm text-slate-400 mt-0.5">
-            AI-powered day-by-day outfit plans from your closet
-          </p>
-        </div>
-        <div className="flex rounded-xl border border-slate-200 dark:border-white/10 overflow-hidden text-sm font-medium">
+      <PageHeader
+        icon={<Plane size={18} />}
+        title="Travel Packing Planner"
+        subtitle="AI-powered day-by-day outfit plans from your closet"
+        actions={
+          <div className="flex rounded-xl border border-slate-200 dark:border-white/10 overflow-hidden text-sm font-medium">
           <button onClick={() => setActiveTab('new')}
             className={`px-4 py-2 transition-colors ${activeTab === 'new' ? 'bg-brand-500 text-white' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/5'}`}>
             New Trip
@@ -1210,8 +1207,9 @@ export default function TravelPlanner() {
             className={`px-4 py-2 transition-colors flex items-center gap-1.5 ${activeTab === 'saved' ? 'bg-brand-500 text-white' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-white/60 hover:bg-slate-50 dark:hover:bg-white/5'}`}>
             <Bookmark size={13} /> Saved
           </button>
-        </div>
-      </div>
+          </div>
+        }
+      />
 
       {/* ── SAVED TAB ────────────────────────────────────────────────────── */}
       {activeTab === 'saved' && <SavedPlannersTab closetItems={closetItems} />}

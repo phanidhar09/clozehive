@@ -7,6 +7,7 @@ import { useApp } from '@/store'
 import { socialApi } from '@/lib/api'
 import type { Group, GroupMember, SocialUser } from '@/types'
 import GroupCard from '@/components/ui/GroupCard'
+import PageHeader from '@/components/ui/PageHeader'
 import { cn } from '@/lib/utils'
 
 // ── Create Group Modal ─────────────────────────────────────
@@ -433,22 +434,21 @@ export default function Groups() {
     <div className="max-w-5xl space-y-6">
 
       {/* ── Header ─────────────────────────────────────────── */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="font-display font-bold text-xl text-slate-800 dark:text-slate-100 flex items-center gap-2">
-            <Users size={22} className="text-brand-500" /> Groups
-          </h2>
-          <p className="text-sm text-slate-400 mt-0.5">Share styles, plan outfits together, stay inspired</p>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={() => setShowJoin(true)} className="btn-ghost text-sm gap-1.5">
-            <Search size={15} /> Join by code
-          </button>
-          <button onClick={() => setShowCreate(true)} className="btn-primary text-sm gap-1.5">
-            <Plus size={15} /> Create group
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        icon={<Users size={18} />}
+        title="Groups"
+        subtitle="Share styles, plan outfits together, stay inspired"
+        actions={
+          <>
+            <button onClick={() => setShowJoin(true)} className="btn-ghost text-sm gap-1.5">
+              <Search size={15} /> Join by code
+            </button>
+            <button onClick={() => setShowCreate(true)} className="btn-primary text-sm gap-1.5">
+              <Plus size={15} /> Create group
+            </button>
+          </>
+        }
+      />
 
       {/* ── Tabs ───────────────────────────────────────────── */}
       <div className="flex items-center gap-3">

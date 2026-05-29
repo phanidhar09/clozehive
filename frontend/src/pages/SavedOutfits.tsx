@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import BackButton from '@/components/ui/BackButton'
+import PageHeader from '@/components/ui/PageHeader'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Heart, Shirt, Star, ChevronDown, ChevronUp, Calendar,
@@ -438,19 +439,20 @@ export default function SavedOutfits() {
     <div className="max-w-2xl mx-auto px-4 py-6 space-y-6">
       <BackButton fallback="/closet" label="Back to Closet" />
       {/* Page header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-display font-bold text-slate-800 dark:text-white">Saved Outfits</h1>
-          <p className="text-sm text-slate-400 dark:text-slate-500 mt-0.5">Your FANI-recommended outfit history</p>
-        </div>
-        <button
-          onClick={() => fetchPage(0, true)}
-          title="Refresh"
-          className="p-2 rounded-xl border border-cream-200 dark:border-slate-700 text-slate-400 hover:text-brand-500 transition-colors"
-        >
-          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
-        </button>
-      </div>
+      <PageHeader
+        icon={<Star size={18} />}
+        title="Saved Outfits"
+        subtitle="Your FANI-recommended outfit history"
+        actions={
+          <button
+            onClick={() => fetchPage(0, true)}
+            title="Refresh"
+            className="p-2 rounded-xl border border-cream-200 dark:border-slate-700 text-slate-400 hover:text-brand-500 transition-colors"
+          >
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+          </button>
+        }
+      />
 
       {/* Stats */}
       {records.length > 0 && <StatsBar records={records} />}

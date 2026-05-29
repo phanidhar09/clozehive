@@ -8,6 +8,7 @@ import {
 import { useApp } from '@/store'
 import { outfitsApi, profileApi, type OutfitOfDayResponse } from '@/lib/api'
 import EmptyState from '@/components/ui/EmptyState'
+import SectionHeader from '@/components/ui/SectionHeader'
 import { DASHBOARD_QUICK_ACTIONS } from '@/features/dashboard/quickActions'
 import OnboardingChecklist from '@/components/dashboard/OnboardingChecklist'
 import type { ClosetItem, OutfitSuggestion } from '@/types'
@@ -494,9 +495,7 @@ export default function Dashboard() {
 
       {/* ── Quick Actions ─────────────────────────────────────────────────── */}
       <div>
-        <h3 className="font-display text-base font-semibold text-slate-800 dark:text-white mb-4">
-          Quick Actions
-        </h3>
+        <SectionHeader icon={<Zap size={16} />} title="Quick Actions" />
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {DASHBOARD_QUICK_ACTIONS.map(({ label, desc, icon: Icon, to, gradient }, idx) => (
             <Link
@@ -535,17 +534,18 @@ export default function Dashboard() {
       {/* ── Recent Pieces ─────────────────────────────────────────────────── */}
       {totalItems > 0 && (
         <div>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-display text-base font-semibold text-slate-800 dark:text-white">
-              Recent Pieces
-            </h3>
-            <Link to="/closet"
-                  className="flex items-center gap-1 text-sm font-medium text-brand-600
-                             hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300
-                             transition-colors">
-              View all <ArrowRight size={14} />
-            </Link>
-          </div>
+          <SectionHeader
+            icon={<Shirt size={16} />}
+            title="Recent Pieces"
+            actions={
+              <Link to="/closet"
+                    className="flex items-center gap-1 text-sm font-medium text-brand-600
+                               hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300
+                               transition-colors">
+                View all <ArrowRight size={14} />
+              </Link>
+            }
+          />
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {closetItems.slice(0, 4).map(item => (
               <Link key={item.id} to="/closet"

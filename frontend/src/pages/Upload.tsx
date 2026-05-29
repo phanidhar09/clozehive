@@ -2,6 +2,7 @@ import { useState, useRef, useCallback, useMemo } from 'react'
 import { Image, Sparkles, CheckCircle, X, ChevronLeft, ChevronRight, SkipForward } from 'lucide-react'
 import Button from '@/components/ui/Button'
 import BackButton from '@/components/ui/BackButton'
+import PageHeader from '@/components/ui/PageHeader'
 import Input, { Select } from '@/components/ui/Input'
 import Badge from '@/components/ui/Badge'
 import { useApp } from '@/store'
@@ -385,12 +386,11 @@ export default function Upload() {
   return (
     <div className="max-w-3xl space-y-6">
       <BackButton fallback="/closet" label="Back to Closet" />
-      <div>
-        <h2 className="font-display font-bold text-xl text-slate-800 dark:text-slate-100">Add to Your Closet</h2>
-        <p className="text-sm text-slate-400 mt-0.5">
-          Upload a photo and our AI will detect your clothing items — review each one and save
-        </p>
-      </div>
+      <PageHeader
+        icon={<Image size={18} />}
+        title="Add to Your Closet"
+        subtitle="Upload a photo and our AI will detect your clothing items — review each one and save"
+      />
 
       {error && <InlineError message={error} className="mb-4" />}
       {saveOkMessage && (

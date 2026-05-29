@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import BackButton from '@/components/ui/BackButton'
 import GlassCard from '@/components/ui/GlassCard'
+import PageHeader from '@/components/ui/PageHeader'
 import Badge from '@/components/ui/Badge'
 import { shoppingCheckApi, type ShoppingCheckResult, type ShoppingHistoryEntry } from '@/lib/api'
 import { resolveUploadUrl } from '@/lib/api'
@@ -592,30 +593,25 @@ export default function ShoppingCheck() {
       <BackButton fallback="/dashboard" label="Back to Dashboard" />
 
       {/* Page header */}
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600
-                          flex items-center justify-center shadow-glow-sm">
-            <ShoppingCart size={20} className="text-white" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-slate-900 dark:text-white">Shop Smart Check</h1>
-            <p className="text-sm text-slate-500 dark:text-white/50">
-              Snap any item in-store — FANI tells you if it belongs in your closet
-            </p>
-          </div>
-        </div>
-        <a
-          href="/closet-match"
-          className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold
-                     bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-400
-                     border border-brand-200 dark:border-brand-700/40 hover:bg-brand-100
-                     dark:hover:bg-brand-900/40 transition-colors whitespace-nowrap"
-        >
-          <Shirt size={13} />
-          Complete My Look
-        </a>
-      </div>
+      <PageHeader
+        icon={<ShoppingCart size={18} />}
+        chipClassName="bg-gradient-to-br from-green-500 to-emerald-600 shadow-glow-sm"
+        iconColor="text-white"
+        title="Shop Smart Check"
+        subtitle="Snap any item in-store — FANI tells you if it belongs in your closet"
+        actions={
+          <a
+            href="/closet-match"
+            className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold
+                       bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-400
+                       border border-brand-200 dark:border-brand-700/40 hover:bg-brand-100
+                       dark:hover:bg-brand-900/40 transition-colors whitespace-nowrap"
+          >
+            <Shirt size={13} />
+            Complete My Look
+          </a>
+        }
+      />
 
       {/* How it works strip */}
       {!result && !loading && (

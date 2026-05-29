@@ -11,6 +11,8 @@ import { useApp } from '@/store'
 import Badge from '@/components/ui/Badge'
 import GlassCard from '@/components/ui/GlassCard'
 import EmptyState from '@/components/ui/EmptyState'
+import PageHeader from '@/components/ui/PageHeader'
+import SectionHeader from '@/components/ui/SectionHeader'
 import { analyticsApi } from '@/lib/api'
 import { useAsyncError } from '@/hooks/useAsyncError'
 import type { ClosetAnalytics, CategoryCoverageItem, ColorStats, PurchaseGapInsight } from '@/types'
@@ -205,17 +207,11 @@ export default function Analytics() {
   return (
     <div className="space-y-8 max-w-6xl mx-auto">
       {/* ── Header ───────────────────────────────────────────────────────────── */}
-      <div>
-        <h2 className="font-display font-bold text-2xl text-slate-800 dark:text-slate-100 flex items-center gap-2.5">
-          <span className="w-9 h-9 rounded-xl bg-brand-50 dark:bg-brand-500/10 flex items-center justify-center">
-            <BarChart3 size={18} className="text-brand-500" />
-          </span>
-          Closet Insights
-        </h2>
-        <p className="text-sm text-slate-400 dark:text-white/40 mt-1.5 ml-0.5">
-          A clear read on your wardrobe — coverage, color balance, and where to invest next.
-        </p>
-      </div>
+      <PageHeader
+        icon={<BarChart3 size={18} />}
+        title="Closet Insights"
+        subtitle="A clear read on your wardrobe — coverage, color balance, and where to invest next."
+      />
 
       {/* ── Hero: Health score + key stats ───────────────────────────────────── */}
       <div className="grid lg:grid-cols-3 gap-4">
@@ -261,10 +257,7 @@ export default function Analytics() {
 
       {/* ── Category Coverage ───────────────────────────────────────────────── */}
       <section>
-        <div className="flex items-center gap-2 mb-4">
-          <Layers size={16} className="text-brand-500" />
-          <h3 className="font-semibold text-slate-800 dark:text-white">Category Coverage</h3>
-        </div>
+        <SectionHeader icon={<Layers size={16} />} title="Category Coverage" />
         <GlassCard padding="lg" className="divide-y divide-cream-200/70 dark:divide-white/[0.06]">
           {analytics.category_coverage.map((cat: CategoryCoverageItem, i: number) => {
             const percentage = Math.min((cat.count / Math.max(cat.recommended_minimum, 1)) * 100, 100)
@@ -294,10 +287,7 @@ export default function Analytics() {
         {/* Color distribution */}
         {analytics.color_stats.length > 0 && (
           <section>
-            <div className="flex items-center gap-2 mb-4">
-              <Palette size={16} className="text-brand-500" />
-              <h3 className="font-semibold text-slate-800 dark:text-white">Color Distribution</h3>
-            </div>
+            <SectionHeader icon={<Palette size={16} />} title="Color Distribution" />
             <GlassCard padding="lg">
               <div className="flex flex-col sm:flex-row items-center gap-5">
                 <div className="h-44 w-44 shrink-0">
@@ -348,10 +338,7 @@ export default function Analytics() {
         {/* Category breakdown bar */}
         {analytics.category_stats.length > 0 && (
           <section>
-            <div className="flex items-center gap-2 mb-4">
-              <Layers size={16} className="text-brand-500" />
-              <h3 className="font-semibold text-slate-800 dark:text-white">Category Breakdown</h3>
-            </div>
+            <SectionHeader icon={<Layers size={16} />} title="Category Breakdown" />
             <GlassCard padding="lg">
               <div className="h-44">
                 <ResponsiveContainer width="100%" height="100%">
@@ -379,10 +366,7 @@ export default function Analytics() {
 
       {/* ── Outfit Readiness ────────────────────────────────────────────────── */}
       <section>
-        <div className="flex items-center gap-2 mb-4">
-          <Star size={16} className="text-amber-500" />
-          <h3 className="font-semibold text-slate-800 dark:text-white">Outfit Readiness</h3>
-        </div>
+        <SectionHeader icon={<Star size={16} className="text-amber-500" />} title="Outfit Readiness" />
         <GlassCard padding="lg">
           <div className="grid sm:grid-cols-2 gap-6 items-center">
             <div className="flex items-center gap-4">

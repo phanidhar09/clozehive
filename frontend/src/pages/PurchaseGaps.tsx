@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ShoppingBag, CheckCircle, AlertCircle, Loader2, RefreshCw } from 'lucide-react'
 import BackButton from '@/components/ui/BackButton'
 import GlassCard from '@/components/ui/GlassCard'
+import PageHeader from '@/components/ui/PageHeader'
 import Badge from '@/components/ui/Badge'
 import { purchaseGapsApi, type PurchaseGap } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -125,35 +126,33 @@ export default function PurchaseGaps() {
     <div className="max-w-3xl space-y-6">
       <BackButton fallback="/dashboard" label="Back to Dashboard" />
       {/* Header */}
-      <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-glow-sm">
-            <ShoppingBag size={20} className="text-white" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-slate-900 dark:text-white">Wardrobe Gaps</h1>
-            <p className="text-sm text-slate-500 dark:text-white/50">Items your wardrobe is missing based on your outfits and trips</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => load(showResolved)}
-            className="p-2 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
-            title="Refresh"
-          >
-            <RefreshCw size={16} />
-          </button>
-          <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-white/60 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={showResolved}
-              onChange={e => setShowResolved(e.target.checked)}
-              className="rounded"
-            />
-            Show resolved
-          </label>
-        </div>
-      </div>
+      <PageHeader
+        icon={<ShoppingBag size={18} />}
+        chipClassName="bg-gradient-to-br from-amber-500 to-orange-600 shadow-glow-sm"
+        iconColor="text-white"
+        title="Wardrobe Gaps"
+        subtitle="Items your wardrobe is missing based on your outfits and trips"
+        actions={
+          <>
+            <button
+              onClick={() => load(showResolved)}
+              className="p-2 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
+              title="Refresh"
+            >
+              <RefreshCw size={16} />
+            </button>
+            <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-white/60 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showResolved}
+                onChange={e => setShowResolved(e.target.checked)}
+                className="rounded"
+              />
+              Show resolved
+            </label>
+          </>
+        }
+      />
 
       {/* Content */}
       {loading ? (

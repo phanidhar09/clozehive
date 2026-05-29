@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { Send, Sparkles, RefreshCw, AlertTriangle, Square } from 'lucide-react'
+import PageHeader from '@/components/ui/PageHeader'
 import { useApp } from '@/store'
 import { streamChat } from '@/lib/api'
 import ChatMessage from '@/components/chat/ChatMessage'
@@ -102,24 +103,22 @@ export default function AIStylist() {
   return (
     <div className="flex flex-col h-[calc(100vh-130px)] max-w-3xl animate-fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="font-display font-bold text-xl text-slate-800 dark:text-slate-100 flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-gradient-brand flex items-center justify-center shadow-md">
-              <Sparkles size={15} className="text-white" />
-            </div>
-            FANI
-          </h2>
-          <p className="text-sm text-slate-400 mt-0.5 ml-10">
-            {closetItems.length > 0
-              ? `Using ${closetItems.length} items from your wardrobe`
-              : 'Add items to your closet for personalised suggestions'}
-          </p>
-        </div>
-        <button onClick={newChat} className="btn-ghost text-xs gap-1.5">
-          <RefreshCw size={13} /> New chat
-        </button>
-      </div>
+      <PageHeader
+        icon={<Sparkles size={18} />}
+        chipClassName="bg-gradient-brand shadow-md"
+        iconColor="text-white"
+        title="FANI"
+        subtitle={
+          closetItems.length > 0
+            ? `Using ${closetItems.length} items from your wardrobe`
+            : 'Add items to your closet for personalised suggestions'
+        }
+        actions={
+          <button onClick={newChat} className="btn-ghost text-xs gap-1.5">
+            <RefreshCw size={13} /> New chat
+          </button>
+        }
+      />
 
       {/* Closet empty warning */}
       {closetItems.length === 0 && (

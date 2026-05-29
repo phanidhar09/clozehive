@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react'
 import {
   Search, SlidersHorizontal, Loader2, RefreshCw, Trash2, X,
-  Sparkles, Upload, ChevronRight, Clock, TrendingUp, Plus, Wand2,
+  Sparkles, Upload, ChevronRight, Clock, TrendingUp, Plus, Wand2, Shirt,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useApp } from '@/store'
@@ -10,6 +10,7 @@ import { useWindowScrollRestoration } from '@/hooks/useScrollRestoration'
 import { closetApi } from '@/lib/api'
 import ItemDetailModal from '@/components/closet/ItemDetailModal'
 import RevealCard from '@/components/ui/RevealCard'
+import PageHeader from '@/components/ui/PageHeader'
 import { PageLoadingState } from '@/components/system/PageLoadingState'
 import { InlineError } from '@/components/system/InlineError'
 import { RetryButton } from '@/components/system/RetryButton'
@@ -235,26 +236,27 @@ export default function Closet() {
     <div className="space-y-5">
 
       {/* ── Header ── */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <h2 className="font-display font-bold text-xl text-slate-800 dark:text-slate-100">My Closet</h2>
-          <p className="text-sm text-slate-400 mt-0.5">
-            {closetLoading
-              ? 'Syncing…'
-              : isFiltered
-                ? `Showing ${filtered.length} of ${closetItems.length} items`
-                : `${closetItems.length} items in your wardrobe`}
-          </p>
-        </div>
-        <button
-          onClick={fetchClosetItems}
-          disabled={closetLoading}
-          className="btn-ghost p-2 min-h-[44px] min-w-[44px] rounded-xl"
-          title="Refresh wardrobe"
-        >
-          <RefreshCw size={15} className={closetLoading ? 'animate-spin text-brand-500' : ''} />
-        </button>
-      </div>
+      <PageHeader
+        icon={<Shirt size={18} />}
+        title="My Closet"
+        subtitle={
+          closetLoading
+            ? 'Syncing…'
+            : isFiltered
+              ? `Showing ${filtered.length} of ${closetItems.length} items`
+              : `${closetItems.length} items in your wardrobe`
+        }
+        actions={
+          <button
+            onClick={fetchClosetItems}
+            disabled={closetLoading}
+            className="btn-ghost p-2 min-h-[44px] min-w-[44px] rounded-xl"
+            title="Refresh wardrobe"
+          >
+            <RefreshCw size={15} className={closetLoading ? 'animate-spin text-brand-500' : ''} />
+          </button>
+        }
+      />
 
       {/* ── Error banner ── */}
       {closetError && (

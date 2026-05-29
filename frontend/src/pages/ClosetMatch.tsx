@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import BackButton from '@/components/ui/BackButton'
 import GlassCard from '@/components/ui/GlassCard'
+import PageHeader from '@/components/ui/PageHeader'
 import { shoppingCheckApi, type ClosetMatchResult, type ClosetMatchSuggestion, type ClosetPairing } from '@/lib/api'
 import { resolveUploadUrl } from '@/lib/api'
 import { useApp } from '@/store'
@@ -412,27 +413,26 @@ export default function ClosetMatch() {
       <BackButton fallback="/shopping-check" label="Back to Shop Smart Check" />
 
       {/* Page header */}
-      <div className="flex items-center gap-3 mt-1 mb-6">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-500 to-brand-600
-                        flex items-center justify-center shadow-glow-sm">
-          <Sparkles size={20} className="text-white" />
-        </div>
-        <div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-white">Complete My Look</h1>
-          <p className="text-sm text-slate-500 dark:text-white/50">
-            Pick a wardrobe piece — FANI tells you what to shop for next
-          </p>
-        </div>
-        <a
-          href="/shopping-check"
-          className="ml-auto flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs
-                     font-semibold bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700
-                     dark:text-emerald-400 border border-emerald-200 dark:border-emerald-700/40
-                     hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors whitespace-nowrap"
-        >
-          <ShoppingBag size={13} />
-          Shop Smart Check
-        </a>
+      <div className="mt-1">
+        <PageHeader
+          icon={<Sparkles size={18} />}
+          chipClassName="bg-gradient-to-br from-brand-500 to-brand-600 shadow-glow-sm"
+          iconColor="text-white"
+          title="Complete My Look"
+          subtitle="Pick a wardrobe piece — FANI tells you what to shop for next"
+          actions={
+            <a
+              href="/shopping-check"
+              className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs
+                         font-semibold bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700
+                         dark:text-emerald-400 border border-emerald-200 dark:border-emerald-700/40
+                         hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors whitespace-nowrap"
+            >
+              <ShoppingBag size={13} />
+              Shop Smart Check
+            </a>
+          }
+        />
       </div>
 
       {/* How it works — show only when nothing selected */}
