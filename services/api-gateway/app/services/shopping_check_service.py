@@ -38,14 +38,19 @@ logger = get_logger("shopping_check_service")
 # ── Scoring weights ──────────────────────────────────────────────────────────
 _DUPLICATE_THRESHOLD = 0.88   # cosine sim — item is "essentially the same"
 _MATCH_THRESHOLD = 0.65       # cosine sim — item pairs well
-_BASE_SCORE = 50.0
 
-_W_DUPLICATE_PENALTY = -35.0
-_W_COMPATIBILITY_PER_MATCH = 4.0   # up to +20 for 5 compatible items
-_W_GAP_FILL = 20.0
-_W_OCCASION_NEW = 12.0
-_W_SEASON_NEW = 10.0
-_MAX_COMPATIBILITY_BOOST = 20.0
+# Percentage-weighted scoring: each factor weight is the % it can contribute, and
+# the weights SUM TO 100. buy_score = Σ(weight × factor_subscore) where each
+# subscore is 0–1, so the result is a true 0–100% with no clamping needed.
+_WEIGHTS: dict[str, float] = {
+    "uniqueness":    30.0,   # not a near-duplicate of something already owned
+    "compatibility": 25.0,   # pairs with items already in the closet
+    "gap_fill":      20.0,   # fills a detected category gap
+    "occasion_new":  15.0,   # adds new occasion coverage
+    "season_new":    10.0,   # adds new season coverage
+}
+assert round(sum(_WEIGHTS.values())) == 100, "buy_score weights must sum to 100%"
+_COMPAT_SATURATION = 5       # this many compatible items = full compatibility credit
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -151,59 +156,50 @@ async def analyze_shopping_item(
     # 4. Existing coverage
     owned_occasions, owned_seasons = await _fetch_existing_occasions_seasons(session, user_id)
 
-    # 5. Compute score
-    score = _BASE_SCORE
+    # 5. Compute percentage-weighted score — each factor yields a 0–1 subscore,
+    #    contributes (weight × subscore) %, and all weights sum to 100.
     reasons: list[str] = []
 
-    # Duplicate check
     has_duplicate = any(
         float(it.get("similarity_score", 0)) >= _DUPLICATE_THRESHOLD
         for it in similar_items
     )
-    if has_duplicate:
-        score += _W_DUPLICATE_PENALTY
-        reasons.append("You already own a very similar item.")
-
-    # Compatibility boost
     compatible_items = [
         it for it in similar_items
         if float(it.get("similarity_score", 0)) < _DUPLICATE_THRESHOLD
     ]
-    compat_boost = min(
-        len(compatible_items) * _W_COMPATIBILITY_PER_MATCH,
-        _MAX_COMPATIBILITY_BOOST,
-    )
-    if compat_boost > 0:
-        score += compat_boost
-        reasons.append(
-            f"Pairs well with {len(compatible_items)} item(s) already in your closet."
-        )
-
-    # Gap fill boost
-    if category and await _has_open_gap_for_category(session, user_id, category):
-        score += _W_GAP_FILL
-        reasons.append(f"Fills a detected gap in your {category} collection.")
-
-    # Occasion novelty
     item_occasions = {o.lower() for o in (analysis.get("occasion_tags") or [])}
     new_occasions = item_occasions - owned_occasions
-    if new_occasions and not has_duplicate:
-        score += _W_OCCASION_NEW
-        reasons.append(
-            f"Adds new occasion coverage: {', '.join(new_occasions)}."
-        )
-
-    # Season novelty
     item_seasons = {s.lower() for s in (analysis.get("season_tags") or [])}
     new_seasons = item_seasons - owned_seasons
-    if new_seasons and not has_duplicate:
-        score += _W_SEASON_NEW
-        reasons.append(
-            f"Extends your wardrobe into: {', '.join(new_seasons)}."
-        )
+    fills_gap = bool(category and await _has_open_gap_for_category(session, user_id, category))
 
-    # Clamp
-    score = max(0.0, min(100.0, score))
+    # Factor subscores (0–1)
+    subscores: dict[str, float] = {
+        "uniqueness":    0.0 if has_duplicate else 1.0,
+        "compatibility": min(len(compatible_items) / _COMPAT_SATURATION, 1.0),
+        "gap_fill":      1.0 if fills_gap else 0.0,
+        # Novelty only counts when the item isn't a duplicate.
+        "occasion_new":  1.0 if (new_occasions and not has_duplicate) else 0.0,
+        "season_new":    1.0 if (new_seasons and not has_duplicate) else 0.0,
+    }
+
+    # Weighted percentage contributions (sum to ≤ 100).
+    score_breakdown = {k: round(_WEIGHTS[k] * subscores[k], 1) for k in _WEIGHTS}
+    score = round(sum(score_breakdown.values()))
+    score = max(0, min(100, score))
+
+    # Human-readable reasons mirror the factors that contributed.
+    if has_duplicate:
+        reasons.append("You already own a very similar item.")
+    if compatible_items:
+        reasons.append(f"Pairs well with {len(compatible_items)} item(s) already in your closet.")
+    if fills_gap:
+        reasons.append(f"Fills a detected gap in your {category} collection.")
+    if subscores["occasion_new"]:
+        reasons.append(f"Adds new occasion coverage: {', '.join(new_occasions)}.")
+    if subscores["season_new"]:
+        reasons.append(f"Extends your wardrobe into: {', '.join(new_seasons)}.")
 
     # 6. Recommendation label
     if score >= 75:
@@ -216,7 +212,7 @@ async def analyze_shopping_item(
     # 7. Closet boost % — how much this raises wardrobe completeness
     #    Simple heuristic: gap fill = 5%, novel occasions = 3%, novel seasons = 2%
     boost_pct = 0.0
-    if category and await _has_open_gap_for_category(session, user_id, category):
+    if fills_gap:
         boost_pct += 5.0
     boost_pct += len(new_occasions) * 3.0
     boost_pct += len(new_seasons) * 2.0
@@ -274,6 +270,7 @@ async def analyze_shopping_item(
         "buy_score": round(score, 1),
         "buy_recommendation": recommendation,
         "closet_boost_pct": round(boost_pct, 1),
+        "score_breakdown": score_breakdown,
         "reasoning": reasoning_text,
     }
 

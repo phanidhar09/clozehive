@@ -35,6 +35,28 @@ const CustomTooltip = ({ active, payload, label }: TooltipChartPayload) => {
 
 const PALETTE = ['#0D9488', '#059669', '#14B8A6', '#2DD4BF', '#5EEAD4', '#99F6E4']
 
+/** Common fashion color names → exact hex, so the chart references the real colour. */
+const COLOR_HEX: Record<string, string> = {
+  black: '#111827', white: '#F9FAFB', grey: '#9CA3AF', gray: '#9CA3AF',
+  silver: '#C0C0C0', charcoal: '#374151', navy: '#1E3A5F', blue: '#3B82F6',
+  'light blue': '#7DD3FC', 'sky blue': '#7DD3FC', teal: '#14B8A6', cyan: '#06B6D4',
+  green: '#22C55E', olive: '#708238', mint: '#A7F3D0', red: '#EF4444',
+  maroon: '#7F1D1D', burgundy: '#7F1D1D', pink: '#EC4899', purple: '#A855F7',
+  lavender: '#C4B5FD', orange: '#F97316', yellow: '#FACC15', gold: '#D4AF37',
+  brown: '#8B5E3C', tan: '#D2B48C', beige: '#E8D9C0', cream: '#F5EFE0',
+  khaki: '#C3B091', denim: '#3B5A78', multicolor: '#94A3B8', multi: '#94A3B8',
+}
+
+/** Resolve a stored color string to an exact CSS color; fall back to the palette. */
+function colorToCss(raw: string | undefined, index: number): string {
+  const c = (raw || '').trim().toLowerCase()
+  if (!c) return PALETTE[index % PALETTE.length]
+  if (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c)) return c           // hex passthrough
+  if (c in COLOR_HEX) return COLOR_HEX[c]                          // known fashion name
+  if (/^[a-z]+$/.test(c)) return c                                // plain CSS color name
+  return PALETTE[index % PALETTE.length]
+}
+
 /* ── Wardrobe health score ring ─────────────────────────────────────────────── */
 function ScoreRing({ value, size = 132, stroke = 11 }: { value: number; size?: number; stroke?: number }) {
   const radius = (size - stroke) / 2
@@ -290,10 +312,11 @@ export default function Analytics() {
                         outerRadius={72}
                         paddingAngle={2}
                         dataKey="percentage"
-                        stroke="none"
+                        stroke="#ffffff"
+                        strokeWidth={1}
                       >
-                        {analytics.color_stats.map((_entry: ColorStats, index: number) => (
-                          <Cell key={`cell-${index}`} fill={PALETTE[index % PALETTE.length]} />
+                        {analytics.color_stats.map((entry: ColorStats, index: number) => (
+                          <Cell key={`cell-${index}`} fill={colorToCss(entry.color, index)} />
                         ))}
                       </Pie>
                       <Tooltip />
@@ -301,15 +324,21 @@ export default function Analytics() {
                   </ResponsiveContainer>
                 </div>
                 <div className="flex-1 w-full space-y-2.5">
-                  {analytics.color_stats.slice(0, 6).map((stat: ColorStats) => (
-                    <div key={stat.color} className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="w-3 h-3 rounded-full shrink-0 ring-1 ring-black/5" style={{ backgroundColor: stat.color || '#999' }} />
-                        <span className="capitalize text-slate-700 dark:text-white/90 truncate">{stat.color}</span>
+                  {analytics.color_stats.slice(0, 6).map((stat: ColorStats, i: number) => {
+                    const css = colorToCss(stat.color, i)
+                    return (
+                      <div key={stat.color} className="flex items-center justify-between text-sm">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span
+                            className="w-3.5 h-3.5 rounded-full shrink-0 ring-1 ring-black/10 dark:ring-white/15"
+                            style={{ backgroundColor: css }}
+                          />
+                          <span className="capitalize text-slate-700 dark:text-white/90 truncate">{stat.color}</span>
+                        </div>
+                        <span className="text-slate-400 dark:text-white/40 tabular-nums shrink-0">{stat.count} · {stat.percentage}%</span>
                       </div>
-                      <span className="text-slate-400 dark:text-white/40 tabular-nums shrink-0">{stat.count} · {stat.percentage}%</span>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             </GlassCard>

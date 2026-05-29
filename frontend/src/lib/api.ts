@@ -1149,6 +1149,8 @@ export interface ShoppingCheckResult {
   buy_score: number
   buy_recommendation: 'buy' | 'consider' | 'skip'
   closet_boost_pct: number
+  /** Per-factor % contributions to buy_score (weights sum to 100). */
+  score_breakdown?: Record<string, number>
   reasoning: string
 }
 
