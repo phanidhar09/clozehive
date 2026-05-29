@@ -1,5 +1,5 @@
 /**
- * FANI (Fashion AI Nurturing Individuality) Chat API client.
+ * FANI (Fashion Analysis and Nurturing Intelligence) Chat API client.
  * Wraps /api/v1/ai-chat/* endpoints.
  */
 

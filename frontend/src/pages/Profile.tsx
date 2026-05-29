@@ -7,7 +7,7 @@ import {
   Bell, Shield, Globe, Lock, RefreshCw,
 } from 'lucide-react'
 import { useApp } from '@/store'
-import { socialApi, authApi, closetApi } from '@/lib/api'
+import { socialApi, authApi, closetApi, profileApi } from '@/lib/api'
 import type {
   AuthUser, AvatarConfig, BodyProfile, ClosetItem, SocialUser,
   StyleProfile, StyleTag, UserPermissions, UserPreferences,
@@ -308,6 +308,8 @@ function OverviewTab({
 
   return (
     <div className="grid md:grid-cols-2 gap-4 animate-fade-in">
+      <StyleSummaryCard onEdit={() => navigate('/onboarding/style-profile')} />
+
       <GlassCard padding="md">
         <h3 className="font-semibold text-sm text-slate-700 dark:text-white/80 mb-3 flex items-center gap-2">
           <Brain size={14} className="text-brand-500" /> Personalization status
@@ -364,6 +366,68 @@ function OverviewTab({
         )}
       </GlassCard>
     </div>
+  )
+}
+
+function StyleSummaryCard({ onEdit }: { onEdit: () => void }) {
+  const [summary, setSummary] = useState<string | null>(null)
+  const [archetype, setArchetype] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      try {
+        const p = await profileApi.getStyleProfile()
+        if (!alive) return
+        const raw = p as unknown as { style_summary?: string; style_archetype?: string } | null
+        setSummary(raw?.style_summary ?? null)
+        setArchetype(raw?.style_archetype ?? null)
+      } catch {
+        /* leave empty — card shows the prompt-to-complete state */
+      } finally {
+        if (alive) setLoading(false)
+      }
+    })()
+    return () => { alive = false }
+  }, [])
+
+  return (
+    <GlassCard padding="md" className="md:col-span-2 bg-gradient-to-br from-brand-50/60 to-transparent dark:from-brand-500/[0.06]">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="font-semibold text-sm text-slate-700 dark:text-white/80 flex items-center gap-2">
+          <Sparkles size={14} className="text-brand-500" /> Your style summary
+          {archetype && (
+            <span className="text-[10px] font-semibold text-brand-600 dark:text-brand-400 bg-brand-50 dark:bg-brand-900/30 px-2 py-0.5 rounded-full capitalize">
+              {archetype}
+            </span>
+          )}
+        </h3>
+        <button onClick={onEdit} className="text-xs font-semibold text-brand-600 dark:text-brand-400 hover:underline">
+          Edit
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="space-y-2">
+          <div className="h-3 rounded bg-slate-200/70 dark:bg-white/10 w-full animate-pulse" />
+          <div className="h-3 rounded bg-slate-200/70 dark:bg-white/10 w-3/4 animate-pulse" />
+        </div>
+      ) : summary ? (
+        <>
+          <p className="text-sm text-slate-600 dark:text-white/70 leading-relaxed">{summary}</p>
+          <p className="mt-2 text-[11px] text-slate-400 dark:text-white/40">
+            FANI uses this to personalise every outfit it generates.
+          </p>
+        </>
+      ) : (
+        <p className="text-sm text-slate-400 dark:text-white/40">
+          Complete your{' '}
+          <button onClick={onEdit} className="underline text-brand-600 dark:text-brand-400">style profile</button>{' '}
+          to get a personalised summary that guides your AI outfits.
+        </p>
+      )}
+    </GlassCard>
   )
 }
 

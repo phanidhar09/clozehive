@@ -38,7 +38,7 @@ const WELCOME: StylistChatMessage = {
   id: 'welcome',
   role: 'assistant',
   content:
-    "Hey! I'm FANI — your Fashion AI Nurturing Individuality. I can build outfits from your actual wardrobe, answer styling questions, and help you look your best. What's on your mind?",
+    "Hey! I'm FANI — your Fashion Analysis and Nurturing Intelligence. I can build outfits from your actual wardrobe, answer styling questions, and help you look your best. What's on your mind?",
   timestamp: new Date(),
 }
 
@@ -646,7 +646,7 @@ export default function AIStylistChat() {
               </h2>
               <p className="text-xs text-slate-400">
                 {closetItems.length > 0
-                  ? `${closetItems.length} wardrobe items · Fashion AI Nurturing Individuality`
+                  ? `${closetItems.length} wardrobe items · Fashion Analysis and Nurturing Intelligence`
                   : 'Add items to your closet for personalised suggestions'}
               </p>
             </div>

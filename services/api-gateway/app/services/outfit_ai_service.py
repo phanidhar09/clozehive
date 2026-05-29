@@ -25,6 +25,13 @@ _GENERATE_SYSTEM_PROMPT = """\
 You are ClozeHive AI, an expert fashion AI with mastery of color theory, \
 style principles, and occasion dressing.
 
+STYLING MODE: The payload includes "styling_mode" and user_profile.style_profile_context_text \
+(a natural-language Summary of the user's style). When styling_mode is "everyday_personal_style" \
+(no specific occasion or mood), treat that profile Summary as the PRIMARY intent — build looks that \
+express the user's stated style identity, preferred aesthetics, colours and fits, and score the \
+"occasion" dimension as alignment with their everyday personal style rather than an event. When it is \
+"occasion_based", score "occasion" against the stated occasion while still respecting the profile.
+
 SCORING FORMULA — score_breakdown values must sum EXACTLY to matching_score (integer 0–100):
   color      max 25  Color Compatibility: harmony, contrast, palette cohesion
   occasion   max 25  Occasion Match: suitability for stated occasion
@@ -83,13 +90,23 @@ The user has hand-picked specific items and placed them together as an outfit. \
 Analyse this exact combination, score it rigorously, and provide actionable feedback.
 
 USER STYLE PROFILE:
-The JSON payload includes user_profile which may contain style_profile_context_text and \
-user_style_profile. Use them to assess fit, size alignment, color likes/dislikes, and climate \
-preferences. If profile data is missing, fall back to the wardrobe items and occasion only. \
-Never make judgmental or negative comments about the user's body — keep language positive, neutral, \
-and focused on styling, comfort, and fit. Do not recommend fits (tight, cropped, bodycon, etc.) \
+The JSON payload includes user_profile which may contain style_profile_context_text (a natural-language \
+Summary of the user's style) and user_style_profile. Use them to assess fit, size alignment, color \
+likes/dislikes, and climate preferences. If profile data is missing, fall back to the wardrobe items and \
+occasion only. Never make judgmental or negative comments about the user's body — keep language positive, \
+neutral, and focused on styling, comfort, and fit. Do not recommend fits (tight, cropped, bodycon, etc.) \
 unless they appear in the user's fit preferences. Avoid colours the user dislikes. Prefer favourite \
 colours when sensible.
+
+STYLING MODE:
+The payload includes "styling_mode". When it is "everyday_personal_style" (the user is doing general \
+outfit building with no specific occasion or mood), the user's style profile Summary is the PRIMARY \
+intent — judge how well the outfit expresses their stated style identity, preferred aesthetics, colours \
+and fits. In this mode, score the "occasion" dimension as alignment with the user's EVERYDAY PERSONAL \
+STYLE (from the profile Summary), not a specific event, set occasion_match relative to that, and let the \
+profile drive your reasoning, improvements and styling_tips. When styling_mode is "occasion_based", score \
+"occasion" against the stated occasion as usual while still respecting the profile. If no profile Summary \
+exists in either mode, fall back to general style principles.
 
 SCORING FORMULA — score_breakdown values must sum EXACTLY to matching_score (integer 0–100):
   color      max 25  Color Compatibility: harmony, contrast, palette cohesion
@@ -363,9 +380,12 @@ async def generate_outfits(
     if not closet_items:
         return _mock_generate(closet_items, occasion)
 
+    general_mode = (occasion or "").strip().lower() in ("", "casual", "everyday", "any", "general", "daily")
+
     payload_dict: dict[str, Any] = {
         "mode": "generate",
         "occasion": occasion,
+        "styling_mode": "everyday_personal_style" if general_mode else "occasion_based",
         "weather_condition": weather or "mild",
         "temperature_celsius": temperature,
         "user_profile": user_profile or {},
@@ -403,9 +423,14 @@ async def analyze_outfit(
     if not selected_items:
         return _mock_analyze(selected_items, occasion)
 
+    # When there's no specific occasion/mood (generic everyday styling), the user's
+    # persisted style profile summary becomes the PRIMARY lens for the analysis.
+    general_mode = (occasion or "").strip().lower() in ("", "casual", "everyday", "any", "general", "daily")
+
     analyze_dict: dict[str, Any] = {
         "mode": "analyze",
         "occasion": occasion,
+        "styling_mode": "everyday_personal_style" if general_mode else "occasion_based",
         "weather_condition": weather or "mild",
         "temperature_celsius": temperature,
         "user_profile": user_profile or {},
@@ -474,6 +499,7 @@ async def shuffle_outfit(
     seed_category: str | None = None,
     fashion_context: str = "",
     history_context: str = "",
+    user_profile: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Suggest 1-2 alternative outfit combinations from the user's closet.
 
@@ -488,6 +514,11 @@ async def shuffle_outfit(
     if history_context.strip():
         rag_block += f"\n\n[PAST OUTFIT HISTORY]\n{history_context.strip()}\n[END PAST OUTFIT HISTORY]"
 
+    # Always ground alternatives in the user's persisted style profile/summary.
+    profile_text = (user_profile or {}).get("style_profile_context_text") or ""
+    if profile_text.strip():
+        rag_block += f"\n\n[USER STYLE PROFILE]\n{profile_text.strip()}\n[END USER STYLE PROFILE]"
+
     system_prompt = _SHUFFLE_OUTFIT_PROMPT + rag_block
 
     payload = json.dumps({
@@ -496,6 +527,7 @@ async def shuffle_outfit(
         "seed_category": seed_category or None,
         "current_outfit": [_item_for_ai(i) for i in current_items],
         "available_closet": [_item_for_ai(i) for i in available_closet[:50]],
+        "user_profile": user_profile or {},
     }, default=str)
 
     try:

@@ -13,7 +13,7 @@ const STORAGE_KEY = 'ch:ai-btn-pos'
 const WELCOME: StylistChatMessage = {
   id: 'welcome',
   role: 'assistant',
-  content: "Hey! 👋 I'm FANI — your Fashion AI Nurturing Individuality. I can build outfits from your closet, answer styling questions, and help you look your best. What's on your mind?",
+  content: "Hey! 👋 I'm FANI — your Fashion Analysis and Nurturing Intelligence. I can build outfits from your closet, answer styling questions, and help you look your best. What's on your mind?",
   timestamp: new Date(),
 }
 
@@ -386,7 +386,7 @@ export default function FloatingAIChat() {
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-white">FANI</p>
-                  <p className="text-[10px] text-slate-400">Fashion AI Nurturing Individuality</p>
+                  <p className="text-[10px] text-slate-400">Fashion Analysis and Nurturing Intelligence</p>
                 </div>
               </div>
               <div className="flex gap-1">

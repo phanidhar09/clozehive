@@ -16,7 +16,7 @@ const QUICK_PROMPTS = [
 const WELCOME_MSG: ChatMsg = {
   id: 'welcome',
   role: 'assistant',
-  content: "Hey! 👋 I'm FANI — your Fashion AI Nurturing Individuality. Tell me what you need and I'll suggest outfits from your wardrobe.",
+  content: "Hey! 👋 I'm FANI — your Fashion Analysis and Nurturing Intelligence. Tell me what you need and I'll suggest outfits from your wardrobe.",
   timestamp: new Date(),
 }
 

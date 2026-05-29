@@ -425,6 +425,9 @@ async def shuffle_outfit(
     fashion_context = fashion_ctx if isinstance(fashion_ctx, str) else ""
     history_context = history_ctx if isinstance(history_ctx, str) else ""
 
+    # Always ground alternatives in the user's persisted style profile/summary.
+    user_profile = await load_merged_user_profile_for_ai(session, uid, None)
+
     alternatives = await outfit_ai_service.shuffle_outfit(
         current_items=current_items,
         available_closet=available,
@@ -433,6 +436,7 @@ async def shuffle_outfit(
         seed_category=body.seed_category,
         fashion_context=fashion_context,
         history_context=history_context,
+        user_profile=user_profile,
     )
 
     # Enrich alternatives with image_urls from full closet

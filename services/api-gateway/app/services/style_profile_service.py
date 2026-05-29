@@ -31,6 +31,54 @@ def _row_to_response(row: UserStyleProfile) -> StyleProfileResponse:
     return StyleProfileResponse.from_orm_row(row)
 
 
+def _join_human(items: list | None, max_n: int = 3) -> str:
+    """Join a list into a readable phrase: ['a','b','c'] -> 'a, b and c'."""
+    vals = [str(i).replace("_", " ").strip() for i in (items or []) if i]
+    vals = vals[:max_n]
+    if not vals:
+        return ""
+    if len(vals) == 1:
+        return vals[0]
+    return ", ".join(vals[:-1]) + f" and {vals[-1]}"
+
+
+def compose_style_summary(row: UserStyleProfile) -> str:
+    """
+    Build a concise, natural-language style summary using ONLY the user's own
+    onboarding answers — no external/AI call. This guarantees the profile reflects
+    a summary immediately on submit, and gives outfit generation a stable, canonical
+    description to ground every recommendation.
+    """
+    styles    = _join_human(getattr(row, "style_preferences", None))
+    occasions = _join_human(getattr(row, "occasion_preferences", None))
+    fav       = _join_human(getattr(row, "favorite_colors", None))
+    avoid     = _join_human(getattr(row, "avoided_colors", None))
+    fits      = _join_human(getattr(row, "fit_preferences", None))
+    goals     = _join_human(getattr(row, "styling_goals", None), max_n=2)
+
+    sentences: list[str] = []
+    if styles:
+        sentences.append(f"Your style leans {styles}.")
+    if fav and fits:
+        sentences.append(f"You favour {fav} tones and prefer a {fits} fit.")
+    elif fav:
+        sentences.append(f"You favour {fav} tones.")
+    elif fits:
+        sentences.append(f"You prefer a {fits} fit.")
+    if avoid:
+        sentences.append(f"You tend to avoid {avoid}.")
+    if occasions:
+        sentences.append(f"Most of your outfits are for {occasions}.")
+    if goals:
+        sentences.append(f"Your styling goal is to {goals}.")
+
+    text = " ".join(sentences).strip()
+    return text or (
+        "Tell us a bit more about your style preferences to personalise your "
+        "recommendations."
+    )
+
+
 def _extract_profile_data(row: UserStyleProfile) -> dict:
     return {
         "user_id": str(row.user_id),
@@ -169,7 +217,9 @@ async def _background_generate_style_summary(user_id: UUID, profile_data: dict) 
             repo = UserStyleProfileRepository(session)
             row = await repo.get_by_user_id(user_id)
             if row:
-                if summary:
+                # Don't override the canonical, user-derived summary — only fill
+                # it if missing. Archetype/context enrichment is still applied.
+                if summary and not (row.style_summary or "").strip():
                     row.style_summary = summary
                 if archetype:
                     row.style_archetype = archetype
@@ -267,6 +317,10 @@ async def create_style_profile(session: AsyncSession, user_id: UUID, payload: St
         onboarding_skipped=False,
         **_create_payload_from_schema(payload),
     )
+    row.style_summary = compose_style_summary(row)
+    session.add(row)
+    await session.flush()
+    await session.refresh(row)
     logger.info("style_profile_created", user_id=str(user_id))
     _schedule_style_summary(row)
     return _row_to_response(row)
@@ -297,6 +351,7 @@ async def update_style_profile(session: AsyncSession, user_id: UUID, payload: St
         )
         return await create_style_profile(session, user_id, base)
     _apply_update(row, payload)
+    row.style_summary = compose_style_summary(row)
     session.add(row)
     await session.flush()
     await session.refresh(row)
@@ -311,6 +366,12 @@ async def refresh_style_summary(session: AsyncSession, user_id: UUID) -> StylePr
     row = await repo.get_by_user_id(user_id)
     if not row:
         row = await create_default_profile_row(session, user_id)
+    # Explicit manual refresh: clear the summary so the background AI pass
+    # (which otherwise won't override a populated summary) regenerates it.
+    row.style_summary = None
+    session.add(row)
+    await session.flush()
+    await session.refresh(row)
     _schedule_style_summary(row)
     return _row_to_response(row)
 
@@ -334,6 +395,9 @@ async def submit_onboarding(
 
     row.onboarding_completed = True
     row.onboarding_skipped = False
+    # Immediately derive a canonical summary from the user's own answers so the
+    # profile reflects it right away (no external/AI dependency).
+    row.style_summary = compose_style_summary(row)
     session.add(row)
     await session.flush()
     await session.refresh(row)
