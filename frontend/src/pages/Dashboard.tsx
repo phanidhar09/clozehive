@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import {
   Shirt, ArrowRight, Sparkles, RefreshCw, Loader2, Check,
@@ -8,7 +8,6 @@ import {
 import { useApp } from '@/store'
 import { outfitsApi, profileApi, type OutfitOfDayResponse } from '@/lib/api'
 import SectionHeader from '@/components/ui/SectionHeader'
-import { DASHBOARD_QUICK_ACTIONS } from '@/features/dashboard/quickActions'
 import OnboardingChecklist from '@/components/dashboard/OnboardingChecklist'
 import type { ClosetItem, OutfitSuggestion } from '@/types'
 
@@ -596,44 +595,6 @@ export default function Dashboard() {
         <div className="flex flex-col gap-4">
           {!closetLoading && totalItems > 0 && <WardrobePulse closetItems={closetItems} />}
           <StyleTipCard />
-        </div>
-      </div>
-
-      {/* ── Quick Actions ─────────────────────────────────────────────────── */}
-      <div>
-        <SectionHeader icon={<Zap size={16} />} title="Quick Actions" />
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          {DASHBOARD_QUICK_ACTIONS.map(({ label, desc, icon: Icon, to, gradient }, idx) => (
-            <Link
-              key={to}
-              to={to}
-              style={{ '--i': idx } as CSSProperties}
-              className="group relative flex flex-col rounded-2xl border border-cream-200 dark:border-white/[0.07]
-                         bg-white dark:bg-white/[0.03] p-4 stagger
-                         hover:-translate-y-1 hover:shadow-lg hover:border-slate-200 dark:hover:border-white/[0.15]
-                         dark:hover:bg-white/[0.06]
-                         transition-all duration-200 ease-out"
-            >
-              {/* Arrow — fades in top-right on hover */}
-              <ArrowUpRight
-                size={13}
-                className="absolute top-3 right-3 text-slate-300 dark:text-white/20
-                           opacity-0 group-hover:opacity-100 transition-opacity duration-200"
-              />
-
-              <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${gradient}
-                               flex items-center justify-center mb-3 shadow-sm flex-shrink-0
-                               group-hover:scale-110 group-hover:shadow-md transition-all duration-200`}>
-                <Icon size={17} className="text-white" />
-              </div>
-              <p className="font-semibold text-sm text-slate-800 dark:text-white leading-tight">
-                {label}
-              </p>
-              <p className="text-[11px] text-slate-400 dark:text-white/35 mt-0.5 leading-tight">
-                {desc}
-              </p>
-            </Link>
-          ))}
         </div>
       </div>
 

@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 import {
   Home, Shirt, Plane,
   X, Moon, Sun, LogOut,
-  Sparkles,
+  Sparkles, Wand2,
   type LucideIcon,
 } from 'lucide-react'
 import { useApp } from '@/store'
@@ -20,6 +20,7 @@ type SidebarNavItem = {
 const NAV_MAIN: SidebarNavItem[] = [
   { to: '/dashboard',  label: 'Home',            icon: Home },
   { to: '/closet',     label: 'My Closet',       icon: Shirt },
+  { to: '/closet-match', label: 'Fit Match',      icon: Wand2,    gradient: 'from-brand-500 to-emerald-500' },
   { to: '/travel',     label: 'Travel Packing',  icon: Plane,    gradient: 'from-sky-500 to-cyan-500' },
   { to: '/ai-stylist', label: 'FANI AI Stylist', icon: Sparkles, gradient: 'from-brand-500 to-brand-600' },
 ]

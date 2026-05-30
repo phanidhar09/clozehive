@@ -1,7 +1,7 @@
 import { Outlet } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import Navbar from './Navbar'
-import FloatingAIChat from '@/components/ai-chat/FloatingAIChat'
+import BottomNav from './BottomNav'
 import ToastContainer from '@/components/ui/ToastContainer'
 
 /**
@@ -51,13 +51,13 @@ export default function Layout() {
       <Sidebar />
       <div className="flex flex-col flex-1 min-w-0 lg:ml-[260px]">
         <Navbar />
-        <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 lg:p-6 animate-fade-in">
+        <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-24 lg:p-6 animate-fade-in">
           <Outlet />
         </main>
       </div>
 
-      {/* Floating AI chat — available on every page */}
-      <FloatingAIChat />
+      {/* Mobile bottom tab bar — hidden on desktop */}
+      <BottomNav />
 
       {/* Real-time toast notifications — bottom-left, above everything */}
       <ToastContainer />

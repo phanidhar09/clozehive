@@ -597,7 +597,7 @@ export default function ShoppingCheck() {
         icon={<ShoppingCart size={18} />}
         chipClassName="bg-gradient-to-br from-green-500 to-emerald-600 shadow-glow-sm"
         iconColor="text-white"
-        title="Shop Smart Check"
+        title="Shop with FANI"
         subtitle="Snap any item in-store — FANI tells you if it belongs in your closet"
         actions={
           <a
@@ -608,7 +608,7 @@ export default function ShoppingCheck() {
                        dark:hover:bg-brand-900/40 transition-colors whitespace-nowrap"
           >
             <Shirt size={13} />
-            Complete My Look
+            Fit Match
           </a>
         }
       />

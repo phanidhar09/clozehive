@@ -1,5 +1,5 @@
 /**
- * ClosetMatch — "Complete My Look"
+ * ClosetMatch — "Fit Match" (route stays /closet-match)
  *
  * Pick any item from your wardrobe and FANI suggests what to shop for
  * next to maximise outfit potential with that piece.
@@ -410,7 +410,7 @@ export default function ClosetMatch() {
 
   return (
     <div className="max-w-5xl">
-      <BackButton fallback="/shopping-check" label="Back to Shop Smart Check" />
+      <BackButton fallback="/shopping-check" label="Back to Shop with FANI" />
 
       {/* Page header */}
       <div className="mt-1">
@@ -418,7 +418,7 @@ export default function ClosetMatch() {
           icon={<Sparkles size={18} />}
           chipClassName="bg-gradient-to-br from-brand-500 to-brand-600 shadow-glow-sm"
           iconColor="text-white"
-          title="Complete My Look"
+          title="Fit Match"
           subtitle="Pick a wardrobe piece — FANI tells you what to shop for next"
           actions={
             <a
@@ -429,7 +429,7 @@ export default function ClosetMatch() {
                          hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors whitespace-nowrap"
             >
               <ShoppingBag size={13} />
-              Shop Smart Check
+              Shop with FANI
             </a>
           }
         />

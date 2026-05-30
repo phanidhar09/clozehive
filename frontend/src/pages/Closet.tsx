@@ -267,8 +267,11 @@ export default function Closet() {
         </InlineError>
       )}
 
-      {/* ── Closet actions strip ── */}
-      <div className="grid grid-cols-2 gap-2.5">
+      {/* ── Closet actions strip — sticks below the navbar when scrolled ── */}
+      <div className="sticky top-0 z-20 -mx-4 lg:-mx-6 px-4 lg:px-6 py-2.5
+                      bg-cream-100/85 dark:bg-slate-950/80 backdrop-blur-md
+                      border-b border-cream-200/70 dark:border-white/[0.06]">
+        <div className="grid grid-cols-2 gap-2.5">
         <Link
           to="/upload"
           className="flex items-center gap-3 px-4 py-3 rounded-2xl
@@ -301,6 +304,7 @@ export default function Closet() {
             <p className="text-[11px] text-white/70 leading-tight">Mix & match your closet</p>
           </div>
         </Link>
+        </div>
       </div>
 
       {/* ── Category tabs (horizontal scroll) ── */}

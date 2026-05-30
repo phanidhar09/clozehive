@@ -140,9 +140,9 @@ export default function ToastContainer() {
   const toasts = useToasts()
 
   return (
-    // Bottom-left — away from the floating AI chat button (bottom-right)
+    // Bottom-left — lifted above the mobile bottom nav on small screens
     <div
-      className="fixed bottom-6 left-4 z-[9999] flex flex-col-reverse gap-2 pointer-events-none"
+      className="fixed bottom-24 lg:bottom-6 left-4 z-[9999] flex flex-col-reverse gap-2 pointer-events-none"
       aria-live="polite"
       aria-label="Notifications"
     >

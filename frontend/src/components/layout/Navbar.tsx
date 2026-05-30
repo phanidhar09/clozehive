@@ -25,8 +25,8 @@ const TITLES: Record<string, string> = {
   '/profile':          'Profile',
   '/saved-outfits':    'Saved Outfits',
   '/purchase-gaps':    'Wardrobe Gaps',
-  '/shopping-check':   'Shop Smart Check',
-  '/closet-match':     'Complete My Look',
+  '/shopping-check':   'Shop with FANI',
+  '/closet-match':     'Fit Match',
 }
 
 /* ── Premium profile hover dropdown ────────────────────────────────────────── */
@@ -37,8 +37,7 @@ const MORE_LINKS = [
   { to: '/saved-outfits',  label: 'Saved Outfits',    icon: Heart,        gradient: 'from-rose-500 to-pink-500',     desc: 'Your FANI-curated looks' },
   { to: '/analytics',      label: 'Style Insights',   icon: BarChart3,    gradient: 'from-brand-500 to-brand-600', desc: 'Wear analytics & trends' },
   { to: '/purchase-gaps',  label: 'Wardrobe Gaps',    icon: ShoppingBag,  gradient: 'from-amber-500 to-orange-500',  desc: 'What your closet is missing' },
-  { to: '/shopping-check', label: 'Shop Smart Check', icon: ShoppingCart, gradient: 'from-green-500 to-emerald-500', desc: 'Buy or skip in-store items' },
-  { to: '/closet-match',   label: 'Closet Match',     icon: Wand2,        gradient: 'from-brand-500 to-brand-500', desc: 'Complete your look' },
+  { to: '/shopping-check', label: 'Shop with FANI', icon: ShoppingCart, gradient: 'from-green-500 to-emerald-500', desc: 'Buy or skip in-store items' },
 ]
 
 function ProfileDropdown({ onNavigate }: { onNavigate: (to: string) => void }) {
@@ -392,19 +391,6 @@ export default function Navbar() {
         {currentUser && !hideNonMvpUi() && (
           <UserSearch />
         )}
-
-        <button
-          onClick={() => window.dispatchEvent(new CustomEvent('ch:open-ai-chat'))}
-          title="FANI — Fashion AI"
-          aria-label="Open FANI chat"
-          className="p-2 min-h-[44px] min-w-[44px] rounded-xl
-                     text-slate-500 dark:text-white/50
-                     hover:text-brand-600 dark:hover:text-brand-400
-                     hover:bg-brand-50 dark:hover:bg-brand-900/20
-                     transition-colors"
-        >
-          <Sparkles size={19} />
-        </button>
 
         <button
           onClick={toggleColorScheme}

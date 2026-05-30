@@ -30,7 +30,7 @@ ClozeHive is a **wardrobe intelligence** application: a digital closet, outfit b
 | **Profile & Settings** | LinkedIn-style settings page — Display Name, Location & Weather, FANI Preferences, Privacy. Profile hover dropdown gives quick access to Saved Outfits, Closet Insights, and Wardrobe Gaps. |
 | **Real-time** | **WebSocket** notifications (`/api/v1/ws`) for in-app updates. |
 | **Auth** | JWT + refresh, **Google OAuth** (Redis-backed CSRF state). |
-| **Optional async** | **Redpanda** + **ai-worker** Kafka consumer when you enable the `worker` profile and `KAFKA_ENABLED=true`. |
+| **Optional integrations** | Legacy/advanced profiles (for example `mcp-vision`) can be enabled when needed; default MVP stack runs without external MCP tool containers. |
 
 ---
 
@@ -38,43 +38,69 @@ ClozeHive is a **wardrobe intelligence** application: a digital closet, outfit b
 
 ```mermaid
 flowchart TB
-  subgraph browser [Browser]
-    SPA[React SPA]
+  subgraph browser [Client]
+    U[User Browser]
+    SPA[SPA bundle]
   end
-  subgraph edge [Docker — nginx + frontend]
-    N[nginx :80]
-    FE[frontend :3000]
+
+  subgraph edge [Edge / Web]
+    N[nginx :80 (single entrypoint)]
+    FE[frontend :3000 (Vite app)]
   end
-  subgraph backend [Backend services]
-    GW[api-gateway :8000]
-    VS[vision-service :8002]
-    AG[ai-agent :8001]
-    MCP_W[mcp-weather :8010]
-    MCP_O[mcp-outfit :8012]
-    MCP_P[mcp-packing :8013]
+
+  subgraph app [Application Services]
+    GW[api-gateway :8000<br/>auth, closet, outfits, trips, RAG, WS hub]
+    VS[vision-service :8002<br/>analyze, smart-ingest, bg removal]
+    AG[ai-agent :8001<br/>FANI agent + inline tools]
   end
-  subgraph data [Data]
-    PG[(Postgres + pgvector)]
-    RD[(Redis)]
+
+  subgraph state [State + Storage]
+    PG[(Postgres + pgvector<br/>source of truth)]
+    RD[(Redis<br/>cache + sessions + staging)]
+    UP[(uploads volume / GCS)]
   end
-  SPA --> N
-  N -->|/api/v1/* except vision paths| GW
-  N -->|analyze-vision, smart-ingest, remove-background, …| VS
-  N -->|SPA assets| FE
+
+  subgraph optional [Optional Profiles]
+    MV[mcp-vision :8011<br/>legacy/experimental]
+    MIG[migrate one-shot<br/>alembic upgrade head]
+  end
+
+  U --> N
+  N -->|/| FE
+  FE --> SPA
+  N -->|/api/v1/* (general)| GW
+  N -->|/api/v1/analyze-vision*, /smart-ingest,\n/closet/*/remove-background| VS
+  N -->|/uploads/*| GW
+  N -->|/api/v1/ws| GW
+
   GW --> PG
   GW --> RD
-  GW -->|AI_AGENT_URL| AG
+  GW --> UP
+  GW -->|AI_AGENT_URL + X-Internal-Token| AG
   VS --> PG
   VS --> RD
+  VS --> UP
   AG --> PG
   AG --> RD
-  AG --> MCP_W
-  AG --> MCP_O
-  AG --> MCP_P
+  MIG --> PG
+  AG -. legacy profile .-> MV
 ```
 
-- **Default `docker compose up`** starts postgres, redis, **mcp-weather**, **mcp-outfit**, **mcp-packing**, **ai-agent**, **api-gateway**, **vision-service**, **frontend**, **nginx**, and a one-shot **migrate** job. The gateway talks to **ai-agent** at `http://ai-agent:8001` inside the network.
-- **nginx** terminates `/api` for the gateway, proxies vision-heavy routes to **vision-service**, exposes `/uploads`, upgrades **WebSockets** for `/api/v1/ws`, and serves the SPA.
+- **Default `docker compose up`** starts `postgres`, `redis`, `ai-agent`, `api-gateway`, `vision-service`, `frontend`, `nginx`, and one-shot `migrate`.
+- **nginx** is the single browser entrypoint: serves SPA traffic, proxies most `/api` traffic to `api-gateway`, sends vision-heavy endpoints to `vision-service`, proxies `/uploads`, and upgrades `/api/v1/ws`.
+- **api-gateway** calls **ai-agent** over internal HTTP (`AI_AGENT_URL`) and can attach `X-Internal-Token` for service-to-service auth.
+- **ai-agent** runs weather/outfit/packing tools inline (in-process) by default; no external MCP containers are required for normal local MVP runs.
+
+## How Services Are Wired
+
+| Flow | Wiring |
+|------|--------|
+| Browser → API | Frontend uses relative `/api/v1` by default; browser hits `nginx` first, then nginx routes to `api-gateway` or `vision-service` based on path. |
+| Auth + app data | `api-gateway` owns auth/session APIs and core business routes (closet, outfits, trips, analytics, RAG, shopping check), backed by Postgres + Redis. |
+| Real-time notifications | Browser WebSocket connects to `/api/v1/ws`; nginx upgrades and forwards to gateway WebSocket router. |
+| AI chat / outfit / packing | Gateway AI routes assemble user/closet/RAG context, then call `ai-agent` via `app/services/ai_client.py`. |
+| Vision ingestion | Vision-heavy endpoints are routed directly to `vision-service`, which performs detection + background-removal pipeline and uses Postgres/Redis for persistence/cache. |
+| Shared state | Postgres is the source of truth; Redis is used for caching, preview sessions, token/session helpers, and fast cross-request state. |
 
 ---
 
@@ -86,9 +112,9 @@ flowchart TB
 | `nginx` | Single entry **:80** — API, vision paths, uploads, WS, frontend. |
 | `services/api-gateway` | Public API: auth, profile, closet, outfits, trips, analytics, AI proxy routes, RAG routers, WebSocket hub, Kafka producers when enabled. |
 | `services/vision-service` | Vision pipeline: analyze/stream, smart ingest, background removal — shares DB/Redis and uses OpenAI/Gemini per config. |
-| `services/ai-agent` | FANI agent service with MCP tools (weather, outfit, packing) enabled by default via `ENABLE_MCP_TOOLS`. |
-| `services/mcp/*` | Small MCP HTTP/SSE tool servers consumed by **ai-agent**. |
-| `services/ai-worker` | *(profile `worker`)* Kafka consumer for background AI work. |
+| `services/ai-agent` | FANI agent service used by gateway AI routes. Default behavior is inline LangGraph tools (`weather`, `outfit`, `packing`) inside the service. |
+| `services/mcp/*` | Optional/legacy MCP HTTP/SSE servers (for non-default profiles or experiments). |
+| `services/ai-worker` | Background worker code (not part of the default `docker-compose.yml` MVP stack). |
 | `infra/` | Postgres init, Kafka topic scripts, nginx config. |
 
 Legacy or archive material, if present, may live under `archive/`.
@@ -115,21 +141,13 @@ Legacy or archive material, if present, may live under `archive/`.
 
    The **migrate** service runs **Alembic** so the DB schema is applied on startup; you can still run `make migrate` if you need to re-apply manually.
 
-3. **Optional: Kafka / async worker** — sets up Redpanda, topics, console, and **ai-worker**:
-
-   ```sh
-   docker compose --profile worker up --build
-   ```
-
-   Set `KAFKA_ENABLED=true` in `.env` when you want the gateway to publish async AI events (see `docs/ENVIRONMENT.md`).
-
-4. **Optional: MCP vision server** (heavier / GPU-oriented): Compose profile **`vision`**:
+3. **Optional: legacy MCP vision server** (heavier / experimental): Compose profile **`vision`**:
 
    ```sh
    docker compose --profile vision up --build
    ```
 
-5. **Health checks:**
+4. **Health checks:**
 
    ```sh
    make health
@@ -145,7 +163,6 @@ Legacy or archive material, if present, may live under `archive/`.
 | OpenAPI | `http://localhost:8000/docs` |
 | ai-agent (direct) | `http://localhost:8001/health` |
 | vision-service (internal / direct) | `http://localhost:8002/live` |
-| Redpanda Console | `http://localhost:8080` (only with `--profile worker`) |
 
 **Ports:** Postgres is **`5433`→5432** and Redis **`6382`→6379** on the host by default (see `.env.example`) to avoid clashes with local installs.
 
@@ -176,7 +193,7 @@ Vision-specific paths (e.g. analyze stream, smart ingest, remove-background) are
 
 ## Production-oriented compose
 
-For a slimmer or production-tuned layout, see `docker-compose.prod.yml` and nginx-oriented docs in-repo. Adjust env vars for your provider; helper scripts may live under `scripts/` (deploy, backup, restore, LetsEncrypt). Production often keeps `KAFKA_ENABLED` off unless you operate workers and brokers.
+For a slimmer or production-tuned layout, see `docker-compose.prod.yml` and nginx-oriented docs in-repo. Adjust env vars for your provider; helper scripts may live under `scripts/` (deploy, backup, restore, LetsEncrypt).
 
 ---
 
@@ -218,8 +235,7 @@ Use **`.env.example`** as the source of truth. Commonly customized:
 | `JWT_SECRET` | Strong random value in production (≥ 32 chars). |
 | `DATABASE_URL` | Host dev often uses Postgres on **5433** per example. |
 | `REDIS_URL` | Host dev often **6382**; OAuth requires working Redis. |
-| `ENABLE_MCP_TOOLS` | **ai-agent**; default **true** in `.env.example` (LLM-only if `false`). |
-| `KAFKA_*` / `KAFKA_ENABLED` | Async stack with `--profile worker`. |
+| `ENABLE_MCP_TOOLS` | **ai-agent** toggle for external MCP URLs in legacy setups. Inline tools work without external MCP containers. |
 | `ALLOWED_ORIGINS` | Must list real SPA origins. |
 | Google OAuth | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`. |
 | GCS | `GCS_BUCKET_NAME` + credentials for cloud image storage (optional for local disk). |
@@ -298,10 +314,9 @@ pip install pip-audit && pip-audit -r services/api-gateway/requirements.txt
 ## Troubleshooting (quick)
 
 - **OpenAI / model errors** — `OPENAI_API_KEY` in `.env`; restart **api-gateway**, **ai-agent**, and **vision-service** after changes.
-- **FANI / ai-agent / MCP** — With defaults, **mcp-*** containers must be healthy; check `docker compose logs ai-agent mcp-weather mcp-outfit mcp-packing`. Set `ENABLE_MCP_TOOLS=false` for LLM-only agent behavior.
+- **FANI / ai-agent** — In current MVP wiring, ai-agent runs inline tools by default; check `docker compose logs ai-agent api-gateway` first. If using legacy MCP profile, also verify the relevant `mcp-*` service health.
 - **Vision timeouts** — nginx sets longer read timeouts for AI and vision; check **vision-service** logs and `GEMINI_API_KEY` / OpenAI quotas.
 - **WebSockets** — Ensure clients hit a URL nginx proxies (e.g. `ws://localhost/api/v1/ws?...` through **:80**) or align direct **:8000** dev with `ALLOWED_ORIGINS`.
-- **Kafka** — Brokers and **ai-worker** only with `--profile worker`; see `docs/ENVIRONMENT.md`.
 - **Stale builds** — `make clean`, then rebuild images or `npm run build` as needed.
 
 ---

@@ -1,0 +1,70 @@
+import { NavLink } from 'react-router-dom'
+import { Home, Shirt, Plus, Sparkles, User, type LucideIcon } from 'lucide-react'
+import { cn } from '@/lib/utils'
+
+type Tab = { to: string; label: string; icon: LucideIcon; primary?: boolean; end?: boolean }
+
+/**
+ * Mobile bottom tab bar — the primary navigation on small screens.
+ * Hidden on desktop (`lg:hidden`), where the sidebar takes over.
+ * The center "+" is an elevated primary action (Add items).
+ */
+
+const TABS: Tab[] = [
+  { to: '/dashboard',  label: 'Home',   icon: Home,     end: true },
+  { to: '/closet',     label: 'Closet', icon: Shirt },
+  { to: '/upload',     label: 'Add',    icon: Plus,     primary: true },
+  { to: '/ai-stylist', label: 'FANI',   icon: Sparkles },
+  { to: '/profile',    label: 'Profile', icon: User },
+]
+
+export default function BottomNav() {
+  return (
+    <nav
+      className="lg:hidden fixed bottom-0 inset-x-0 z-40
+                 bg-white/90 dark:bg-slate-950/90 backdrop-blur-xl
+                 border-t border-cream-200 dark:border-white/[0.08]"
+      style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      aria-label="Primary"
+    >
+      <div className="flex items-end justify-around px-2 pt-1.5 pb-1.5">
+        {TABS.map(({ to, label, icon: Icon, primary, end }) =>
+          primary ? (
+            <NavLink
+              key={to}
+              to={to}
+              className="flex flex-col items-center justify-end gap-1 px-2 -mt-5"
+              aria-label={label}
+            >
+              <span className="w-12 h-12 rounded-2xl bg-gradient-to-br from-brand-500 to-brand-600
+                               text-white flex items-center justify-center
+                               shadow-lg shadow-brand-500/35 ring-4 ring-white dark:ring-slate-950
+                               active:scale-95 transition-transform">
+                <Icon size={22} />
+              </span>
+              <span className="text-[10px] font-medium text-slate-400 dark:text-white/40">{label}</span>
+            </NavLink>
+          ) : (
+            <NavLink
+              key={to}
+              to={to}
+              end={end}
+              className={({ isActive }) =>
+                cn(
+                  'flex flex-col items-center justify-center gap-0.5 min-w-[56px] py-1.5 rounded-xl',
+                  'transition-colors active:scale-95',
+                  isActive
+                    ? 'text-brand-600 dark:text-brand-400'
+                    : 'text-slate-400 dark:text-white/40 hover:text-slate-600 dark:hover:text-white/70',
+                )
+              }
+            >
+              <Icon size={20} />
+              <span className="text-[10px] font-medium">{label}</span>
+            </NavLink>
+          ),
+        )}
+      </div>
+    </nav>
+  )
+}

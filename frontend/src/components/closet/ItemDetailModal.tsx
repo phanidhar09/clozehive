@@ -73,7 +73,7 @@ export default function ItemDetailModal({ item, open, onClose, onDelete, onSaved
 
           {/* ── Left column: image ───────────────────────────────────────── */}
           <div className="sm:w-52 flex-shrink-0 bg-cream-50 dark:bg-slate-800/60 sm:rounded-l-2xl overflow-hidden">
-            <div className="relative aspect-[3/4] sm:h-full sm:aspect-auto">
+            <div className="relative aspect-[4/3] max-h-[38vh] sm:max-h-none sm:h-full sm:aspect-auto">
               {current.image_url ? (
                 <img
                   src={current.image_url}
