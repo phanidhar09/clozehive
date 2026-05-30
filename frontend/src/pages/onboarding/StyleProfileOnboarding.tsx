@@ -761,40 +761,31 @@ export default function StyleProfileOnboarding() {
             ClozeHive
           </span>
 
-          {/* Progress dots */}
-          <div className="flex-1 flex items-center justify-center gap-2">
-            {STEPS.map((s, i) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => i < stepIdx && goTo(i)}
-                className={cn(
-                  'rounded-full transition-all duration-300',
-                  i === stepIdx
-                    ? 'w-6 h-2.5 bg-brand-500'
-                    : i < stepIdx
-                    ? 'w-2.5 h-2.5 bg-brand-300 hover:bg-brand-400 cursor-pointer'
-                    : 'w-2.5 h-2.5 bg-cream-300 dark:bg-slate-700 cursor-default',
-                )}
-                aria-label={STEP_META[s].title}
+          {/* Progress bar + step name */}
+          <div className="flex-1 space-y-1.5 min-w-0">
+            <div className="flex items-center justify-between text-xs text-slate-400 dark:text-slate-500">
+              <span className="font-medium text-slate-600 dark:text-slate-300">
+                {STEP_META[step].icon} {STEP_META[step].title}
+              </span>
+              <span>{stepIdx + 1} / {STEPS.length}</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-cream-200 dark:bg-slate-700 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-brand-500 to-brand-400 transition-all duration-500 ease-out"
+                style={{ width: `${((stepIdx + 1) / STEPS.length) * 100}%` }}
               />
-            ))}
+            </div>
           </div>
 
-          {/* Step count + skip */}
-          <div className="flex items-center gap-3 shrink-0">
-            <span className="text-xs text-slate-400 dark:text-slate-500">
-              {stepIdx + 1} / {STEPS.length}
-            </span>
-            <button
-              type="button"
-              onClick={handleSkip}
-              disabled={saving}
-              className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition"
-            >
-              Skip
-            </button>
-          </div>
+          {/* Skip button */}
+          <button
+            type="button"
+            onClick={handleSkip}
+            disabled={saving}
+            className="shrink-0 rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-white/10 hover:text-slate-700 dark:hover:text-slate-200 transition disabled:opacity-40"
+          >
+            Skip for now
+          </button>
         </div>
       </header>
 
@@ -830,6 +821,21 @@ export default function StyleProfileOnboarding() {
             )}
           </motion.div>
         </AnimatePresence>
+
+        {/* Step 1 escape hatch — visible only on first step */}
+        {stepIdx === 0 && (
+          <div className="mt-6 flex items-center justify-center gap-2 text-sm text-slate-400 dark:text-slate-500">
+            <span>Not ready to set up your style?</span>
+            <button
+              type="button"
+              onClick={handleSkip}
+              disabled={saving}
+              className="font-medium text-brand-500 hover:text-brand-600 dark:text-brand-400 dark:hover:text-brand-300 underline-offset-2 hover:underline transition disabled:opacity-40"
+            >
+              Skip for now — explore the app first
+            </button>
+          </div>
+        )}
 
         {/* Error */}
         {error && (

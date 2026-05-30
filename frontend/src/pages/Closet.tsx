@@ -442,25 +442,51 @@ export default function Closet() {
 
       {/* ── Empty state ── */}
       {closetItems.length === 0 && !closetLoading && (
-        <div className="flex flex-col items-center justify-center py-20 gap-5">
-          <div className="text-7xl">👗</div>
-          <div className="text-center">
-            <p className="font-bold text-slate-700 dark:text-slate-200 text-lg">Your wardrobe is empty</p>
-            <p className="text-sm text-slate-400 mt-1">Start by adding your first clothing items</p>
+        <div className="rounded-3xl border border-cream-200 dark:border-white/[0.07] bg-white dark:bg-white/[0.03] overflow-hidden">
+          {/* Top hero */}
+          <div className="flex flex-col items-center justify-center py-10 px-6 text-center gap-4 border-b border-cream-100 dark:border-white/[0.05]">
+            <div className="text-6xl">👗</div>
+            <div>
+              <p className="font-display font-bold text-slate-800 dark:text-white text-xl">
+                Your wardrobe is empty
+              </p>
+              <p className="text-sm text-slate-400 dark:text-slate-500 mt-1 max-w-xs mx-auto">
+                Drop a photo and FANI will detect your items, remove backgrounds, and auto-tag everything for you.
+              </p>
+            </div>
+            <Link
+              to="/upload"
+              className="flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold bg-gradient-to-r from-brand-500 to-brand-600 text-white shadow-md shadow-brand-500/20 hover:opacity-90 transition-opacity"
+            >
+              <Sparkles size={15} /> Add items with AI
+            </Link>
           </div>
-          <div className="flex gap-3">
-            <Link
-              to="/upload"
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold bg-gradient-to-r from-brand-500 to-brand-600 text-white shadow-md hover:opacity-90 transition-opacity"
-            >
-              <Sparkles size={15} /> Add with AI
-            </Link>
-            <Link
-              to="/upload"
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold btn-secondary"
-            >
-              <Upload size={15} /> Add Item
-            </Link>
+
+          {/* Feature callouts */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-cream-100 dark:divide-white/[0.05]">
+            {[
+              {
+                icon: '📸',
+                title: 'Bulk upload',
+                desc: 'Drop up to 20 photos at once — AI analyses them all in one go.',
+              },
+              {
+                icon: '🏷️',
+                title: 'Auto-tagging',
+                desc: 'Category, colour, pattern, season, and occasion — all detected automatically.',
+              },
+              {
+                icon: '🔍',
+                title: 'Duplicate detection',
+                desc: 'FANI warns you before saving something you already own.',
+              },
+            ].map(({ icon, title, desc }) => (
+              <div key={title} className="flex flex-col items-center text-center gap-2 px-5 py-5">
+                <span className="text-2xl">{icon}</span>
+                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">{title}</p>
+                <p className="text-[11px] text-slate-400 dark:text-slate-500 leading-snug">{desc}</p>
+              </div>
+            ))}
           </div>
         </div>
       )}

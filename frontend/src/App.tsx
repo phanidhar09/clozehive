@@ -34,6 +34,8 @@ const PurchaseGaps = lazy(() => import('@/pages/PurchaseGaps'))
 const SavedOutfits = lazy(() => import('@/pages/SavedOutfits'))
 const ShoppingCheck = lazy(() => import('@/pages/ShoppingCheck'))
 const ClosetMatch   = lazy(() => import('@/pages/ClosetMatch'))
+const PrivacyPolicy = lazy(() => import('@/pages/PrivacyPolicy'))
+const TermsOfService = lazy(() => import('@/pages/TermsOfService'))
 
 import { useWebSocket } from '@/hooks/useWebSocket'
 
@@ -80,6 +82,14 @@ function AnimatedRoutes() {
   return (
     <AnimatePresence mode="wait">
       <Routes location={location} key={location.pathname}>
+        {/* ── Public legal pages (no auth required) ───────── */}
+        <Route path="/privacy" element={
+          <Suspense fallback={<RouteFallback />}><PrivacyPolicy /></Suspense>
+        } />
+        <Route path="/terms" element={
+          <Suspense fallback={<RouteFallback />}><TermsOfService /></Suspense>
+        } />
+
         {/* ── Auth routes (no sidebar/navbar) ─────────────── */}
         <Route path="/login" element={
           <AuthGuard><Login /></AuthGuard>

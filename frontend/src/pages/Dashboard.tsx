@@ -3,11 +3,10 @@ import { Link, useNavigate, useLocation } from 'react-router-dom'
 import {
   Shirt, ArrowRight, Sparkles, RefreshCw, Loader2, Check,
   CloudSun, Bookmark, AlertCircle, Star, Zap, TrendingUp,
-  ChevronRight, Calendar, ArrowUpRight,
+  ChevronRight, Calendar, ArrowUpRight, Image, Wand2, MessageSquare,
 } from 'lucide-react'
 import { useApp } from '@/store'
 import { outfitsApi, profileApi, type OutfitOfDayResponse } from '@/lib/api'
-import EmptyState from '@/components/ui/EmptyState'
 import SectionHeader from '@/components/ui/SectionHeader'
 import { DASHBOARD_QUICK_ACTIONS } from '@/features/dashboard/quickActions'
 import OnboardingChecklist from '@/components/dashboard/OnboardingChecklist'
@@ -370,6 +369,113 @@ function TodaysLookCard({ closetItems }: { closetItems: ClosetItem[] }) {
   )
 }
 
+// ── Guided empty state ────────────────────────────────────────────────────────
+
+const HOW_IT_WORKS = [
+  {
+    step: '01',
+    icon: Image,
+    title: 'Upload your clothes',
+    desc: 'Drop a photo — FANI\'s AI scans it and auto-tags category, colour, pattern, and season. Bulk-upload up to 20 photos at once.',
+    color: 'from-brand-500 to-brand-600',
+    href: '/upload',
+  },
+  {
+    step: '02',
+    icon: Wand2,
+    title: 'Build outfits',
+    desc: 'Mix and match your wardrobe in the outfit builder. Save looks for any occasion — work, casual, travel, or a night out.',
+    color: 'from-pink-500 to-rose-500',
+    href: '/outfit-builder',
+  },
+  {
+    step: '03',
+    icon: Sparkles,
+    title: 'Get daily suggestions',
+    desc: 'Every morning FANI picks Today\'s Look from your closet — weather-aware, occasion-matched, and rated for style.',
+    color: 'from-amber-500 to-orange-500',
+    href: '/dashboard',
+  },
+  {
+    step: '04',
+    icon: MessageSquare,
+    title: 'Chat with your AI stylist',
+    desc: 'Ask FANI anything — "What goes with my navy blazer?" — and get advice grounded in items you actually own.',
+    color: 'from-violet-500 to-purple-600',
+    href: '/ai-stylist',
+  },
+]
+
+function GuidedEmptyState() {
+  return (
+    <div className="space-y-6">
+      {/* Hero banner */}
+      <div className="relative overflow-hidden rounded-3xl border border-brand-200/60 dark:border-brand-500/20 bg-gradient-to-br from-brand-50 to-white dark:from-brand-900/30 dark:to-slate-900/40 px-6 py-8 text-center">
+        <div className="pointer-events-none absolute -top-16 -right-16 w-48 h-48 rounded-full bg-brand-200/30 dark:bg-brand-500/10 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-12 -left-10 w-40 h-40 rounded-full bg-amber-200/30 dark:bg-amber-500/10 blur-3xl" />
+        <div className="relative">
+          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-brand-500 to-brand-600 flex items-center justify-center mx-auto mb-4 shadow-lg shadow-brand-500/25">
+            <Sparkles size={24} className="text-white" />
+          </div>
+          <h2 className="font-display text-2xl font-bold text-slate-800 dark:text-white mb-2">
+            Welcome to ClozéHive
+          </h2>
+          <p className="text-slate-500 dark:text-slate-400 text-sm max-w-sm mx-auto leading-relaxed">
+            Your AI-powered wardrobe is ready to set up. Add your first clothing items and FANI will start building personalised outfits for you.
+          </p>
+          <div className="flex items-center justify-center gap-3 mt-5">
+            <Link
+              to="/upload"
+              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand-500/25 hover:opacity-90 transition-opacity"
+            >
+              <Sparkles size={14} /> Add your first items
+            </Link>
+            <Link
+              to="/onboarding/style-profile"
+              className="inline-flex items-center gap-2 rounded-xl border border-brand-200 dark:border-brand-700/50 bg-white dark:bg-white/5 px-5 py-2.5 text-sm font-semibold text-brand-600 dark:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-900/20 transition-colors"
+            >
+              Set up style profile
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      {/* How it works */}
+      <div>
+        <p className="text-xs font-bold uppercase tracking-widest text-slate-400 dark:text-white/30 mb-3">
+          How it works
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {HOW_IT_WORKS.map(({ step, icon: Icon, title, desc, color, href }) => (
+            <Link
+              key={step}
+              to={href}
+              className="group relative rounded-2xl border border-cream-200 dark:border-white/[0.07] bg-white dark:bg-white/[0.03] p-4 hover:border-slate-200 dark:hover:border-white/[0.14] hover:-translate-y-0.5 hover:shadow-md transition-all duration-200"
+            >
+              <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${color} flex items-center justify-center mb-3 shadow-sm group-hover:scale-110 transition-transform duration-200`}>
+                <Icon size={16} className="text-white" />
+              </div>
+              <span className="text-[10px] font-bold text-slate-300 dark:text-white/20 tracking-widest">
+                STEP {step}
+              </span>
+              <p className="font-semibold text-sm text-slate-800 dark:text-white mt-0.5 leading-tight">
+                {title}
+              </p>
+              <p className="text-[11px] text-slate-400 dark:text-white/40 mt-1.5 leading-snug">
+                {desc}
+              </p>
+              <ArrowUpRight
+                size={12}
+                className="absolute top-3 right-3 text-slate-300 dark:text-white/20 opacity-0 group-hover:opacity-100 transition-opacity"
+              />
+            </Link>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
@@ -575,16 +681,9 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* ── Empty state ───────────────────────────────────────────────────── */}
+      {/* ── Guided empty state ────────────────────────────────────────────── */}
       {totalItems === 0 && !closetLoading && (
-        <EmptyState
-          icon={<Shirt />}
-          title="Build your digital wardrobe"
-          description="Upload a clothing photo and FANI will start creating personalised outfit suggestions from your wardrobe."
-          primaryAction={{ label: 'Add First Piece', href: '/upload' }}
-          secondaryAction={{ label: 'Browse Closet', href: '/closet' }}
-          variant="card"
-        />
+        <GuidedEmptyState />
       )}
     </div>
   )
