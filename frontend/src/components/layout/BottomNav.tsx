@@ -38,7 +38,7 @@ export default function BottomNav() {
             >
               <span className="w-12 h-12 rounded-2xl bg-gradient-to-br from-brand-500 to-brand-600
                                text-white flex items-center justify-center
-                               shadow-lg shadow-brand-500/35 ring-4 ring-white dark:ring-slate-950
+                               shadow-lg shadow-brand-500/40 ring-4 ring-brand-500/25 dark:ring-brand-500/30
                                active:scale-95 transition-transform">
                 <Icon size={22} />
               </span>

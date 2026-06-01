@@ -4,7 +4,8 @@ import {
   closestCenter,
   DndContext,
   DragOverlay,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useDraggable,
   useDroppable,
   useSensor,
@@ -1017,7 +1018,12 @@ export default function OutfitBuilder() {
   // AI results drawer
   const [drawerOpen, setDrawerOpen] = useState(false)
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
+  // MouseSensor for desktop (drag after a 6px move) + TouchSensor for mobile
+  // (press-and-hold ~180ms to drag, so a quick swipe still scrolls the strip).
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 8 } }),
+  )
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()

@@ -347,7 +347,7 @@ function StatsBar({ records }: { records: OutfitHistoryRecord[] }) {
   ]
 
   return (
-    <div className="grid grid-cols-4 gap-3">
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
       {stats.map(({ label, value, icon: Icon }) => (
         <div key={label} className="rounded-2xl border border-cream-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3 text-center">
           <Icon size={16} className="mx-auto mb-1 text-brand-400" />

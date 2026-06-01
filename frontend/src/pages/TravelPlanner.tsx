@@ -1640,6 +1640,7 @@ export default function TravelPlanner() {
         icon={<Plane size={18} />}
         title="Travel Packing Planner"
         subtitle="AI-powered day-by-day outfit plans from your closet"
+        stackActionsOnMobile
         actions={
           <div className="flex rounded-xl border border-slate-200 dark:border-white/10 overflow-hidden text-sm font-medium">
             <button

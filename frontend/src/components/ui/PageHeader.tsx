@@ -11,6 +11,12 @@ interface PageHeaderProps {
   iconColor?: string
   /** Tailwind bg for the icon chip (default brand tint). */
   chipClassName?: string
+  /**
+   * Stack the actions below the title on mobile (full width) instead of
+   * squeezing them beside it. Use when actions are wide (e.g. a multi-tab
+   * toggle) and would otherwise crush the subtitle on narrow screens.
+   */
+  stackActionsOnMobile?: boolean
 }
 
 /**
@@ -25,9 +31,16 @@ export default function PageHeader({
   actions,
   iconColor = 'text-brand-500',
   chipClassName = 'bg-brand-50 dark:bg-brand-500/10',
+  stackActionsOnMobile = false,
 }: PageHeaderProps) {
   return (
-    <div className="flex items-start justify-between gap-3 mb-5 sm:mb-6">
+    <div
+      className={`flex gap-3 mb-5 sm:mb-6 ${
+        stackActionsOnMobile
+          ? 'flex-col sm:flex-row sm:items-start sm:justify-between'
+          : 'items-start justify-between'
+      }`}
+    >
       <div className="min-w-0">
         <h1 className="font-display font-bold text-xl sm:text-2xl text-slate-800 dark:text-slate-100 flex items-center gap-2 sm:gap-2.5">
           {icon && (
@@ -41,7 +54,11 @@ export default function PageHeader({
           <p className="text-[13px] sm:text-sm text-slate-400 dark:text-white/40 mt-1 sm:mt-1.5 ml-0.5">{subtitle}</p>
         )}
       </div>
-      {actions && <div className="flex items-center gap-2 shrink-0">{actions}</div>}
+      {actions && (
+        <div className={`flex items-center gap-2 shrink-0 ${stackActionsOnMobile ? 'max-w-full overflow-x-auto' : ''}`}>
+          {actions}
+        </div>
+      )}
     </div>
   )
 }

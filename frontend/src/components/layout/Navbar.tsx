@@ -54,7 +54,7 @@ function ProfileDropdown({ onNavigate }: { onNavigate: (to: string) => void }) {
 
   return (
     <div
-      className="absolute right-0 top-full mt-3 w-[300px]
+      className="absolute right-0 top-full mt-3 w-[300px] max-w-[calc(100vw-1.5rem)]
                  bg-white/[0.97] dark:bg-slate-900/[0.97]
                  backdrop-blur-2xl
                  rounded-3xl border border-white/60 dark:border-white/[0.09]
