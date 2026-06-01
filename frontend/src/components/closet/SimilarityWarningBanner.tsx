@@ -136,7 +136,9 @@ function DuplicateComparison({
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function SimilarityWarningBanner({ loading, error, items, itemName, newItemImageUrl, className }: Props) {
-  const [expanded, setExpanded] = useState(true)
+  // Collapsed by default — the header still surfaces the warning + match count,
+  // so the review screen stays compact. Users expand to see the details.
+  const [expanded, setExpanded] = useState(false)
 
   const hasDuplicate = items.some(i => i.similarity_score >= 90)
   const hasVerySimilar = items.some(i => i.similarity_score >= 75)

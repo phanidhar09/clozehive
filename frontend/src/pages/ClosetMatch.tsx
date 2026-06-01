@@ -5,7 +5,7 @@
  * next to maximise outfit potential with that piece.
  */
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Shirt, Sparkles, ShoppingBag, ChevronRight, Package,
@@ -385,6 +385,23 @@ export default function ClosetMatch() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<ClosetMatchResult | null>(null)
+  const resultRef = useRef<HTMLDivElement>(null)
+
+  // On mobile the picker and result stack vertically, so a freshly-loaded
+  // result renders far below the fold. Auto-scroll it into view on selection.
+  // Desktop shows both columns side-by-side, so no scroll is needed there.
+  // Defer with a double rAF: the layout switches to a grid in the same commit,
+  // and a scroll started mid-reflow gets cancelled by the browser.
+  useEffect(() => {
+    if (!loading && !result && !error) return
+    if (!window.matchMedia('(max-width: 1023px)').matches) return
+    const id = requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      }),
+    )
+    return () => cancelAnimationFrame(id)
+  }, [loading, result, error])
 
   const handleSelect = async (itemId: string) => {
     if (itemId === selectedItemId && result) return   // already loaded
@@ -474,6 +491,7 @@ export default function ClosetMatch() {
         </div>
 
         {/* Right: results */}
+        <div ref={resultRef} className="scroll-mt-20 lg:scroll-mt-0">
         <AnimatePresence mode="wait">
           {loading && (
             <motion.div
@@ -551,6 +569,7 @@ export default function ClosetMatch() {
             </motion.div>
           )}
         </AnimatePresence>
+        </div>
       </div>
     </div>
   )
