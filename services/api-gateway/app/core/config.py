@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     db_pool_pre_ping: bool = True
     db_pool_recycle: int = 300
     db_pool_timeout: int = 30
+    # Run `alembic upgrade head` automatically on app startup. Intended for hosts
+    # without a shell or pre-deploy hook (e.g. Render free tier). Idempotent; a
+    # failure is logged, not fatal. Leave False for local dev where you run
+    # migrations manually.
+    run_migrations_on_startup: bool = False
 
     # ── Redis ─────────────────────────────────────────────────────────────────
     redis_url: str = "redis://localhost:6379/0"

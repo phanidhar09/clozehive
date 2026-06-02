@@ -86,6 +86,13 @@ async def lifespan(app: FastAPI):
                      msg="DB unreachable at startup — app will start but requests requiring DB will fail")
         # Do not re-raise: allow Render health check to pass so we can debug via shell
 
+    # Apply DB migrations on startup when enabled (hosts without shell/pre-deploy,
+    # e.g. Render free tier). Idempotent and non-fatal — see app/core/db_migrate.
+    if settings.run_migrations_on_startup:
+        logger.info("startup_migrations_begin")
+        from app.core.db_migrate import run_migrations_on_startup as _apply_migrations
+        await _apply_migrations()
+
     # Optional Firestore (legacy / non-MVP paths only; Phase 1 closet + trips live in Postgres)
     try:
         _init_firestore()
