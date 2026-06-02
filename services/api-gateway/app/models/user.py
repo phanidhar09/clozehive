@@ -68,18 +68,23 @@ class User(Base):
     closet_items: Mapped[list["ClosetItem"]] = relationship(
         "ClosetItem", back_populates="owner", cascade="all, delete-orphan"
     )
-    # following: Mapped[list["Follow"]] = relationship(  # Non-MVP social features disabled for launch stabilization
-    #     "Follow", foreign_keys="Follow.follower_id", back_populates="follower", cascade="all, delete-orphan"
-    # )
-    # followers: Mapped[list["Follow"]] = relationship(  # Non-MVP social features disabled for launch stabilization
-    #     "Follow", foreign_keys="Follow.following_id", back_populates="following", cascade="all, delete-orphan"
-    # )
-    # owned_groups: Mapped[list["Group"]] = relationship(  # Non-MVP social features disabled for launch stabilization
-    #     "Group", back_populates="owner", cascade="all, delete-orphan"
-    # )
-    # group_memberships: Mapped[list["GroupMember"]] = relationship(  # Non-MVP social features disabled for launch stabilization
-    #     "GroupMember", back_populates="user", cascade="all, delete-orphan"
-    # )
+    # Social relationships. The HTTP routes are disabled for MVP, but these ORM
+    # relationships MUST stay defined: app/models/social.py (Follow/Group/
+    # GroupMember) back_populates to them, so omitting them makes SQLAlchemy
+    # mapper configuration fail ("User has no property 'following'") on the first
+    # User query — which breaks login. A relationship is inert until accessed.
+    following: Mapped[list["Follow"]] = relationship(
+        "Follow", foreign_keys="Follow.follower_id", back_populates="follower", cascade="all, delete-orphan"
+    )
+    followers: Mapped[list["Follow"]] = relationship(
+        "Follow", foreign_keys="Follow.following_id", back_populates="following", cascade="all, delete-orphan"
+    )
+    owned_groups: Mapped[list["Group"]] = relationship(
+        "Group", back_populates="owner", cascade="all, delete-orphan"
+    )
+    group_memberships: Mapped[list["GroupMember"]] = relationship(
+        "GroupMember", back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class UserCredential(Base):
