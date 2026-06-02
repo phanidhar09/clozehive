@@ -98,13 +98,15 @@ async def analyze_image(image_bytes: bytes, media_type: str = "image/jpeg") -> d
         "color (specific shade e.g. navy blue, charcoal, ivory — not just 'blue'), "
         "brand (null unless logo is clearly visible), material (read the visible texture — "
         "denim/cotton/silk/wool/polyester/leather/unknown), pattern, occasion array, tags array, "
-        "confidence, notes."
+        "confidence (0.0-1.0 float — set low when image quality is poor or item is partially visible), "
+        "notes (any caveats about detection quality)."
     )
     try:
         response = await _get_client().chat.completions.create(
             model=settings.openai_model,
             max_tokens=800,
             timeout=30.0,
+            response_format={"type": "json_object"},
             messages=[
                 {
                     "role": "user",
@@ -118,7 +120,16 @@ async def analyze_image(image_bytes: bytes, media_type: str = "image/jpeg") -> d
         msg = response.choices[0].message
         text = (msg.content or "").strip()
         raw = json.loads(_clean_json(text))
-        n = parse_vision_ai_payload(raw if isinstance(raw, dict) else {}, source="openai")
+        if not isinstance(raw, dict):
+            raise ValueError("Vision response is not a JSON object")
+        n = parse_vision_ai_payload(raw, source="openai")
+        if n.confidence < 0.40:
+            logger.warning(
+                "vision_low_confidence",
+                confidence=n.confidence,
+                name=n.name,
+                category=n.category,
+            )
         return normalized_to_legacy_upload_dict(n)
     except BaseException as exc:
         logger.error("vision_analysis_failed", error=str(exc))
@@ -184,6 +195,7 @@ async def analyze_for_bulk(image_bytes: bytes, media_type: str = "image/jpeg") -
             model=settings.openai_model,
             max_tokens=1500,
             timeout=45.0,
+            response_format={"type": "json_object"},
             messages=[
                 {
                     "role": "user",
@@ -200,6 +212,21 @@ async def analyze_for_bulk(image_bytes: bytes, media_type: str = "image/jpeg") -
         if not isinstance(data, dict):
             raise ValueError("Response is not a JSON object")
         n = parse_vision_ai_payload(data, source="bulk")
+
+        # Warn on low-confidence detections — caller should prompt user to verify
+        if n.confidence < 0.50:
+            logger.warning(
+                "bulk_vision_low_confidence",
+                confidence=n.confidence,
+                name=n.name,
+                category=n.category,
+            )
+            if not data.get("warnings"):
+                data["warnings"] = []
+            data["warnings"].append(
+                f"Low detection confidence ({n.confidence:.0%}). Please review and correct details before saving."
+            )
+
         return normalized_to_bulk_api_dict(n, raw=data)
     except BaseException as exc:
         logger.error("bulk_vision_analysis_failed", error=str(exc))

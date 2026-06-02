@@ -37,6 +37,12 @@ class UserStyleProfile(Base):
 
     age_range: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
+    # Skin tone + undertone used to ground colour recommendations on every outfit.
+    # skin_tone: e.g. "fair", "light", "medium", "olive", "tan", "deep", "dark".
+    # undertone: "warm", "cool", "neutral".
+    skin_tone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    undertone: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
     body_types: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     custom_body_type: Mapped[str | None] = mapped_column(String(200), nullable=True)
 

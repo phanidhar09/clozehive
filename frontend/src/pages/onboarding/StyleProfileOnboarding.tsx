@@ -34,6 +34,8 @@ interface OnboardingPayload {
   gender: string | null
   body_types: string[]
   age_range: string | null
+  skin_tone: string | null
+  undertone: string | null
   climate_preferences: string[]
 }
 
@@ -49,6 +51,8 @@ const emptyPayload = (): OnboardingPayload => ({
   gender: null,
   body_types: [],
   age_range: null,
+  skin_tone: null,
+  undertone: null,
   climate_preferences: [],
 })
 
@@ -176,6 +180,22 @@ const BODY_TYPE_OPTIONS: CardOption[] = [
 ]
 
 const AGE_RANGES = ['Under 20', '20–24', '25–29', '30–34', '35–44', '45–54', '55–64', '65+']
+
+// Skin tone + undertone — grounds colour recommendations on every outfit.
+const SKIN_TONE_OPTIONS = [
+  { id: 'fair', emoji: '🤍', label: 'Fair' },
+  { id: 'light', emoji: '🌤️', label: 'Light' },
+  { id: 'medium', emoji: '🌥️', label: 'Medium' },
+  { id: 'olive', emoji: '🫒', label: 'Olive' },
+  { id: 'tan', emoji: '🌾', label: 'Tan' },
+  { id: 'deep', emoji: '🤎', label: 'Deep' },
+  { id: 'dark', emoji: '🖤', label: 'Dark' },
+]
+const UNDERTONE_OPTIONS = [
+  { id: 'warm', label: 'Warm' },
+  { id: 'cool', label: 'Cool' },
+  { id: 'neutral', label: 'Neutral' },
+]
 
 const CLIMATE_OPTIONS: CardOption[] = [
   { id: 'tropical',    emoji: '☀️', label: 'Hot & Humid',    desc: '' },
@@ -609,6 +629,52 @@ function StepBody({
         </div>
       </div>
 
+      {/* Skin tone */}
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-3">
+          Skin tone <span className="text-slate-400 normal-case font-normal">— helps us pick colours that flatter you</span>
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {SKIN_TONE_OPTIONS.map(opt => (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => setForm(f => ({ ...f, skin_tone: f.skin_tone === opt.id ? null : opt.id }))}
+              className={cn(
+                'rounded-full border px-4 py-1.5 text-sm font-medium transition',
+                form.skin_tone === opt.id
+                  ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300'
+                  : 'border-cream-200 dark:border-white/10 text-slate-600 dark:text-slate-300 hover:border-brand-300',
+              )}
+            >
+              <span className="mr-1">{opt.emoji}</span>{opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Undertone */}
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-3">Undertone</p>
+        <div className="flex flex-wrap gap-2">
+          {UNDERTONE_OPTIONS.map(opt => (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => setForm(f => ({ ...f, undertone: f.undertone === opt.id ? null : opt.id }))}
+              className={cn(
+                'rounded-full border px-4 py-1.5 text-sm font-medium transition',
+                form.undertone === opt.id
+                  ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300'
+                  : 'border-cream-200 dark:border-white/10 text-slate-600 dark:text-slate-300 hover:border-brand-300',
+              )}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {/* Climate */}
       <div>
         <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-3">My climate</p>
@@ -668,6 +734,8 @@ export default function StyleProfileOnboarding() {
           gender:               existing.gender               ?? null,
           body_types:           existing.body_types           ?? [],
           age_range:            existing.age_range            ?? null,
+          skin_tone:            existing.skin_tone            ?? null,
+          undertone:            existing.undertone            ?? null,
           climate_preferences:  existing.climate_preferences  ?? [],
           styling_goals:        (existing as { styling_goals?: string[] }).styling_goals      ?? [],
           avoidances:           (existing as { avoidances?: string[] }).avoidances            ?? [],

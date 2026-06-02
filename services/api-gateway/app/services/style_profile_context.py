@@ -24,6 +24,8 @@ def style_profile_table_to_prompt_dict(row: UserStyleProfile) -> dict[str, Any]:
         "weight_value": float(row.weight_value) if row.weight_value is not None else None,
         "weight_unit": row.weight_unit,
         "age_range": row.age_range,
+        "skin_tone": getattr(row, "skin_tone", None),
+        "undertone": getattr(row, "undertone", None),
         "body_types": row.body_types or [],
         "custom_body_type": row.custom_body_type,
         "fit_preferences": row.fit_preferences or [],
@@ -65,6 +67,15 @@ def style_profile_to_prompt_block(row: UserStyleProfile | None, user: User | Non
         else:
             lines.append("- Weight: not provided")
         lines.append(f"- Age range: {row.age_range or 'not provided'}")
+        skin = getattr(row, "skin_tone", None)
+        undertone = getattr(row, "undertone", None)
+        if skin or undertone:
+            tone = skin or "not provided"
+            if undertone:
+                tone += f" ({undertone} undertone)"
+            lines.append(f"- Skin tone: {tone}")
+        else:
+            lines.append("- Skin tone: not provided")
         lines.append(f"- Body types: {row.body_types or []}")
         if row.custom_body_type:
             lines.append(f"- Custom body type note: {row.custom_body_type}")

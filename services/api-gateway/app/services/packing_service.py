@@ -60,6 +60,8 @@ _PURPOSE_CATEGORIES: dict[str, list[str]] = {
     "beach":     ["tops", "bottoms", "shoes", "accessories"],
     "formal":    ["tops", "bottoms", "shoes", "outerwear", "accessories"],
     "adventure": ["tops", "bottoms", "shoes", "outerwear"],
+    # Default when no activity/purpose is given — versatile everyday coverage.
+    "general":   ["tops", "bottoms", "shoes", "outerwear", "accessories"],
 }
 
 # ── Bag size constraints ──────────────────────────────────────────────────────
@@ -240,7 +242,9 @@ async def _ai_activity_aware_packing(
     style_block = ""
     if style_profile_context_text and style_profile_context_text.strip():
         style_block = (
-            "\nUser style profile (respect fit, preferred colors, body preferences, avoidances):\n"
+            "\nUser style profile (on EVERY outfit, respect their preferences, body size, "
+            "skin tone & undertone, and fit; choose colours that flatter their skin tone, "
+            "favour flattering cuts for their build, and never use avoided colours):\n"
             f"{style_profile_context_text.strip()}\n"
         )
     if rag_context and rag_context.strip():
@@ -267,15 +271,24 @@ USER'S CLOSET (ONLY use items from this list — never invent closet items):
 {closet_text}
 
 INSTRUCTIONS:
-1. Plan outfits day by day, driven by the activities listed.
-2. Fixed/booked activities MUST have an outfit planned first.
+1. ACTIVITIES ARE THE #1 PRIORITY. When the user has listed planned activities,
+   they OUTRANK every other signal (purpose, trip style, general weather). Build
+   the plan around them first: every listed activity MUST have at least one
+   purpose-appropriate outfit before you add any general/filler outfits. Match
+   each outfit's formality, footwear, and fabric to what the activity demands
+   (e.g. business meeting → formal shoes + blazer; hike → trail shoes + layers;
+   beach → swimwear + sandals; gym → athletic wear). Only if NO activities are
+   listed do you fall back to the trip purpose for guidance.
+2. Fixed/booked activities MUST have an outfit planned first, before anything else.
 3. Respect time of day and formality for each activity.
 4. Use ONLY closet items for from_closet outfits. If item is missing, mark source as "missing_recommended".
-5. Suggest rewearing: bottoms across 2-3 days, shoes across multiple outfits, outerwear often.
-6. Never suggest rewearing gym/beach/sweaty items unless specifically noted.
-7. Keep total unique items within bag size limits.
-8. Provide clear styling notes and rewear notes per outfit slot.
-9. Prioritize activities: fixed > time-specific > general.
+5. If the wardrobe lacks an item an activity genuinely needs, add it to missing_items
+   with needed_for set to that activity — never substitute an unsuitable item.
+6. Suggest rewearing: bottoms across 2-3 days, shoes across multiple outfits, outerwear often.
+7. Never suggest rewearing gym/beach/sweaty items unless specifically noted.
+8. Keep total unique items within bag size limits.
+9. Provide clear styling notes and rewear notes per outfit slot.
+10. Activity priority order: fixed/booked > time-specific > general everyday wear.
 
 Return ONLY valid JSON with this structure:
 {{
@@ -602,7 +615,8 @@ def _rule_based_packing_sections(
     for item in closet_items:
         by_category[_normalise_category(str(item.get("category", "")))].append(item)
 
-    required = list(_PURPOSE_CATEGORIES.get(purpose.lower(), ["tops", "bottoms", "shoes"]))
+    # Unrecognised or empty purpose falls back to the general-purpose category set.
+    required = list(_PURPOSE_CATEGORIES.get(purpose.lower(), _PURPOSE_CATEGORIES["general"]))
     if weather_summary.get("avg_high", 20) < 10 and "outerwear" not in required:
         required.append("outerwear")
 

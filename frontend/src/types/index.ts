@@ -63,6 +63,8 @@ export interface UserStyleProfile {
   weight_value: number | null
   weight_unit: 'kg' | 'lb' | null
   age_range: string | null
+  skin_tone: string | null
+  undertone: 'warm' | 'cool' | 'neutral' | null
   body_types: string[]
   custom_body_type: string | null
   fit_preferences: string[]

@@ -228,6 +228,8 @@ function mapUserStyleProfile(raw: Record<string, unknown>): UserStyleProfile {
     weight_value: raw.weight_value != null ? Number(raw.weight_value) : null,
     weight_unit: (raw.weight_unit as UserStyleProfile['weight_unit']) ?? null,
     age_range: (raw.age_range as string | null | undefined) ?? null,
+    skin_tone: (raw.skin_tone as string | null | undefined) ?? null,
+    undertone: (raw.undertone as UserStyleProfile['undertone']) ?? null,
     body_types: strList(raw.body_types),
     custom_body_type: (raw.custom_body_type as string | null | undefined) ?? null,
     fit_preferences: strList(raw.fit_preferences),

@@ -97,7 +97,7 @@ class Settings(BaseSettings):
     # Use for Azure/other OpenAI-compatible gateways; leave default for api.openai.com.
     openai_api_base_url: str = "https://api.openai.com/v1"
     openai_model: str = "gpt-4o"
-    openai_max_tokens: int = 1024
+    openai_max_tokens: int = 4096
     # ── Gemini AI ─────────────────────────────────────────────────────────────
     gemini_api_key: str = ""
     gemini_model: str = "gemini-1.5-flash-latest"

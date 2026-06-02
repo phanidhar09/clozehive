@@ -204,5 +204,71 @@ async def detect_and_classify(image_bytes: bytes, media_type: str) -> dict[str, 
         item.setdefault("detection_confidence", item.pop("confidence_score", 0.8))
         item.setdefault("segmentation_quality", "medium")
 
+    # ── Server-side quality gates ─────────────────────────────────────────────
+
+    # 1. Filter items below the confidence threshold (prompt says ≥0.35; enforce here)
+    before_conf = len(items)
+    items = [i for i in items if float(i.get("detection_confidence", 0)) >= 0.35]
+    if len(items) < before_conf:
+        logger.info("gemini_low_confidence_filtered", removed=before_conf - len(items))
+
+    # 2. Validate and repair bounding box dimensions
+    for item in items:
+        bbox = item["bbox"]
+        x_min = max(0.0, min(float(bbox.get("x_min", 0)), 1.0))
+        y_min = max(0.0, min(float(bbox.get("y_min", 0)), 1.0))
+        x_max = max(0.0, min(float(bbox.get("x_max", 1)), 1.0))
+        y_max = max(0.0, min(float(bbox.get("y_max", 1)), 1.0))
+        area = (x_max - x_min) * (y_max - y_min)
+        if area < 0.001:
+            # Degenerate bbox — reset to full frame and mark quality low
+            item["bbox"] = {"x_min": 0.0, "y_min": 0.0, "x_max": 1.0, "y_max": 1.0}
+            item["segmentation_quality"] = "low"
+            logger.warning("gemini_degenerate_bbox_repaired", item_id=item.get("item_id"), area=area)
+        else:
+            item["bbox"] = {"x_min": x_min, "y_min": y_min, "x_max": x_max, "y_max": y_max}
+
+    # 3. Deduplicate: drop near-identical items (same category + primary_color overlapping bbox)
+    items = _deduplicate_items(items)
+
+    # Re-sequence item_ids after filtering
+    for idx, item in enumerate(items):
+        item["item_id"] = f"item_{idx + 1:03d}"
+
     logger.info("gemini_detection_complete", items=len(items))
     return {"total_items_detected": len(items), "items": items}
+
+
+def _bbox_iou(a: dict, b: dict) -> float:
+    """Intersection-over-Union for two fractional bounding boxes."""
+    ix1 = max(a["x_min"], b["x_min"])
+    iy1 = max(a["y_min"], b["y_min"])
+    ix2 = min(a["x_max"], b["x_max"])
+    iy2 = min(a["y_max"], b["y_max"])
+    inter = max(0.0, ix2 - ix1) * max(0.0, iy2 - iy1)
+    area_a = (a["x_max"] - a["x_min"]) * (a["y_max"] - a["y_min"])
+    area_b = (b["x_max"] - b["x_min"]) * (b["y_max"] - b["y_min"])
+    union = area_a + area_b - inter
+    return inter / union if union > 0 else 0.0
+
+
+def _deduplicate_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Remove duplicate detections: same category + heavily overlapping bbox (IoU ≥ 0.80).
+
+    When two items overlap that much and share a category, keep the one with
+    the higher detection_confidence.
+    """
+    kept: list[dict[str, Any]] = []
+    for item in sorted(items, key=lambda i: float(i.get("detection_confidence", 0)), reverse=True):
+        is_dup = False
+        for existing in kept:
+            if existing.get("category") == item.get("category"):
+                iou = _bbox_iou(existing["bbox"], item["bbox"])
+                if iou >= 0.80:
+                    is_dup = True
+                    break
+        if not is_dup:
+            kept.append(item)
+    if len(kept) < len(items):
+        logger.info("gemini_duplicates_removed", removed=len(items) - len(kept))
+    return kept

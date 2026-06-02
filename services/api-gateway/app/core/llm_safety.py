@@ -62,7 +62,16 @@ _INJECTION_PATTERNS = re.compile(
         # Data-exfil markers
         print\s+(the\s+)?system\s+prompt |
         reveal\s+(your\s+)?instructions? |
-        what\s+(are\s+)?your\s+(system\s+)?instructions?
+        what\s+(are\s+)?your\s+(system\s+)?instructions? |
+        # Jailbreak / persona override attempts
+        pretend\s+(you\s+are|to\s+be)\s+(a\s+)?(evil|malicious|unfiltered|unrestricted) |
+        do\s+anything\s+now |
+        developer\s+mode |
+        jailbreak |
+        # Instruction boundary smuggling
+        --END\s+INSTRUCTIONS? |
+        ###\s*END\s*INSTRUCTIONS? |
+        \[END\s+SYSTEM\]
     )\b
     """,
     re.VERBOSE | re.IGNORECASE,
@@ -73,6 +82,16 @@ _CODE_FENCE = re.compile(r"```[\s\S]{0,2000}?```", re.DOTALL)
 
 # Runs of control characters (except standard whitespace)
 _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+
+# Unicode bidirectional control characters — used for text direction spoofing attacks
+# (e.g. right-to-left override can make "ignore instructions" invisible to reviewers)
+_BIDI_CHARS = re.compile(r"[‪-‮⁦-⁩‏؜]")
+
+# HTML/XML tags that could be used to inject fake context blocks or script execution
+_HTML_TAGS = re.compile(
+    r"<\s*/?\s*(script|style|template|iframe|object|embed|form|input|svg|meta|link|base)\b[^>]*>",
+    re.IGNORECASE,
+)
 
 # Collapse 3+ consecutive newlines to 2
 _EXCESS_NEWLINES = re.compile(r"\n{3,}")
@@ -133,16 +152,22 @@ def sanitize_user_text(
     # 2. Strip control characters.
     value = _CONTROL_CHARS.sub("", value)
 
-    # 3. Remove code-fence blocks (```) used to embed fake context.
+    # 3. Strip Unicode bidirectional control characters (direction-spoofing attacks).
+    value = _BIDI_CHARS.sub("", value)
+
+    # 4. Remove HTML/XML tags used to inject fake context blocks.
+    value = _HTML_TAGS.sub("[html removed]", value)
+
+    # 5. Remove code-fence blocks (```) used to embed fake context.
     value = _CODE_FENCE.sub("[code removed]", value)
 
-    # 4. Remove role-prefix overrides (e.g. "System: do X" at line start).
+    # 6. Remove role-prefix overrides (e.g. "System: do X" at line start).
     value = _ROLE_PREFIXES.sub("", value)
 
-    # 5. Replace injection-opener phrases with a neutral placeholder.
+    # 7. Replace injection-opener phrases with a neutral placeholder.
     value = _INJECTION_PATTERNS.sub("[redacted]", value)
 
-    # 6. Normalise whitespace.
+    # 8. Normalise whitespace.
     value = _EXCESS_NEWLINES.sub("\n\n", value)
     value = _EXCESS_SPACES.sub(" ", value)
     value = value.strip()

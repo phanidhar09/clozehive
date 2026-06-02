@@ -24,7 +24,13 @@ _PURPOSE_CATEGORIES: dict[str, list[str]] = {
     "sport":     ["tops", "bottoms", "shoes"],
     "formal":    ["tops", "bottoms", "shoes", "outerwear", "accessories"],
     "adventure": ["tops", "bottoms", "shoes", "outerwear"],
+    # Default when no specific activity is given — versatile everyday coverage.
+    "general":   ["tops", "bottoms", "shoes", "outerwear", "accessories"],
 }
+
+# Purposes recognised by the tool. Anything else is treated as "general".
+_KNOWN_PURPOSES: frozenset[str] = frozenset(_PURPOSE_CATEGORIES)
+_DEFAULT_PURPOSE = "general"
 
 _ALIASES: dict[str, list[str]] = {
     "tops":       ["top", "shirt", "t-shirt", "blouse", "sweater", "hoodie", "tee", "knitwear"],
@@ -79,8 +85,14 @@ def _normalise_category(category: str) -> str:
     return cat
 
 
+def _normalise_purpose(purpose: str) -> str:
+    """Map an unrecognised or empty purpose to the general-purpose default."""
+    p = (purpose or "").lower().strip()
+    return p if p in _KNOWN_PURPOSES else _DEFAULT_PURPOSE
+
+
 def _required_categories(purpose: str, weather_summary: WeatherSummary) -> list[str]:
-    cats = list(_PURPOSE_CATEGORIES.get(purpose.lower(), ["tops", "bottoms", "shoes"]))
+    cats = list(_PURPOSE_CATEGORIES.get(_normalise_purpose(purpose), _PURPOSE_CATEGORIES[_DEFAULT_PURPOSE]))
     if weather_summary.dominant_condition in _COLD_CONDITIONS or weather_summary.avg_high < 10:
         if "outerwear" not in cats:
             cats.append("outerwear")
@@ -262,19 +274,24 @@ async def generate_trip_packing_list(
         destination:          City / country name.
         start_date:           Trip start date (YYYY-MM-DD).
         end_date:             Trip end date (YYYY-MM-DD).
-        purpose:              Trip type: business, leisure, beach, sport, formal, adventure.
+        purpose:              Trip type: business, leisure, beach, sport, formal,
+                              adventure, or general. When the user does not state
+                              an activity, pass "general" for a versatile everyday
+                              packing list — do not leave it blank.
         closet_items_json:    JSON array of closet items from the user's wardrobe.
         weather_summary_json: JSON WeatherSummary from get_weather_summary (call that first).
 
     Returns:
         JSON PackingResult with packing_list, missing_items, daily_plan, alerts, summary.
     """
+    # Destination and dates are required; purpose defaults to a general-purpose visit.
     for field, val in [
         ("destination", destination), ("start_date", start_date),
-        ("end_date", end_date), ("purpose", purpose),
+        ("end_date", end_date),
     ]:
         if not val.strip():
             return json.dumps({"error": f"{field} cannot be empty"})
+    purpose = _normalise_purpose(purpose)
     if start_date > end_date:
         return json.dumps({"error": "start_date must be before end_date"})
     try:

@@ -173,6 +173,23 @@ export const AGE_RANGES = [
   { id: 'prefer_not', label: 'Prefer not to say' },
 ]
 
+// Skin tone + undertone — used to ground colour recommendations on every outfit.
+export const SKIN_TONES = [
+  { id: 'fair', label: 'Fair' },
+  { id: 'light', label: 'Light' },
+  { id: 'medium', label: 'Medium' },
+  { id: 'olive', label: 'Olive' },
+  { id: 'tan', label: 'Tan' },
+  { id: 'deep', label: 'Deep' },
+  { id: 'dark', label: 'Dark' },
+]
+
+export const UNDERTONES = [
+  { id: 'warm', label: 'Warm' },
+  { id: 'cool', label: 'Cool' },
+  { id: 'neutral', label: 'Neutral' },
+]
+
 export function optionsForGender(g: StyleIdentityKey | null): (typeof STYLE_PROFILE_OPTIONS)[StyleIdentityKey] {
   if (!g) return STYLE_PROFILE_OPTIONS.prefer_not_to_say
   return STYLE_PROFILE_OPTIONS[g] ?? STYLE_PROFILE_OPTIONS.custom

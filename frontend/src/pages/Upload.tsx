@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useMemo } from 'react'
-import { Image, Sparkles, CheckCircle, X, ChevronLeft, ChevronRight, SkipForward } from 'lucide-react'
+import { Image, Sparkles, CheckCircle, X, ChevronLeft, ChevronRight, SkipForward, AlertTriangle } from 'lucide-react'
 import Button from '@/components/ui/Button'
 import BackButton from '@/components/ui/BackButton'
 import PageHeader from '@/components/ui/PageHeader'
@@ -21,6 +21,10 @@ const CATEGORY_OPTIONS = [
   { value: 'accessories', label: 'Accessories' },
   { value: 'other', label: 'Other' },
 ]
+
+// Below this AI detection confidence we visually flag the item for manual review.
+// Mirrors the backend's bulk-vision low-confidence threshold (vision_service.py).
+const LOW_CONFIDENCE_THRESHOLD = 0.5
 
 function parseCommaList(s: string): string[] {
   return s
@@ -591,10 +595,22 @@ export default function Upload() {
                           <Badge variant="purple">{d.category}</Badge>
                           {d.subcategory.trim() ? <Badge variant="gray">{d.subcategory}</Badge> : null}
                           {d.background_removed && <Badge variant="gray">BG removed</Badge>}
-                          <span className="text-[10px] text-slate-400 self-center">
+                          <span
+                            className={
+                              d.confidence < LOW_CONFIDENCE_THRESHOLD
+                                ? 'text-[10px] font-medium text-amber-600 dark:text-amber-400 self-center'
+                                : 'text-[10px] text-slate-400 self-center'
+                            }
+                          >
                             {(d.confidence * 100).toFixed(0)}% confidence
                           </span>
                         </div>
+                        {d.confidence < LOW_CONFIDENCE_THRESHOLD && (
+                          <p className="flex items-start gap-1 text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-md px-2 py-1">
+                            <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+                            <span>Low detection confidence — please review the details below before saving.</span>
+                          </p>
+                        )}
                         {d.bg_status && d.bg_status !== 'success_rembg' && d.bg_status !== 'success_pil' && (
                           <p className="text-[10px] text-slate-400">BG: {d.bg_status}</p>
                         )}

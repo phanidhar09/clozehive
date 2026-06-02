@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 GenderValue = Literal["male", "female", "non_binary", "prefer_not_to_say", "custom"]
 HeightUnit = Literal["cm", "ft_in"]
 WeightUnit = Literal["kg", "lb"]
+UndertoneValue = Literal["warm", "cool", "neutral"]
 
 _TAG_RE = re.compile(r"<[^>]*>")
 
@@ -65,6 +66,8 @@ class StyleProfileCreate(BaseModel):
     weight_value: Annotated[Decimal | None, Field(None)]
     weight_unit: WeightUnit | None = None
     age_range: str | None = Field(None, max_length=40)
+    skin_tone: str | None = Field(None, max_length=32)
+    undertone: UndertoneValue | None = None
     body_types: list[str] = Field(default_factory=list)
     custom_body_type: str | None = Field(None, max_length=200)
     fit_preferences: list[str] = Field(default_factory=list)
@@ -78,6 +81,13 @@ class StyleProfileCreate(BaseModel):
     bold_color_preference: bool | None = None
     occasion_preferences: list[str] = Field(default_factory=list)
     climate_preferences: list[str] = Field(default_factory=list)
+
+    @field_validator("skin_tone", mode="before")
+    @classmethod
+    def v_skin_tone(cls, v: Any) -> str | None:
+        if v is None or v == "":
+            return None
+        return _sanitize_str(str(v), 32)
 
     @field_validator("custom_gender", mode="before")
     @classmethod
@@ -156,6 +166,8 @@ class StyleProfileUpdate(BaseModel):
     weight_value: Annotated[Decimal | None, Field(None)]
     weight_unit: WeightUnit | None = None
     age_range: str | None = Field(None, max_length=40)
+    skin_tone: str | None = Field(None, max_length=32)
+    undertone: UndertoneValue | None = None
     body_types: list[str] | None = None
     custom_body_type: str | None = Field(None, max_length=200)
     fit_preferences: list[str] | None = None
@@ -180,6 +192,13 @@ class StyleProfileUpdate(BaseModel):
         if v is None or v == "":
             return None
         return _sanitize_str(str(v), 500)
+
+    @field_validator("skin_tone", mode="before")
+    @classmethod
+    def v_skin_tone_u(cls, v: Any) -> str | None:
+        if v is None or v == "":
+            return None
+        return _sanitize_str(str(v), 32)
 
     @field_validator("age_range", mode="before")
     @classmethod
@@ -229,6 +248,8 @@ class StyleProfileResponse(BaseModel):
     weight_value: float | None
     weight_unit: str | None
     age_range: str | None
+    skin_tone: str | None = None
+    undertone: str | None = None
     body_types: list[str]
     custom_body_type: str | None
     fit_preferences: list[str]
@@ -269,6 +290,8 @@ class StyleProfileResponse(BaseModel):
             weight_value=float(row.weight_value) if row.weight_value is not None else None,
             weight_unit=row.weight_unit,
             age_range=row.age_range,
+            skin_tone=getattr(row, "skin_tone", None),
+            undertone=getattr(row, "undertone", None),
             body_types=list(row.body_types or []),
             custom_body_type=row.custom_body_type,
             fit_preferences=list(row.fit_preferences or []),
@@ -326,6 +349,8 @@ class OnboardingSubmitBody(BaseModel):
     gender: GenderValue | None = None
     body_types: list[str] = Field(default_factory=list)
     age_range: str | None = Field(None, max_length=40)
+    skin_tone: str | None = Field(None, max_length=32)
+    undertone: UndertoneValue | None = None
     climate_preferences: list[str] = Field(default_factory=list)
 
 

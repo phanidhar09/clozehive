@@ -57,15 +57,28 @@ def _get_client() -> AsyncOpenAI:
     return _client
 
 
+_EMBED_CHAR_LIMIT = 8000  # text-embedding-3-small token limit ≈ 8191 tokens; 8000 chars is a safe proxy
+
+
 @traceable(name="rag_embed_text", run_type="embedding")
 async def generate_text_embedding(text_input: str) -> list[float] | None:
     """Return a 1536-dim embedding or None when OpenAI is unavailable."""
-    if not settings.openai_api_key or not text_input.strip():
+    if not settings.openai_api_key:
         return None
+    stripped = text_input.strip()
+    if not stripped:
+        return None
+    if len(stripped) > _EMBED_CHAR_LIMIT:
+        logger.warning(
+            "embedding_text_truncated",
+            original_len=len(stripped),
+            truncated_to=_EMBED_CHAR_LIMIT,
+        )
+        stripped = stripped[:_EMBED_CHAR_LIMIT]
     try:
         response = await _get_client().embeddings.create(
             model=settings.embedding_model,
-            input=text_input[:8000],
+            input=stripped,
         )
         return response.data[0].embedding
     except Exception as exc:
