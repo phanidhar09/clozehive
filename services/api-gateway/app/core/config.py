@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     # failure is logged, not fatal. Leave False for local dev where you run
     # migrations manually.
     run_migrations_on_startup: bool = False
+    # When True, the Google OAuth callback appends the real error type+message to
+    # the failed-login redirect URL (?detail=…). Use ONLY for debugging on hosts
+    # without log access; turn OFF afterwards so internal errors aren't exposed.
+    oauth_debug_errors: bool = False
 
     # ── Redis ─────────────────────────────────────────────────────────────────
     redis_url: str = "redis://localhost:6379/0"

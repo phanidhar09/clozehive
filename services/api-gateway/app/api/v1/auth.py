@@ -65,11 +65,19 @@ def _oauth_login_redirect(
     *,
     error: str,
     reason: Optional[str] = None,
+    detail: Optional[str] = None,
 ) -> str:
-    """Build a safe frontend login redirect URL with optional OAuth reason."""
+    """Build a safe frontend login redirect URL with optional OAuth reason/detail.
+
+    ``detail`` carries a short, sanitised error string for debugging and is only
+    populated when ``OAUTH_DEBUG_ERRORS`` is enabled (never in normal production).
+    """
     params: dict[str, str] = {"error": error}
     if reason:
         params["reason"] = reason
+    if detail:
+        # Cap length and strip newlines so the URL stays clean and bounded.
+        params["detail"] = " ".join(str(detail).split())[:200]
     return f"{frontend}/login?{urlencode(params)}"
 
 
@@ -685,8 +693,13 @@ async def google_callback(
             reason = "token_exchange"
         elif "timeout" in err_lower or "timed out" in err_lower or "network" in err_lower:
             reason = "oauth_exchange_network"
+        # When OAUTH_DEBUG_ERRORS is on, surface the real error type+message to the
+        # login page so it can be diagnosed without server log access. Off by default.
+        detail = None
+        if settings.oauth_debug_errors:
+            detail = f"{type(exc).__name__}: {exc}"
         return RedirectResponse(
-            url=_oauth_login_redirect(frontend, error="oauth_failed", reason=reason),
+            url=_oauth_login_redirect(frontend, error="oauth_failed", reason=reason, detail=detail),
             status_code=302,
         )
 
