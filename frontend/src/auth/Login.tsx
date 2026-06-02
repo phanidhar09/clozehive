@@ -30,6 +30,18 @@ const OAUTH_REASON_HINTS: Record<string, string> = {
     'Fix: Check API logs for /auth/oauth/exchange and confirm Redis + auth secrets are healthy.',
   oauth_exchange_network:
     'Fix: Check browser connectivity and that the frontend VITE_API_URL points to a reachable API origin.',
+  oauth_profile_fetch:
+    'Fix: Google token exchange succeeded but profile lookup failed; check API egress/network and Google userinfo access.',
+  oauth_failed_generic:
+    'Fix: Check API logs for google_oauth_callback_error to see the underlying provider error.',
+  invalid_grant:
+    'Fix: Restart sign-in; Google returned invalid_grant (expired/used code or redirect mismatch).',
+  unauthorized_client:
+    'Fix: Verify your Google OAuth client type and that this app is allowed for this redirect URI.',
+  invalid_request:
+    'Fix: Google reported invalid_request; verify all OAuth fields and redirect URI match exactly.',
+  access_denied:
+    'Google sign-in was denied by the provider/user account.',
 }
 
 export default function Login() {

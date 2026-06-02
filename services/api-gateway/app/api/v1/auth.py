@@ -59,6 +59,20 @@ _OAUTH_STATE_TTL = 600  # 10 minutes
 _OAUTH_CODE_PREFIX = "oauth:tokens:"
 _OAUTH_CODE_TTL = 120  # 2 minutes — single-use exchange window
 
+
+def _oauth_login_redirect(
+    frontend: str,
+    *,
+    error: str,
+    reason: Optional[str] = None,
+) -> str:
+    """Build a safe frontend login redirect URL with optional OAuth reason."""
+    params: dict[str, str] = {"error": error}
+    if reason:
+        params["reason"] = reason
+    return f"{frontend}/login?{urlencode(params)}"
+
+
 # ── HttpOnly cookie helpers ───────────────────────────────────────────────────
 
 _REFRESH_COOKIE_NAME = "ch_refresh_token"
@@ -561,11 +575,16 @@ async def google_callback(
         )
         if error == "redirect_uri_mismatch":
             return RedirectResponse(
-                url=f"{frontend}/login?error=oauth_redirect_mismatch",
+                url=_oauth_login_redirect(frontend, error="oauth_redirect_mismatch"),
+                status_code=302,
+            )
+        if error and error != "access_denied":
+            return RedirectResponse(
+                url=_oauth_login_redirect(frontend, error="oauth_failed", reason=error.lower()),
                 status_code=302,
             )
         return RedirectResponse(
-            url=f"{frontend}/login?error=oauth_cancelled",
+            url=_oauth_login_redirect(frontend, error="oauth_cancelled"),
             status_code=302,
         )
 
@@ -574,7 +593,7 @@ async def google_callback(
     if not stored:
         logger.warning("google_oauth_invalid_state", state=state[:8])
         return RedirectResponse(
-            url=f"{frontend}/login?error=oauth_invalid_state",
+            url=_oauth_login_redirect(frontend, error="oauth_invalid_state"),
             status_code=302,
         )
     await cache_service.delete(_OAUTH_STATE_PREFIX + state)
@@ -650,16 +669,24 @@ async def google_callback(
             error=str(exc),
             error_type=type(exc).__name__,
         )
-        hint = ""
+        reason = "oauth_failed_generic"
         err_lower = str(exc).lower()
         if "redirect_uri_mismatch" in err_lower:
-            hint = "&reason=redirect_uri_mismatch"
+            reason = "redirect_uri_mismatch"
         elif "invalid_client" in err_lower:
-            hint = "&reason=invalid_client"
-        elif "failed" in err_lower and "token" in err_lower:
-            hint = "&reason=token_exchange"
+            reason = "invalid_client"
+        elif "invalid_grant" in err_lower:
+            reason = "oauth_code_invalid"
+        elif "unauthorized_client" in err_lower:
+            reason = "oauth_exchange_unauthorized"
+        elif "failed to fetch google user profile" in err_lower:
+            reason = "oauth_profile_fetch"
+        elif "token" in err_lower:
+            reason = "token_exchange"
+        elif "timeout" in err_lower or "timed out" in err_lower or "network" in err_lower:
+            reason = "oauth_exchange_network"
         return RedirectResponse(
-            url=f"{frontend}/login?error=oauth_failed{hint}",
+            url=_oauth_login_redirect(frontend, error="oauth_failed", reason=reason),
             status_code=302,
         )
 
