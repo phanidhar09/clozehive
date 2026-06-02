@@ -23,6 +23,13 @@ const OAUTH_REASON_HINTS: Record<string, string> = {
   invalid_client: 'Fix: Check GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in your API .env.',
   token_exchange:
     'Fix: Ensure GOOGLE_REDIRECT_URI in .env exactly matches a redirect URI authorized in Google Cloud (including http vs https and port).',
+  oauth_code_invalid: 'Fix: Restart Google sign-in and complete it right away (the one-time code likely expired).',
+  oauth_exchange_unauthorized:
+    'Fix: Verify the API that serves /auth/oauth/exchange is the same deployment that handled /auth/google/callback.',
+  oauth_exchange_server:
+    'Fix: Check API logs for /auth/oauth/exchange and confirm Redis + auth secrets are healthy.',
+  oauth_exchange_network:
+    'Fix: Check browser connectivity and that the frontend VITE_API_URL points to a reachable API origin.',
 }
 
 export default function Login() {
@@ -39,10 +46,14 @@ export default function Login() {
   useEffect(() => {
     const err = searchParams.get('error')
     const reason = searchParams.get('reason')
+    const detail = searchParams.get('detail')
     if (!err) return
     let msg = OAUTH_ERRORS[err] ?? 'Sign-in failed. Please try again.'
     if (err === 'oauth_failed' && reason && OAUTH_REASON_HINTS[reason]) {
       msg = `${msg} ${OAUTH_REASON_HINTS[reason]}`
+    }
+    if (err === 'oauth_failed' && detail) {
+      msg = `${msg} Details: ${detail}`
     }
     setError(msg)
   }, [searchParams])

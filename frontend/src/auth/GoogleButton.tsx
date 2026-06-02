@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Loader2 } from 'lucide-react'
+import { apiOrigin } from '@/lib/apiOrigin'
 
 /** Google OAuth button — redirects to the backend's Google login endpoint. */
 export default function GoogleButton({ label = 'Continue with Google' }: { label?: string }) {
@@ -7,7 +8,8 @@ export default function GoogleButton({ label = 'Continue with Google' }: { label
 
   const startOAuth = () => {
     setLoading(true)
-    const api = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+    // Production-safe default: use configured API origin or current site origin.
+    const api = apiOrigin() || window.location.origin
     window.location.href = `${api}/api/v1/auth/google/login`
   }
 

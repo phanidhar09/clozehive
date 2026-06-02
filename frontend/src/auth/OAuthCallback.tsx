@@ -6,6 +6,37 @@ import { useApp } from '@/store'
 
 const INFLIGHT_KEY = 'ch_oauth_inflight'
 
+function oauthFailureQuery(err: unknown): string {
+  const params = new URLSearchParams({ error: 'oauth_failed' })
+  const maybe = err as {
+    response?: { status?: number; data?: unknown }
+    message?: string
+  }
+  const status = maybe.response?.status
+  const data = maybe.response?.data
+  const detail =
+    typeof data === 'object' && data && 'detail' in data && typeof data.detail === 'string'
+      ? data.detail
+      : ''
+
+  if (status === 400) {
+    params.set('reason', 'oauth_code_invalid')
+  } else if (status === 401) {
+    params.set('reason', 'oauth_exchange_unauthorized')
+  } else if (status && status >= 500) {
+    params.set('reason', 'oauth_exchange_server')
+  } else if (typeof maybe.message === 'string' && maybe.message.toLowerCase().includes('network')) {
+    params.set('reason', 'oauth_exchange_network')
+  } else {
+    params.set('reason', 'token_exchange')
+  }
+
+  if (detail) {
+    params.set('detail', detail.slice(0, 200))
+  }
+  return params.toString()
+}
+
 /**
  * Completes Google OAuth via a secure two-step exchange:
  *
@@ -65,7 +96,7 @@ export default function OAuthCallback() {
       .catch(err => {
         console.error('[OAuth] token exchange failed', err)
         tokenStorage.clear()
-        navigate('/login?error=oauth_failed', { replace: true })
+        navigate(`/login?${oauthFailureQuery(err)}`, { replace: true })
       })
       .finally(finish)
   }, [login, navigate])
