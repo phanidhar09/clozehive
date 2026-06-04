@@ -60,8 +60,11 @@ services:
       --no-access-log
       --proxy-headers
       --forwarded-allow-ips=*
-    preDeployCommand: python -m alembic upgrade head
     envVars:
+      # Free tier has no pre-deploy hook — run `alembic upgrade head` on startup
+      # instead (idempotent; gated by this flag in app/core/db_migrate.py).
+      - key: RUN_MIGRATIONS_ON_STARTUP
+        value: "true"
       - key: DATABASE_URL
         fromDatabase:
           name: clozehive-db
@@ -170,9 +173,11 @@ services:
       --no-access-log
       --proxy-headers
       --forwarded-allow-ips=*
-    # Apply the baseline closet schema before the new instance goes live
-    preDeployCommand: python -m alembic upgrade head
     envVars:
+      # Free tier has no pre-deploy hook — apply the baseline closet schema on
+      # startup instead (idempotent; gated by this flag in app/core/db_migrate.py).
+      - key: RUN_MIGRATIONS_ON_STARTUP
+        value: "true"
       - key: DATABASE_URL
         fromDatabase:
           name: clozehive-closet-db
@@ -344,7 +349,6 @@ services:
     name: cloze-hive
     runtime: static
     plan: free
-    region: oregon
     buildCommand: cd frontend && npm ci --no-audit --no-fund && npm run build
     staticPublishPath: frontend/dist
     routes:
