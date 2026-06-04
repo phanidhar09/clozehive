@@ -313,7 +313,10 @@ services:
     name: cloze-hive
     runtime: static
     # Static sites have no instance plan or region — both are rejected by Render.
-    buildCommand: cd frontend && npm ci --no-audit --no-fund && npm run build
+    # npm's optional-deps bug (npm/cli#4828) makes `npm ci` skip rollup's native
+    # @rollup/rollup-linux-x64-gnu binary on Linux, breaking `vite build`. A fresh
+    # `npm install` (after clearing the lock + modules) resolves the right binary.
+    buildCommand: cd frontend && rm -rf node_modules package-lock.json && npm install --no-audit --no-fund && npm run build
     staticPublishPath: frontend/dist
     routes:
       - type: rewrite
