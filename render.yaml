@@ -22,17 +22,9 @@ databases:
     postgresMajorVersion: "16"
     ipAllowList: []
 
-  # ── closet-service's OWN database (wardrobe domain) ─────────────────────────
-  # The split gives closet-service a separate Postgres; its 13 tables carry a
-  # plain user_id UUID (no FK to the gateway's users table). NOTE: Render allows
-  # only ONE free Postgres per account — if the blueprint apply rejects this as a
-  # second free DB, set `plan: starter` (paid) for this one.
-  - name: clozehive-closet-db
-    databaseName: clozehive_closet
-    user: clozehive
-    plan: free
-    postgresMajorVersion: "16"
-    ipAllowList: []
+  # NOTE: closet-service uses a FREE external Postgres (Neon), not a Render DB,
+  # because Render allows only one free Postgres per account. Its DATABASE_URL is
+  # set as a Dashboard secret on the clozehive-closet service (sync: false).
 
 services:
   # ── Redis (cache, OAuth state, sessions, closet previews) ───────────────────
@@ -178,10 +170,13 @@ services:
       # startup instead (idempotent; gated by this flag in app/core/db_migrate.py).
       - key: RUN_MIGRATIONS_ON_STARTUP
         value: "true"
+      # Free external Postgres (Neon). Paste the Neon connection string in the
+      # Dashboard. Format: postgresql://USER:PASS@HOST/DB?sslmode=require
+      # (closet-service auto-enables SSL for neon.tech hosts and rewrites the
+      # scheme to postgresql+asyncpg). The baseline 13-table schema is applied on
+      # first boot via RUN_MIGRATIONS_ON_STARTUP above.
       - key: DATABASE_URL
-        fromDatabase:
-          name: clozehive-closet-db
-          property: connectionString
+        sync: false
       - key: REDIS_URL
         fromService:
           type: redis
@@ -308,47 +303,16 @@ services:
       - key: OPENWEATHER_API_KEY
         sync: false
 
-  # ── AI Worker (ARQ async jobs — outfit/packing/vision over Redis) ───────────
-  # NOTE: Render background workers require a paid instance type (not free).
-  - type: worker
-    name: clozehive-ai-worker
-    runtime: docker
-    plan: starter
-    region: oregon
-    dockerfilePath: services/ai-worker/Dockerfile
-    dockerContext: services/ai-worker
-    dockerCommand: arq app.worker.WorkerSettings
-    envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: clozehive-db
-          property: connectionString
-      # Must match clozehive-api's ARQ_REDIS_URL so jobs land in the same queue.
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: clozehive-redis
-          property: connectionString
-      - key: AI_AGENT_URL
-        fromService:
-          type: web
-          name: clozehive-ai-agent
-          envVarKey: RENDER_EXTERNAL_URL
-      - key: INTERNAL_SERVICE_TOKEN
-        fromService:
-          type: web
-          name: clozehive-api
-          envVarKey: INTERNAL_SERVICE_TOKEN
-      - key: ENVIRONMENT
-        value: production
-      - key: LOG_LEVEL
-        value: INFO
+  # ── AI Worker (ARQ async jobs) — REMOVED from blueprint ─────────────────────
+  # Render workers require a PAID instance type, so it's excluded to keep this
+  # blueprint free-tier. Async outfit/packing/vision jobs stay disabled until you
+  # re-add this `type: worker` block (plan: starter) when you move to a paid plan.
 
   # ── Frontend (static SPA) ───────────────────────────────────────────────────
   - type: web
     name: cloze-hive
     runtime: static
-    plan: free
+    # Static sites have no instance plan or region — both are rejected by Render.
     buildCommand: cd frontend && npm ci --no-audit --no-fund && npm run build
     staticPublishPath: frontend/dist
     routes:
