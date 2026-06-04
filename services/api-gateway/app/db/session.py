@@ -43,6 +43,23 @@ settings = get_settings()
 
 _is_sqlite = settings.database_url.startswith("sqlite")
 
+
+def _db_ssl_context() -> ssl.SSLContext:
+    """TLS context for the production Postgres connection.
+
+    Render's *internal* Postgres endpoint (host like ``dpg-xxxx-a``) presents a
+    self-signed / private-CA certificate, so full verification fails with
+    "certificate verify failed: self-signed certificate". We keep the connection
+    encrypted but skip certificate verification — safe because the link never
+    leaves Render's private network. (A publicly-trusted DB like Neon would verify
+    fine, but disabling verify here keeps both cases working.)
+    """
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+
+
 # SQLite (used in tests) does not support pool_size / max_overflow / pool_timeout.
 _engine_kwargs: dict = {"echo": settings.debug, "future": True}
 if not _is_sqlite:
@@ -52,7 +69,7 @@ if not _is_sqlite:
         pool_pre_ping=settings.db_pool_pre_ping,
         pool_recycle=settings.db_pool_recycle,
         pool_timeout=settings.db_pool_timeout,
-        connect_args={"ssl": ssl.create_default_context(), "statement_cache_size": 0} if settings.is_production else {},
+        connect_args={"ssl": _db_ssl_context(), "statement_cache_size": 0} if settings.is_production else {},
     )
 
 engine = create_async_engine(settings.database_url, **_engine_kwargs)
