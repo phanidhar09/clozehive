@@ -17,12 +17,14 @@ read or exfiltrate the refresh token because it lives only in the cookie jar.
 from __future__ import annotations
 
 import secrets
+import ssl
 import uuid as _uuid
 from typing import Optional
 from urllib.parse import urlencode
 
 from pydantic import BaseModel
 
+import certifi
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, Header, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -58,6 +60,12 @@ _OAUTH_STATE_PREFIX = "oauth:state:"
 _OAUTH_STATE_TTL = 600  # 10 minutes
 _OAUTH_CODE_PREFIX = "oauth:tokens:"
 _OAUTH_CODE_TTL = 120  # 2 minutes — single-use exchange window
+
+# Verify Google's TLS against certifi's CA bundle ONLY. Passing an explicit
+# cafile means the context does NOT consult the system default verify paths or
+# SSL_CERT_FILE/SSL_CERT_DIR env vars, so a missing/odd system trust store on the
+# host can't cause "self-signed certificate" failures when calling Google.
+_GOOGLE_CA_CTX = ssl.create_default_context(cafile=certifi.where())
 
 
 def _oauth_login_redirect(
@@ -638,7 +646,7 @@ async def google_callback(
 
     try:
         # Exchange authorisation code for Google access token
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, verify=_GOOGLE_CA_CTX) as client:
             token_resp = await client.post(
                 "https://oauth2.googleapis.com/token",
                 data={
@@ -664,7 +672,7 @@ async def google_callback(
         google_access_token = token_resp.json()["access_token"]
 
         # Fetch user profile from Google
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, verify=_GOOGLE_CA_CTX) as client:
             info_resp = await client.get(
                 "https://www.googleapis.com/oauth2/v2/userinfo",
                 headers={"Authorization": f"Bearer {google_access_token}"},
