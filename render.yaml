@@ -324,6 +324,12 @@ services:
         name: Cache-Control
         value: public, max-age=0, must-revalidate
     envVars:
+      # Pin Node 22 (bundles npm 10). Render's default Node 24 ships npm 11,
+      # whose stricter `npm ci` rejects this lockfile's esbuild/rollup optional
+      # platform deps ("Missing … from lock file"). Node 22 matches the npm that
+      # generated package-lock.json, so `npm ci` succeeds.
+      - key: NODE_VERSION
+        value: "22.15.0"
       - key: VITE_API_URL
         fromService:
           type: web
