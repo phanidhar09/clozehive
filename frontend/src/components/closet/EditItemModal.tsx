@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Loader2, Save, X } from 'lucide-react'
+import { Loader2, Save, X, Heart } from 'lucide-react'
 import { closetApi } from '@/lib/api'
 import Modal from '@/components/ui/Modal'
 import type { ClosetItem } from '@/types'
@@ -78,9 +78,10 @@ export default function EditItemModal({ item, open, onClose, onSaved }: Props) {
     pattern:  item.pattern   ?? '',
     size:     item.size      ?? '',
     price:    item.price != null ? String(item.price) : '',
-    notes:    item.notes     ?? '',
-    seasons:  parseSeason(item.season),
-    occasions: item.occasion ?? [],
+    notes:      item.notes       ?? '',
+    seasons:    parseSeason(item.season),
+    occasions:  item.occasion    ?? [],
+    is_favorite: item.is_favorite ?? false,
   })
 
   const [saving, setSaving] = useState(false)
@@ -105,8 +106,9 @@ export default function EditItemModal({ item, open, onClose, onSaved }: Props) {
         size:     form.size.trim()    || undefined,
         price:    form.price !== '' ? Number(form.price) : undefined,
         notes:    form.notes.trim()   || undefined,
-        season:   form.seasons.length > 0 ? form.seasons.join(', ') : undefined,
-        occasion: form.occasions,
+        season:      form.seasons.length > 0 ? form.seasons.join(', ') : undefined,
+        occasion:    form.occasions,
+        is_favorite: form.is_favorite,
       }
       const updated = await closetApi.update(item.id, patch)
       onSaved(updated)
@@ -254,6 +256,24 @@ export default function EditItemModal({ item, open, onClose, onSaved }: Props) {
             placeholder="Fit notes, alterations, care tips…"
           />
         </Field>
+
+        {/* ── Favourite ── */}
+        <button
+          type="button"
+          onClick={() => set('is_favorite', !form.is_favorite)}
+          className={cn(
+            'flex items-center gap-3 px-4 py-3 rounded-xl border text-sm font-semibold transition-all w-full',
+            form.is_favorite
+              ? 'bg-pink-50 dark:bg-pink-900/20 border-pink-200 dark:border-pink-700/50 text-pink-600 dark:text-pink-400'
+              : 'bg-white dark:bg-slate-800 border-cream-300 dark:border-white/10 text-slate-600 dark:text-slate-300 hover:border-pink-200 dark:hover:border-pink-700/50',
+          )}
+        >
+          <Heart
+            size={16}
+            className={form.is_favorite ? 'fill-pink-500 text-pink-500' : 'text-slate-400'}
+          />
+          {form.is_favorite ? 'Saved as favourite' : 'Add to favourites'}
+        </button>
 
         {/* ── Error ── */}
         {error && (

@@ -1,7 +1,8 @@
 import React, { useMemo } from 'react'
 import {
-  Search, SlidersHorizontal, Loader2, RefreshCw, Trash2, X,
-  Sparkles, Upload, ChevronRight, Clock, TrendingUp, Plus, Wand2, Shirt,
+  Search, SlidersHorizontal, ArrowUpDown, Loader2, RefreshCw, Trash2, X,
+  Sparkles, ChevronRight, Clock, TrendingUp, Plus, Wand2, Shirt, Eye, Pencil,
+  Heart, LayoutGrid, List,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useApp } from '@/store'
@@ -9,6 +10,7 @@ import { usePageState } from '@/hooks/usePageState'
 import { useWindowScrollRestoration } from '@/hooks/useScrollRestoration'
 import { closetApi } from '@/lib/api'
 import ItemDetailModal from '@/components/closet/ItemDetailModal'
+import EditItemModal from '@/components/closet/EditItemModal'
 import RevealCard from '@/components/ui/RevealCard'
 import PageHeader from '@/components/ui/PageHeader'
 import { PageLoadingState } from '@/components/system/PageLoadingState'
@@ -26,6 +28,148 @@ import {
   CLOSET_SEASONS,
   CLOSET_SORT_OPTIONS,
 } from '@/features/closet/constants'
+// ── Shared helpers ─────────────────────────────────────────────────────────────
+
+const CATEGORY_EMOJI_MAP: Record<string, string> = {
+  tops: '👕', bottoms: '👖', shoes: '👟', outerwear: '🧥',
+  dresses: '👗', accessories: '👜', other: '📦',
+}
+
+// ── Skeleton loading card ──────────────────────────────────────────────────────
+
+function SkeletonCard() {
+  return (
+    <div className="flex flex-col animate-pulse">
+      <div className="aspect-[4/5] rounded-2xl bg-slate-200 dark:bg-slate-800/70" />
+      <div className="mt-2 px-0.5 space-y-1.5">
+        <div className="h-3 bg-slate-200 dark:bg-slate-800/70 rounded-full w-4/5" />
+        <div className="h-2.5 bg-slate-200 dark:bg-slate-800/70 rounded-full w-1/2" />
+        <div className="h-8 bg-slate-200 dark:bg-slate-800/70 rounded-lg mt-2 w-full" />
+      </div>
+    </div>
+  )
+}
+
+// ── List-view row ──────────────────────────────────────────────────────────────
+
+function ClosetListRow({
+  item, onOpen, onEdit, onDelete, deleting,
+}: { item: ClosetItem; onOpen: (i: ClosetItem) => void; onEdit: (i: ClosetItem) => void; onDelete: (i: ClosetItem) => void; deleting: boolean }) {
+  const [confirmingDelete, setConfirmingDelete] = React.useState(false)
+
+  const handleDeleteClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (confirmingDelete) { setConfirmingDelete(false); onDelete(item) }
+    else { setConfirmingDelete(true); setTimeout(() => setConfirmingDelete(false), 3000) }
+  }
+
+  return (
+    <div
+      className="flex items-center gap-3 px-3 py-2.5 rounded-2xl bg-white dark:bg-white/[0.03] border border-cream-200 dark:border-white/[0.07] hover:border-brand-200 dark:hover:border-brand-500/30 hover:shadow-sm transition-all group cursor-pointer"
+      onClick={() => onOpen(item)}
+    >
+      {/* Thumbnail */}
+      <div className="w-11 h-14 rounded-xl overflow-hidden flex-shrink-0 bg-slate-100 dark:bg-slate-800">
+        {item.image_url ? (
+          <img src={item.image_url} alt={item.name} className="w-full h-full object-cover" loading="lazy" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-xl">
+            {CATEGORY_EMOJI_MAP[item.category] ?? '👕'}
+          </div>
+        )}
+      </div>
+
+      {/* Main info */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5">
+          <p className="text-sm font-semibold text-slate-800 dark:text-white truncate">{item.name}</p>
+          {item.is_favorite && <Heart size={11} className="text-pink-500 fill-pink-500 flex-shrink-0" />}
+        </div>
+        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+          {item.brand && <span className="text-[11px] text-slate-400">{item.brand}</span>}
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-white/[0.06] text-slate-500 dark:text-slate-400 capitalize">{item.category}</span>
+          {item.color && (
+            <span className="flex items-center gap-1 text-[10px] text-slate-400 capitalize">
+              {item.color_hex && (
+                <span className="w-2.5 h-2.5 rounded-full border border-white/30 flex-shrink-0" style={{ backgroundColor: item.color_hex }} />
+              )}
+              {item.color}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Stats — visible on sm+ */}
+      <div className="hidden sm:flex items-center gap-3 flex-shrink-0 text-[11px] text-slate-400">
+        {item.wear_count > 0 && (
+          <span className="font-semibold">{item.wear_count}×</span>
+        )}
+        {item.eco_score != null && item.eco_score >= 7 && (
+          <span className="font-bold text-emerald-500">🌱{item.eco_score}</span>
+        )}
+        {item.season && (
+          <span className="capitalize hidden md:inline">{item.season.split(',')[0].trim()}</span>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div className="flex gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
+        <button
+          onClick={() => onEdit(item)}
+          className="p-2 rounded-lg bg-slate-100 dark:bg-white/[0.06] text-slate-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 hover:text-amber-600 transition-colors"
+          title="Edit"
+        >
+          <Pencil size={13} />
+        </button>
+        <button
+          onClick={handleDeleteClick}
+          disabled={deleting}
+          className={cn(
+            'p-2 rounded-lg text-[10px] font-semibold transition-all disabled:opacity-40',
+            confirmingDelete
+              ? 'bg-red-500 text-white animate-pulse px-2'
+              : 'bg-slate-100 dark:bg-white/[0.06] text-slate-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-500',
+          )}
+          title={confirmingDelete ? 'Click to confirm' : 'Delete'}
+        >
+          {deleting ? <Loader2 size={12} className="animate-spin" />
+            : confirmingDelete ? '×del'
+            : <Trash2 size={13} />}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Favourites section ─────────────────────────────────────────────────────────
+
+function FavouritesSection({
+  items, onOpen, onDelete, onEdit, deleting,
+}: { items: ClosetItem[]; onOpen: (i: ClosetItem) => void; onDelete: (i: ClosetItem) => void; onEdit: (i: ClosetItem) => void; deleting: string | null }) {
+  const favs = useMemo(() => items.filter(i => i.is_favorite), [items])
+  if (favs.length === 0) return null
+
+  return (
+    <section>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Heart size={14} className="text-pink-500 fill-pink-500" />
+          <h3 className="font-semibold text-sm text-slate-700 dark:text-slate-200">Favourites</h3>
+        </div>
+        <span className="text-[11px] text-slate-400">{favs.length} item{favs.length !== 1 ? 's' : ''}</span>
+      </div>
+      {/* Horizontal scroll strip */}
+      <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
+        {favs.map(item => (
+          <div key={item.id} className="flex-shrink-0 w-[120px]">
+            <ClosetItemCard item={item} onOpen={onOpen} onDelete={onDelete} onEdit={onEdit} deleting={deleting === item.id} />
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
 function CategoryTab({
@@ -37,7 +181,7 @@ function CategoryTab({
       className={cn(
         'flex flex-col items-center gap-1.5 px-4 py-2.5 rounded-2xl text-xs font-semibold transition-all duration-200 flex-shrink-0',
         active
-          ? 'bg-gradient-to-br from-brand-500 to-brand-600 text-white shadow-lg shadow-brand-500/30 scale-105'
+          ? 'bg-gradient-to-br from-brand-500 to-brand-600 text-white shadow-md shadow-brand-500/25 ring-2 ring-brand-400/30'
           : 'bg-white/60 dark:bg-white/5 text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-white/10 border border-white/80 dark:border-white/10',
       )}
     >
@@ -56,12 +200,24 @@ function CategoryTab({
 }
 
 function ClosetItemCard({
-  item, onOpen, onDelete, deleting,
-}: { item: ClosetItem; onOpen: (i: ClosetItem) => void; onDelete: (i: ClosetItem) => void; deleting: boolean }) {
+  item, onOpen, onDelete, onEdit, deleting,
+}: { item: ClosetItem; onOpen: (i: ClosetItem) => void; onDelete: (i: ClosetItem) => void; onEdit: (i: ClosetItem) => void; deleting: boolean }) {
   const isTransparent = item.image_url?.endsWith('.png')
+  const [confirmingDelete, setConfirmingDelete] = React.useState(false)
+
+  const handleDeleteClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (confirmingDelete) {
+      setConfirmingDelete(false)
+      onDelete(item)
+    } else {
+      setConfirmingDelete(true)
+      setTimeout(() => setConfirmingDelete(false), 3000)
+    }
+  }
 
   return (
-    <div className="group relative">
+    <div className="group relative flex flex-col">
       {/* checkerboard bg for transparent images */}
       <div
         className={cn(
@@ -72,17 +228,7 @@ function ClosetItemCard({
             : 'bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-900',
         )}
       >
-        <RevealCard item={item} onOpen={onOpen} className="absolute inset-0 rounded-2xl" />
-
-        {/* Delete button */}
-        <button
-          onClick={e => { e.stopPropagation(); onDelete(item) }}
-          disabled={deleting}
-          className="absolute top-2 left-2 p-1.5 rounded-lg bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500 z-20 backdrop-blur-sm"
-          title="Delete"
-        >
-          {deleting ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
-        </button>
+        <RevealCard item={item} onOpen={onOpen} onEdit={onEdit} className="absolute inset-0 rounded-2xl" />
 
         {/* Eco badge */}
         {item.eco_score != null && item.eco_score >= 7 && (
@@ -93,24 +239,74 @@ function ClosetItemCard({
 
         {/* Wear count */}
         {item.wear_count > 0 && (
-          <div className="absolute bottom-10 right-2 z-20 rounded-full bg-black/40 backdrop-blur-sm px-1.5 py-0.5 text-[9px] font-semibold text-white">
+          <div className="absolute bottom-2 right-2 z-20 rounded-full bg-black/40 backdrop-blur-sm px-1.5 py-0.5 text-[9px] font-semibold text-white">
             {item.wear_count}×
           </div>
         )}
       </div>
 
-      {/* Item name below card */}
-      <div className="mt-1.5 px-0.5">
+      {/* Item name + always-visible quick actions */}
+      <div className="mt-1.5 px-0.5 flex-1 flex flex-col">
         <p className="text-xs font-semibold truncate text-slate-700 dark:text-slate-200">{item.name}</p>
         {item.brand && <p className="text-[10px] text-slate-400 truncate">{item.brand}</p>}
+        {/* Color swatch — at-a-glance color without hovering */}
+        {item.color && (
+          <div className="flex items-center gap-1 mt-0.5">
+            {item.color_hex
+              ? <span className="w-2.5 h-2.5 rounded-full border border-slate-300 dark:border-white/20 flex-shrink-0" style={{ backgroundColor: item.color_hex }} />
+              : <span className="w-2.5 h-2.5 rounded-full bg-slate-300 dark:bg-slate-600 flex-shrink-0" />
+            }
+            <span className="text-[10px] text-slate-400 truncate capitalize">{item.color}</span>
+          </div>
+        )}
+        {/* Quick action bar — always visible, touch-friendly */}
+        <div className="flex gap-1 mt-1.5">
+          <button
+            onClick={e => { e.stopPropagation(); onOpen(item) }}
+            className="flex-1 flex items-center justify-center gap-1 py-2 rounded-lg bg-slate-100 dark:bg-white/[0.06] text-slate-500 dark:text-slate-400 hover:bg-brand-50 dark:hover:bg-brand-900/30 hover:text-brand-600 dark:hover:text-brand-400 text-[10px] font-semibold transition-colors"
+            title="View full details"
+            aria-label="View item details"
+          >
+            <Eye size={11} />
+            View
+          </button>
+          <button
+            onClick={e => { e.stopPropagation(); onEdit(item) }}
+            className="flex-1 flex items-center justify-center gap-1 py-2 rounded-lg bg-slate-100 dark:bg-white/[0.06] text-slate-500 dark:text-slate-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 hover:text-amber-600 dark:hover:text-amber-400 text-[10px] font-semibold transition-colors"
+            title="Edit item"
+            aria-label="Edit item"
+          >
+            <Pencil size={11} />
+            Edit
+          </button>
+          <button
+            onClick={handleDeleteClick}
+            disabled={deleting}
+            className={cn(
+              'flex items-center justify-center gap-1 px-2 py-2 rounded-lg text-[10px] font-semibold transition-all disabled:opacity-40',
+              confirmingDelete
+                ? 'bg-red-500 text-white animate-pulse'
+                : 'bg-slate-100 dark:bg-white/[0.06] text-slate-400 dark:text-slate-500 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-500 dark:hover:text-red-400',
+            )}
+            title={confirmingDelete ? 'Click again to confirm delete' : 'Delete item'}
+            aria-label={confirmingDelete ? 'Confirm delete' : 'Delete item'}
+          >
+            {deleting
+              ? <Loader2 size={10} className="animate-spin" />
+              : confirmingDelete
+                ? <><Trash2 size={10} />Sure?</>
+                : <Trash2 size={10} />
+            }
+          </button>
+        </div>
       </div>
     </div>
   )
 }
 
 function RecentlyAddedSection({
-  items, onOpen, onDelete, deleting,
-}: { items: ClosetItem[]; onOpen: (i: ClosetItem) => void; onDelete: (i: ClosetItem) => void; deleting: string | null }) {
+  items, onOpen, onDelete, onEdit, deleting,
+}: { items: ClosetItem[]; onOpen: (i: ClosetItem) => void; onDelete: (i: ClosetItem) => void; onEdit: (i: ClosetItem) => void; deleting: string | null }) {
   const recent = useMemo(() =>
     [...items].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 6)
   , [items])
@@ -126,13 +322,14 @@ function RecentlyAddedSection({
         </div>
         <span className="text-[11px] text-slate-400">{recent.length} items</span>
       </div>
-      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
         {recent.map(item => (
           <ClosetItemCard
             key={item.id}
             item={item}
             onOpen={onOpen}
             onDelete={onDelete}
+            onEdit={onEdit}
             deleting={deleting === item.id}
           />
         ))}
@@ -156,8 +353,10 @@ export default function Closet() {
   const [occasionFilter, setOccasionFilter] = usePageState('closet-occasion', '')
 
   // Transient UI state (not persisted)
-  const [selected, setSelected] = React.useState<ClosetItem | null>(null)
-  const [deleting, setDeleting] = React.useState<string | null>(null)
+  const [selected,  setSelected]  = React.useState<ClosetItem | null>(null)
+  const [editItem,  setEditItem]   = React.useState<ClosetItem | null>(null)
+  const [deleting,  setDeleting]   = React.useState<string | null>(null)
+  const [viewMode,  setViewMode]   = usePageState<'grid' | 'list'>('closet-view', 'grid')
 
   // Restore scroll position across navigations
   useWindowScrollRestoration('closet-scroll')
@@ -204,8 +403,12 @@ export default function Closet() {
     setSelected(updated)
   }
 
+  const handleItemEdited = (updated: ClosetItem) => {
+    setClosetItems(closetItems.map(i => i.id === updated.id ? updated : i))
+    setEditItem(null)
+  }
+
   const handleDelete = async (item: ClosetItem) => {
-    if (!confirm(`Delete "${item.name}"?`)) return
     setDeleting(item.id)
     try {
       await closetApi.delete(item.id)
@@ -225,10 +428,14 @@ export default function Closet() {
 
   if (closetLoading && closetItems.length === 0) {
     return (
-      <PageLoadingState
-        title="Loading your wardrobe…"
-        description="Fetching your items from CLOZEHIVE."
-      />
+      <div className="space-y-5">
+        <PageHeader icon={<Shirt size={18} />} title="My Closet" subtitle="Loading your wardrobe…"
+          actions={<RefreshCw size={15} className="animate-spin text-brand-500" />}
+        />
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+          {Array.from({ length: 8 }).map((_, i) => <SkeletonCard key={i} />)}
+        </div>
+      </div>
     )
   }
 
@@ -267,9 +474,8 @@ export default function Closet() {
         </InlineError>
       )}
 
-      {/* ── Closet actions strip — sticks below the navbar when scrolled ── */}
-      <div className="sticky top-0 z-20 -mx-4 lg:-mx-6 px-4 lg:px-6 py-2.5
-                      bg-cream-100/85 dark:bg-slate-950/80 backdrop-blur-md
+      {/* ── Closet actions strip ── */}
+      <div className="-mx-4 lg:-mx-6 px-4 lg:px-6 py-2.5
                       border-b border-cream-200/70 dark:border-white/[0.06]">
         <div className="grid grid-cols-2 gap-2.5">
         <Link
@@ -307,9 +513,9 @@ export default function Closet() {
         </div>
       </div>
 
-      {/* ── Category tabs (horizontal scroll) ── */}
-      <div className="relative">
-        <div className="flex gap-2.5 overflow-x-auto pb-1 scrollbar-hide snap-x snap-mandatory">
+      {/* ── Category tabs — hidden when closet is empty ── */}
+      {closetItems.length > 0 && <div className="relative">
+        <div className="flex gap-2.5 overflow-x-auto pb-1 scrollbar-hide">
           {CLOSET_CATEGORY_TABS.map(cat => {
             const count = cat.value === 'all'
               ? closetItems.length
@@ -331,9 +537,10 @@ export default function Closet() {
             )
           })}
         </div>
-      </div>
+      </div>}
 
-      {/* ── Search + Filters bar ── */}
+      {/* ── Search + Filters bar — hidden when closet is empty ── */}
+      {closetItems.length > 0 &&
       <div className="backdrop-blur-sm bg-white/60 dark:bg-white/5 border border-white/80 dark:border-white/10 rounded-2xl p-4 space-y-3">
         <div className="flex gap-3 flex-wrap sm:flex-nowrap">
           <div className="relative flex-1 min-w-48">
@@ -348,7 +555,7 @@ export default function Closet() {
 
           <div className="flex gap-2">
             <div className="relative">
-              <SlidersHorizontal size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <ArrowUpDown size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
               <select
                 className="input pl-8 pr-8 appearance-none text-sm min-h-[44px]"
                 value={sort}
@@ -373,12 +580,43 @@ export default function Closet() {
                 <span className="w-2 h-2 rounded-full bg-brand-500 ml-0.5" />
               )}
             </button>
+
+            {/* Grid / List toggle */}
+            <div className="flex rounded-xl border border-slate-200 dark:border-white/10 overflow-hidden flex-shrink-0 min-h-[44px]">
+              <button
+                onClick={() => setViewMode('grid')}
+                title="Grid view"
+                className={cn(
+                  'px-3 flex items-center justify-center transition-colors',
+                  viewMode === 'grid'
+                    ? 'bg-brand-500 text-white'
+                    : 'bg-white dark:bg-slate-800/60 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200',
+                )}
+              >
+                <LayoutGrid size={15} />
+              </button>
+              <button
+                onClick={() => setViewMode('list')}
+                title="List view"
+                className={cn(
+                  'px-3 flex items-center justify-center transition-colors border-l border-slate-200 dark:border-white/10',
+                  viewMode === 'list'
+                    ? 'bg-brand-500 text-white'
+                    : 'bg-white dark:bg-slate-800/60 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200',
+                )}
+              >
+                <List size={15} />
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* ── Advanced filters (collapsible) ── */}
-        {filtersOpen && (
-          <div className="flex gap-3 flex-wrap pt-1 border-t border-slate-200 dark:border-white/10">
+        {/* ── Advanced filters (animated collapsible) ── */}
+        <div className={cn(
+          'overflow-hidden transition-all duration-200 ease-in-out',
+          filtersOpen ? 'max-h-72 opacity-100' : 'max-h-0 opacity-0 pointer-events-none',
+        )}>
+          <div className="flex gap-3 flex-wrap pt-3 border-t border-slate-200 dark:border-white/10">
             <div className="flex flex-col gap-1">
               <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Color</label>
               <input
@@ -424,7 +662,7 @@ export default function Closet() {
               </div>
             )}
           </div>
-        )}
+        </div>
 
         {/* Active filter pills */}
         {isFiltered && (
@@ -442,7 +680,7 @@ export default function Closet() {
             </button>
           </div>
         )}
-      </div>
+      </div>}
 
       {/* ── Empty state ── */}
       {closetItems.length === 0 && !closetLoading && (
@@ -495,54 +733,100 @@ export default function Closet() {
         </div>
       )}
 
-      {/* ── No filter results ── */}
+      {/* ── No filter results / per-category empty state ── */}
       {closetItems.length > 0 && filtered.length === 0 && !closetLoading && (
-        <div className="flex flex-col items-center justify-center py-16 gap-4">
-          <div className="text-5xl">🔍</div>
-          <div className="text-center">
-            <p className="font-semibold text-slate-600 dark:text-slate-400">No items match your filters</p>
-            <p className="text-xs text-slate-400 mt-1">Try adjusting or clearing your filters</p>
-          </div>
-          <button onClick={clearFilters} className="btn-primary px-5 py-2 rounded-xl text-sm">Clear filters</button>
-        </div>
+        category !== 'all' && !search && !colorFilter && !seasonFilter && !occasionFilter
+          ? /* Per-category contextual empty */
+            <div className="flex flex-col items-center justify-center py-16 gap-3 text-center">
+              <span className="text-5xl">{CLOSET_CATEGORY_TABS.find(c => c.value === category)?.emoji ?? '👕'}</span>
+              <p className="font-semibold text-slate-700 dark:text-slate-200">
+                No {CLOSET_CATEGORY_TABS.find(c => c.value === category)?.label ?? category} yet
+              </p>
+              <p className="text-xs text-slate-400 max-w-xs">
+                Upload a photo and AI will detect and categorise your {(CLOSET_CATEGORY_TABS.find(c => c.value === category)?.label ?? category).toLowerCase()} automatically.
+              </p>
+              <Link
+                to="/upload"
+                className="flex items-center gap-2 mt-1 px-5 py-2 rounded-xl text-sm font-semibold bg-gradient-to-r from-brand-500 to-brand-600 text-white hover:opacity-90 transition-opacity"
+              >
+                <Plus size={14} /> Add {CLOSET_CATEGORY_TABS.find(c => c.value === category)?.label}
+              </Link>
+            </div>
+          : /* Generic no-results */
+            <div className="flex flex-col items-center justify-center py-16 gap-4">
+              <div className="text-5xl">🔍</div>
+              <div className="text-center">
+                <p className="font-semibold text-slate-600 dark:text-slate-400">No items match your filters</p>
+                <p className="text-xs text-slate-400 mt-1">Try adjusting or clearing your filters</p>
+              </div>
+              <button onClick={clearFilters} className="btn-primary px-5 py-2 rounded-xl text-sm">Clear filters</button>
+            </div>
       )}
 
-      {/* ── Recently Added section (only when showing all unfiltered) ── */}
-      {!isFiltered && closetItems.length > 0 && (
-        <RecentlyAddedSection
+      {/* ── Favourites pinned section ── */}
+      {!isFiltered && (
+        <FavouritesSection
           items={closetItems}
           onOpen={setSelected}
           onDelete={handleDelete}
+          onEdit={setEditItem}
           deleting={deleting}
         />
       )}
 
-      {/* ── Main grid ── */}
+      {/* ── Recently Added — only when there are items beyond the 6 shown, to avoid duplicating the main grid ── */}
+      {!isFiltered && closetItems.length > 6 && (
+        <RecentlyAddedSection
+          items={closetItems}
+          onOpen={setSelected}
+          onDelete={handleDelete}
+          onEdit={setEditItem}
+          deleting={deleting}
+        />
+      )}
+
+      {/* ── Main grid / list ── */}
       {filtered.length > 0 && (
         <section>
-          {!isFiltered && (
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <TrendingUp size={15} className="text-brand-500" />
-                <h3 className="font-semibold text-sm text-slate-700 dark:text-slate-200">
-                  {category === 'all' ? 'All Items' : CLOSET_CATEGORY_TABS.find(c => c.value === category)?.label ?? 'Items'}
-                </h3>
-              </div>
-              <span className="text-[11px] text-slate-400">{filtered.length} items</span>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <TrendingUp size={15} className="text-brand-500" />
+              <h3 className="font-semibold text-sm text-slate-700 dark:text-slate-200">
+                {isFiltered
+                  ? `${filtered.length} result${filtered.length !== 1 ? 's' : ''}`
+                  : category === 'all' ? 'All Items' : CLOSET_CATEGORY_TABS.find(c => c.value === category)?.label ?? 'Items'}
+              </h3>
+            </div>
+            <span className="text-[11px] text-slate-400">{filtered.length} items</span>
+          </div>
+
+          {viewMode === 'grid' ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+              {filtered.map(item => (
+                <ClosetItemCard
+                  key={item.id}
+                  item={item}
+                  onOpen={setSelected}
+                  onDelete={handleDelete}
+                  onEdit={setEditItem}
+                  deleting={deleting === item.id}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {filtered.map(item => (
+                <ClosetListRow
+                  key={item.id}
+                  item={item}
+                  onOpen={setSelected}
+                  onEdit={setEditItem}
+                  onDelete={handleDelete}
+                  deleting={deleting === item.id}
+                />
+              ))}
             </div>
           )}
-
-          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3">
-            {filtered.map(item => (
-              <ClosetItemCard
-                key={item.id}
-                item={item}
-                onOpen={setSelected}
-                onDelete={handleDelete}
-                deleting={deleting === item.id}
-              />
-            ))}
-          </div>
         </section>
       )}
 
@@ -574,6 +858,15 @@ export default function Closet() {
         onDelete={handleDelete}
         onSaved={handleItemSaved}
       />
+
+      {editItem && (
+        <EditItemModal
+          item={editItem}
+          open={!!editItem}
+          onClose={() => setEditItem(null)}
+          onSaved={handleItemEdited}
+        />
+      )}
     </div>
   )
 }

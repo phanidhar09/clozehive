@@ -6,7 +6,7 @@
 import { useState } from 'react'
 import {
   Heart, Leaf, Tag, Shirt, Trash2, Pencil,
-  BarChart2, Layers, Calendar, DollarSign,
+  BarChart2, Layers, Calendar, CalendarDays, DollarSign, Hash,
 } from 'lucide-react'
 import type { ClosetItem } from '@/types'
 import Modal from '@/components/ui/Modal'
@@ -14,6 +14,7 @@ import Badge from '@/components/ui/Badge'
 import Button from '@/components/ui/Button'
 import SimilarItems from '@/components/closet/SimilarItems'
 import EditItemModal from '@/components/closet/EditItemModal'
+import { closetApi } from '@/lib/api'
 import { ecoScoreBg, formatDate } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 
@@ -40,6 +41,7 @@ export default function ItemDetailModal({ item, open, onClose, onDelete, onSaved
   const [editOpen, setEditOpen] = useState(false)
   const [current, setCurrent] = useState<ClosetItem | null>(item)
   const [activeTab, setActiveTab] = useState<Tab>('overview')
+  const [togglingFav, setTogglingFav] = useState(false)
 
   // Sync when parent opens a different item
   if (item && item.id !== current?.id) {
@@ -54,11 +56,32 @@ export default function ItemDetailModal({ item, open, onClose, onDelete, onSaved
     onSaved?.(updated)
   }
 
+  const handleToggleFavorite = async () => {
+    if (togglingFav) return
+    setTogglingFav(true)
+    try {
+      const updated = await closetApi.update(current.id, { is_favorite: !current.is_favorite })
+      setCurrent(updated)
+      onSaved?.(updated)
+    } catch {
+      // silently ignore
+    } finally {
+      setTogglingFav(false)
+    }
+  }
+
   const categoryEmoji = CATEGORY_EMOJI[current.category] ?? '👕'
 
   const attrs = [
     { icon: <Shirt size={12} />, label: 'Category', value: current.category },
-    { icon: <Tag size={12} />, label: 'Color', value: current.color },
+    {
+      icon: <Tag size={12} />,
+      label: 'Color',
+      value: current.color,
+      extra: current.color_hex
+        ? <span className="inline-block w-3 h-3 rounded-full border border-white/50 shadow-sm ml-1 flex-shrink-0" style={{ backgroundColor: current.color_hex }} />
+        : null,
+    },
     { icon: <Tag size={12} />, label: 'Fabric', value: current.fabric },
     { icon: <Tag size={12} />, label: 'Pattern', value: current.pattern },
     { icon: <Calendar size={12} />, label: 'Season', value: Array.isArray(current.season) ? current.season.join(', ') : current.season },
@@ -99,13 +122,29 @@ export default function ItemDetailModal({ item, open, onClose, onDelete, onSaved
           <div className="flex-1 min-w-0 flex flex-col p-4 sm:p-5">
 
             {/* Header */}
-            <div className="mb-3">
-              <h2 className="font-display font-bold text-lg sm:text-xl text-slate-800 dark:text-white leading-tight">
-                {current.name}
-              </h2>
-              {current.brand && (
-                <p className="text-sm text-slate-400 dark:text-slate-500 mt-0.5">{current.brand}</p>
-              )}
+            <div className="mb-3 flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <h2 className="font-display font-bold text-lg sm:text-xl text-slate-800 dark:text-white leading-tight">
+                  {current.name}
+                </h2>
+                {current.brand && (
+                  <p className="text-sm text-slate-400 dark:text-slate-500 mt-0.5">{current.brand}</p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={handleToggleFavorite}
+                disabled={togglingFav}
+                title={current.is_favorite ? 'Remove from favourites' : 'Add to favourites'}
+                className={cn(
+                  'flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-all',
+                  current.is_favorite
+                    ? 'bg-pink-100 dark:bg-pink-900/30 text-pink-500 hover:bg-pink-200 dark:hover:bg-pink-900/50'
+                    : 'bg-slate-100 dark:bg-white/[0.06] text-slate-400 hover:bg-pink-50 dark:hover:bg-pink-900/20 hover:text-pink-400',
+                )}
+              >
+                <Heart size={16} className={current.is_favorite ? 'fill-pink-500' : ''} />
+              </button>
             </div>
 
             {/* Tab bar */}
@@ -146,8 +185,9 @@ export default function ItemDetailModal({ item, open, onClose, onDelete, onSaved
                           {attr.icon}
                           {attr.label}
                         </p>
-                        <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 capitalize truncate">
+                        <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 capitalize truncate flex items-center gap-1">
                           {attr.value}
+                          {'extra' in attr && attr.extra}
                         </p>
                       </div>
                     ))}
@@ -168,10 +208,29 @@ export default function ItemDetailModal({ item, open, onClose, onDelete, onSaved
                   </div>
                 )}
 
+                {/* Tags */}
+                {current.tags && current.tags.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-white/30 mb-1.5 flex items-center gap-1">
+                      <Hash size={10} /> Tags
+                    </p>
+                    <div className="flex gap-1.5 flex-wrap">
+                      {current.tags.map(t => (
+                        <span
+                          key={t}
+                          className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 dark:bg-white/[0.08] text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-white/10"
+                        >
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Stats row */}
-                <div className="flex items-center gap-3 pt-3 border-t border-cream-200 dark:border-white/[0.07]">
-                  <div className="flex items-center gap-2 flex-1">
-                    <div className="w-8 h-8 rounded-xl bg-brand-50 dark:bg-brand-900/30 flex items-center justify-center">
+                <div className="flex flex-wrap gap-3 pt-3 border-t border-cream-200 dark:border-white/[0.07]">
+                  <div className="flex items-center gap-2 min-w-[90px]">
+                    <div className="w-8 h-8 rounded-xl bg-brand-50 dark:bg-brand-900/30 flex items-center justify-center flex-shrink-0">
                       <BarChart2 size={14} className="text-brand-500" />
                     </div>
                     <div>
@@ -183,8 +242,8 @@ export default function ItemDetailModal({ item, open, onClose, onDelete, onSaved
                   </div>
 
                   {current.last_worn && (
-                    <div className="flex items-center gap-2 flex-1">
-                      <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-white/[0.06] flex items-center justify-center">
+                    <div className="flex items-center gap-2 min-w-[90px]">
+                      <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-white/[0.06] flex items-center justify-center flex-shrink-0">
                         <Calendar size={14} className="text-slate-400" />
                       </div>
                       <div>
@@ -197,8 +256,8 @@ export default function ItemDetailModal({ item, open, onClose, onDelete, onSaved
                   )}
 
                   {current.price && (
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center">
+                    <div className="flex items-center gap-2 min-w-[90px]">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center flex-shrink-0">
                         <DollarSign size={14} className="text-emerald-500" />
                       </div>
                       <div>
@@ -206,6 +265,20 @@ export default function ItemDetailModal({ item, open, onClose, onDelete, onSaved
                           ${current.price}
                         </p>
                         <p className="text-[10px] text-slate-400 mt-0.5">Paid</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {current.created_at && (
+                    <div className="flex items-center gap-2 min-w-[90px]">
+                      <div className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-white/[0.06] flex items-center justify-center flex-shrink-0">
+                        <CalendarDays size={14} className="text-slate-400" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 leading-none">
+                          {formatDate(current.created_at)}
+                        </p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">Added on</p>
                       </div>
                     </div>
                   )}
@@ -231,7 +304,7 @@ export default function ItemDetailModal({ item, open, onClose, onDelete, onSaved
                 )}
 
                 {/* Action buttons */}
-                <div className="flex gap-2 pt-1">
+                <div className="flex items-center gap-2 pt-1">
                   <Button
                     variant="secondary"
                     size="sm"
@@ -250,12 +323,14 @@ export default function ItemDetailModal({ item, open, onClose, onDelete, onSaved
                     Similar
                   </Button>
                   {onDelete && (
-                    <Button
-                      variant="danger"
-                      size="sm"
-                      icon={<Trash2 size={13} />}
-                      onClick={() => { onClose(); onDelete(current) }}
-                    />
+                    <div className="ml-auto pl-2 border-l border-slate-200 dark:border-white/10">
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        icon={<Trash2 size={13} />}
+                        onClick={() => { onClose(); onDelete(current) }}
+                      />
+                    </div>
                   )}
                 </div>
               </div>
