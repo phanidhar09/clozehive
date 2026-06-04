@@ -64,6 +64,28 @@ services:
       timeout: 5s
       retries: 5
 
+  # ── closet-service database (separate DB for the wardrobe domain) ───────────
+  # Own Postgres so closet/vision/RAG load is isolated from auth/users. Same
+  # init.sql enables pgvector. user_id columns here have NO FK to users (that
+  # table lives in the api-gateway DB); cleanup is via the internal purge seam.
+  postgres-closet:
+    image: pgvector/pgvector:pg16
+    <<: [*restart, *logging]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${CLOSET_POSTGRES_DB:-clozehive_closet}
+    ports:
+      - "${CLOSET_POSTGRES_HOST_PORT:-5434}:5432"
+    volumes:
+      - postgres_closet_data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${CLOSET_POSTGRES_DB:-clozehive_closet}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   redis:
     image: redis:7-alpine
     <<: [*restart, *logging]
@@ -133,6 +155,30 @@ services:
       start_period: 30s
       retries: 3
 
+  # ── AI Worker (MVP default — ARQ async jobs over Redis) ──────────────────────
+  #
+  # Consumes jobs enqueued by api-gateway (outfit/packing/vision) from Redis db /3
+  # and writes results back to the ai_requests table. No HTTP port — pure worker.
+
+  ai-worker:
+    build:
+      context: ./services/ai-worker
+      dockerfile: Dockerfile
+    <<: [*restart, *logging]
+    environment:
+      <<: *python-env
+      REDIS_URL: redis://redis:6379/3
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      AI_AGENT_URL: http://ai-agent:8001
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      ai-agent:
+        condition: service_started
+
   # ── API Gateway (MVP default) ────────────────────────────────────────────────
 
   api-gateway:
@@ -152,6 +198,8 @@ services:
       DB_POOL_RECYCLE: ${DB_POOL_RECYCLE:-300}
       REDIS_URL: redis://redis:6379/0
       REDIS_CHECK_ON_READY: ${REDIS_CHECK_ON_READY:-true}
+      # ARQ task queue — must match the ai-worker's REDIS_URL (db index /3).
+      ARQ_REDIS_URL: redis://redis:6379/3
       # Must be the Compose service name, not localhost from .env (host dev uses localhost).
       AI_AGENT_URL: http://ai-agent:8001
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
@@ -192,6 +240,62 @@ services:
       - ./services/api-gateway/app:/app/app  # live code mount — no rebuild needed for Python changes
       - uploads:/app/uploads
       # Real GCP key JSON at repo root (see .env GCS_CREDENTIALS_FILE). Create from IAM → Keys → JSON.
+      - ./gcp-sa.json:/run/secrets/gcp-sa.json:ro
+
+  # ── Closet Service (wardrobe domain + closet-data AI; own DB) ───────────────
+  # Authenticates by validating the gateway-issued JWT locally (shared JWT_SECRET)
+  # — no per-request call to api-gateway. Phase 0: health only, not yet routed by
+  # nginx. Domain routes arrive in Phase 2.
+  closet-service:
+    build:
+      context: ./services/closet-service
+      dockerfile: Dockerfile
+    <<: [*restart, *logging]
+    env_file:
+      - .env
+    environment:
+      <<: *python-env
+      PORT: "8003"
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres-closet:5432/${CLOSET_POSTGRES_DB:-clozehive_closet}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-10}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-20}
+      DB_POOL_RECYCLE: ${DB_POOL_RECYCLE:-300}
+      # Own cache index (/4); ARQ queue index (/3) matches the ai-worker so the
+      # closet-service can enqueue vision/embedding jobs later.
+      REDIS_URL: redis://redis:6379/4
+      ARQ_REDIS_URL: redis://redis:6379/3
+      REDIS_CHECK_ON_READY: ${REDIS_CHECK_ON_READY:-true}
+      # MUST be byte-identical to api-gateway's JWT_SECRET or all auth 401s.
+      JWT_SECRET: ${JWT_SECRET}
+      AI_AGENT_URL: http://ai-agent:8001
+      GATEWAY_INTERNAL_URL: http://api-gateway:8000
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
+      OPENAI_API_BASE_URL: https://api.openai.com/v1
+      ALLOWED_ORIGINS: http://localhost,http://localhost:80,http://localhost:3000,http://localhost:3001,http://localhost:5173
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GCS_BUCKET_NAME: ${GCS_BUCKET_NAME:-}
+      GCS_PROJECT_ID: ${GCS_PROJECT_ID:-}
+      GCS_CREDENTIALS_JSON: ${GCS_CREDENTIALS_JSON:-}
+      GCS_CREDENTIALS_FILE: ${GCS_CREDENTIALS_FILE:-}
+    ports:
+      - "8003:8003"
+    depends_on:
+      postgres-closet:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ai-agent:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8003/live')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    volumes:
+      - ./services/closet-service/app:/app/app  # live code mount — no rebuild for Python changes
+      - ./services/closet-service/alembic:/app/alembic  # persist autogenerated migrations to host
+      - uploads:/app/uploads
       - ./gcp-sa.json:/run/secrets/gcp-sa.json:ro
 
   # ── Vision Service (MVP default — image analysis and background removal) ─────
@@ -252,6 +356,24 @@ services:
         condition: service_healthy
     restart: "no"
 
+  # ── closet-service DB migrations (run-once) ─────────────────────────────────
+  # Applies closet-service alembic revisions to the clozehive_closet DB. The
+  # baseline revision is generated once via autogenerate (see README/notes);
+  # this container then keeps the schema up to date on every `compose up`.
+  migrate-closet:
+    build:
+      context: ./services/closet-service
+      dockerfile: Dockerfile
+    command: alembic upgrade head
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres-closet:5432/${CLOSET_POSTGRES_DB:-clozehive_closet}
+    depends_on:
+      postgres-closet:
+        condition: service_healthy
+    restart: "no"
+
   # ── Frontend (MVP default) ──────────────────────────────────────────────────
 
   frontend:
@@ -284,5 +406,6 @@ services:
 
 volumes:
   postgres_data:
+  postgres_closet_data:
   redis_data:
   uploads:

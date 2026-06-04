@@ -23,11 +23,28 @@ from app.schemas.vision_canonical import (
 )
 from app.services import cache_service, vision_service
 from app.services.background_removal_service import remove_background_async
-from app.services.upload_service import persist_upload
+from app.services.upload_service import persist_upload, signed_url_for_stored
 from app.services.vision_pipeline_service import run_pipeline
 
 logger = get_logger("closet_preview")
 settings = get_settings()
+
+
+def _sign_preview_items(items: list[ClosetPreviewItem]) -> list[ClosetPreviewItem]:
+    """Swap stored GCS URLs for short-lived signed URLs on the outgoing response.
+
+    Applied AFTER the preview session is cached, and only mutates the response
+    objects — the cached ``slots`` keep their raw URLs, so ``confirm_preview``
+    (which reads URLs from the server-side slot) is unaffected. No-op unless
+    GCS_SIGNED_URLS is enabled.
+    """
+    if not settings.gcs_signed_urls:
+        return items
+    for it in items:
+        it.original_image_url = signed_url_for_stored(it.original_image_url) or it.original_image_url
+        it.preview_image_url = signed_url_for_stored(it.preview_image_url) or it.preview_image_url
+        it.processed_image_url = signed_url_for_stored(it.processed_image_url)
+    return items
 
 
 def preview_session_key(session_id: str) -> str:
@@ -388,7 +405,7 @@ async def analyze_preview(
     )
     return ClosetAnalyzePreviewResponse(
         preview_session_id=preview_session_id,
-        items=preview_items,
+        items=_sign_preview_items(preview_items),
         scan_id=scan_id,
         pipeline_cached=pipeline.cached,
     )

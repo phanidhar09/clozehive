@@ -1,20 +1,17 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import {
-  Menu, Search, LogOut, User, Settings, UserPlus, UserCheck, Loader2, X,
-  Moon, Sun, Sparkles, Heart, BarChart3, ShoppingBag, ShoppingCart, ChevronRight, Wand2, PlusCircle,
+  Menu, LogOut, User, Settings,
+  Moon, Sun, Sparkles, Heart, ShoppingBag, ChevronRight, PlusCircle, Layers,
 } from 'lucide-react'
 import { useApp } from '@/store'
 import { useColorScheme } from '@/hooks/useColorScheme'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { socialApi } from '@/lib/api'
-import type { SocialUser } from '@/types'
-import { hideNonMvpUi } from '@/config/features'
 import NotificationBell from '@/components/ui/NotificationBell'
 
 const TITLES: Record<string, string> = {
   '/dashboard':        'Home',
   '/closet':           'My Closet',
-  '/outfit-builder':   'Outfit Builder',
+  '/outfit-builder':   'Build Outfit',
   '/upload':           'Add to Your Closet',
   '/fashion-analysis': 'Add to Your Closet',
   '/ai-stylist':       'FANI — AI Stylist',
@@ -32,12 +29,10 @@ const TITLES: Record<string, string> = {
 /* ── Premium profile hover dropdown ────────────────────────────────────────── */
 
 const MORE_LINKS = [
-  { to: '/outfit-builder', label: 'Outfit Builder',   icon: Wand2,        gradient: 'from-pink-500 to-rose-600',     desc: 'Design & save your looks' },
-  { to: '/upload',         label: 'Add to Closet',    icon: PlusCircle,   gradient: 'from-brand-500 to-brand-700', desc: 'Upload new items' },
-  { to: '/saved-outfits',  label: 'Saved Outfits',    icon: Heart,        gradient: 'from-rose-500 to-pink-500',     desc: 'Your FANI-curated looks' },
-  { to: '/analytics',      label: 'Style Insights',   icon: BarChart3,    gradient: 'from-brand-500 to-brand-600', desc: 'Wear analytics & trends' },
-  { to: '/purchase-gaps',  label: 'Wardrobe Gaps',    icon: ShoppingBag,  gradient: 'from-amber-500 to-orange-500',  desc: 'What your closet is missing' },
-  { to: '/shopping-check', label: 'Shop with FANI', icon: ShoppingCart, gradient: 'from-green-500 to-emerald-500', desc: 'Buy or skip in-store items' },
+  { to: '/upload',        label: 'Add to Closet', icon: PlusCircle,  gradient: 'from-brand-500 to-brand-700',   desc: 'Upload new items' },
+  { to: '/saved-outfits', label: 'Saved Outfits', icon: Heart,       gradient: 'from-rose-500 to-pink-500',     desc: 'Your FANI-curated looks' },
+  { to: '/purchase-gaps', label: 'Wardrobe Gaps', icon: ShoppingBag, gradient: 'from-amber-500 to-orange-500',  desc: 'What your closet is missing' },
+  { to: '/closet-match',  label: 'Fit Match',     icon: Layers,      gradient: 'from-violet-500 to-purple-600', desc: 'Match items from your closet' },
 ]
 
 function ProfileDropdown({ onNavigate }: { onNavigate: (to: string) => void }) {
@@ -196,147 +191,13 @@ function ProfileDropdown({ onNavigate }: { onNavigate: (to: string) => void }) {
   )
 }
 
-/* ── User search ───────────────────────────────────────────────────────────── */
-function UserSearch() {
-  const navigate = useNavigate()
-  const wrapRef = useRef<HTMLDivElement>(null)
-  const [query, setQuery] = useState('')
-  const [results, setResults] = useState<SocialUser[]>([])
-  const [loading, setLoading] = useState(false)
-  const [open, setOpen] = useState(false)
-  const [pendingFollow, setPendingFollow] = useState<string | null>(null)
-
-  useEffect(() => {
-    const q = query.trim()
-    if (!q) { setResults([]); return }
-    setLoading(true)
-    const t = setTimeout(async () => {
-      try { setResults(await socialApi.searchUsers(q, 8)) }
-      catch { setResults([]) }
-      finally { setLoading(false) }
-    }, 300)
-    return () => clearTimeout(t)
-  }, [query])
-
-  useEffect(() => {
-    function handler(e: MouseEvent) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [])
-
-  const toggleFollow = async (u: SocialUser) => {
-    setPendingFollow(u.id)
-    try {
-      if (u.is_following) await socialApi.unfollow(u.id)
-      else await socialApi.follow(u.id)
-      setResults(rs => rs.map(r => r.id === u.id ? { ...r, is_following: !u.is_following } : r))
-    } catch { /* keep as-is */ }
-    finally { setPendingFollow(null) }
-  }
-
-  const goToGroupInvite = (u: SocialUser) => {
-    navigate(`/groups?invite=${encodeURIComponent(u.username)}`)
-    setOpen(false)
-    setQuery('')
-  }
-
-  return (
-    <div ref={wrapRef} className="relative hidden sm:block">
-      {/* Input */}
-      <div className="flex items-center gap-2 px-3 py-2 rounded-xl w-52
-                      bg-slate-100 dark:bg-white/[0.06]
-                      border border-cream-300 dark:border-white/[0.08]
-                      focus-within:border-brand-400 dark:focus-within:border-brand-500/60
-                      focus-within:bg-white dark:focus-within:bg-white/[0.09]
-                      transition-all duration-200">
-        <Search size={13} className="text-slate-400 dark:text-white/30 flex-shrink-0" />
-        <input
-          value={query}
-          onChange={e => { setQuery(e.target.value); setOpen(true) }}
-          onFocus={() => setOpen(true)}
-          placeholder="Search users…"
-          className="flex-1 bg-transparent text-sm
-                     text-slate-700 dark:text-white
-                     placeholder-slate-400 dark:placeholder-white/30
-                     focus:outline-none"
-        />
-        {query && (
-          <button
-            onClick={() => { setQuery(''); setResults([]) }}
-            className="text-slate-400 hover:text-slate-600 dark:hover:text-white/60 transition-colors"
-          >
-            <X size={13} />
-          </button>
-        )}
-      </div>
-
-      {/* Results dropdown */}
-      {open && (query.trim() || loading) && (
-        <div className="absolute right-0 top-full mt-2 w-80 max-h-96 overflow-y-auto
-                        bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl
-                        rounded-2xl border border-cream-200 dark:border-white/[0.10]
-                        shadow-card-hover dark:shadow-glass-card
-                        z-50 animate-slide-up">
-          {loading && (
-            <div className="flex items-center justify-center gap-2 py-6 text-xs text-slate-400 dark:text-white/40">
-              <Loader2 size={13} className="animate-spin" /> Searching…
-            </div>
-          )}
-          {!loading && results.length === 0 && query.trim() && (
-            <div className="py-6 text-center text-xs text-slate-400 dark:text-white/40">
-              No users match &ldquo;{query.trim()}&rdquo;
-            </div>
-          )}
-          {!loading && results.map(u => {
-            const displayName = u.display_name || u.username
-            const initials = displayName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
-            return (
-              <div key={u.id} className="flex items-center gap-3 px-3 py-2.5
-                                         hover:bg-slate-50 dark:hover:bg-white/[0.05]
-                                         transition-colors">
-                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-brand-600 to-brand-700
-                                flex items-center justify-center text-xs font-bold text-white
-                                flex-shrink-0 overflow-hidden">
-                  {u.avatar_url ? <img src={u.avatar_url} alt="" className="w-full h-full object-cover" /> : initials}
-                </div>
-                <button onClick={() => goToGroupInvite(u)} className="flex-1 text-left min-w-0">
-                  <p className="text-sm font-semibold text-slate-800 dark:text-white truncate">{displayName}</p>
-                  <p className="text-xs text-slate-400 dark:text-white/40 truncate">@{u.username}</p>
-                </button>
-                <button
-                  onClick={() => toggleFollow(u)}
-                  disabled={pendingFollow === u.id}
-                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold
-                              transition-all flex-shrink-0 ${
-                    u.is_following
-                      ? 'bg-slate-100 dark:bg-white/[0.08] text-slate-600 dark:text-white/60 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/15'
-                      : 'bg-gradient-to-r from-brand-600 to-brand-700 text-white shadow-glow-sm hover:shadow-glow-md'
-                  } disabled:opacity-50`}
-                >
-                  {pendingFollow === u.id
-                    ? <Loader2 size={11} className="animate-spin" />
-                    : u.is_following
-                      ? <><UserCheck size={11} /> Following</>
-                      : <><UserPlus size={11} /> Follow</>}
-                </button>
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
-
 /* ── Navbar ────────────────────────────────────────────────────────────────── */
 export default function Navbar() {
   const { setSidebarOpen, currentUser } = useApp()
-  const { isDark, toggleColorScheme } = useColorScheme()
   const location = useLocation()
   const [showMenu, setShowMenu] = useState(false)
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const menuWrapRef = useRef<HTMLDivElement>(null)
 
   const title = TITLES[location.pathname] ?? 'ClozéHive'
   const navNameLabel = currentUser?.display_name || currentUser?.username || ''
@@ -353,7 +214,27 @@ export default function Navbar() {
     hideTimerRef.current = setTimeout(() => setShowMenu(false), 180)
   }, [])
 
+  const toggleMenu = useCallback(() => {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
+    setShowMenu(m => !m)
+  }, [])
+
   useEffect(() => () => { if (hideTimerRef.current) clearTimeout(hideTimerRef.current) }, [])
+
+  useEffect(() => {
+    function onOutside(e: MouseEvent) {
+      if (menuWrapRef.current && !menuWrapRef.current.contains(e.target as Node)) setShowMenu(false)
+    }
+    function onEscape(e: KeyboardEvent) {
+      if (e.key === 'Escape') setShowMenu(false)
+    }
+    document.addEventListener('mousedown', onOutside)
+    document.addEventListener('keydown', onEscape)
+    return () => {
+      document.removeEventListener('mousedown', onOutside)
+      document.removeEventListener('keydown', onEscape)
+    }
+  }, [])
 
   return (
     <header className="h-16 flex items-center justify-between px-4 lg:px-6
@@ -379,43 +260,19 @@ export default function Navbar() {
 
       {/* Right */}
       <div className="flex items-center gap-2">
-        {currentUser && (
-          <span className="hidden md:block text-sm text-slate-400 dark:text-white/40 mr-1">
-            Welcome,{' '}
-            <span className="font-semibold text-slate-700 dark:text-white/80">
-              {navNameLabel}
-            </span>
-          </span>
-        )}
-
-        {currentUser && !hideNonMvpUi() && (
-          <UserSearch />
-        )}
-
-        <button
-          onClick={toggleColorScheme}
-          title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-          aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-          className="p-2 min-h-[44px] min-w-[44px] rounded-xl
-                     text-slate-500 dark:text-white/50
-                     hover:text-slate-800 dark:hover:text-white
-                     hover:bg-slate-100 dark:hover:bg-white/[0.08]
-                     transition-colors"
-        >
-          {isDark ? <Sun size={19} /> : <Moon size={19} />}
-        </button>
-
         {/* Notification bell */}
         <NotificationBell />
 
-        {/* Avatar — hover to open premium profile dropdown */}
+        {/* Avatar — click or hover to open premium profile dropdown */}
         <div
+          ref={menuWrapRef}
           className="relative"
           onMouseEnter={openMenu}
           onMouseLeave={closeMenu}
         >
           <button
             aria-label="Open profile menu"
+            onClick={toggleMenu}
             className="min-h-[44px] min-w-[44px] rounded-full
                        bg-gradient-to-br from-brand-600 to-brand-700
                        flex items-center justify-center text-sm font-bold text-white

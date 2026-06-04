@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     # When False, /ready and /health skip Redis (local dev without Redis).
     redis_check_on_ready: bool = True
+    # ARQ task queue (async AI jobs handled by the ai-worker service). Must point
+    # at the SAME Redis DB index the worker consumes (…/3 by default).
+    arq_redis_url: str = "redis://localhost:6379/3"
     cache_ttl_profile: int = 300      # 5 min
     cache_ttl_closet: int = 120       # 2 min
     cache_ttl_weather: int = 3600     # 1 hour
@@ -92,8 +95,11 @@ class Settings(BaseSettings):
     ai_agent_url: str = "http://ai-agent:8001"
     # Budget for a single ai-agent read. connect timeout is always 5 s (see ai_client.py).
     ai_timeout_seconds: int = 30
-    # Shared secret sent as X-Internal-Token on every api-gateway → ai-agent request.
+    # Shared secret sent as X-Internal-Token on every api-gateway → ai-agent request,
+    # and on api-gateway → closet-service internal calls (e.g. user-data purge).
     internal_service_token: str = ""
+    # Base URL of closet-service for internal calls (user-data purge on account deletion).
+    closet_service_url: str = "http://closet-service:8003"
     openweather_api_key: str = ""
     ai_cache_enabled: bool = True
     ai_cache_ttl: int = 600
@@ -128,6 +134,12 @@ class Settings(BaseSettings):
     gcs_credentials_json: str = ""
     # Path to service-account JSON inside the container (recommended for Docker — mount a file).
     gcs_credentials_file: str = ""
+    # When True, the bucket is treated as PRIVATE: stored image URLs are converted
+    # to short-lived V4 signed URLs at read-time (only the app's service account
+    # can mint them). Flip the bucket to private + remove allUsers before enabling.
+    gcs_signed_urls: bool = False
+    # Lifetime of a generated signed URL. Keep modest; clients re-fetch on expiry.
+    gcs_signed_url_ttl_seconds: int = 3600
 
     @field_validator("gcs_credentials_json", mode="before")
     @classmethod

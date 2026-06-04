@@ -289,7 +289,7 @@ export default function Closet() {
           </div>
         </Link>
         <Link
-          to="/outfit-builder"
+          to="/closet-match"
           className="flex items-center gap-3 px-4 py-3 rounded-2xl
                      bg-gradient-to-br from-pink-500 to-rose-600
                      text-white shadow-md shadow-pink-500/20
@@ -300,8 +300,8 @@ export default function Closet() {
             <Wand2 size={16} />
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-bold leading-tight">Build Outfit</p>
-            <p className="text-[11px] text-white/70 leading-tight">Mix & match your closet</p>
+            <p className="text-sm font-bold leading-tight">Fit Match</p>
+            <p className="text-[11px] text-white/70 leading-tight">Match pieces before you buy</p>
           </div>
         </Link>
         </div>

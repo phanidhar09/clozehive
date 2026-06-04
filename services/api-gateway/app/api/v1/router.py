@@ -3,7 +3,7 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (
-    admin, ai, ai_chat, analytics, auth, closet, health, outfits, profile,
+    admin, ai, ai_chat, analytics, auth, closet, health, jobs, outfits, profile,
     trips, weather,
     fashion_rag, outfit_history, packing_memory, purchase_gaps, closet_similarity,
     rag, ws, shopping_check,
@@ -20,6 +20,7 @@ api_router.include_router(trips.router)
 api_router.include_router(packing_memory.router)        # RAG: packing memory (trip prefix)
 api_router.include_router(analytics.router)
 api_router.include_router(ai.router)
+api_router.include_router(jobs.router)            # Async AI jobs (ARQ worker)
 api_router.include_router(ai_chat.router)         # AI Stylist Chat
 api_router.include_router(weather.router)
 api_router.include_router(admin.router)

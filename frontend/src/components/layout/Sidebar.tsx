@@ -3,7 +3,8 @@ import { motion } from 'framer-motion'
 import {
   Home, Shirt, Plane,
   X, Moon, Sun, LogOut,
-  Sparkles, Wand2,
+  Sparkles, Wand2, ShoppingCart,
+  BarChart3, Layers,
   type LucideIcon,
 } from 'lucide-react'
 import { useApp } from '@/store'
@@ -18,11 +19,14 @@ type SidebarNavItem = {
 }
 
 const NAV_MAIN: SidebarNavItem[] = [
-  { to: '/dashboard',  label: 'Home',            icon: Home },
-  { to: '/closet',     label: 'My Closet',       icon: Shirt },
-  { to: '/closet-match', label: 'Fit Match',      icon: Wand2,    gradient: 'from-brand-500 to-emerald-500' },
-  { to: '/travel',     label: 'Travel Packing',  icon: Plane,    gradient: 'from-sky-500 to-cyan-500' },
-  { to: '/ai-stylist', label: 'FANI AI Stylist', icon: Sparkles, gradient: 'from-brand-500 to-brand-600' },
+  { to: '/dashboard',      label: 'Home',           icon: Home },
+  { to: '/closet',         label: 'My Closet',      icon: Shirt },
+  { to: '/outfit-builder', label: 'Build Outfit',   icon: Wand2,     gradient: 'from-pink-500 to-rose-600' },
+  { to: '/shopping-check', label: 'Shop with FANI', icon: ShoppingCart, gradient: 'from-green-500 to-emerald-500' },
+  { to: '/travel',         label: 'Travel Packing', icon: Plane,     gradient: 'from-sky-500 to-cyan-500' },
+  { to: '/ai-stylist',     label: 'FANI',           icon: Sparkles,  gradient: 'from-brand-500 to-brand-600' },
+  { to: '/analytics',      label: 'Style Insights', icon: BarChart3, gradient: 'from-amber-500 to-orange-500' },
+  { to: '/closet-match',   label: 'Fit Match',      icon: Layers,    gradient: 'from-violet-500 to-purple-600' },
 ]
 
 export default function Sidebar() {

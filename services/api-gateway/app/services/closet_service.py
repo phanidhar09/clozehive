@@ -23,6 +23,7 @@ from app.schemas.closet import (
     ClosetListResponse,
 )
 from app.services import cache_service
+from app.services.upload_service import signed_url_for_stored
 
 logger = get_logger("closet_service")
 settings = get_settings()
@@ -31,7 +32,15 @@ _CACHE_TTL = settings.cache_ttl_closet
 
 
 def _to_response(item) -> ClosetItemResponse:
-    return ClosetItemResponse.model_validate(item)
+    resp = ClosetItemResponse.model_validate(item)
+    # On a private bucket, swap stored image URLs for short-lived signed URLs so
+    # only the app (via the owner's authenticated request) can serve them.
+    # No-op when GCS_SIGNED_URLS is off — returns the stored value unchanged.
+    if settings.gcs_signed_urls:
+        resp.image_url = signed_url_for_stored(resp.image_url)
+        resp.original_image_url = signed_url_for_stored(resp.original_image_url)
+        resp.processed_image_url = signed_url_for_stored(resp.processed_image_url)
+    return resp
 
 
 class ClosetService:

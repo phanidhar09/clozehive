@@ -129,6 +129,8 @@ async def lifespan(app: FastAPI):
     await cache_service.close()
     await ai_client.close_client()
     await _close_firestore()
+    from app.core.task_queue import close_arq_pool
+    await close_arq_pool()
     logger.info("shutdown_complete")
 
 
@@ -194,6 +196,11 @@ def create_app() -> FastAPI:
         }
 
     app.include_router(api_router)
+
+    # Internal service-to-service routes (token-protected, outside /api/v1).
+    from app.api.internal import router as internal_router
+    app.include_router(internal_router)
+
     app.mount("/uploads", StaticFiles(directory=settings.upload_path), name="uploads")
 
     @app.get("/health", tags=["health"], include_in_schema=False)

@@ -12,7 +12,13 @@ alembic==1.18.4
 pgvector==0.4.2
 
 # ── Cache ─────────────────────────────────────────────────────────────────────
-redis[hiredis]==7.4.0
+# Pinned <6 because arq (below) requires redis>=4.2,<6. Our usage is basic
+# (get/set/setex/delete/exists/ping/scan_iter) and the ai-worker already runs
+# this combination, so 5.x is safe. Bump only if arq adds redis>=6 support.
+redis[hiredis]>=5.0.1,<6
+
+# ── Async task queue (enqueue jobs to the ai-worker over Redis) ───────────────
+arq>=0.26.0
 
 # ── Auth / Security ───────────────────────────────────────────────────────────
 python-jose[cryptography]==3.5.0

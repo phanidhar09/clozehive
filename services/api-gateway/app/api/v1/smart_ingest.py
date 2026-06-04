@@ -43,8 +43,32 @@ from app.repositories.user_repo import UserRepository
 from app.schemas.closet import ClosetItemCreate
 from app.services import bulk_ingest_service, cache_service, similarity_service
 from app.services.closet_similarity_service import check_similar_for_new_item
-from app.services.upload_service import persist_upload, read_validated_image
+from app.services.upload_service import persist_upload, read_validated_image, signed_url_for_stored
 from app.core.redis import get_redis
+
+# Keys in a review-item dict that may hold a stored GCS URL. Signed for outgoing
+# responses only; the Redis job store keeps raw URLs (approve reads those).
+_REVIEW_ITEM_URL_KEYS = (
+    "processed_image_url",
+    "original_crop_url",
+    "original_image_url",
+    "crop_image_url",
+    "preview_image_url",
+    "image_url",
+)
+
+
+def _sign_review_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Swap stored GCS URLs for signed URLs on review items (response only).
+
+    Safe to mutate: ``get_job_items`` returns fresh ``json.loads`` copies, so the
+    Redis job store is untouched. No-op unless GCS_SIGNED_URLS is enabled.
+    """
+    for item in items:
+        for key in _REVIEW_ITEM_URL_KEYS:
+            if item.get(key):
+                item[key] = signed_url_for_stored(item[key])
+    return items
 
 router = APIRouter(prefix="/smart-ingest", tags=["Smart Ingest"])
 logger = get_logger("smart_ingest")
@@ -264,7 +288,7 @@ async def get_results(job_id: str, user_id: CurrentUser) -> IngestResultsRespons
             "low_confidence_items": len(low_confidence),
             "failed_images": job.get("failed_images", 0),
         },
-        items=pending,
+        items=_sign_review_items(pending),
     )
 
 

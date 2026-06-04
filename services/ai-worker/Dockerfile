@@ -17,4 +17,4 @@ RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
 RUN chown -R appuser:appgroup /app
 USER appuser
 
-CMD ["python", "-m", "app.main"]
+CMD ["arq", "app.worker.WorkerSettings"]

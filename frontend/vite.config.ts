@@ -50,6 +50,12 @@ export default defineConfig(({ mode }) => {
         workbox: {
           // Cache static assets aggressively, network-first for API calls
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+          // Never let the SPA navigation fallback (index.html) hijack top-level
+          // navigations to backend routes. Without this, clicking "Continue with
+          // Google" navigates to /api/v1/auth/google/login and the service worker
+          // serves index.html instead of letting it reach the backend, so the
+          // OAuth redirect silently bounces back to /login.
+          navigateFallbackDenylist: [/^\/api\//, /^\/uploads\//, /^\/oauth\//],
           runtimeCaching: [
             {
               urlPattern: /^https:\/\/fonts\.googleapis\.com/,

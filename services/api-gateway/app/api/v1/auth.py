@@ -378,6 +378,32 @@ async def _cleanup_user_uploads(image_urls: list[str], user_id: str) -> None:
     )
 
 
+async def _purge_closet_service_data(user_id: str) -> None:
+    """Background task: purge the user's wardrobe data from closet-service.
+
+    Replaces the old cross-table ON DELETE CASCADE now that closet data lives in
+    a separate database. Best-effort with a short retry; a failure is logged (the
+    closet-service reconciliation sweep is the backstop) and never blocks account
+    deletion.
+    """
+    base = (settings.closet_service_url or "").rstrip("/")
+    if not base:
+        return
+    url = f"{base}/internal/users/{user_id}"
+    headers = {"X-Internal-Token": settings.internal_service_token or ""}
+    for attempt in range(3):
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.delete(url, headers=headers)
+            if resp.status_code == 200:
+                logger.info("closet_data_purged", user_id=user_id, result=resp.json())
+                return
+            logger.warning("closet_purge_non_200", user_id=user_id, status=resp.status_code, attempt=attempt)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("closet_purge_failed", user_id=user_id, attempt=attempt, error=str(exc))
+    logger.error("closet_purge_giving_up", user_id=user_id)
+
+
 @router.delete("/me", status_code=204)
 async def delete_account(
     user_id: CurrentUser,
@@ -421,6 +447,10 @@ async def delete_account(
     if image_urls:
         bg.add_task(_cleanup_user_uploads, image_urls, user_id)
         logger.info("upload_cleanup_queued", user_id=user_id, count=len(image_urls))
+
+    # Purge the user's wardrobe data from closet-service's separate database
+    # (replaces the cross-table CASCADE; closet-service also cleans its images).
+    bg.add_task(_purge_closet_service_data, user_id)
 
     logger.info("account_erased", user_id=user_id)
 

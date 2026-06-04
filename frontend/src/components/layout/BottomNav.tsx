@@ -1,5 +1,6 @@
-import { NavLink } from 'react-router-dom'
-import { Home, Shirt, Plus, Sparkles, User, type LucideIcon } from 'lucide-react'
+import { NavLink, useLocation } from 'react-router-dom'
+import { Home, Shirt, Plus, Sparkles, Menu, type LucideIcon } from 'lucide-react'
+import { useApp } from '@/store'
 import { cn } from '@/lib/utils'
 
 type Tab = { to: string; label: string; icon: LucideIcon; primary?: boolean; end?: boolean }
@@ -8,6 +9,8 @@ type Tab = { to: string; label: string; icon: LucideIcon; primary?: boolean; end
  * Mobile bottom tab bar — the primary navigation on small screens.
  * Hidden on desktop (`lg:hidden`), where the sidebar takes over.
  * The center "+" is an elevated primary action (Add items).
+ * The trailing "More" opens the sidebar and stays highlighted on any
+ * page not covered by the other tabs, so users never lose orientation.
  */
 
 const TABS: Tab[] = [
@@ -15,10 +18,16 @@ const TABS: Tab[] = [
   { to: '/closet',     label: 'Closet', icon: Shirt },
   { to: '/upload',     label: 'Add',    icon: Plus,     primary: true },
   { to: '/ai-stylist', label: 'FANI',   icon: Sparkles },
-  { to: '/profile',    label: 'Profile', icon: User },
 ]
 
+// Routes that own a dedicated tab above — anything else lights up "More".
+const TAB_PATHS = ['/dashboard', '/closet', '/upload', '/ai-stylist']
+
 export default function BottomNav() {
+  const { setSidebarOpen } = useApp()
+  const { pathname } = useLocation()
+  const moreActive = !TAB_PATHS.some(p => pathname === p || pathname.startsWith(p + '/'))
+
   return (
     <nav
       className="lg:hidden fixed bottom-0 inset-x-0 z-40
@@ -64,6 +73,22 @@ export default function BottomNav() {
             </NavLink>
           ),
         )}
+
+        {/* More — opens the sidebar; active on any overflow page */}
+        <button
+          onClick={() => setSidebarOpen(true)}
+          aria-label="More"
+          className={cn(
+            'flex flex-col items-center justify-center gap-0.5 min-w-[56px] py-1.5 rounded-xl',
+            'transition-colors active:scale-95',
+            moreActive
+              ? 'text-brand-600 dark:text-brand-400'
+              : 'text-slate-400 dark:text-white/40 hover:text-slate-600 dark:hover:text-white/70',
+          )}
+        >
+          <Menu size={20} />
+          <span className="text-[10px] font-medium">More</span>
+        </button>
       </div>
     </nav>
   )
