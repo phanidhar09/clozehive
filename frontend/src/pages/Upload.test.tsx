@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import { vi } from 'vitest'
 import Upload from '@/pages/Upload'
 import * as Api from '@/lib/api'
@@ -19,28 +20,35 @@ vi.mock('@/lib/api', async importOriginal => {
 })
 
 describe('Upload', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
   it('renders the upload hub and category options for Add to Closet', () => {
     render(
-      <MockAppProvider value={{ fetchClosetItems: vi.fn() }}>
-        <Upload />
-      </MockAppProvider>,
+      <MemoryRouter>
+        <MockAppProvider value={{ fetchClosetItems: vi.fn() }}>
+          <Upload />
+        </MockAppProvider>
+      </MemoryRouter>,
     )
 
-    expect(screen.getByRole('heading', { name: /Upload Clothing Item/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /Add to Your Closet/i })).toBeInTheDocument()
     expect(
-      screen.getByText(/review and confirm before anything is added/i),
+      screen.getByText(/review each one and save/i),
     ).toBeInTheDocument()
 
     expect(
-      screen.getByText(/Nothing is saved until you confirm/i),
+      screen.getByText(/Nothing is saved until you press Save/i),
     ).toBeInTheDocument()
 
+    // The Analyze CTA only appears after a photo is selected
     expect(screen.queryByRole('button', { name: /Analyze/i })).not.toBeInTheDocument()
   })
 
   it('calls analyzePreview then confirmPreview on preview → save (no legacy upload)', async () => {
     const user = userEvent.setup()
-    const fetchClosetItems = vi.fn()
+    const fetchClosetItems = vi.fn().mockResolvedValue(undefined)
     const previewItem = {
       slot_index: 0,
       temp_id: 'tid-1',
@@ -64,9 +72,11 @@ describe('Upload', () => {
     vi.mocked(Api.closetApi.confirmPreview).mockResolvedValue({ saved: [], total_saved: 1 })
 
     render(
-      <MockAppProvider value={{ fetchClosetItems }}>
-        <Upload />
-      </MockAppProvider>,
+      <MemoryRouter>
+        <MockAppProvider value={{ fetchClosetItems }}>
+          <Upload />
+        </MockAppProvider>
+      </MemoryRouter>,
     )
 
     const input = document.querySelector('input[type="file"]') as HTMLInputElement
@@ -76,7 +86,8 @@ describe('Upload', () => {
     await user.click(screen.getByRole('button', { name: /Analyze with FANI/i }))
     expect(Api.closetApi.analyzePreview).toHaveBeenCalledTimes(1)
 
-    await user.click(screen.getByRole('button', { name: /Save selected items from this photo/i }))
+    // Persistent save bar shows "Save 1" (one selected item) and confirms the preview
+    await user.click(screen.getByRole('button', { name: /^Save 1$/ }))
     expect(Api.closetApi.confirmPreview).toHaveBeenCalledTimes(1)
     // Confirm payload must include detected_item_id so backend can validate image↔metadata correlation.
     const confirmCall = vi.mocked(Api.closetApi.confirmPreview).mock.calls[0][0]
@@ -123,9 +134,11 @@ describe('Upload', () => {
     vi.mocked(Api.closetApi.confirmPreview).mockResolvedValue({ saved: [], total_saved: 2 })
 
     render(
-      <MockAppProvider value={{ fetchClosetItems: vi.fn() }}>
-        <Upload />
-      </MockAppProvider>,
+      <MemoryRouter>
+        <MockAppProvider value={{ fetchClosetItems: vi.fn().mockResolvedValue(undefined) }}>
+          <Upload />
+        </MockAppProvider>
+      </MemoryRouter>,
     )
 
     const input = document.querySelector('input[type="file"]') as HTMLInputElement
@@ -133,12 +146,13 @@ describe('Upload', () => {
     await user.upload(input, file)
     await user.click(screen.getByRole('button', { name: /Analyze with FANI/i }))
 
-    // Both items should appear in the preview.
-    expect(screen.getByText('Black Shirt')).toBeInTheDocument()
-    expect(screen.getByText('Blue Jeans')).toBeInTheDocument()
+    // The wizard reviews one item at a time; "Review all" reveals the full list.
+    await user.click(await screen.findByRole('button', { name: /Review all/i }))
+    expect(screen.getAllByText('Black Shirt').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('Blue Jeans').length).toBeGreaterThanOrEqual(1)
 
-    // Save the group.
-    await user.click(screen.getByRole('button', { name: /Save selected items from this photo/i }))
+    // Save the group (both items selected → "Save 2").
+    await user.click(screen.getByRole('button', { name: /^Save 2$/ }))
     const confirmCall = vi.mocked(Api.closetApi.confirmPreview).mock.calls[0][0]
 
     // Each item in the confirm payload must carry its own detected_item_id.

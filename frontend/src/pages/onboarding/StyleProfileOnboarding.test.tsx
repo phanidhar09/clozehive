@@ -14,14 +14,14 @@ vi.mock('@/lib/api', async importOriginal => {
     profileApi: {
       ...actual.profileApi,
       getStyleProfile: vi.fn(() => Promise.resolve(null)),
-      patchStyleProfile: vi.fn(() => Promise.reject(new Error('not used in this test'))),
+      submitOnboarding: vi.fn(() => Promise.reject(new Error('not used in this test'))),
       completeOnboarding: vi.fn(() => Promise.resolve()),
     },
   }
 })
 
 describe('StyleProfileOnboarding', () => {
-  it('shows the custom gender field only when Custom identity is selected', async () => {
+  it('walks the multi-step flow and reaches the About You / gender step', async () => {
     const user = userEvent.setup()
     const router = createMemoryRouter([
       { path: '/onboarding/style-profile', element: <StyleProfileOnboarding /> },
@@ -29,15 +29,22 @@ describe('StyleProfileOnboarding', () => {
 
     render(<RouterProvider router={router} />)
 
-    await user.click(await screen.findByRole('button', { name: 'Start' }))
+    // First step renders once the existing-profile pre-fetch resolves
+    expect(await screen.findByRole('heading', { name: /Your Style Vibe/i })).toBeInTheDocument()
 
-    expect(await screen.findByText(/Gender \/ style identity/i)).toBeInTheDocument()
-    expect(screen.queryByPlaceholderText(/Describe your gender/i)).not.toBeInTheDocument()
+    // Advancing moves to the next step
+    await user.click(screen.getByRole('button', { name: /Next/i }))
+    expect(await screen.findByRole('heading', { name: /Your Lifestyle/i })).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Custom' }))
+    // Continue through fit → colours → goals → body (the final "About You" step)
+    for (let i = 0; i < 4; i++) {
+      await user.click(screen.getByRole('button', { name: /Next/i }))
+    }
 
-    expect(
-      await screen.findByPlaceholderText(/Describe your gender \/ style identity/i),
-    ).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /A Little About You/i })).toBeInTheDocument()
+    // Gender selection lives on this step
+    expect(screen.getByText(/I shop in the/i)).toBeInTheDocument()
+    // Final step swaps the Next button for the submit CTA
+    expect(screen.getByRole('button', { name: /Build My Profile/i })).toBeInTheDocument()
   })
 })

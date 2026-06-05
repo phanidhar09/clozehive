@@ -1,5 +1,9 @@
 import { useState, useRef, useCallback, useMemo } from 'react'
-import { Image, Sparkles, CheckCircle, X, ChevronLeft, ChevronRight, SkipForward, AlertTriangle } from 'lucide-react'
+import {
+  Image, Sparkles, CheckCircle, Circle, X, ChevronLeft, ChevronRight,
+  SkipForward, AlertTriangle, Info, ShieldCheck, Pencil,
+} from 'lucide-react'
+import { Link } from 'react-router-dom'
 import Button from '@/components/ui/Button'
 import BackButton from '@/components/ui/BackButton'
 import PageHeader from '@/components/ui/PageHeader'
@@ -8,9 +12,129 @@ import Badge from '@/components/ui/Badge'
 import { useApp } from '@/store'
 import { closetApi, closetSimilarityApi, resolveUploadUrl, type ClosetPreviewItem, type SimilarClosetItem } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { CLOSET_SEASONS, CLOSET_OCCASIONS } from '@/features/closet/constants'
 import { InlineError } from '@/components/system/InlineError'
 import { LoadingSpinner } from '@/components/system/LoadingSpinner'
 import SimilarityWarningBanner from '@/components/closet/SimilarityWarningBanner'
+
+const MAX_FILES = 20
+const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB — must match the helper text shown in the dropzone
+
+/** Adds a token to a comma-separated string if not already present. */
+function toggleToken(value: string, token: string): string {
+  const list = parseCommaList(value)
+  return list.includes(token)
+    ? list.filter(t => t !== token).join(', ')
+    : [...list, token].join(', ')
+}
+
+/** True when two comma-lists contain the same tokens regardless of order/case. */
+function sameTokens(a: string, b: string): boolean {
+  const norm = (s: string) => parseCommaList(s).map(t => t.toLowerCase()).sort()
+  const pa = norm(a), pb = norm(b)
+  return pa.length === pb.length && pa.every((v, i) => v === pb[i])
+}
+
+/** 'ai' = still FANI's value · 'edited' = user overrode it · null = AI left it blank. */
+type AIProvenance = 'ai' | 'edited' | null
+function aiFieldState(d: ItemDraft, key: AIFieldKey): AIProvenance {
+  const original = (d.ai[key] ?? '').trim()
+  if (!original) return null
+  const current = ((d[key] as string) ?? '').trim()
+  const unchanged = key === 'seasonStr' || key === 'occasionStr'
+    ? sameTokens(original, current)
+    : original.toLowerCase() === current.toLowerCase()
+  return unchanged ? 'ai' : 'edited'
+}
+
+/** Field label with an AI-provenance marker — transparency about AI-generated content. */
+function AIFieldLabel({ label, state, htmlFor }: { label: string; state: AIProvenance; htmlFor?: string }) {
+  return (
+    <div className="flex items-center justify-between gap-2 mb-1">
+      <label htmlFor={htmlFor} className="label mb-0">{label}</label>
+      {state === 'ai' && (
+        <span
+          title="Auto-filled by FANI from your photo. Edit any field to override it."
+          className="inline-flex items-center gap-0.5 text-[9px] font-bold uppercase tracking-wide text-brand-500 dark:text-brand-400"
+        >
+          <Sparkles size={9} /> AI
+        </span>
+      )}
+      {state === 'edited' && (
+        <span
+          title="You changed this from FANI's suggestion."
+          className="inline-flex items-center gap-0.5 text-[9px] font-bold uppercase tracking-wide text-slate-400"
+        >
+          <Pencil size={9} /> Edited
+        </span>
+      )}
+    </div>
+  )
+}
+
+/** Text input carrying an AI-provenance marker above it. `id` ties the label to the field (a11y). */
+function AIInput({
+  label, aiState, id, ...rest
+}: { label: string; aiState: AIProvenance; id: string } & React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <div className="w-full">
+      <AIFieldLabel label={label} state={aiState} htmlFor={id} />
+      <Input id={id} {...rest} />
+    </div>
+  )
+}
+
+/** Tiered confidence presentation — show confidence levels clearly, handle uncertainty. */
+function confidenceTier(c: number) {
+  if (c >= 0.8) return { label: 'High confidence', dot: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400' }
+  if (c >= LOW_CONFIDENCE_THRESHOLD) return { label: 'Medium confidence', dot: 'bg-amber-500', text: 'text-amber-600 dark:text-amber-400' }
+  return { label: 'Low confidence', dot: 'bg-red-500', text: 'text-red-600 dark:text-red-400' }
+}
+
+/**
+ * Free-text field with one-click suggestion chips — recognition over recall.
+ * Mirrors the pill pattern used in the closet editor for consistency.
+ */
+function TokenField({
+  label, value, suggestions, placeholder, aiState, id, onChange,
+}: {
+  label: string
+  value: string
+  suggestions: readonly string[]
+  placeholder?: string
+  aiState?: AIProvenance
+  id: string
+  onChange: (v: string) => void
+}) {
+  const active = parseCommaList(value)
+  return (
+    <div>
+      <AIFieldLabel label={label} state={aiState ?? null} htmlFor={id} />
+      <Input id={id} value={value} placeholder={placeholder} onChange={e => onChange(e.target.value)} />
+      <div className="flex flex-wrap gap-1.5 mt-2">
+        {suggestions.map(s => {
+          const isOn = active.includes(s)
+          return (
+            <button
+              key={s}
+              type="button"
+              onClick={() => onChange(toggleToken(value, s))}
+              aria-pressed={isOn}
+              className={cn(
+                'px-2.5 py-1 rounded-full text-[11px] font-semibold capitalize transition-colors border',
+                isOn
+                  ? 'bg-brand-500 text-white border-brand-500'
+                  : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:border-brand-300 dark:hover:border-brand-600',
+              )}
+            >
+              {s}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 
 const CATEGORY_OPTIONS = [
   { value: 'tops', label: 'Tops' },
@@ -34,28 +158,32 @@ function parseCommaList(s: string): string[] {
 }
 
 function draftsFromPreviewItems(items: ClosetPreviewItem[] | null | undefined): ItemDraft[] {
-  return (items ?? []).map(it => ({
-    slot_index: it.slot_index,
-    temp_id: it.temp_id,
-    detected_item_id: it.detected_item_id ?? it.temp_id,
-    selected: true,
-    name: it.name,
-    category: it.category,
-    color: it.color ?? '',
-    subcategory: it.subcategory ?? '',
-    material: it.material ?? '',
-    pattern: it.pattern ?? '',
-    seasonStr: (it.season ?? []).join(', '),
-    occasionStr: (it.occasions ?? []).join(', '),
-    notes: it.description ?? '',
-    brand: it.brand ?? '',
-    size: '',
-    priceStr: '',
-    preview_image_url: it.preview_image_url,
-    confidence: it.confidence,
-    background_removed: it.background_removed,
-    bg_status: it.background_removal_status ?? undefined,
-  }))
+  return (items ?? []).map(it => {
+    const name = it.name
+    const category = it.category
+    const color = it.color ?? ''
+    const material = it.material ?? ''
+    const pattern = it.pattern ?? ''
+    const seasonStr = (it.season ?? []).join(', ')
+    const occasionStr = (it.occasions ?? []).join(', ')
+    const notes = it.description ?? ''
+    return {
+      slot_index: it.slot_index,
+      temp_id: it.temp_id,
+      detected_item_id: it.detected_item_id ?? it.temp_id,
+      selected: true,
+      name, category, color, material, pattern, seasonStr, occasionStr, notes,
+      subcategory: it.subcategory ?? '',
+      brand: it.brand ?? '',
+      size: '',
+      priceStr: '',
+      preview_image_url: it.preview_image_url,
+      confidence: it.confidence,
+      background_removed: it.background_removed,
+      // Snapshot of what FANI originally detected — lets us flag fields the user overrides.
+      ai: { name, category, color, material, pattern, seasonStr, occasionStr, notes },
+    }
+  })
 }
 
 type ItemDraft = {
@@ -79,8 +207,21 @@ type ItemDraft = {
   preview_image_url: string
   confidence: number
   background_removed: boolean
-  bg_status?: string
+  /** Original AI-detected values, for provenance markers (AI vs Edited). */
+  ai: {
+    name: string
+    category: string
+    color: string
+    material: string
+    pattern: string
+    seasonStr: string
+    occasionStr: string
+    notes: string
+  }
 }
+
+/** Which AI-detectable fields carry provenance markers, and their human labels. */
+type AIFieldKey = keyof ItemDraft['ai']
 
 type PreviewGroup = {
   filename: string
@@ -100,7 +241,8 @@ export default function Upload() {
   const { fetchClosetItems } = useApp()
   const [dragging, setDragging] = useState(false)
   const [files, setFiles] = useState<File[]>([])
-  const [preview, setPreview] = useState<string | null>(null)
+  const [filePreviews, setFilePreviews] = useState<{ url: string; name: string }[]>([])
+  const [fileNotice, setFileNotice] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<string | null>(null)
   const [previewGroups, setPreviewGroups] = useState<PreviewGroup[]>([])
@@ -109,6 +251,8 @@ export default function Upload() {
   const [saveOkMessage, setSaveOkMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [wizardIndex, setWizardIndex] = useState(0)
+  const [showMore, setShowMore] = useState(false)        // progressive disclosure of secondary fields
+  const [showOverview, setShowOverview] = useState(false) // "review all" list of detected items
   const inputRef = useRef<HTMLInputElement>(null)
 
   // Similarity check state — keyed by detected_item_id
@@ -118,6 +262,7 @@ export default function Upload() {
 
   const inPreview = previewGroups.length > 0
   const hasFailures = analyzeFailures.length > 0
+  const preview = filePreviews[0]?.url ?? null
 
   /** Flat ordered list of all items across all groups for the wizard. */
   const allWizardItems = useMemo<WizardItem[]>(
@@ -141,10 +286,25 @@ export default function Upload() {
   const allSaved = previewGroups.length > 0 && previewGroups.every(g => g.saved)
 
   const handleFiles = useCallback((selected: File[]) => {
-    const images = selected.filter(f => f.type.startsWith('image/')).slice(0, 20)
-    setFiles(images)
-    if (preview) URL.revokeObjectURL(preview)
-    setPreview(images[0] ? URL.createObjectURL(images[0]) : null)
+    const incoming = Array.from(selected)
+    const images = incoming.filter(f => f.type.startsWith('image/'))
+    const withinSize = images.filter(f => f.size <= MAX_FILE_SIZE)
+    const capped = withinSize.slice(0, MAX_FILES)
+
+    // Error prevention: tell the user about anything we couldn't accept
+    const skipped: string[] = []
+    const nonImage = incoming.length - images.length
+    const tooBig = images.length - withinSize.length
+    const overflow = withinSize.length - capped.length
+    if (nonImage) skipped.push(`${nonImage} non-image file${nonImage === 1 ? '' : 's'}`)
+    if (tooBig) skipped.push(`${tooBig} over 10MB`)
+    if (overflow) skipped.push(`${overflow} beyond the ${MAX_FILES}-photo limit`)
+    setFileNotice(skipped.length ? `Skipped ${skipped.join(', ')}.` : null)
+
+    // Revoke previous object URLs to avoid leaks, then build fresh previews
+    filePreviews.forEach(p => URL.revokeObjectURL(p.url))
+    setFiles(capped)
+    setFilePreviews(capped.map(f => ({ url: URL.createObjectURL(f), name: f.name })))
     setPreviewGroups([])
     setAnalyzeFailures([])
     setSaveOkMessage(null)
@@ -153,7 +313,18 @@ export default function Upload() {
     setSimilarItemsMap({})
     setSimilarLoadingIds(new Set())
     setSimilarErrorIds(new Set())
-  }, [preview])
+  }, [filePreviews])
+
+  /** Remove a single selected photo before analysis (user control & freedom). */
+  const removeFile = useCallback((index: number) => {
+    setFilePreviews(prev => {
+      const target = prev[index]
+      if (target) URL.revokeObjectURL(target.url)
+      return prev.filter((_, i) => i !== index)
+    })
+    setFiles(prev => prev.filter((_, i) => i !== index))
+    setFileNotice(null)
+  }, [])
 
   /** Fire similarity checks for a batch of draft items in parallel. Never throws. */
   const runSimilarityChecks = useCallback(async (drafts: ItemDraft[]) => {
@@ -194,9 +365,10 @@ export default function Upload() {
   }, [handleFiles])
 
   const resetAll = useCallback(() => {
+    filePreviews.forEach(p => URL.revokeObjectURL(p.url))
     setFiles([])
-    if (preview) URL.revokeObjectURL(preview)
-    setPreview(null)
+    setFilePreviews([])
+    setFileNotice(null)
     setPreviewGroups([])
     setAnalyzeFailures([])
     setUploadProgress(null)
@@ -206,7 +378,7 @@ export default function Upload() {
     setSimilarItemsMap({})
     setSimilarLoadingIds(new Set())
     setSimilarErrorIds(new Set())
-  }, [preview])
+  }, [filePreviews])
 
   const extractErr = (err: unknown): string => {
     type ApiErr = {
@@ -335,29 +507,43 @@ export default function Upload() {
     return total_saved
   }
 
-  /** Save every group that has at least one selected item. */
+  /**
+   * Save every group that has at least one selected item.
+   * Resilient to partial failure: a failing photo never blocks the others, and
+   * we report exactly what saved vs. what's left to retry (failed groups stay unsaved).
+   */
   const confirmAllGroups = async () => {
     setSavingAll(true)
     setError(null)
     setSaveOkMessage(null)
-    try {
-      let totalSaved = 0
-      for (const group of previewGroups) {
-        if (!group.saved && group.drafts.some(d => d.selected)) {
-          totalSaved += await confirmGroup(group)
-        }
+
+    let totalSaved = 0
+    let attempted = 0
+    const failed: { filename: string; error: string }[] = []
+
+    for (const group of previewGroups) {
+      if (group.saved || !group.drafts.some(d => d.selected)) continue
+      attempted++
+      try {
+        totalSaved += await confirmGroup(group)
+      } catch (err: unknown) {
+        failed.push({ filename: group.filename, error: extractErr(err) })
       }
-      await fetchClosetItems()
-      if (totalSaved > 0) {
-        setSaveOkMessage(`${totalSaved} item${totalSaved === 1 ? '' : 's'} saved to your closet!`)
-      } else {
-        setError('No items were selected to save. Skip or go back and select some.')
-      }
-    } catch (err: unknown) {
-      setError(`Save failed: ${extractErr(err)}`)
-    } finally {
-      setSavingAll(false)
     }
+
+    await fetchClosetItems().catch(() => { /* closet refresh is best-effort */ })
+
+    if (attempted === 0) {
+      setError('No items are selected to save. Include at least one item, then press Save.')
+    } else if (failed.length === 0) {
+      setSaveOkMessage(`${totalSaved} item${totalSaved === 1 ? '' : 's'} saved to your closet!`)
+    } else {
+      const names = failed.map(f => f.filename).join(', ')
+      if (totalSaved > 0) setSaveOkMessage(`${totalSaved} item${totalSaved === 1 ? '' : 's'} saved.`)
+      setError(`Couldn't save ${failed.length} photo${failed.length === 1 ? '' : 's'} (${names}). They're still here — fix any issues and press Save to retry.`)
+    }
+
+    setSavingAll(false)
   }
 
   // Wizard navigation helpers
@@ -408,8 +594,12 @@ export default function Upload() {
         {/* ── Left panel: upload zone ── */}
         <div className="space-y-4">
           <div
+            role="button"
+            tabIndex={inPreview || preview ? -1 : 0}
+            aria-label="Upload photos. Drop images here, or press Enter to browse your files."
             className={cn(
-              'relative border-2 border-dashed rounded-2xl transition-all duration-200 cursor-pointer',
+              'relative border-2 border-dashed rounded-2xl transition-all duration-200',
+              !inPreview && !preview && 'cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2',
               dragging ? 'drop-zone-active' : 'border-cream-300 dark:border-slate-600 hover:border-brand-400',
               preview ? 'aspect-[3/4]' : 'aspect-square',
             )}
@@ -417,10 +607,16 @@ export default function Upload() {
             onDragLeave={() => setDragging(false)}
             onDrop={onDrop}
             onClick={() => !inPreview && !preview && inputRef.current?.click()}
+            onKeyDown={e => {
+              if ((e.key === 'Enter' || e.key === ' ') && !inPreview && !preview) {
+                e.preventDefault()
+                inputRef.current?.click()
+              }
+            }}
           >
             {preview ? (
               <>
-                <img src={preview} alt="preview" className="w-full h-full object-cover rounded-2xl" />
+                <img src={preview} alt={filePreviews[0]?.name ?? 'Selected photo'} className="w-full h-full object-cover rounded-2xl" />
                 {!inPreview && (
                   <div className="absolute inset-0 rounded-2xl bg-black/30 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
                     <button
@@ -455,10 +651,53 @@ export default function Upload() {
             onChange={e => handleFiles(Array.from(e.target.files ?? []))}
           />
 
-          {files.length > 0 && !inPreview && (
-            <p className="text-xs font-medium text-slate-500 dark:text-slate-400 text-center">
-              {files.length} of 20 files selected
+          {/* Validation notice — what was skipped and why (error prevention) */}
+          {fileNotice && !inPreview && (
+            <p className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-2.5 py-1.5">
+              <Info size={13} className="mt-px shrink-0" />
+              <span>{fileNotice}</span>
             </p>
+          )}
+
+          {/* Selected-photos strip — see and manage every photo before analyzing (visibility + control) */}
+          {filePreviews.length > 0 && !inPreview && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                  {files.length} of {MAX_FILES} photo{files.length === 1 ? '' : 's'} selected
+                </p>
+                {files.length < MAX_FILES && (
+                  <button
+                    type="button"
+                    onClick={() => inputRef.current?.click()}
+                    className="text-xs font-semibold text-brand-600 dark:text-brand-400 hover:text-brand-700 dark:hover:text-brand-300"
+                  >
+                    + Add more
+                  </button>
+                )}
+              </div>
+              {filePreviews.length > 1 && (
+                <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide" role="list" aria-label="Selected photos">
+                  {filePreviews.map((p, i) => (
+                    <div key={p.url} role="listitem" className="relative flex-shrink-0">
+                      <img
+                        src={p.url}
+                        alt={p.name}
+                        className="w-14 h-14 rounded-lg object-cover border border-cream-200 dark:border-slate-700"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeFile(i)}
+                        aria-label={`Remove ${p.name}`}
+                        className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-slate-900/85 text-white flex items-center justify-center shadow-sm hover:bg-red-500 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400"
+                      >
+                        <X size={11} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
 
           {uploadProgress && (
@@ -480,9 +719,19 @@ export default function Upload() {
           )}
 
           {files.length > 0 && !inPreview && (
-            <Button className="w-full" disabled={uploading} icon={<Sparkles size={15} />} onClick={analyze}>
-              {uploading ? 'Analyzing…' : files.length > 1 ? 'Analyze with FANI (preview)' : 'Analyze with FANI'}
-            </Button>
+            <div className="space-y-2">
+              <Button className="w-full" disabled={uploading} loading={uploading} icon={<Sparkles size={15} />} onClick={analyze}>
+                {uploading
+                  ? 'Analyzing…'
+                  : files.length > 1 ? `Analyze ${files.length} photos with FANI` : 'Analyze with FANI'}
+              </Button>
+              {!uploading && (
+                <p className="flex items-center justify-center gap-1.5 text-[11px] text-slate-400">
+                  <ShieldCheck size={12} className="text-emerald-500" />
+                  Nothing is saved yet — you'll review every item first.
+                </p>
+              )}
+            </div>
           )}
 
           {inPreview && (
@@ -490,6 +739,7 @@ export default function Upload() {
               <Button
                 className="w-full"
                 variant="secondary"
+                icon={<ChevronLeft size={15} />}
                 onClick={() => {
                   setPreviewGroups([])
                   setAnalyzeFailures([])
@@ -501,10 +751,10 @@ export default function Upload() {
                   setSimilarErrorIds(new Set())
                 }}
               >
-                Back — adjust photos & analyze again
+                Re-analyze these photos
               </Button>
-              <Button className="w-full" variant="secondary" onClick={discardPreview} icon={<X size={15} />}>
-                Discard & start over
+              <Button className="w-full" variant="ghost" onClick={discardPreview} icon={<X size={15} />}>
+                Discard &amp; start over
               </Button>
             </div>
           )}
@@ -514,7 +764,7 @@ export default function Upload() {
         <div className="space-y-4">
           {!inPreview && files.length === 0 && (
             <div className="card p-6 text-center text-slate-500 dark:text-slate-400 text-sm">
-              Choose one or more photos to see AI-detected items. Nothing is saved until you confirm.
+              Choose one or more photos to see AI-detected items. Nothing is saved until you press Save.
             </div>
           )}
 
@@ -526,10 +776,88 @@ export default function Upload() {
           )}
 
           {inPreview && allSaved && (
-            <div className="card p-6 text-center space-y-2">
+            <div className="card p-6 text-center space-y-3">
               <CheckCircle size={32} className="text-emerald-500 mx-auto" />
-              <p className="font-semibold text-slate-700 dark:text-slate-200">All items saved!</p>
-              <p className="text-sm text-slate-400">Upload another photo to keep growing your closet.</p>
+              <div>
+                <p className="font-semibold text-slate-700 dark:text-slate-200">All items saved!</p>
+                <p className="text-sm text-slate-400">Upload another photo to keep growing your closet.</p>
+              </div>
+              <div className="flex gap-2 justify-center">
+                <Link to="/closet" className="btn-secondary text-xs px-4 py-2 rounded-xl">View my closet</Link>
+                <Button size="sm" onClick={resetAll}>Upload more</Button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Persistent action bar — global Save is always reachable, never buried in the last card ── */}
+          {inPreview && !allSaved && totalDetections > 0 && (
+            <div className="sticky top-2 z-10 card p-3 flex items-center justify-between gap-3 shadow-md">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 leading-tight">
+                  {selectedCount} of {totalDetections} selected
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowOverview(v => !v)}
+                  aria-expanded={showOverview}
+                  className="text-[11px] font-medium text-brand-600 dark:text-brand-400 hover:underline"
+                >
+                  {showOverview ? 'Hide list' : 'Review all'}
+                </button>
+              </div>
+              <Button
+                size="sm"
+                icon={<CheckCircle size={14} />}
+                loading={savingAll}
+                disabled={selectedCount === 0 || savingAll}
+                onClick={() => void confirmAllGroups()}
+              >
+                Save {selectedCount > 0 ? selectedCount : ''}
+              </Button>
+            </div>
+          )}
+
+          {/* ── Overview list — see and triage every detected item at a glance (review all) ── */}
+          {inPreview && !allSaved && showOverview && (
+            <div className="card p-2 space-y-1 max-h-80 overflow-y-auto">
+              {allWizardItems.map((wi, idx) => {
+                const d = wi.draft
+                const tier = confidenceTier(d.confidence)
+                const thumb = resolveUploadUrl(d.preview_image_url) ?? d.preview_image_url
+                return (
+                  <div
+                    key={d.detected_item_id}
+                    className={cn(
+                      'flex items-center gap-2.5 px-2 py-1.5 rounded-xl cursor-pointer transition-colors',
+                      idx === wizardIndex ? 'bg-brand-50 dark:bg-brand-900/20' : 'hover:bg-slate-50 dark:hover:bg-slate-800/60',
+                      !d.selected && 'opacity-50',
+                    )}
+                    onClick={() => { setWizardIndex(idx); setShowOverview(false) }}
+                  >
+                    {thumb && <img src={thumb} alt={d.name} className="w-9 h-11 rounded-lg object-cover bg-slate-100 dark:bg-slate-800 flex-shrink-0" />}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate">{d.name}</p>
+                      <p className="text-[10px] text-slate-400 capitalize flex items-center gap-1">
+                        <span className={cn('w-1.5 h-1.5 rounded-full', tier.dot)} /> {d.category}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={e => { e.stopPropagation(); updateDraft(wi.sessionId, d.slot_index, { selected: !d.selected }) }}
+                      aria-pressed={d.selected}
+                      title={d.selected ? 'Included — click to skip' : 'Skipped — click to include'}
+                      className={cn(
+                        'flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center transition-colors',
+                        d.selected
+                          ? 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/40 dark:text-emerald-300'
+                          : 'bg-slate-100 text-slate-400 dark:bg-slate-800',
+                      )}
+                    >
+                      {d.selected ? <CheckCircle size={14} /> : <Circle size={14} />}
+                    </button>
+                  </div>
+                )
+              })}
             </div>
           )}
 
@@ -537,29 +865,50 @@ export default function Upload() {
             <div className="card overflow-hidden">
               {/* Progress bar */}
               <div className="px-4 pt-4 pb-2 space-y-2">
-                <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center justify-between text-xs gap-2">
                   <span className="font-medium text-slate-600 dark:text-slate-300">
                     Item {wizardIndex + 1} <span className="text-slate-400">of {totalDetections}</span>
                   </span>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
                     {previewGroups.length > 1 && (
                       <span className="text-slate-400 truncate max-w-[120px]">{currentWizardItem.filename}</span>
                     )}
-                    {currentWizardItem.draft.selected ? (
-                      <Badge variant="green">Include</Badge>
-                    ) : (
-                      <Badge variant="gray">Skipped</Badge>
-                    )}
+                    {/* Include / Skip toggle — re-includable, not skip-only (user control) */}
+                    <button
+                      type="button"
+                      onClick={() => updateDraft(
+                        currentWizardItem.sessionId,
+                        currentWizardItem.draft.slot_index,
+                        { selected: !currentWizardItem.draft.selected },
+                      )}
+                      aria-pressed={currentWizardItem.draft.selected}
+                      title={currentWizardItem.draft.selected
+                        ? 'This item will be saved — click to skip it'
+                        : 'This item is skipped — click to include it'}
+                      className={cn(
+                        'inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors',
+                        currentWizardItem.draft.selected
+                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900/60'
+                          : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700',
+                      )}
+                    >
+                      {currentWizardItem.draft.selected
+                        ? <><CheckCircle size={11} /> Including</>
+                        : <><Circle size={11} /> Skipped</>}
+                    </button>
                   </div>
                 </div>
-                {/* Step dots */}
-                <div className="flex gap-1">
+                {/* Step dots — jump to any item */}
+                <div className="flex gap-1" role="tablist" aria-label="Detected items">
                   {allWizardItems.map((wi, idx) => (
                     <button
                       key={idx}
                       onClick={() => setWizardIndex(idx)}
+                      role="tab"
+                      aria-selected={idx === wizardIndex}
+                      aria-label={`Go to item ${idx + 1}${wi.draft.selected ? '' : ' (skipped)'}`}
                       className={cn(
-                        'h-1.5 rounded-full flex-1 transition-all',
+                        'h-1.5 rounded-full flex-1 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400',
                         idx === wizardIndex
                           ? 'bg-brand-500'
                           : wi.draft.selected
@@ -588,31 +937,36 @@ export default function Upload() {
                         </div>
                       )}
 
-                      {/* Name + badges */}
+                      {/* Name + AI provenance + confidence */}
                       <div className="space-y-1.5">
                         <p className="font-semibold text-sm text-slate-800 dark:text-slate-100">{d.name}</p>
-                        <div className="flex flex-wrap gap-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
                           <Badge variant="purple">{d.category}</Badge>
                           {d.subcategory.trim() ? <Badge variant="gray">{d.subcategory}</Badge> : null}
-                          {d.background_removed && <Badge variant="gray">BG removed</Badge>}
-                          <span
-                            className={
-                              d.confidence < LOW_CONFIDENCE_THRESHOLD
-                                ? 'text-[10px] font-medium text-amber-600 dark:text-amber-400 self-center'
-                                : 'text-[10px] text-slate-400 self-center'
-                            }
-                          >
-                            {(d.confidence * 100).toFixed(0)}% confidence
-                          </span>
+                          {d.background_removed && <Badge variant="gray">Background removed</Badge>}
+                          {/* Tiered confidence pill */}
+                          {(() => {
+                            const tier = confidenceTier(d.confidence)
+                            return (
+                              <span
+                                title="How sure FANI is it identified this item correctly. Lower confidence means you should double-check the details below."
+                                className={cn(
+                                  'inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-semibold',
+                                  'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800',
+                                  tier.text,
+                                )}
+                              >
+                                <span className={cn('w-1.5 h-1.5 rounded-full', tier.dot)} />
+                                {tier.label} · {(d.confidence * 100).toFixed(0)}%
+                              </span>
+                            )
+                          })()}
                         </div>
                         {d.confidence < LOW_CONFIDENCE_THRESHOLD && (
                           <p className="flex items-start gap-1 text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-md px-2 py-1">
                             <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
-                            <span>Low detection confidence — please review the details below before saving.</span>
+                            <span>FANI wasn't very sure about this one — please double-check the name, category, and colour before saving.</span>
                           </p>
-                        )}
-                        {d.bg_status && d.bg_status !== 'success_rembg' && d.bg_status !== 'success_pil' && (
-                          <p className="text-[10px] text-slate-400">BG: {d.bg_status}</p>
                         )}
                       </div>
 
@@ -625,67 +979,136 @@ export default function Upload() {
                         newItemImageUrl={resolveUploadUrl(d.preview_image_url) ?? d.preview_image_url}
                       />
 
-                      {/* Editable fields */}
+                      {/* AI transparency banner — sets the frame that these are editable AI suggestions */}
+                      <div className="flex items-start gap-2 rounded-xl bg-brand-50 dark:bg-brand-900/20 border border-brand-200 dark:border-brand-800 px-3 py-2">
+                        <Sparkles size={14} className="text-brand-500 mt-0.5 shrink-0" />
+                        <p className="text-[11px] leading-relaxed text-brand-700 dark:text-brand-300">
+                          These details were detected by <span className="font-semibold">FANI</span> and may not be perfect.
+                          Fields tagged <span className="font-bold">AI</span> were auto-filled — edit anything to override.
+                          You're always in control: nothing is saved until you press Save.
+                        </p>
+                      </div>
+
+                      {/* Primary fields — what FANI is most/least sure about, always visible */}
                       <div className="grid gap-2 sm:grid-cols-2">
-                        <Input
+                        <AIInput
                           label="Name"
+                          id={`f-${d.detected_item_id}-name`}
+                          aiState={aiFieldState(d, 'name')}
                           value={d.name}
                           onChange={e => updateDraft(currentWizardItem.sessionId, d.slot_index, { name: e.target.value })}
                         />
-                        <Select
-                          label="Category"
-                          options={CATEGORY_OPTIONS}
-                          value={d.category}
-                          onChange={e => updateDraft(currentWizardItem.sessionId, d.slot_index, { category: e.target.value })}
-                        />
-                        <Input
+                        <div className="w-full">
+                          <AIFieldLabel label="Category" state={aiFieldState(d, 'category')} htmlFor={`f-${d.detected_item_id}-category`} />
+                          <Select
+                            id={`f-${d.detected_item_id}-category`}
+                            options={CATEGORY_OPTIONS}
+                            value={d.category}
+                            onChange={e => updateDraft(currentWizardItem.sessionId, d.slot_index, { category: e.target.value })}
+                          />
+                        </div>
+                        <AIInput
                           label="Color"
+                          id={`f-${d.detected_item_id}-color`}
+                          aiState={aiFieldState(d, 'color')}
                           value={d.color}
                           onChange={e => updateDraft(currentWizardItem.sessionId, d.slot_index, { color: e.target.value })}
                         />
-                        <Input
-                          label="Material"
-                          value={d.material}
-                          onChange={e => updateDraft(currentWizardItem.sessionId, d.slot_index, { material: e.target.value })}
-                        />
-                        <Input
-                          label="Pattern"
-                          value={d.pattern}
-                          onChange={e => updateDraft(currentWizardItem.sessionId, d.slot_index, { pattern: e.target.value })}
-                        />
-                        <Input
-                          label="Season"
-                          value={d.seasonStr}
-                          onChange={e => updateDraft(currentWizardItem.sessionId, d.slot_index, { seasonStr: e.target.value })}
-                          placeholder="spring, summer"
-                        />
-                        <Input
-                          label="Occasion"
-                          value={d.occasionStr}
-                          onChange={e => updateDraft(currentWizardItem.sessionId, d.slot_index, { occasionStr: e.target.value })}
-                          placeholder="casual, work"
-                        />
-                        <Input
-                          label="Brand"
-                          value={d.brand}
-                          onChange={e => updateDraft(currentWizardItem.sessionId, d.slot_index, { brand: e.target.value })}
-                        />
-                        <Input
-                          label="Size"
-                          value={d.size}
-                          onChange={e => updateDraft(currentWizardItem.sessionId, d.slot_index, { size: e.target.value })}
-                        />
-                        <Input
-                          label="Price"
-                          value={d.priceStr}
-                          onChange={e => updateDraft(currentWizardItem.sessionId, d.slot_index, { priceStr: e.target.value })}
-                          type="number"
-                          step="0.01"
-                        />
                       </div>
+
+                      {/* Season & Occasion — tap a chip or type your own (recognition over recall) */}
+                      <TokenField
+                        label="Season"
+                        id={`f-${d.detected_item_id}-season`}
+                        value={d.seasonStr}
+                        suggestions={CLOSET_SEASONS}
+                        placeholder="spring, summer"
+                        aiState={aiFieldState(d, 'seasonStr')}
+                        onChange={v => updateDraft(currentWizardItem.sessionId, d.slot_index, { seasonStr: v })}
+                      />
+                      <TokenField
+                        label="Occasion"
+                        id={`f-${d.detected_item_id}-occasion`}
+                        value={d.occasionStr}
+                        suggestions={CLOSET_OCCASIONS}
+                        placeholder="casual, work"
+                        aiState={aiFieldState(d, 'occasionStr')}
+                        onChange={v => updateDraft(currentWizardItem.sessionId, d.slot_index, { occasionStr: v })}
+                      />
+
+                      {/* Secondary fields — progressive disclosure keeps the card light */}
+                      {(() => {
+                        const moreKeys = ['material', 'pattern', 'brand', 'size', 'priceStr'] as const
+                        const filledCount = moreKeys.filter(k => (d[k] as string).trim()).length
+                        return (
+                          <div>
+                            <button
+                              type="button"
+                              onClick={() => setShowMore(v => !v)}
+                              aria-expanded={showMore}
+                              className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+                            >
+                              <ChevronRight size={14} className={cn('transition-transform', showMore && 'rotate-90')} />
+                              More details
+                              {filledCount > 0 && (
+                                <span className="text-[10px] font-bold text-brand-500">({filledCount} filled)</span>
+                              )}
+                            </button>
+                            <div className={cn(
+                              'overflow-hidden transition-all duration-200 ease-in-out',
+                              showMore ? 'max-h-[28rem] opacity-100 mt-2' : 'max-h-0 opacity-0',
+                            )}>
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                <AIInput
+                                  label="Material"
+                                  id={`f-${d.detected_item_id}-material`}
+                                  aiState={aiFieldState(d, 'material')}
+                                  value={d.material}
+                                  onChange={e => updateDraft(currentWizardItem.sessionId, d.slot_index, { material: e.target.value })}
+                                />
+                                <AIInput
+                                  label="Pattern"
+                                  id={`f-${d.detected_item_id}-pattern`}
+                                  aiState={aiFieldState(d, 'pattern')}
+                                  value={d.pattern}
+                                  onChange={e => updateDraft(currentWizardItem.sessionId, d.slot_index, { pattern: e.target.value })}
+                                />
+                                <div className="w-full">
+                                  <label htmlFor={`f-${d.detected_item_id}-brand`} className="label">Brand</label>
+                                  <Input
+                                    id={`f-${d.detected_item_id}-brand`}
+                                    value={d.brand}
+                                    onChange={e => updateDraft(currentWizardItem.sessionId, d.slot_index, { brand: e.target.value })}
+                                  />
+                                </div>
+                                <div className="w-full">
+                                  <label htmlFor={`f-${d.detected_item_id}-size`} className="label">Size</label>
+                                  <Input
+                                    id={`f-${d.detected_item_id}-size`}
+                                    value={d.size}
+                                    onChange={e => updateDraft(currentWizardItem.sessionId, d.slot_index, { size: e.target.value })}
+                                  />
+                                </div>
+                                <div className="w-full">
+                                  <label htmlFor={`f-${d.detected_item_id}-price`} className="label">Price</label>
+                                  <Input
+                                    id={`f-${d.detected_item_id}-price`}
+                                    value={d.priceStr}
+                                    onChange={e => updateDraft(currentWizardItem.sessionId, d.slot_index, { priceStr: e.target.value })}
+                                    type="number"
+                                    step="0.01"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })()}
+
                       <div>
-                        <label className="label">Description</label>
+                        <AIFieldLabel label="Description" state={aiFieldState(d, 'notes')} htmlFor={`f-${d.detected_item_id}-notes`} />
                         <textarea
+                          id={`f-${d.detected_item_id}-notes`}
                           rows={2}
                           className="input resize-none w-full"
                           value={d.notes}
@@ -745,6 +1168,11 @@ export default function Upload() {
                     )}
                   </button>
                 </div>
+
+                {/* Persistent reassurance — recover/help */}
+                <p className="text-[11px] text-slate-400 text-center">
+                  {selectedCount} of {totalDetections} will be saved · skipped items are left out · nothing saves until you press Save
+                </p>
               </div>
             </div>
           )}

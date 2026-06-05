@@ -653,7 +653,7 @@ export const outfitsApi = {
     date?: string
     location?: string
   }): Promise<OutfitAnalysis> {
-    const { data } = await api.post<OutfitAnalysis>('/outfits/generate', body)
+    const { data } = await api.post<OutfitAnalysis>('/outfits/analyze', body)
     return data
   },
 }

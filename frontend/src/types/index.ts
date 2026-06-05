@@ -641,6 +641,7 @@ export interface OutfitAnalysis {
   missing_pieces: string[]
   style_tips: string[]
   suggested_pairings?: SuggestedPairingItem[]
+  suggested_pairings_error?: boolean
 }
 
 // ── Vision pipeline ──────────────────────────────────────────────────────────

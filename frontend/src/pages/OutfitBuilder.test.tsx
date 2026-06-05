@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import { vi } from 'vitest'
 import OutfitBuilder, { AIAnalysisPanel } from '@/pages/OutfitBuilder'
 import { MockAppProvider } from '@/test/utils'
@@ -71,9 +72,11 @@ describe('OutfitBuilder', () => {
   it('gates the canvas until the closet reaches five items', () => {
     const few = Array.from({ length: 4 }, (_, i) => canvasItem(i + 1))
     render(
-      <MockAppProvider value={{ closetItems: few }}>
-        <OutfitBuilder />
-      </MockAppProvider>,
+      <MemoryRouter>
+        <MockAppProvider value={{ closetItems: few }}>
+          <OutfitBuilder />
+        </MockAppProvider>
+      </MemoryRouter>,
     )
     expect(screen.getByRole('heading', { name: /You need at least 5 items/i })).toBeInTheDocument()
   })
@@ -81,9 +84,11 @@ describe('OutfitBuilder', () => {
   it('shows the canvas and helper copy once enough pieces exist', () => {
     const many = Array.from({ length: 6 }, (_, i) => canvasItem(i + 1))
     render(
-      <MockAppProvider value={{ closetItems: many }}>
-        <OutfitBuilder />
-      </MockAppProvider>,
+      <MemoryRouter>
+        <MockAppProvider value={{ closetItems: many }}>
+          <OutfitBuilder />
+        </MockAppProvider>
+      </MemoryRouter>,
     )
 
     expect(screen.getByRole('heading', { name: 'Outfit Builder' })).toBeInTheDocument()

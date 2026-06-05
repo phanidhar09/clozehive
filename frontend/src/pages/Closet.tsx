@@ -1,14 +1,16 @@
-import React, { useMemo } from 'react'
+import React, { useMemo, useRef, useState, useEffect, useLayoutEffect } from 'react'
 import {
   Search, SlidersHorizontal, ArrowUpDown, Loader2, RefreshCw, Trash2, X,
-  Sparkles, ChevronRight, Clock, TrendingUp, Plus, Wand2, Shirt, Eye, Pencil,
+  Sparkles, Plus, Wand2, Shirt, Eye, Pencil, Check,
   Heart, LayoutGrid, List,
 } from 'lucide-react'
+import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import { Link } from 'react-router-dom'
 import { useApp } from '@/store'
 import { usePageState } from '@/hooks/usePageState'
 import { useWindowScrollRestoration } from '@/hooks/useScrollRestoration'
 import { closetApi } from '@/lib/api'
+import { toastStore } from '@/store/notificationStore'
 import ItemDetailModal from '@/components/closet/ItemDetailModal'
 import EditItemModal from '@/components/closet/EditItemModal'
 import RevealCard from '@/components/ui/RevealCard'
@@ -28,6 +30,27 @@ import {
   CLOSET_SEASONS,
   CLOSET_SORT_OPTIONS,
 } from '@/features/closet/constants'
+// ── Column count hook (maps Tailwind breakpoints to grid columns) ─────────────
+
+function useColumnCount(): number {
+  const getCount = () => {
+    if (typeof window === 'undefined') return 2
+    const w = window.innerWidth
+    if (w >= 1280) return 6
+    if (w >= 1024) return 5
+    if (w >= 768)  return 4
+    if (w >= 640)  return 3
+    return 2
+  }
+  const [cols, setCols] = useState(getCount)
+  useEffect(() => {
+    const h = () => setCols(getCount())
+    window.addEventListener('resize', h, { passive: true })
+    return () => window.removeEventListener('resize', h)
+  }, [])
+  return cols
+}
+
 // ── Shared helpers ─────────────────────────────────────────────────────────────
 
 const CATEGORY_EMOJI_MAP: Record<string, string> = {
@@ -304,39 +327,6 @@ function ClosetItemCard({
   )
 }
 
-function RecentlyAddedSection({
-  items, onOpen, onDelete, onEdit, deleting,
-}: { items: ClosetItem[]; onOpen: (i: ClosetItem) => void; onDelete: (i: ClosetItem) => void; onEdit: (i: ClosetItem) => void; deleting: string | null }) {
-  const recent = useMemo(() =>
-    [...items].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 6)
-  , [items])
-
-  if (recent.length === 0) return null
-
-  return (
-    <section>
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <Clock size={15} className="text-brand-500" />
-          <h3 className="font-semibold text-sm text-slate-700 dark:text-slate-200">Recently Added</h3>
-        </div>
-        <span className="text-[11px] text-slate-400">{recent.length} items</span>
-      </div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-        {recent.map(item => (
-          <ClosetItemCard
-            key={item.id}
-            item={item}
-            onOpen={onOpen}
-            onDelete={onDelete}
-            onEdit={onEdit}
-            deleting={deleting === item.id}
-          />
-        ))}
-      </div>
-    </section>
-  )
-}
 
 // ── Main page ──────────────────────────────────────────────────────────────────
 
@@ -360,6 +350,13 @@ export default function Closet() {
 
   // Restore scroll position across navigations
   useWindowScrollRestoration('closet-scroll')
+
+  // Virtualizer setup
+  const cols = useColumnCount()
+  const gridRef  = useRef<HTMLDivElement>(null)
+  const listRef  = useRef<HTMLDivElement>(null)
+  const [gridScrollMargin, setGridScrollMargin] = useState(0)
+  const [listScrollMargin, setListScrollMargin] = useState(0)
 
   const filtered = useMemo(() => {
     let items = closetItems
@@ -398,6 +395,57 @@ export default function Closet() {
 
   const isFiltered = category !== 'all' || search.trim() !== '' || !!colorFilter || !!seasonFilter || !!occasionFilter
 
+  // Distinct colors present in the wardrobe (for the swatch filter), most common first
+  const colorOptions = useMemo(() => {
+    const map = new Map<string, { name: string; hex: string | null; count: number }>()
+    for (const i of closetItems) {
+      const raw = (i.color || '').trim()
+      if (!raw) continue
+      const key = raw.toLowerCase()
+      const existing = map.get(key)
+      if (existing) {
+        existing.count++
+        if (!existing.hex && i.color_hex) existing.hex = i.color_hex
+      } else {
+        map.set(key, { name: raw, hex: i.color_hex || null, count: 1 })
+      }
+    }
+    return [...map.values()].sort((a, b) => b.count - a.count)
+  }, [closetItems])
+
+  // Rows for the virtual grid (group filtered items by column count)
+  const rows = useMemo(() => {
+    const out: ClosetItem[][] = []
+    for (let i = 0; i < filtered.length; i += cols) {
+      out.push(filtered.slice(i, i + cols))
+    }
+    return out
+  }, [filtered, cols])
+
+  // Capture container offsets after layout so virtualizers position items correctly
+  useLayoutEffect(() => {
+    const gm = gridRef.current?.offsetTop ?? 0
+    if (gm !== gridScrollMargin) setGridScrollMargin(gm)
+  })
+  useLayoutEffect(() => {
+    const lm = listRef.current?.offsetTop ?? 0
+    if (lm !== listScrollMargin) setListScrollMargin(lm)
+  })
+
+  const gridVirtualizer = useWindowVirtualizer({
+    count: rows.length,
+    estimateSize: () => 320,
+    overscan: 2,
+    scrollMargin: gridScrollMargin,
+  })
+
+  const listVirtualizer = useWindowVirtualizer({
+    count: filtered.length,
+    estimateSize: () => 72,
+    overscan: 5,
+    scrollMargin: listScrollMargin,
+  })
+
   const handleItemSaved = (updated: ClosetItem) => {
     setClosetItems(closetItems.map(i => i.id === updated.id ? updated : i))
     setSelected(updated)
@@ -415,7 +463,11 @@ export default function Closet() {
       removeClosetItem(item.id)
       if (selected?.id === item.id) setSelected(null)
     } catch {
-      alert('Failed to delete item. Please try again.')
+      toastStore.add({
+        title: 'Delete failed',
+        body: `Couldn't delete "${item.name}". Please try again.`,
+        variant: 'error',
+      })
     } finally {
       setDeleting(null)
     }
@@ -428,7 +480,7 @@ export default function Closet() {
 
   if (closetLoading && closetItems.length === 0) {
     return (
-      <div className="space-y-5">
+      <div className="space-y-5" role="status" aria-live="polite" aria-label="Loading your wardrobe">
         <PageHeader icon={<Shirt size={18} />} title="My Closet" subtitle="Loading your wardrobe…"
           actions={<RefreshCw size={15} className="animate-spin text-brand-500" />}
         />
@@ -475,43 +527,51 @@ export default function Closet() {
       )}
 
       {/* ── Closet actions strip ── */}
-      <div className="-mx-4 lg:-mx-6 px-4 lg:px-6 py-2.5
-                      border-b border-cream-200/70 dark:border-white/[0.06]">
-        <div className="grid grid-cols-2 gap-2.5">
-        <Link
-          to="/upload"
-          className="flex items-center gap-3 px-4 py-3 rounded-2xl
-                     bg-gradient-to-br from-brand-500 to-brand-700
-                     text-white shadow-md shadow-brand-500/20
-                     hover:shadow-brand-500/35 hover:-translate-y-0.5
-                     transition-all duration-200"
-        >
-          <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center flex-shrink-0">
-            <Plus size={16} />
+      {closetItems.length <= 8 ? (
+        <div className="-mx-4 lg:-mx-6 px-4 lg:px-6 py-2.5 border-b border-cream-200/70 dark:border-white/[0.06]">
+          <div className="grid grid-cols-2 gap-2.5">
+            <Link
+              to="/upload"
+              className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-md shadow-brand-500/20 hover:shadow-brand-500/35 hover:-translate-y-0.5 transition-all duration-200"
+            >
+              <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center flex-shrink-0">
+                <Plus size={16} />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-bold leading-tight">Add Items</p>
+                <p className="text-[11px] text-white/70 leading-tight">Upload new clothing</p>
+              </div>
+            </Link>
+            <Link
+              to="/closet-match"
+              className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-gradient-to-br from-pink-500 to-rose-600 text-white shadow-md shadow-pink-500/20 hover:shadow-pink-500/35 hover:-translate-y-0.5 transition-all duration-200"
+            >
+              <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center flex-shrink-0">
+                <Wand2 size={16} />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-bold leading-tight">Fit Match</p>
+                <p className="text-[11px] text-white/70 leading-tight">Match pieces before you buy</p>
+              </div>
+            </Link>
           </div>
-          <div className="min-w-0">
-            <p className="text-sm font-bold leading-tight">Add Items</p>
-            <p className="text-[11px] text-white/70 leading-tight">Upload new clothing</p>
-          </div>
-        </Link>
-        <Link
-          to="/closet-match"
-          className="flex items-center gap-3 px-4 py-3 rounded-2xl
-                     bg-gradient-to-br from-pink-500 to-rose-600
-                     text-white shadow-md shadow-pink-500/20
-                     hover:shadow-pink-500/35 hover:-translate-y-0.5
-                     transition-all duration-200"
-        >
-          <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center flex-shrink-0">
-            <Wand2 size={16} />
-          </div>
-          <div className="min-w-0">
-            <p className="text-sm font-bold leading-tight">Fit Match</p>
-            <p className="text-[11px] text-white/70 leading-tight">Match pieces before you buy</p>
-          </div>
-        </Link>
         </div>
-      </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <Link
+            to="/upload"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-brand-50 dark:bg-brand-900/20 text-brand-600 dark:text-brand-300 border border-brand-200 dark:border-brand-700 hover:bg-brand-100 dark:hover:bg-brand-800/40 transition-colors"
+          >
+            <Plus size={13} /> Add Items
+          </Link>
+          <Link
+            to="/closet-match"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-pink-50 dark:bg-pink-900/20 text-pink-600 dark:text-pink-300 border border-pink-200 dark:border-pink-700 hover:bg-pink-100 dark:hover:bg-pink-800/40 transition-colors"
+          >
+            <Wand2 size={13} /> Fit Match
+          </Link>
+        </div>
+      )}
 
       {/* ── Category tabs — hidden when closet is empty ── */}
       {closetItems.length > 0 && <div className="relative">
@@ -619,12 +679,34 @@ export default function Closet() {
           <div className="flex gap-3 flex-wrap pt-3 border-t border-slate-200 dark:border-white/10">
             <div className="flex flex-col gap-1">
               <label className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">Color</label>
-              <input
-                className="input text-sm py-1.5 px-3 w-36"
-                placeholder="e.g. blue, red…"
-                value={colorFilter}
-                onChange={e => setColorFilter(e.target.value)}
-              />
+              {colorOptions.length === 0 ? (
+                <span className="text-xs text-slate-400 py-1.5">No colours tagged yet</span>
+              ) : (
+                <div className="flex flex-wrap gap-1.5 max-w-[280px] pt-0.5">
+                  {colorOptions.map(c => {
+                    const active = colorFilter.toLowerCase() === c.name.toLowerCase()
+                    return (
+                      <button
+                        key={c.name}
+                        type="button"
+                        onClick={() => setColorFilter(active ? '' : c.name)}
+                        title={`${c.name} · ${c.count} item${c.count !== 1 ? 's' : ''}`}
+                        aria-label={`Filter by ${c.name}`}
+                        aria-pressed={active}
+                        className={cn(
+                          'w-7 h-7 rounded-full border-2 flex items-center justify-center transition-all',
+                          active
+                            ? 'border-brand-500 ring-2 ring-brand-300/50 scale-110'
+                            : 'border-white dark:border-slate-600 hover:scale-105 shadow-sm',
+                        )}
+                        style={{ backgroundColor: c.hex || '#cbd5e1' }}
+                      >
+                        {active && <Check size={12} className="text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.5)]" />}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
             </div>
 
             <div className="flex flex-col gap-1">
@@ -774,23 +856,13 @@ export default function Closet() {
         />
       )}
 
-      {/* ── Recently Added — only when there are items beyond the 6 shown, to avoid duplicating the main grid ── */}
-      {!isFiltered && closetItems.length > 6 && (
-        <RecentlyAddedSection
-          items={closetItems}
-          onOpen={setSelected}
-          onDelete={handleDelete}
-          onEdit={setEditItem}
-          deleting={deleting}
-        />
-      )}
 
       {/* ── Main grid / list ── */}
       {filtered.length > 0 && (
         <section>
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <TrendingUp size={15} className="text-brand-500" />
+              <LayoutGrid size={15} className="text-brand-500" />
               <h3 className="font-semibold text-sm text-slate-700 dark:text-slate-200">
                 {isFiltered
                   ? `${filtered.length} result${filtered.length !== 1 ? 's' : ''}`
@@ -801,55 +873,71 @@ export default function Closet() {
           </div>
 
           {viewMode === 'grid' ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-              {filtered.map(item => (
-                <ClosetItemCard
-                  key={item.id}
-                  item={item}
-                  onOpen={setSelected}
-                  onDelete={handleDelete}
-                  onEdit={setEditItem}
-                  deleting={deleting === item.id}
-                />
+            <div
+              ref={gridRef}
+              style={{ height: `${gridVirtualizer.getTotalSize()}px`, position: 'relative' }}
+            >
+              {gridVirtualizer.getVirtualItems().map(vRow => (
+                <div
+                  key={vRow.key}
+                  data-index={vRow.index}
+                  ref={gridVirtualizer.measureElement}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${vRow.start - gridVirtualizer.options.scrollMargin}px)`,
+                  }}
+                >
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 pb-3">
+                    {rows[vRow.index].map(item => (
+                      <ClosetItemCard
+                        key={item.id}
+                        item={item}
+                        onOpen={setSelected}
+                        onDelete={handleDelete}
+                        onEdit={setEditItem}
+                        deleting={deleting === item.id}
+                      />
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
           ) : (
-            <div className="flex flex-col gap-2">
-              {filtered.map(item => (
-                <ClosetListRow
-                  key={item.id}
-                  item={item}
-                  onOpen={setSelected}
-                  onEdit={setEditItem}
-                  onDelete={handleDelete}
-                  deleting={deleting === item.id}
-                />
+            <div
+              ref={listRef}
+              style={{ height: `${listVirtualizer.getTotalSize()}px`, position: 'relative' }}
+            >
+              {listVirtualizer.getVirtualItems().map(vRow => (
+                <div
+                  key={vRow.key}
+                  data-index={vRow.index}
+                  ref={listVirtualizer.measureElement}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${vRow.start - listVirtualizer.options.scrollMargin}px)`,
+                    paddingBottom: '8px',
+                  }}
+                >
+                  <ClosetListRow
+                    item={filtered[vRow.index]}
+                    onOpen={setSelected}
+                    onEdit={setEditItem}
+                    onDelete={handleDelete}
+                    deleting={deleting === filtered[vRow.index].id}
+                  />
+                </div>
               ))}
             </div>
           )}
         </section>
       )}
 
-      {/* ── Floating Smart Upload banner (when closet has items) ── */}
-      {closetItems.length > 0 && closetItems.length < 10 && (
-        <div className="rounded-2xl bg-gradient-to-r from-brand-500/10 to-brand-600/10 border border-brand-200 dark:border-brand-800/50 p-4 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-brand-500 to-brand-600 flex items-center justify-center flex-shrink-0">
-              <Sparkles size={18} className="text-white" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">Grow your wardrobe faster</p>
-              <p className="text-xs text-slate-400">Upload up to 20 photos — AI detects and categorises everything</p>
-            </div>
-          </div>
-          <Link
-            to="/upload"
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold bg-gradient-to-r from-brand-500 to-brand-600 text-white flex-shrink-0 hover:opacity-90 transition-opacity"
-          >
-            Add Items <ChevronRight size={14} />
-          </Link>
-        </div>
-      )}
 
       <ItemDetailModal
         item={selected}

@@ -148,22 +148,21 @@ function CompletenessRing({ items }: { items: CanvasItem[] }) {
   const color = pct >= 80 ? '#10b981' : pct >= 60 ? '#f59e0b' : '#94a3b8'
   return (
     <div className="flex flex-col items-center gap-0.5" title={`${filled}/${total} outfit slots filled`}>
-      <svg width={54} height={54} className="-rotate-90">
-        <circle cx={27} cy={27} r={radius} fill="none" stroke="currentColor" strokeWidth={5}
-          className="text-slate-100 dark:text-slate-700" />
-        <circle cx={27} cy={27} r={radius} fill="none" stroke={color} strokeWidth={5}
-          strokeLinecap="round"
-          strokeDasharray={`${(pct / 100) * circ} ${circ}`}
-          style={{ transition: 'stroke-dasharray 0.5s ease' }}
-        />
-      </svg>
-      <div className="absolute pointer-events-none" style={{ marginTop: -36 }}>
-        <span className="text-[11px] font-bold text-slate-700 dark:text-white"
-          style={{ display: 'block', textAlign: 'center', lineHeight: '54px' }}>
-          {pct}%
-        </span>
+      <div className="relative w-[54px] h-[54px]">
+        <svg width={54} height={54} className="-rotate-90">
+          <circle cx={27} cy={27} r={radius} fill="none" stroke="currentColor" strokeWidth={5}
+            className="text-slate-100 dark:text-slate-700" />
+          <circle cx={27} cy={27} r={radius} fill="none" stroke={color} strokeWidth={5}
+            strokeLinecap="round"
+            strokeDasharray={`${(pct / 100) * circ} ${circ}`}
+            style={{ transition: 'stroke-dasharray 0.5s ease' }}
+          />
+        </svg>
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          <span className="text-[11px] font-bold text-slate-700 dark:text-white">{pct}%</span>
+        </div>
       </div>
-      <span className="text-[9px] text-slate-400 leading-none mt-0.5">{filled}/{total} slots</span>
+      <span className="text-[9px] text-slate-400 leading-none">{filled}/{total} slots</span>
     </div>
   )
 }
@@ -376,7 +375,7 @@ function OutfitPreviewStrip({ items, score }: { items: CanvasItem[]; score?: num
 
 // ── Closet draggable card ──────────────────────────────────────────────────────
 
-function ClosetDraggableCard({ item, added, onAdd }: { item: ClosetItem; added: boolean; onAdd: () => void }) {
+function ClosetDraggableCard({ item, added, onAdd, onRemove }: { item: ClosetItem; added: boolean; onAdd: () => void; onRemove: () => void }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `closet:${item.id}`,
     data: { item },
@@ -400,17 +399,24 @@ function ClosetDraggableCard({ item, added, onAdd }: { item: ClosetItem; added: 
         <p className="text-xs capitalize text-slate-500 dark:text-white/40">{item.category}</p>
       </div>
       <div className="px-3 pb-3">
-        <button
-          onClick={onAdd}
-          disabled={added}
-          className={`w-full flex items-center justify-center gap-1.5 rounded-xl py-1.5 text-[11px] font-semibold transition-all ${
-            added
-              ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400 cursor-default border border-emerald-200 dark:border-emerald-500/30'
-              : 'bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300 hover:bg-brand-100 dark:hover:bg-brand-500/25 border border-brand-200 dark:border-brand-500/30'
-          }`}
-        >
-          {added ? <><Check size={11} /> Added</> : <><Plus size={11} /> Add</>}
-        </button>
+        {added ? (
+          <button
+            onClick={onRemove}
+            className="group w-full flex items-center justify-center gap-1.5 rounded-xl py-1.5 text-[11px] font-semibold transition-all bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-red-50 dark:hover:bg-red-500/10 hover:border-red-200 dark:hover:border-red-500/30 hover:text-red-500 dark:hover:text-red-400"
+          >
+            <Check size={11} className="group-hover:hidden" />
+            <X size={11} className="hidden group-hover:block" />
+            <span className="group-hover:hidden">Added</span>
+            <span className="hidden group-hover:inline">Remove</span>
+          </button>
+        ) : (
+          <button
+            onClick={onAdd}
+            className="w-full flex items-center justify-center gap-1.5 rounded-xl py-1.5 text-[11px] font-semibold transition-all bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300 hover:bg-brand-100 dark:hover:bg-brand-500/25 border border-brand-200 dark:border-brand-500/30"
+          >
+            <Plus size={11} /> Add
+          </button>
+        )}
       </div>
     </div>
   )
@@ -970,6 +976,7 @@ export default function OutfitBuilder() {
     if (h < 22) return 'evening'
     return 'night'
   })
+  const [autoTime, setAutoTime] = useState(true)
   const [mood, setMood] = useState<Mood | null>(null)
   const [notes, setNotes] = useState('')
   const [browserOpen, setBrowserOpen] = useState(false)
@@ -999,6 +1006,12 @@ export default function OutfitBuilder() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.permissions?.location_coords?.lat, currentUser?.permissions?.location_coords?.lon])
 
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(null), 4000)
+    return () => clearTimeout(t)
+  }, [toast])
+
   // AI analysis
   const [analyzing, setAnalyzing] = useState(false)
   const [analysis, setAnalysis] = useState<OutfitAnalysis | null>(null)
@@ -1017,6 +1030,8 @@ export default function OutfitBuilder() {
 
   // AI results drawer
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [confirmClear, setConfirmClear] = useState(false)
+  const [showContext, setShowContext] = useState(false)
 
   // MouseSensor for desktop (drag after a 6px move) + TouchSensor for mobile
   // (press-and-hold ~180ms to drag, so a quick swipe still scrolls the strip).
@@ -1123,6 +1138,7 @@ export default function OutfitBuilder() {
   }
 
   const clear = () => {
+    setConfirmClear(false)
     setCanvasItems([])
     setName('')
     setOccasion('casual')
@@ -1219,6 +1235,11 @@ export default function OutfitBuilder() {
             added={addedIds.has(item.id)}
             onAdd={() => {
               setCanvasItems(prev => [...prev, { ...item, canvasId: `${item.id}:${crypto.randomUUID()}` }])
+              setAnalysis(null)
+              setAnalysisError(null)
+            }}
+            onRemove={() => {
+              setCanvasItems(prev => prev.filter(c => c.id !== item.id))
               setAnalysis(null)
               setAnalysisError(null)
             }}
@@ -1327,15 +1348,8 @@ export default function OutfitBuilder() {
             {/* ── Droppable canvas ──────────────────────────────────────────── */}
             <OutfitDroppable>
               {canvasItems.length === 0 ? (
-                <div
-                  className="flex min-h-40 flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-200 dark:border-white/10 py-8 text-center"
-                  aria-label="Outfit canvas — drag items here"
-                >
-                  <Sparkles size={22} className="text-brand-400/60 dark:text-brand-500/40" />
-                  <p className="text-sm font-medium text-slate-500 dark:text-white/40">
-                    Drag pieces from your closet to build a look
-                  </p>
-                  <p className="text-xs text-slate-400 dark:text-white/25">Or click an item to add it directly</p>
+                <div aria-label="Outfit canvas — drag items here">
+                  <SmartStartBanner onPick={handleSmartStart} />
                 </div>
               ) : (
                 <SortableContext
@@ -1392,7 +1406,22 @@ export default function OutfitBuilder() {
                 </div>
               </div>
 
-              {/* ── Time of day ────────────────────────────────────────────── */}
+              {/* ── Context toggle ────────────────────────────────────────── */}
+              <button
+                type="button"
+                onClick={() => setShowContext(v => !v)}
+                className="flex items-center gap-2 self-start text-xs font-semibold text-slate-500 dark:text-slate-400 hover:text-brand-500 transition-colors"
+              >
+                {showContext ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                {showContext ? 'Hide context' : 'Add context'}
+                {[mood, date.trim(), location.trim(), notes.trim()].filter(Boolean).length > 0 && (
+                  <span className="rounded-full bg-brand-500 text-white text-[9px] px-1.5 py-0.5 leading-none">
+                    {[mood, date.trim(), location.trim(), notes.trim()].filter(Boolean).length}
+                  </span>
+                )}
+              </button>
+
+              {showContext && (<>
               <div>
                 <label className="mb-1.5 block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Time of Day</label>
                 <div className="grid grid-cols-4 gap-2">
@@ -1400,7 +1429,7 @@ export default function OutfitBuilder() {
                     <button
                       key={t.value}
                       type="button"
-                      onClick={() => setTimeOfDay(t.value)}
+                      onClick={() => { setTimeOfDay(t.value); setAutoTime(false) }}
                       title={t.hint}
                       className={cn(
                         'flex flex-col items-center gap-1 rounded-2xl border py-2 text-[11px] font-semibold transition-all',
@@ -1411,6 +1440,9 @@ export default function OutfitBuilder() {
                     >
                       <span className={timeOfDay === t.value ? 'text-amber-500' : 'text-slate-400'}>{t.icon}</span>
                       {t.label}
+                      {timeOfDay === t.value && autoTime && (
+                        <span className="text-[8px] text-amber-400 font-normal leading-none">auto</span>
+                      )}
                     </button>
                   ))}
                 </div>
@@ -1493,6 +1525,7 @@ export default function OutfitBuilder() {
                 value={notes}
                 onChange={event => setNotes(event.target.value)}
               />
+              </>)}
 
               {/* ── Mismatch warning ───────────────────────────────────────── */}
               {canvasItems.length > 0 && (() => {
@@ -1544,7 +1577,26 @@ export default function OutfitBuilder() {
                   )}
                 </button>
 
-                <button className="btn-secondary" onClick={clear}>Clear</button>
+                {confirmClear ? (
+                  <>
+                    <button
+                      className="rounded-2xl bg-red-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-600 transition"
+                      onClick={() => clear()}
+                    >
+                      Yes, clear
+                    </button>
+                    <button className="btn-secondary" onClick={() => setConfirmClear(false)}>
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    className="btn-secondary"
+                    onClick={() => canvasItems.length > 0 ? setConfirmClear(true) : clear()}
+                  >
+                    Clear
+                  </button>
+                )}
               </div>
 
               {/* View AI Insights button */}
@@ -1581,10 +1633,6 @@ export default function OutfitBuilder() {
         </DragOverlay>
       </DndContext>
 
-      {/* Smart Start banner — shown when canvas is empty */}
-      {canvasItems.length === 0 && (
-        <SmartStartBanner onPick={handleSmartStart} />
-      )}
 
       {/* ── AI Results Drawer ─────────────────────────────────────────────── */}
       <>
@@ -1670,6 +1718,12 @@ export default function OutfitBuilder() {
             )}
 
             {/* Suggested pairings */}
+            {analysis?.suggested_pairings_error && suggestedPairings.length === 0 && (
+              <p className="text-[11px] text-slate-400 dark:text-slate-500 flex items-center gap-1.5 px-1">
+                <AlertCircle size={11} className="flex-shrink-0" />
+                Could not load pairing suggestions — try again after re-analyzing.
+              </p>
+            )}
             {analysis && suggestedPairings.length > 0 && (
               <SuggestedPairingsShelf
                 pairings={suggestedPairings}

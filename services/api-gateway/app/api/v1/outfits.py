@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import time
 from uuid import UUID
+
+_analyze_cache: dict[str, tuple[dict, float]] = {}
+_ANALYZE_CACHE_TTL = 300  # 5 minutes
 
 from fastapi import APIRouter, BackgroundTasks, Request, status
 from app.core.rate_limit import limiter
@@ -123,7 +128,7 @@ async def create_outfit(body: OutfitCreate, user_id: CurrentUser, session: DbSes
 
 # ── AI outfit analysis ─────────────────────────────────────────────────────────
 
-@router.post("/generate", response_model=AnalyzeOutfitResponse)
+@router.post("/analyze", response_model=AnalyzeOutfitResponse)
 @limiter.limit("20/minute")
 async def analyze_outfit(request: Request, body: AnalyzeOutfitRequest, user_id: CurrentUser, session: DbSession, background_tasks: BackgroundTasks):
     """
@@ -218,14 +223,26 @@ async def analyze_outfit(request: Request, body: AnalyzeOutfitRequest, user_id: 
         pass
     rag_context = "\n\n".join(rag_parts) or None
 
-    data = await outfit_ai_service.analyze_outfit(
-        items_for_ai,
-        body.occasion,
-        effective_weather,
-        effective_temp,
-        user_profile=profile,
-        rag_context=rag_context,
-    )
+    _cache_key = hashlib.md5(
+        (",".join(sorted(str(i) for i in item_uuids)) + "|" + body.occasion + "|" + (effective_weather or "")).encode()
+    ).hexdigest()
+    _now = time.monotonic()
+    _cached = _analyze_cache.get(_cache_key)
+    if _cached and (_now - _cached[1]) < _ANALYZE_CACHE_TTL:
+        data = _cached[0]
+    else:
+        data = await outfit_ai_service.analyze_outfit(
+            items_for_ai,
+            body.occasion,
+            effective_weather,
+            effective_temp,
+            user_profile=profile,
+            rag_context=rag_context,
+        )
+        _analyze_cache[_cache_key] = (data, _now)
+        if len(_analyze_cache) > 500:
+            oldest = min(_analyze_cache, key=lambda k: _analyze_cache[k][1])
+            del _analyze_cache[oldest]
 
     # ── Suggest complementary pairings from the rest of the user's closet ────
     # Fetch all non-archived items the user owns, excluding the ones already on
@@ -281,6 +298,7 @@ async def analyze_outfit(request: Request, body: AnalyzeOutfitRequest, user_id: 
     except Exception as exc:
         logger.warning("outfit_suggest_pairings_route_failed", error=str(exc))
         data.setdefault("suggested_pairings", [])
+        data["suggested_pairings_error"] = True
 
     # Persist outfit history and detect purchase gaps in background
     outfit_data = data.get("outfit", {})
@@ -323,7 +341,9 @@ class ShuffleOutfitRequest(BaseModel):
 
 
 @router.post("/shuffle")
+@limiter.limit("15/minute")
 async def shuffle_outfit(
+    request: Request,
     body: ShuffleOutfitRequest,
     user_id: CurrentUser,
     session: DbSession,

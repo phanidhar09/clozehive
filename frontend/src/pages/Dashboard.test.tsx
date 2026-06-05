@@ -37,8 +37,10 @@ vi.mock('@/lib/api', async importOriginal => {
   }
 })
 
-function renderDashboard(extra?: Partial<AppState> & { items?: ClosetItem[] }) {
-  const { items = [], ...rest } = extra ?? {}
+function renderDashboard(
+  extra?: Partial<AppState> & { items?: ClosetItem[]; locationState?: Record<string, unknown> },
+) {
+  const { items = [], locationState, ...rest } = extra ?? {}
   const router = createMemoryRouter(
     [
       {
@@ -62,7 +64,7 @@ function renderDashboard(extra?: Partial<AppState> & { items?: ClosetItem[] }) {
         element: <div>Style profile onboarding</div>,
       },
     ],
-    { initialEntries: ['/dashboard'] },
+    { initialEntries: [{ pathname: '/dashboard', state: locationState }] },
   )
   render(<RouterProvider router={router} />)
   return router
@@ -78,37 +80,57 @@ describe('Dashboard', () => {
     vi.mocked(Api.outfitsApi.getOutfitOfDay).mockRejectedValue(new Error('no mock outfit'))
   })
 
-  it('renders greeting, stats row, and quick actions when onboarding is complete', async () => {
+  it('renders greeting, stats, and key sections when onboarding is complete', async () => {
     renderDashboard({ items: [wardrobeItem({ name: 'Jacket', category: 'outerwear' })] })
 
-    await waitFor(() => {
-      expect(screen.getByText(/Quick actions/i)).toBeInTheDocument()
-    })
-
+    // Greeting heading includes the user's display name
     expect(screen.getByRole('heading', { level: 2, name: /Test User/i })).toBeInTheDocument()
-    expect(screen.getByText(/Total Items/i)).toBeInTheDocument()
-    expect(screen.getByText('Smart Closet Scan')).toBeInTheDocument()
+
+    // Hero stats row (the "Active" stat is always present) + primary sections
+    expect(screen.getByText('Active')).toBeInTheDocument()
+    expect(screen.getByText("Today's Look")).toBeInTheDocument()
+    expect(screen.getByText('Recent Pieces')).toBeInTheDocument()
+
+    // The wardrobe item surfaces (Recent Pieces strip + Wardrobe Pulse "Most Worn")
+    expect(screen.getAllByText('Jacket').length).toBeGreaterThanOrEqual(1)
   })
 
-  it('redirects to style profile onboarding when onboarding is incomplete', async () => {
+  it('redirects to style profile onboarding when onboarding is incomplete and arriving from login', async () => {
     vi.mocked(Api.profileApi.getOnboardingStatus).mockResolvedValue({
       onboarding_completed: false,
       onboarding_skipped: false,
       has_profile_record: false,
     })
 
-    const router = renderDashboard({ items: [] })
+    const router = renderDashboard({ items: [], locationState: { fromLogin: true } })
 
     await waitFor(() => {
       expect(router.state.location.pathname).toBe('/onboarding/style-profile')
     })
   })
 
-  it('shows empty-closet messaging when wardrobe has no items', async () => {
+  it('shows a style-profile reminder (no redirect) when onboarding is incomplete without a login redirect', async () => {
+    vi.mocked(Api.profileApi.getOnboardingStatus).mockResolvedValue({
+      onboarding_completed: false,
+      onboarding_skipped: false,
+      has_profile_record: false,
+    })
+
+    const router = renderDashboard({ items: [wardrobeItem()] })
+
+    await waitFor(() => {
+      expect(screen.getByText(/Complete your Style Profile/i)).toBeInTheDocument()
+    })
+    // Stays on the dashboard — redirect only happens when coming from login
+    expect(router.state.location.pathname).toBe('/dashboard')
+  })
+
+  it('shows the guided empty state when wardrobe has no items', async () => {
     renderDashboard({ items: [] })
 
     await waitFor(() => {
-      expect(screen.getByText(/Add your first item to see outfit suggestions/i)).toBeInTheDocument()
+      expect(screen.getByText(/Welcome to Cloz/i)).toBeInTheDocument()
     })
+    expect(screen.getByText(/Add your first items/i)).toBeInTheDocument()
   })
 })
