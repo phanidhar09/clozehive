@@ -30,9 +30,43 @@ def _embedding_client() -> AsyncOpenAI:
     return _emb_client
 
 
+def _item_to_text(item: ClosetItem) -> str:
+    """Build a rich embedding string — mirrors closet-service item_to_embedding_text()
+    so both services produce vectors in the same semantic space."""
+    parts: list[str] = []
+    item_type = getattr(item, "subcategory", None) or item.category or "item"
+    descriptor = " ".join(p for p in [item.color or "", item_type] if p)
+    if item.name and item.name.lower() != item_type.lower():
+        descriptor = f"{descriptor} called '{item.name}'"
+    if descriptor.strip():
+        parts.append(descriptor)
+    notes = getattr(item, "notes", None) or getattr(item, "description", None)
+    if notes:
+        parts.append(str(notes))
+    if getattr(item, "brand", None):
+        parts.append(f"Brand: {item.brand}")
+    fabric = getattr(item, "fabric", None) or getattr(item, "material", None)
+    pattern = getattr(item, "pattern", None)
+    if pattern and pattern.lower() not in ("solid", "unknown", ""):
+        parts.append(f"Pattern: {pattern}")
+    season = getattr(item, "season", None) or []
+    if season:
+        parts.append(f"Suitable for {', '.join(season)}")
+    occasion = getattr(item, "occasion", None) or []
+    if occasion:
+        parts.append(f"Worn for {', '.join(occasion)}")
+    tags = item.tags or []
+    if tags:
+        parts.append(f"Style: {', '.join(tags)}")
+    tail = [p for p in [item.category or "", item.color or "", fabric or ""] if p]
+    if tail:
+        parts.append(" · ".join(tail))
+    return ". ".join(p for p in parts if p.strip()) + "."
+
+
 @traceable(name="vision_openai_embedding", run_type="embedding")
 async def generate_item_embedding(item: ClosetItem) -> list[float]:
-    description = f"{item.name} {item.category} {item.color or ''} {' '.join(item.tags or [])}".strip()
+    description = _item_to_text(item)
     if not settings.openai_api_key:
         logger.warning("embedding_fallback", reason="OPENAI_API_KEY not set", item_id=str(item.id))
         return [0.0] * 1536

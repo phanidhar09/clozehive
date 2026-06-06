@@ -89,7 +89,7 @@ async def check_similar_before_save(
             user_id,
             source_metadata=metadata,
             limit=body.limit,
-            threshold_score=55,
+            threshold_score=70,
         )
         return {"similar_items": results}
     except Exception as exc:

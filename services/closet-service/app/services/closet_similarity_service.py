@@ -255,13 +255,13 @@ async def find_similar_by_item_id(
             embedding=embedding,
             user_id=user_id,
             limit=limit * 3,
-            threshold=0.50,
+            threshold=0.55,
             filter_archived=True,
             exclude_id=item_id,
         )
         if rows:
             reranked = _hybrid_rerank(rows, source_dict)
-            filtered = [r for r in reranked if r["similarity_score"] >= 0.55]
+            filtered = [r for r in reranked if r["similarity_score"] >= 0.70]
             return _format_similarity_results(filtered[:limit], source_dict)
 
     # Metadata fallback
@@ -425,22 +425,28 @@ async def check_similar_for_new_item(
     user_id: str,
     source_metadata: dict[str, Any],
     limit: int = 5,
-    threshold_score: int = 50,
+    threshold_score: int = 70,
 ) -> list[dict[str, Any]]:
     """
     Check if a newly uploaded item (not saved yet) is similar to existing closet items.
 
     Strategy:
     1. Normalise field names (handles both vision-analysis and DB-column naming)
-    2. Embedding-based pgvector search
+    2. Embedding-based pgvector search (items WITH embeddings)
     3. Hybrid category-aware re-ranking to remove false positives
-    4. Metadata fallback if embeddings unavailable
+    4. Metadata fallback (items WITHOUT embeddings, or when pgvector unavailable)
+    5. Merge both result sets — deduplicating by item ID, keeping higher score
+
+    Runs BOTH paths every time so that recently-saved items (whose background
+    embedding task hasn't completed yet) are still caught by the metadata scorer.
     """
     normalised = _normalise_source(source_metadata)
     text = item_to_embedding_text(normalised)
+    threshold_frac = threshold_score / 100
 
-    # Use a lower cosine threshold (0.50) and re-rank — better precision than
-    # a high hard cutoff that silently drops valid matches
+    vector_ids: set[str] = set()
+    vector_results: list[dict[str, Any]] = []
+
     embedding = await generate_text_embedding(text)
     if embedding:
         rows = await pgvector_cosine_search(
@@ -448,20 +454,31 @@ async def check_similar_for_new_item(
             table="closet_items",
             embedding=embedding,
             user_id=user_id,
-            limit=limit * 3,          # fetch more, then re-rank and trim
-            threshold=0.50,
+            limit=limit * 4,          # fetch more, then re-rank and trim
+            threshold=0.55,           # tighter raw cosine floor reduces false candidates
             filter_archived=True,
         )
         if rows:
             reranked = _hybrid_rerank(rows, normalised)
-            # Apply final threshold after re-ranking
-            filtered = [r for r in reranked if r["similarity_score"] >= threshold_score / 100]
-            return _format_similarity_results(filtered[:limit], normalised)
+            filtered = [r for r in reranked if r["similarity_score"] >= threshold_frac]
+            vector_results = _format_similarity_results(filtered[:limit], normalised)
+            vector_ids = {r["id"] for r in vector_results}
 
-    # Fallback: metadata scoring against all items in same/compatible category
-    return await _metadata_fallback_search(
+    # Always run metadata fallback — catches items whose embedding background
+    # task hasn't completed yet (common when uploading multiple items quickly)
+    metadata_results = await _metadata_fallback_search(
         session, user_id, None, normalised, limit, threshold_score
     )
+
+    # Merge: prefer vector result when an item appears in both (higher precision),
+    # then append metadata-only results that vector search missed
+    merged = list(vector_results)
+    for r in metadata_results:
+        if r["id"] not in vector_ids:
+            merged.append(r)
+
+    merged.sort(key=lambda x: x["similarity_score"], reverse=True)
+    return merged[:limit]
 
 
 async def _metadata_fallback_search(
@@ -470,9 +487,10 @@ async def _metadata_fallback_search(
     exclude_item_id: str | None,
     source_metadata: dict[str, Any],
     limit: int = 5,
-    threshold_score: int = 55,
+    threshold_score: int = 70,
 ) -> list[dict[str, Any]]:
-    """Rule-based similarity against all items in user's closet."""
+    """Rule-based similarity against items in user's closet, restricted to the same category family."""
+    src_cat = (source_metadata.get("category") or "").lower().strip()
     try:
         stmt = select(ClosetItem).where(
             ClosetItem.user_id == uuid.UUID(user_id),
@@ -487,6 +505,10 @@ async def _metadata_fallback_search(
     scored: list[tuple[int, ClosetItem]] = []
     for item in all_items:
         if exclude_item_id and str(item.id) == exclude_item_id:
+            continue
+        # Skip items in a different category family — shared color/season shouldn't
+        # flag a white dress as similar to white sneakers
+        if src_cat and item.category and not _same_category_family(src_cat, item.category):
             continue
         score = _metadata_similarity_score(source_metadata, item)
         if score >= threshold_score:
