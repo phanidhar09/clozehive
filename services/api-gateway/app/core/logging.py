@@ -30,6 +30,26 @@ def _uppercase_level(_logger, _method_name, event_dict):
     return event_dict
 
 
+def _add_trace_context(_logger, _method_name, event_dict):
+    """Inject the active OpenTelemetry trace_id/span_id so logs join to traces.
+
+    No-op when OTel isn't installed or there is no active span (e.g. tracing
+    disabled). The hex ids match what Tempo/Jaeger/Grafana use, so a log line
+    links directly to its distributed trace.
+    """
+    try:
+        from opentelemetry import trace
+
+        span = trace.get_current_span()
+        ctx = span.get_span_context() if span else None
+        if ctx is not None and ctx.is_valid:
+            event_dict["trace_id"] = format(ctx.trace_id, "032x")
+            event_dict["span_id"] = format(ctx.span_id, "016x")
+    except Exception:
+        pass
+    return event_dict
+
+
 def setup_logging() -> None:
     """Call once at app startup (in main.py lifespan)."""
     settings = get_settings()
@@ -42,6 +62,7 @@ def setup_logging() -> None:
         _uppercase_level,
         structlog.processors.TimeStamper(fmt="iso", key="timestamp"),
         _add_service,
+        _add_trace_context,
         _rename_event,
         structlog.processors.StackInfoRenderer(),
     ]

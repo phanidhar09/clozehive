@@ -64,6 +64,10 @@ class Settings(BaseSettings):
     # failure is logged, not fatal. Leave False for local dev where you run
     # migrations manually.
     run_migrations_on_startup: bool = False
+    # When startup migrations fail:
+    # - true  => crash startup (fail-fast, safest for production)
+    # - false => keep process alive but /ready reports 503
+    fail_on_startup_migration_error: bool = False
     # When True, the Google OAuth callback appends the real error type+message to
     # the failed-login redirect URL (?detail=…). Use ONLY for debugging on hosts
     # without log access; turn OFF afterwards so internal errors aren't exposed.
@@ -235,6 +239,16 @@ class Settings(BaseSettings):
                 raise ValueError("JWT_SECRET must be a strong production secret")
             if not self.allowed_origins or "localhost" in self.allowed_origins:
                 raise ValueError("ALLOWED_ORIGINS must be explicit production origins")
+            if not self.internal_service_token:
+                raise ValueError(
+                    "INTERNAL_SERVICE_TOKEN must be set in production. "
+                    "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
+                )
+            if not self.cookie_secure:
+                raise ValueError(
+                    "COOKIE_SECURE must be true in production so the refresh-token "
+                    "cookie is only sent over HTTPS."
+                )
         return self
 
 

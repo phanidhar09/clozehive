@@ -27,6 +27,7 @@ from app.core.config import get_settings
 from app.core.error_response import json_error
 from app.core.exceptions import AppError, app_error_handler, http_exception_handler, unhandled_error_handler
 from app.core.logging import get_logger, setup_logging
+from app.core.metrics import setup_metrics
 from app.core.rate_limit import limiter
 from app.db.session import connect as db_connect, disconnect as db_disconnect
 from app.middleware.logging import AccessLogMiddleware
@@ -36,6 +37,9 @@ from app.services import ai_client, cache_service
 
 settings = get_settings()
 logger = get_logger("main")
+_startup_db_ok: bool = False
+_startup_migrations_ok: bool = True
+_startup_migrations_error: str = ""
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
 
@@ -71,20 +75,31 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _startup_db_ok, _startup_migrations_ok, _startup_migrations_error
     setup_logging()
     logger.info("startup", service=settings.app_name, version=settings.app_version, env=settings.environment)
 
     # PostgreSQL — closet-service's own DB (clozehive_closet).
     try:
         await db_connect()
+        _startup_db_ok = True
     except Exception as exc:
-        logger.error("startup_db_failed", error=str(exc),
-                     msg="DB unreachable at startup — app will start but DB-bound requests will fail")
+        logger.error("startup_db_failed", error=str(exc))
+        if settings.is_production:
+            raise RuntimeError(f"DB unreachable at startup — refusing to start in production: {exc}") from exc
+        logger.warning("startup_db_failed_continuing", msg="DB unreachable — /ready will return 503")
 
     if settings.run_migrations_on_startup:
         logger.info("startup_migrations_begin")
         from app.core.db_migrate import run_migrations_on_startup as _apply_migrations
-        await _apply_migrations()
+        _startup_migrations_ok = await _apply_migrations(
+            raise_on_error=settings.fail_on_startup_migration_error,
+        )
+        if not _startup_migrations_ok:
+            _startup_migrations_error = "startup migrations failed"
+            logger.error("startup_migrations_failed_readiness_blocked")
+        else:
+            _startup_migrations_error = ""
 
     redis_ok = await cache_service.ping()
     if not redis_ok:
@@ -171,6 +186,7 @@ def create_app() -> FastAPI:
         }
 
     app.include_router(api_router)
+    setup_metrics(app)
 
     # Internal service-to-service routes (token-protected, outside /api/v1).
     from app.api.internal import router as internal_router

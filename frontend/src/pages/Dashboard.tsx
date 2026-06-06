@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useNavigate, useLocation } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import {
   Shirt, ArrowRight, Sparkles, RefreshCw, Loader2, Check,
   CloudSun, Bookmark, AlertCircle, Star, Zap, TrendingUp,
   ChevronRight, Calendar, ArrowUpRight, Image, Wand2, MessageSquare,
 } from 'lucide-react'
 import { useApp } from '@/store'
-import { outfitsApi, profileApi, type OutfitOfDayResponse } from '@/lib/api'
+import { outfitsApi, type OutfitOfDayResponse } from '@/lib/api'
 import SectionHeader from '@/components/ui/SectionHeader'
 import OnboardingChecklist from '@/components/dashboard/OnboardingChecklist'
 import type { ClosetItem, OutfitSuggestion } from '@/types'
@@ -424,18 +424,15 @@ function GuidedEmptyState() {
           </p>
           <div className="flex items-center justify-center gap-3 mt-5">
             <Link
-              to="/upload"
+              to="/onboarding/style-profile"
               className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand-500/25 hover:opacity-90 transition-opacity"
             >
-              <Sparkles size={14} /> Add your first items
-            </Link>
-            <Link
-              to="/onboarding/style-profile"
-              className="inline-flex items-center gap-2 rounded-xl border border-brand-200 dark:border-brand-700/50 bg-white dark:bg-white/5 px-5 py-2.5 text-sm font-semibold text-brand-600 dark:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-900/20 transition-colors"
-            >
-              Set up style profile
+              <Sparkles size={14} /> Start guided setup
             </Link>
           </div>
+          <p className="mt-2 text-xs text-slate-400 dark:text-slate-500">
+            One path: profile → upload → outfit → AI chat
+          </p>
         </div>
       </div>
 
@@ -478,26 +475,8 @@ function GuidedEmptyState() {
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
-  const navigate    = useNavigate()
-  const location    = useLocation()
   const { closetItems, closetLoading, currentUser } = useApp()
   const [hour]      = useState(new Date().getHours())
-  const [showStyleReminder, setShowStyleReminder] = useState(false)
-
-  const locationState = location.state as Record<string, unknown> | null
-
-  useEffect(() => {
-    let cancelled = false
-    profileApi.getOnboardingStatus().then(st => {
-      if (cancelled) return
-      if (!st.onboarding_completed && Boolean(locationState?.fromLogin)) {
-        navigate('/onboarding/style-profile', { replace: true })
-        return
-      }
-      if (!st.onboarding_completed || st.onboarding_skipped) setShowStyleReminder(true)
-    }).catch(() => {})
-    return () => { cancelled = true }
-  }, [navigate, locationState?.fromLogin])
 
   const greeting  = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
   const totalItems = closetItems.length
@@ -510,20 +489,6 @@ export default function Dashboard() {
     <div className="space-y-7 max-w-6xl">
 
       <OnboardingChecklist />
-
-      {showStyleReminder && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl
-                        border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm
-                        dark:border-amber-500/30 dark:bg-amber-500/10">
-          <span className="text-amber-900 dark:text-amber-100">
-            Complete your Style Profile for better outfit suggestions.
-          </span>
-          <Link to="/onboarding/style-profile"
-                className="font-semibold text-amber-800 underline hover:no-underline dark:text-amber-200">
-            Continue setup →
-          </Link>
-        </div>
-      )}
 
       {/* ── Hero ──────────────────────────────────────────────────────────── */}
       <div className="relative overflow-hidden rounded-3xl

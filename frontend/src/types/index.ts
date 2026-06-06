@@ -18,7 +18,7 @@ export interface ClosetItem {
   tags: string[]
   wear_count: number
   last_worn?: string
-  season?: string
+  season?: string[]
   occasion: string[]
   eco_score?: number
   is_favorite?: boolean

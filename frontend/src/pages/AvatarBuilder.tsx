@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { toastStore } from '@/store/notificationStore'
 import { Download, Loader2, RefreshCw } from 'lucide-react'
 import Button from '@/components/ui/Button'
 import GlassCard from '@/components/ui/GlassCard'
@@ -37,6 +38,9 @@ export default function AvatarBuilder() {
     try {
       const updated = await authApi.updateProfile({ avatar_config: config })
       updateCurrentUser({ avatar_config: updated.avatar_config })
+      toastStore.add({ variant: 'success', icon: '🪞', title: 'Avatar saved' })
+    } catch {
+      toastStore.add({ variant: 'error', icon: '❌', title: 'Failed to save avatar' })
     } finally {
       setSaving(false)
     }

@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from 'react-router-dom'
-import { Home, Shirt, Plus, Sparkles, Menu, type LucideIcon } from 'lucide-react'
+import { Home, Shirt, Plus, Sparkles, Wand2, Heart, Plane, Menu, type LucideIcon } from 'lucide-react'
 import { useApp } from '@/store'
 import { cn } from '@/lib/utils'
 
@@ -16,17 +16,20 @@ type Tab = { to: string; label: string; icon: LucideIcon; primary?: boolean; end
 const TABS: Tab[] = [
   { to: '/dashboard',  label: 'Home',   icon: Home,     end: true },
   { to: '/closet',     label: 'Closet', icon: Shirt },
+  { to: '/outfit-builder', label: 'Outfit', icon: Wand2 },
+  { to: '/saved-outfits', label: 'Saved', icon: Heart },
+  { to: '/travel', label: 'Travel', icon: Plane },
   { to: '/upload',     label: 'Add',    icon: Plus,     primary: true },
   { to: '/ai-stylist', label: 'FANI',   icon: Sparkles },
 ]
 
-// Routes that own a dedicated tab above — anything else lights up "More".
-const TAB_PATHS = ['/dashboard', '/closet', '/upload', '/ai-stylist']
+// Routes that own a dedicated tab above.
+const TAB_PATHS = ['/dashboard', '/closet', '/outfit-builder', '/saved-outfits', '/travel', '/upload', '/ai-stylist']
 
 export default function BottomNav() {
   const { setSidebarOpen } = useApp()
   const { pathname } = useLocation()
-  const moreActive = !TAB_PATHS.some(p => pathname === p || pathname.startsWith(p + '/'))
+  const navInKnownRoute = TAB_PATHS.some(p => pathname === p || pathname.startsWith(p + '/'))
 
   return (
     <nav
@@ -36,7 +39,7 @@ export default function BottomNav() {
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       aria-label="Primary"
     >
-      <div className="flex items-end justify-around px-2 pt-1.5 pb-1.5">
+      <div className="flex items-end gap-1 overflow-x-auto px-2 pt-1.5 pb-1.5 scrollbar-hide">
         {TABS.map(({ to, label, icon: Icon, primary, end }) =>
           primary ? (
             <NavLink
@@ -60,7 +63,7 @@ export default function BottomNav() {
               end={end}
               className={({ isActive }) =>
                 cn(
-                  'flex flex-col items-center justify-center gap-0.5 min-w-[56px] py-1.5 rounded-xl',
+                  'flex flex-col items-center justify-center gap-0.5 min-w-[56px] py-1.5 rounded-xl flex-shrink-0',
                   'transition-colors active:scale-95',
                   isActive
                     ? 'text-brand-600 dark:text-brand-400'
@@ -74,14 +77,14 @@ export default function BottomNav() {
           ),
         )}
 
-        {/* More — opens the sidebar; active on any overflow page */}
+        {/* Overflow access for non-primary destinations */}
         <button
           onClick={() => setSidebarOpen(true)}
-          aria-label="More"
+          aria-label="More destinations"
           className={cn(
-            'flex flex-col items-center justify-center gap-0.5 min-w-[56px] py-1.5 rounded-xl',
+            'flex flex-col items-center justify-center gap-0.5 min-w-[56px] py-1.5 rounded-xl flex-shrink-0',
             'transition-colors active:scale-95',
-            moreActive
+            !navInKnownRoute
               ? 'text-brand-600 dark:text-brand-400'
               : 'text-slate-400 dark:text-white/40 hover:text-slate-600 dark:hover:text-white/70',
           )}

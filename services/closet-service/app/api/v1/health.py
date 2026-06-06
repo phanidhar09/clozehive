@@ -14,6 +14,26 @@ router = APIRouter()
 settings = get_settings()
 
 
+def _startup_db_ok() -> bool:
+    """Return the startup DB flag set by main.py lifespan."""
+    try:
+        import app.main as _main
+        return bool(getattr(_main, "_startup_db_ok", False))
+    except Exception:
+        return False
+
+
+def _startup_migrations_status() -> tuple[bool, str]:
+    """Return startup migration success flag and optional error text."""
+    try:
+        import app.main as _main
+        ok = bool(getattr(_main, "_startup_migrations_ok", True))
+        err = str(getattr(_main, "_startup_migrations_error", "")) if not ok else ""
+        return ok, err
+    except Exception:
+        return True, ""
+
+
 async def check_database() -> tuple[bool, str]:
     try:
         async with engine.connect() as conn:
@@ -51,6 +71,25 @@ async def health_payload() -> tuple[int, dict]:
 
 
 async def ready_payload() -> tuple[int, dict]:
+    if not _startup_db_ok():
+        return 503, {
+            "status": "not_ready",
+            "db": "error: database was unreachable at startup",
+            "migrations": "skipped",
+            "redis": "skipped",
+            "version": settings.app_version,
+        }
+
+    mig_ok, mig_err = _startup_migrations_status()
+    if not mig_ok:
+        return 503, {
+            "status": "not_ready",
+            "db": "ok",
+            "migrations": f"error: {mig_err or 'startup migrations failed'}",
+            "redis": "skipped",
+            "version": settings.app_version,
+        }
+
     db_ok, db_msg = await check_database()
     redis_ok, redis_msg = True, "skipped"
     if settings.redis_check_on_ready:
@@ -60,6 +99,7 @@ async def ready_payload() -> tuple[int, dict]:
     body = {
         "status": "ready" if ok else "not_ready",
         "db": db_msg,
+        "migrations": "ok",
         "redis": redis_msg,
         "version": settings.app_version,
     }

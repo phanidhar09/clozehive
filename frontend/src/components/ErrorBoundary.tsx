@@ -22,9 +22,16 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    if (import.meta.env.DEV) {
-      console.error('ErrorBoundary caught error:', error, info)
-    }
+    // Always log — production React crashes are invisible without this.
+    console.error('[ErrorBoundary]', error.name, error.message, info.componentStack?.split('\n')[1]?.trim())
+    // Forward to Sentry if it has been initialised (optional dependency).
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sentry = (window as any).__SENTRY__
+      if (sentry?.hub?.captureException) {
+        sentry.hub.captureException(error, { extra: { componentStack: info.componentStack } })
+      }
+    } catch { /* Sentry not loaded — no-op */ }
   }
 
   private reset = () => {

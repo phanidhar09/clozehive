@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { notificationStore, toastStore } from '@/store/notificationStore'
 import BackButton from '@/components/ui/BackButton'
 import {
   closestCenter,
@@ -124,12 +125,13 @@ function itemMatchesOccasion(item: ClosetItem, occasion: string): boolean {
 }
 
 function itemMatchesSeason(item: ClosetItem, currentMonth: number): boolean {
-  const s = item.season
-  if (!s) return true
-  const season = typeof s === 'string' ? s.toLowerCase() : ''
-  if (season === 'all-season' || season === 'all season' || season === '') return true
-  if ((season === 'summer' || season === 'spring') && currentMonth >= 3 && currentMonth <= 8) return true
-  if ((season === 'winter' || season === 'fall' || season === 'autumn') && (currentMonth <= 2 || currentMonth >= 9)) return true
+  const raw = item.season
+  if (!raw || raw.length === 0) return true
+  // Normalise: backend returns string[], but accept legacy string too
+  const seasons = (Array.isArray(raw) ? raw : [raw]).map(s => s.toLowerCase())
+  if (seasons.some(s => s === 'all-season' || s === 'all season' || s === '')) return true
+  if (seasons.some(s => s === 'summer' || s === 'spring') && currentMonth >= 3 && currentMonth <= 8) return true
+  if (seasons.some(s => s === 'winter' || s === 'fall' || s === 'autumn') && (currentMonth <= 2 || currentMonth >= 9)) return true
   return false
 }
 
@@ -484,7 +486,7 @@ function SortableImageTile({
         {itemImage(item)}
 
         {/* Weather cold badge — show a snowflake if item season is summer but weather cold */}
-        {weatherCold && item.season && String(item.season).toLowerCase().includes('summer') && (
+        {weatherCold && item.season && (Array.isArray(item.season) ? item.season : [item.season]).some(s => String(s).toLowerCase().includes('summer')) && (
           <div className="absolute bottom-1 right-1 w-4 h-4 rounded-full bg-blue-500/80 flex items-center justify-center">
             <CloudSnow size={9} className="text-white" />
           </div>
@@ -980,7 +982,6 @@ export default function OutfitBuilder() {
   const [mood, setMood] = useState<Mood | null>(null)
   const [notes, setNotes] = useState('')
   const [browserOpen, setBrowserOpen] = useState(false)
-  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
   const [date, setDate] = useState('')
   const [location, setLocation] = useState('')
@@ -1005,12 +1006,6 @@ export default function OutfitBuilder() {
       .finally(() => setFetchingWeather(false))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.permissions?.location_coords?.lat, currentUser?.permissions?.location_coords?.lon])
-
-  useEffect(() => {
-    if (!toast) return
-    const t = setTimeout(() => setToast(null), 4000)
-    return () => clearTimeout(t)
-  }, [toast])
 
   // AI analysis
   const [analyzing, setAnalyzing] = useState(false)
@@ -1163,10 +1158,15 @@ export default function OutfitBuilder() {
         occasion,
         notes: notes.trim() || undefined,
       })
-      setToast({ type: 'success', message: 'Outfit saved!' })
+      notificationStore.push({
+        channel: 'closet',
+        icon: '✨',
+        title: 'Outfit saved!',
+        body: `"${name.trim()}" is now in your saved outfits.`,
+      })
       clear()
     } catch {
-      setToast({ type: 'error', message: 'Failed to save outfit. Please try again.' })
+      toastStore.add({ variant: 'error', icon: '❌', title: 'Failed to save outfit', body: 'Please try again.' })
     }
   }
 
@@ -1194,8 +1194,15 @@ export default function OutfitBuilder() {
       }
       const result = await outfitsApi.analyze(payload)
       setAnalysis(result)
+      toastStore.add({
+        variant: 'success',
+        icon: '✨',
+        title: 'AI analysis complete',
+        body: result.outfit?.matching_score != null ? `Score: ${result.outfit.matching_score}/100` : 'Your outfit has been analysed.',
+      })
     } catch (err) {
       setAnalysisError(err instanceof Error ? err.message : 'AI analysis failed. Please try again.')
+      toastStore.add({ variant: 'error', icon: '❌', title: 'AI analysis failed', body: 'Please try again.' })
     } finally {
       setAnalyzing(false)
     }
@@ -1275,18 +1282,6 @@ export default function OutfitBuilder() {
           <span className="font-medium text-brand-500">Analyze with AI</span> for a detailed matching score.
         </p>
       </div>
-
-      {toast && (
-        <div
-          className={`rounded-2xl border p-3 text-sm ${
-            toast.type === 'success'
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300'
-              : 'border-red-200 bg-red-50 text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300'
-          }`}
-        >
-          {toast.message}
-        </div>
-      )}
 
       <DndContext
         sensors={sensors}

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { toastStore } from '@/store/notificationStore'
 import {
   Plus, Search, Users, Loader2, X, Globe, Lock,
   Crown, UserMinus, RefreshCw, AlertTriangle, Copy, Check, Compass
@@ -196,7 +197,10 @@ function GroupDetail({ group, onClose, onUpdate }: {
       await socialApi.removeMember(group.id, userId)
       const updatedMembers = members.filter(m => m.id !== userId)
       onUpdate({ ...group, members: updatedMembers, member_count: group.member_count - 1 })
-    } catch { /* ignore */ }
+      toastStore.add({ variant: 'success', icon: '👥', title: 'Member removed' })
+    } catch {
+      toastStore.add({ variant: 'error', icon: '❌', title: 'Failed to remove member' })
+    }
   }
 
   const toggleRole = async (member: GroupMember) => {
@@ -205,7 +209,10 @@ function GroupDetail({ group, onClose, onUpdate }: {
       await socialApi.changeMemberRole(group.id, member.id, newRole)
       const updatedMembers = members.map(m => m.id === member.id ? { ...m, role: newRole } : m)
       onUpdate({ ...group, members: updatedMembers })
-    } catch { /* ignore */ }
+      toastStore.add({ variant: 'success', icon: '👑', title: 'Role updated', body: `${member.username} is now ${newRole}.` })
+    } catch {
+      toastStore.add({ variant: 'error', icon: '❌', title: 'Failed to update role' })
+    }
   }
 
   const copyCode = async () => {
@@ -218,16 +225,22 @@ function GroupDetail({ group, onClose, onUpdate }: {
     if (!currentUser || !confirm('Leave this group?')) return
     try {
       await socialApi.leaveGroup(group.id)
+      toastStore.add({ variant: 'default', icon: '👋', title: 'Left group', body: `You've left "${group.name}".` })
       onClose()
-    } catch { /* ignore */ }
+    } catch {
+      toastStore.add({ variant: 'error', icon: '❌', title: 'Failed to leave group' })
+    }
   }
 
   const handleDelete = async () => {
     if (!confirm(`Delete "${group.name}"? This cannot be undone.`)) return
     try {
       await socialApi.deleteGroup(group.id)
+      toastStore.add({ variant: 'default', icon: '🗑️', title: 'Group deleted', body: `"${group.name}" has been deleted.` })
       onClose()
-    } catch { /* ignore */ }
+    } catch {
+      toastStore.add({ variant: 'error', icon: '❌', title: 'Failed to delete group' })
+    }
   }
 
   return (
@@ -414,10 +427,14 @@ export default function Groups() {
     return () => clearInterval(id)
   }, [load])
 
-  const handleCreate = (g: Group) => setMyGroups(prev => [g, ...prev])
+  const handleCreate = (g: Group) => {
+    setMyGroups(prev => [g, ...prev])
+    toastStore.add({ variant: 'success', icon: '👥', title: 'Group created', body: `"${g.name}" is ready to share.` })
+  }
   const handleJoin = (g: Group) => {
     setMyGroups(prev => [g, ...prev])
     setPublicGroups(prev => prev.filter(p => p.id !== g.id))
+    toastStore.add({ variant: 'success', icon: '🐝', title: 'Joined group', body: `You're now a member of "${g.name}".` })
   }
   const handleUpdate = (g: Group) => {
     setMyGroups(prev => prev.map(p => p.id === g.id ? g : p))

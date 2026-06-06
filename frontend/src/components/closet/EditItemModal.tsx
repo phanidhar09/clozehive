@@ -16,8 +16,9 @@ const OCCASIONS = ['casual', 'formal', 'work', 'sport', 'evening', 'travel'] as 
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function parseSeason(season?: string): string[] {
+function parseSeason(season?: string | string[]): string[] {
   if (!season) return []
+  if (Array.isArray(season)) return season.filter(Boolean)
   return season.split(',').map(s => s.trim()).filter(Boolean)
 }
 
@@ -106,7 +107,7 @@ export default function EditItemModal({ item, open, onClose, onSaved }: Props) {
         size:     form.size.trim()    || undefined,
         price:    form.price !== '' ? Number(form.price) : undefined,
         notes:    form.notes.trim()   || undefined,
-        season:      form.seasons.length > 0 ? form.seasons.join(', ') : undefined,
+        season:      form.seasons.length > 0 ? form.seasons : undefined,
         occasion:    form.occasions,
         is_favorite: form.is_favorite,
       }

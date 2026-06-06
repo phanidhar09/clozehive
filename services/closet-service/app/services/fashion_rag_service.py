@@ -275,21 +275,182 @@ _KNOWLEDGE_SEED: list[dict[str, Any]] = [
             "Always prioritize comfort and movement — clothes should never restrict or pull."
         ),
     },
+    {
+        "title": "Skin Tone Color Matching Guide",
+        "category": "color",
+        "season": None,
+        "occasion": None,
+        "tags": ["skin tone", "undertone", "color matching", "warm cool neutral"],
+        "content": (
+            "Skin tone and undertone are the most personal factor in color selection. "
+            "Warm undertones (golden, peachy, yellow-based skin): best colors are earth tones — "
+            "camel, terracotta, rust, olive, mustard yellow, warm browns, off-white/cream, warm reds "
+            "like tomato red or coral. Avoid: cool icy tones, pastel lavender, cool pinks. "
+            "Cool undertones (pink, rosy, blue-based skin): best colors are jewel tones — "
+            "sapphire blue, emerald green, true white, burgundy, plum, cool greys, silver accents, "
+            "lavender, icy pastels. Avoid: warm oranges, warm yellows, strong earth tones. "
+            "Neutral undertones: versatile — almost all colors work; use contrast level to guide. "
+            "Deep/rich skin tones carry vivid saturated colors beautifully — jewel tones, rich "
+            "mustard, coral, bright white all pop. Avoid low-contrast beige near the face. "
+            "Fair/light skin tones look striking with high-contrast combinations (navy + white, "
+            "black + white) and soft pastels; avoid very pale tones that wash out. "
+            "Olive/medium skin with warm undertone: warm earthy tones and jewel tones both work well. "
+            "Always match clothing color to undertone, not just skin darkness level."
+        ),
+    },
+    {
+        "title": "Body Type Dressing Guide",
+        "category": "fit",
+        "season": None,
+        "occasion": None,
+        "tags": ["body type", "silhouette", "hourglass", "pear", "apple", "rectangle", "petite", "tall"],
+        "content": (
+            "Dress to flatter your natural body type and proportions. "
+            "Hourglass (balanced shoulders and hips, defined waist): wrap dresses, fitted blouses, "
+            "high-waisted trousers, belted coats. Avoid: boxy shapes that hide the waist. "
+            "Pear / triangle (narrower shoulders, wider hips): emphasise the upper body with "
+            "boat necks, statement shoulders, bright tops; choose darker bottoms in straight cuts. "
+            "Apple / round (weight around the midsection): empire waist dresses, A-line skirts, "
+            "flowy tops, vertical stripe details. Avoid: clingy fabrics around the middle. "
+            "Rectangle / straight (similar shoulder and hip width, minimal waist): create curves "
+            "with peplum tops, ruffles, cropped jackets, wide-leg trousers. Belt everything. "
+            "Inverted triangle (broader shoulders, narrower hips): balance with voluminous bottoms, "
+            "wide-leg trousers, A-line skirts, avoid heavy shoulder details. "
+            "Petite frames (under 5'4\"): high-waisted bottoms elongate legs; cropped tops; "
+            "avoid oversized or heavily layered looks that overwhelm the silhouette. "
+            "Tall frames (over 5'9\"): wide-leg trousers, longline coats, maxi dresses all work "
+            "beautifully; horizontal stripes add volume; cropped lengths are flattering. "
+            "Plus-size: vertical lines, wrap silhouettes, well-fitted clothes (never too baggy or "
+            "too tight). Structured pieces provide shape and confidence."
+        ),
+    },
+    {
+        "title": "Pattern Mixing Rules",
+        "category": "styling",
+        "season": None,
+        "occasion": None,
+        "tags": ["patterns", "prints", "mixing", "stripes", "florals", "checks"],
+        "content": (
+            "Mixing patterns adds personality but requires rules to avoid clashing. "
+            "Rule 1 — Scale contrast: always pair a large-scale pattern with a small-scale pattern "
+            "(e.g. large floral + thin stripe). Never mix two equally-sized patterns. "
+            "Rule 2 — Colour connection: at least one colour must appear in both patterns; this "
+            "creates visual harmony (e.g. a blue stripe top + a blue/white floral skirt). "
+            "Rule 3 — Pattern hierarchy: let one pattern dominate (wear it on the larger body area) "
+            "and keep the second pattern as an accent. "
+            "Safe combinations: stripes + florals; stripes + checks (different scales); "
+            "animal print + geometric (animal print acts as a neutral). "
+            "Difficult combinations: two large florals; two plaids; two different animal prints. "
+            "Solids as anchors: a solid-colored third piece (blazer, shoes, bag) ties mixed "
+            "patterns together instantly. "
+            "When in doubt: mix one pattern with one texture (e.g. floral blouse + textured tweed "
+            "skirt) — texture acts like a second pattern without the risk of clashing."
+        ),
+    },
+    {
+        "title": "Color Season Analysis (Spring Summer Autumn Winter)",
+        "category": "color",
+        "season": None,
+        "occasion": None,
+        "tags": ["color season", "seasonal palette", "spring summer autumn winter", "personal color analysis"],
+        "content": (
+            "Color season analysis matches personal coloring to a seasonal palette. "
+            "SPRING (warm, light, clear): warm skin with peachy/golden undertone, light or hazel eyes, "
+            "golden/strawberry blonde or light auburn hair. Best colors: coral, peach, warm yellow, "
+            "light warm greens, turquoise, ivory, camel. Avoid: icy pastels, cool greys, black near face. "
+            "SUMMER (cool, light, muted): cool skin with pinkish undertone, blue/grey/cool eyes, "
+            "ash blonde or light cool brown hair. Best colors: dusty rose, lavender, powder blue, soft "
+            "grey, taupe, muted navy, soft white. Avoid: warm oranges, earth tones, pure black. "
+            "AUTUMN (warm, deep, muted): golden/olive/warm skin, amber/hazel/brown/green eyes, "
+            "chestnut/auburn/warm brown hair. Best colors: rust, burnt orange, olive, dark camel, forest "
+            "green, warm brown, teal, gold. Avoid: cool icy pastels, pure black, cool reds. "
+            "WINTER (cool, deep, clear): cool or neutral skin, dark/intense eyes, dark brown/black "
+            "or starkly contrasted hair. Best colors: true white, jet black, navy, royal blue, "
+            "emerald, ruby red, fuchsia, icy pastels for contrast. Avoid: earth tones, warm yellows."
+        ),
+    },
+    {
+        "title": "Denim Styling and Versatility Guide",
+        "category": "styling",
+        "season": None,
+        "occasion": None,
+        "tags": ["denim", "jeans", "denim jacket", "smart casual", "casual"],
+        "content": (
+            "Denim is the most versatile fabric in any wardrobe. Wash guide: dark wash denim is most "
+            "formal and can dress up for smart-casual evenings; medium wash is truly everyday versatile; "
+            "light wash is casual and summery; distressed/ripped is very casual only. "
+            "Slim-fit jeans: the most universal cut — dress up with loafers and a blazer for smart "
+            "casual; dress down with sneakers and a hoodie for weekend. Wide-leg jeans: fashion-forward; "
+            "balance with a fitted or cropped top tucked in at the waist. Straight-leg: combines "
+            "classic with modern; works with everything. Skinny jeans: best elongated with pointed "
+            "toe footwear; pair with chunky knit or oversized blazer for balance. "
+            "Canadian Tuxedo rule: head-to-toe denim works only when the washes are clearly different "
+            "(e.g. dark jacket + light jeans). Avoid matching washes — it reads as matchy. "
+            "Denim jacket: the perfect third piece for casual to smart-casual; wear over a dress for "
+            "unexpected contrast; over a white tee and chinos for a classic look."
+        ),
+    },
+    {
+        "title": "Business Formal and Power Dressing Guide",
+        "category": "occasion",
+        "season": None,
+        "occasion": "business formal",
+        "tags": ["business formal", "power dressing", "corporate", "interview", "boardroom"],
+        "content": (
+            "Business formal requires precision and authority. Men: tailored suit (navy, charcoal, "
+            "or grey), white or pale blue dress shirt, conservative tie, Oxford or Derby shoes, "
+            "matching belt. Women: tailored trouser suit, pencil skirt + blazer, structured shift "
+            "dress, or a formal pantsuit. Colors: navy, charcoal, black, and grey project authority. "
+            "Power dressing principles: ensure perfect fit — tailoring is non-negotiable; choose "
+            "structured fabrics (wool, wool-blend, crepe); avoid overly trendy silhouettes; quality "
+            "accessories elevate (leather portfolio, structured bag, quality watch). "
+            "Interview dressing: mirror the company dress code one level up — business casual company "
+            "means wear business formal for the interview. Grooming is as important as the outfit. "
+            "Women's power colors: navy (trust), red (authority/confidence), black (sharp/serious), "
+            "grey (neutral/analytical). Men's suit color guide: navy = approachable authority; "
+            "charcoal = serious/formal; mid-grey = versatile everyday; black = most formal only."
+        ),
+    },
+    {
+        "title": "Monochrome and Tonal Dressing Guide",
+        "category": "styling",
+        "season": None,
+        "occasion": None,
+        "tags": ["monochrome", "tonal", "one color", "color blocking", "head to toe"],
+        "content": (
+            "Monochrome (head-to-toe one color) is sophisticated and elongating. Key rules: "
+            "vary the texture and fabric weight to avoid flatness — pair a satin blouse with "
+            "structured trousers in the same color; matte + shiny works well. "
+            "Tonal dressing (different shades of the same color family): even easier to execute; "
+            "combine cream + beige + camel for an elevated neutral look; or navy + cobalt + sky blue. "
+            "All-white: clean and powerful in summer; ensure pieces are the same shade of white "
+            "or deliberately contrast warm white vs pure white for intentional effect. "
+            "All-black: the most universally flattering monochrome; vary textures (velvet, leather, "
+            "knit, jersey) to create depth. "
+            "Color blocking (two or more distinct bold colors): keep to 2-3 colors maximum; use "
+            "complementary colors (opposite on the color wheel) for drama; use analogous colors "
+            "for a more wearable look. Neutral breaks between blocks (a white belt, nude shoes) "
+            "prevent the look from becoming overwhelming."
+        ),
+    },
 ]
 
 
 # ── Service functions ─────────────────────────────────────────────────────────
 
 async def ensure_seeded(session: AsyncSession) -> None:
-    """Seed the fashion knowledge base if empty. Idempotent."""
-    count = await session.scalar(
-        select(func.count()).select_from(FashionKnowledgeDocument)
+    """Seed missing fashion knowledge documents. Idempotent — only inserts missing titles."""
+    existing_titles_result = await session.execute(
+        select(FashionKnowledgeDocument.title)
     )
-    if count and count > 0:
+    existing_titles = {row[0] for row in existing_titles_result.all()}
+
+    missing = [doc for doc in _KNOWLEDGE_SEED if doc["title"] not in existing_titles]
+    if not missing:
         return
 
-    logger.info("fashion_kb_seeding", docs=len(_KNOWLEDGE_SEED))
-    for doc in _KNOWLEDGE_SEED:
+    logger.info("fashion_kb_seeding", new_docs=len(missing), total_seed=len(_KNOWLEDGE_SEED))
+    for doc in missing:
         content_for_embedding = f"Title: {doc['title']}. {doc['content']}"
         embedding = await generate_text_embedding(content_for_embedding)
         db_doc = FashionKnowledgeDocument(
@@ -302,7 +463,7 @@ async def ensure_seeded(session: AsyncSession) -> None:
             embedding=embedding,
         )
         session.add(db_doc)
-    logger.info("fashion_kb_seeded", docs=len(_KNOWLEDGE_SEED))
+    logger.info("fashion_kb_seeded", added=len(missing))
 
 
 async def search_fashion_knowledge(
@@ -354,13 +515,15 @@ def _keyword_fallback(
 async def get_fashion_context_for_prompt(
     session: AsyncSession,
     query: str,
-    limit: int = 3,
+    limit: int = 5,
 ) -> str:
     """Return a formatted string of relevant fashion knowledge for LLM prompt injection."""
     docs = await search_fashion_knowledge(session, query, limit=limit)
     if not docs:
         return ""
     lines = ["[Fashion Knowledge Context]"]
-    for doc in docs:
-        lines.append(f"• {doc['title']}: {doc['content'][:300]}...")
-    return "\n".join(lines)
+    for i, doc in enumerate(docs, 1):
+        # Use up to 600 chars per document for richer grounding context
+        excerpt = doc["content"] if len(doc["content"]) <= 600 else doc["content"][:600] + "…"
+        lines.append(f"[SOURCE-{i}] {doc['title']} (relevance: {doc['relevance_score']:.2f})\n{excerpt}")
+    return "\n\n".join(lines)

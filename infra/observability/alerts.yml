@@ -1,0 +1,153 @@
+# Prometheus alerting rules — golden signals + SLO burn-rate alerts.
+# Metric names: http_* from prometheus-fastapi-instrumentator; clozehive_* are
+# the custom business metrics defined in app/core/metrics.py.
+
+groups:
+  # ── Availability / errors (golden signal: Errors) ──────────────────────────
+  - name: availability
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m])) by (service)
+            / sum(rate(http_requests_total[5m])) by (service) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.service }} 5xx rate > 5%"
+          description: "Over 5% of requests are failing for 5m on {{ $labels.service }}."
+
+      - alert: ServiceDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} target down"
+          description: "Prometheus cannot scrape {{ $labels.job }} for 2m."
+
+  # ── Latency (golden signal: Latency) ───────────────────────────────────────
+  - name: latency
+    rules:
+      - alert: HighP95Latency
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service)
+          ) > 1.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.service }} p95 latency > 1.5s"
+          description: "p95 request latency above 1.5s for 10m on {{ $labels.service }}."
+
+      - alert: AILatencyHigh
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(clozehive_ai_request_duration_seconds_bucket[10m])) by (le, operation)
+          ) > 20
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AI operation {{ $labels.operation }} p95 > 20s"
+          description: "LLM/AI call p95 latency is degraded; check provider + ai-agent."
+
+  # ── SLO burn-rate (availability SLO: 99.5% → 0.5% error budget) ─────────────
+  # Multi-window multi-burn-rate: page fast on a steep burn, ticket on a slow one.
+  - name: slo-burn-rate
+    rules:
+      - alert: ErrorBudgetBurnFast
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m])) by (service)
+              / sum(rate(http_requests_total[5m])) by (service)
+          ) > (14.4 * 0.005)
+          and
+          (
+            sum(rate(http_requests_total{status=~"5.."}[1h])) by (service)
+              / sum(rate(http_requests_total[1h])) by (service)
+          ) > (14.4 * 0.005)
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.service }} burning error budget 14.4x (page)"
+          description: "Availability SLO 99.5% will be exhausted in ~2 days at this rate."
+
+      - alert: ErrorBudgetBurnSlow
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[30m])) by (service)
+              / sum(rate(http_requests_total[30m])) by (service)
+          ) > (6 * 0.005)
+          and
+          (
+            sum(rate(http_requests_total{status=~"5.."}[6h])) by (service)
+              / sum(rate(http_requests_total[6h])) by (service)
+          ) > (6 * 0.005)
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.service }} burning error budget 6x (ticket)"
+          description: "Slow error-budget burn on the availability SLO."
+
+  # ── Saturation (golden signal: Saturation) + business health ───────────────
+  - name: saturation
+    rules:
+      - alert: DBPoolNearExhaustion
+        expr: clozehive_db_pool_connections_in_use{engine="primary"} > 25
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DB connection pool near exhaustion"
+          description: "Primary pool checked-out connections >25 (size 10 + overflow 20)."
+
+      - alert: CircuitBreakerOpen
+        expr: max(clozehive_circuit_breaker_state) by (breaker) >= 2
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Circuit breaker '{{ $labels.breaker }}' is open"
+          description: "The {{ $labels.breaker }} dependency is failing fast; check ai-agent health + latency."
+
+      - alert: AccountPurgeFailing
+        expr: increase(clozehive_account_purge_failed_total[1h]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Account-deletion purge exhausted retries"
+          description: "A cross-service data purge gave up after max attempts — orphaned data needs manual cleanup (see purge_outbox rows with status='failed')."
+
+      - alert: CacheHitRatioLow
+        expr: |
+          sum(rate(clozehive_cache_operations_total{result="hit"}[15m]))
+            / clamp_min(sum(rate(clozehive_cache_operations_total{result=~"hit|miss"}[15m])), 1) < 0.5
+        for: 15m
+        labels:
+          severity: info
+        annotations:
+          summary: "Cache hit ratio < 50%"
+          description: "Redis cache hit ratio degraded — check TTLs / eviction / Redis health."
+
+      - alert: AIQueueBacklogHigh
+        expr: max(clozehive_arq_queue_depth{queue="arq:queue"}) > 25
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AI queue backlog > 25 jobs"
+          description: "ARQ queue depth has been above 25 for 10m; worker throughput is below enqueue rate."
+
+      - alert: AIWorkerSlaBreaches
+        expr: sum(increase(clozehive_ai_worker_sla_breaches_total[15m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AI worker SLA breaches are rising"
+          description: "More than 5 AI jobs exceeded SLA in 15m. Check ai-worker, Redis queue, and ai-agent latency."

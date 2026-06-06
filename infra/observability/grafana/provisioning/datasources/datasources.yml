@@ -1,0 +1,19 @@
+# Grafana datasources — auto-provisioned on startup.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+
+  - name: Tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    jsonData:
+      # Link trace spans → logs/metrics. trace_id from the log↔trace correlation
+      # processor (app/core/logging.py) joins logs to these traces.
+      tracesToMetrics:
+        datasourceUid: prometheus

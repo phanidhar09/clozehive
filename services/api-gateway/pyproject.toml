@@ -1,0 +1,61 @@
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+exclude = ["alembic/versions", "__pycache__", ".venv"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "TID",  # flake8-tidy-imports (cross-domain boundary enforcement)
+    "UP",   # pyupgrade
+]
+ignore = [
+    "E501",  # line too long — handled by formatter
+    "E712",  # comparison to False/True — SQLAlchemy uses == False
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+# ── Domain boundary rules ──────────────────────────────────────────────────────
+# Each domain may only import from:
+#   - its own package          (app.api.v1.<domain>.*)
+#   - app.core.*               (shared cross-cutting utilities)
+#   - app.models.*             (ORM models — shared, pending domain migration)
+#   - app.repositories.base    (shared base repo)
+#   - app.schemas.validators   (shared validator utilities)
+#   - app.rag.*                (shared RAG layer)
+#   - standard library / third-party
+#
+# The rules below ban direct cross-domain imports:
+#   e.g. wardrobe routes may NOT import from identity.services directly.
+#   Cross-domain communication must go through the service's public interface.
+#
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"app.api.v1.identity.services.auth_service" = { msg = "Import auth helpers via app.api.v1.identity.services, not directly. Use the public interface." }
+
+# Legacy flat-layer paths — ban to prevent regressions after migration
+"app.services.cache_service"     = { msg = "Use app.core.cache_service instead." }
+"app.services.upload_service"    = { msg = "Use app.core.upload_service instead." }
+"app.services.embedding_service" = { msg = "Use app.core.embedding_service instead." }
+"app.schemas.auth"      = { msg = "Use app.api.v1.identity.schemas.auth instead." }
+"app.schemas.closet"    = { msg = "Use app.api.v1.wardrobe.schemas.closet instead." }
+"app.schemas.trips"     = { msg = "Use app.api.v1.travel.schemas.trips instead." }
+"app.schemas.analytics" = { msg = "Use app.api.v1.platform.schemas.analytics instead." }
+"app.repositories.user_repo"          = { msg = "Use app.api.v1.identity.repositories.user_repo instead." }
+"app.repositories.closet_repo"        = { msg = "Use app.api.v1.wardrobe.repositories.closet_repo instead." }
+"app.repositories.style_profile_repo" = { msg = "Use app.api.v1.identity.repositories.style_profile_repo instead." }
+"app.repositories.social_repo"        = { msg = "Use app.api.v1.social.repositories.social_repo instead." }
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_ignores = true

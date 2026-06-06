@@ -8,6 +8,7 @@ from app.models.trips import Trip  # noqa: F401
 from app.models.rag import FashionKnowledgeDocument, OutfitHistory, PackingMemory, PurchaseGap  # noqa: F401
 from app.models.social import Follow, Group, GroupMember  # noqa: F401
 from app.models.user import RefreshToken, User, UserCredential  # noqa: F401
+from app.models.purge_outbox import PurgeOutbox  # noqa: F401
 from app.models.ai_chat import (  # noqa: F401
     AIChatMessage,
     AIChatSession,

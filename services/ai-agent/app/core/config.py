@@ -72,6 +72,9 @@ class Settings(BaseSettings):
     # CORS (API gateway only should call this)
     allowed_origins: str = "http://api-gateway:8000,http://localhost:8000"
 
+    # Observability
+    enable_metrics: bool = True
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { toastStore } from '@/store/notificationStore'
 import { useSearchParams, useNavigate, Link } from 'react-router-dom'
 import BackButton from '@/components/ui/BackButton'
 import {
@@ -470,7 +471,12 @@ function AvatarTab({
 
   const save = async () => {
     setSaving(true)
-    try { await onSave(draft) } finally { setSaving(false) }
+    try {
+      await onSave(draft)
+      toastStore.add({ variant: 'success', icon: '🪞', title: 'Avatar saved' })
+    } catch {
+      toastStore.add({ variant: 'error', icon: '❌', title: 'Failed to save avatar' })
+    } finally { setSaving(false) }
   }
 
   return (
@@ -504,7 +510,12 @@ function BodyTab({
 
   const save = async () => {
     setSaving(true)
-    try { await onSave(draft) } finally { setSaving(false) }
+    try {
+      await onSave(draft)
+      toastStore.add({ variant: 'success', icon: '📏', title: 'Body profile saved' })
+    } catch {
+      toastStore.add({ variant: 'error', icon: '❌', title: 'Failed to save body profile' })
+    } finally { setSaving(false) }
   }
 
   return (
@@ -593,6 +604,9 @@ function StyleTab({
         favorite_colors: favoriteColors.split(',').map(c => c.trim()).filter(Boolean),
         avoid_colors:    avoidColors.split(',').map(c => c.trim()).filter(Boolean),
       })
+      toastStore.add({ variant: 'success', icon: '🎨', title: 'Style profile saved' })
+    } catch {
+      toastStore.add({ variant: 'error', icon: '❌', title: 'Failed to save style profile' })
     } finally { setSaving(false) }
   }
 
@@ -813,8 +827,8 @@ function SocialTab({
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      if (sub === 'followers') setFollowers(await socialApi.getFollowers(currentUserId))
-      else if (sub === 'following') setFollowing(await socialApi.getFollowing(currentUserId))
+      if (sub === 'followers') setFollowers((await socialApi.getFollowers(currentUserId)).users)
+      else if (sub === 'following') setFollowing((await socialApi.getFollowing(currentUserId)).users)
       else setDiscover(await socialApi.searchUsers())
     } catch { /* ignore */ }
     finally { setLoading(false) }
@@ -964,6 +978,9 @@ function SettingsTab({
       await onSaveBio(editName, editBio)
       setSavedProfile(true)
       setTimeout(() => setSavedProfile(false), 2500)
+      toastStore.add({ variant: 'success', icon: '👤', title: 'Profile saved' })
+    } catch {
+      toastStore.add({ variant: 'error', icon: '❌', title: 'Failed to save profile' })
     } finally { setSavingProfile(false) }
   }
 
@@ -1004,6 +1021,9 @@ function SettingsTab({
       await onSavePreferences(prefs)
       setSavedPrefs(true)
       setTimeout(() => setSavedPrefs(false), 2500)
+      toastStore.add({ variant: 'success', icon: '⚙️', title: 'Preferences saved' })
+    } catch {
+      toastStore.add({ variant: 'error', icon: '❌', title: 'Failed to save preferences' })
     } finally { setSavingPrefs(false) }
   }
 

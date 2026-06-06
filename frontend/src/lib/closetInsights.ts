@@ -53,7 +53,7 @@ export function analyzeCloset(items: ClosetItem[]): ClosetInsight {
       item.notes,
       ...(item.tags ?? []),
       ...(item.occasion ?? []),
-      typeof item.season === 'string' ? item.season : '',
+      Array.isArray(item.season) ? item.season.join(' ') : (item.season ?? ''),
     ]
     return parts.filter(Boolean).join(' ').toLowerCase()
   }

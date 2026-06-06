@@ -46,14 +46,17 @@ def _run_upgrade_sync() -> None:
     command.upgrade(cfg, "head")
 
 
-async def run_migrations_on_startup() -> None:
-    """Apply all pending migrations up to head. Safe to call on every boot."""
+async def run_migrations_on_startup(*, raise_on_error: bool = False) -> bool:
+    """Apply all pending migrations up to head. Returns True on success."""
     if not _ALEMBIC_INI.exists():
         logger.warning("alembic_ini_not_found", path=str(_ALEMBIC_INI))
-        return
+        return False
     try:
         await asyncio.to_thread(_run_upgrade_sync)
         logger.info("migrations_applied", target="head")
+        return True
     except Exception as exc:
-        # Do not re-raise — a failed migration should not boot-loop the service.
         logger.error("migrations_failed", error=str(exc), error_type=type(exc).__name__)
+        if raise_on_error:
+            raise RuntimeError(f"Startup migrations failed: {exc}") from exc
+        return False

@@ -86,6 +86,7 @@ services:
       timeout: 5s
       retries: 5
 
+  # Cache Redis — evictable (allkeys-lru). Safe to drop keys under memory pressure.
   redis:
     image: redis:7-alpine
     <<: [*restart, *logging]
@@ -99,6 +100,28 @@ services:
       - "${REDIS_HOST_PORT:-6382}:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # State Redis — NON-evictable (noeviction). Holds OAuth CSRF/code state,
+  # refresh tokens, ARQ jobs, and rate-limit counters: data that must survive
+  # memory pressure. Evicting these silently breaks logins and rate limiting.
+  redis-state:
+    image: redis:7-alpine
+    <<: [*restart, *logging]
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory ${REDIS_STATE_MAXMEMORY:-256mb}
+      --maxmemory-policy noeviction
+    ports:
+      - "${REDIS_STATE_HOST_PORT:-6383}:6379"
+    volumes:
+      - redis_state_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -139,6 +162,7 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       VECTOR_STORE: pgvector
       OPENAI_MODEL: gpt-4o
+      ENABLE_METRICS: ${ENABLE_METRICS:-true}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
       OPENAI_API_BASE_URL: https://api.openai.com/v1
     ports:
@@ -158,7 +182,7 @@ services:
   # ── AI Worker (MVP default — ARQ async jobs over Redis) ──────────────────────
   #
   # Consumes jobs enqueued by api-gateway (outfit/packing/vision) from Redis db /3
-  # and writes results back to the ai_requests table. No HTTP port — pure worker.
+  # and writes results back to the ai_requests table.
 
   ai-worker:
     build:
@@ -167,12 +191,24 @@ services:
     <<: [*restart, *logging]
     environment:
       <<: *python-env
-      REDIS_URL: redis://redis:6379/3
+      # ARQ queue lives on the non-evictable state Redis (matches api-gateway).
+      REDIS_URL: redis://redis-state:6379/3
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       AI_AGENT_URL: http://ai-agent:8001
+      # Durable embedding task (HEAVY_WORK_ASYNC) calls back into the gateway.
+      GATEWAY_INTERNAL_URL: http://api-gateway:8000
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      ENABLE_METRICS: ${ENABLE_METRICS:-true}
+      METRICS_PORT: "9104"
+      ARQ_QUEUE_NAME: ${ARQ_QUEUE_NAME:-arq:queue}
+      QUEUE_DEPTH_POLL_SECONDS: ${QUEUE_DEPTH_POLL_SECONDS:-15}
+      AI_JOB_SLA_SECONDS: ${AI_JOB_SLA_SECONDS:-120}
+    expose:
+      - "9104"
     depends_on:
-      redis:
+      redis-state:
         condition: service_healthy
       postgres:
         condition: service_healthy
@@ -197,9 +233,21 @@ services:
       DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-20}
       DB_POOL_RECYCLE: ${DB_POOL_RECYCLE:-300}
       REDIS_URL: redis://redis:6379/0
+      # State Redis (non-evictable): OAuth CSRF/code, refresh tokens, rate limits.
+      REDIS_STATE_URL: redis://redis-state:6379/0
       REDIS_CHECK_ON_READY: ${REDIS_CHECK_ON_READY:-true}
-      # ARQ task queue — must match the ai-worker's REDIS_URL (db index /3).
-      ARQ_REDIS_URL: redis://redis:6379/3
+      # ARQ task queue lives on the non-evictable state Redis — must match the
+      # ai-worker's ARQ_REDIS_URL (db index /3).
+      ARQ_REDIS_URL: redis://redis-state:6379/3
+      # Offload closet embedding generation to the durable ARQ queue (needs ai-worker).
+      # Default false → in-process BackgroundTasks (no worker required).
+      HEAVY_WORK_ASYNC: ${HEAVY_WORK_ASYNC:-false}
+      # ── Observability ───────────────────────────────────────────────────────
+      ENABLE_METRICS: ${ENABLE_METRICS:-true}
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      OTEL_ENABLED: ${OTEL_ENABLED:-false}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_SERVICE_NAME: api-gateway
       # Must be the Compose service name, not localhost from .env (host dev uses localhost).
       AI_AGENT_URL: http://ai-agent:8001
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
@@ -227,6 +275,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      redis-state:
         condition: service_healthy
       ai-agent:
         condition: service_started
@@ -263,7 +313,8 @@ services:
       # Own cache index (/4); ARQ queue index (/3) matches the ai-worker so the
       # closet-service can enqueue vision/embedding jobs later.
       REDIS_URL: redis://redis:6379/4
-      ARQ_REDIS_URL: redis://redis:6379/3
+      REDIS_STATE_URL: redis://redis-state:6379/0
+      ARQ_REDIS_URL: redis://redis-state:6379/3
       REDIS_CHECK_ON_READY: ${REDIS_CHECK_ON_READY:-true}
       # MUST be byte-identical to api-gateway's JWT_SECRET or all auth 401s.
       JWT_SECRET: ${JWT_SECRET}
@@ -277,12 +328,15 @@ services:
       GCS_PROJECT_ID: ${GCS_PROJECT_ID:-}
       GCS_CREDENTIALS_JSON: ${GCS_CREDENTIALS_JSON:-}
       GCS_CREDENTIALS_FILE: ${GCS_CREDENTIALS_FILE:-}
+      ENABLE_METRICS: ${ENABLE_METRICS:-true}
     ports:
       - "8003:8003"
     depends_on:
       postgres-closet:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      redis-state:
         condition: service_healthy
       ai-agent:
         condition: service_started
@@ -299,6 +353,8 @@ services:
       - ./gcp-sa.json:/run/secrets/gcp-sa.json:ro
 
   # ── Vision Service (MVP default — image analysis and background removal) ─────
+  # Persists analyzed closet items into the wardrobe domain DB so saved items
+  # are immediately visible to closet-service readers.
 
   vision-service:
     build:
@@ -310,7 +366,7 @@ services:
     environment:
       <<: *python-env
       PORT: "8002"
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres-closet:5432/${CLOSET_POSTGRES_DB:-clozehive_closet}
       DB_POOL_SIZE: ${DB_POOL_SIZE:-5}
       DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-10}
       DB_POOL_RECYCLE: ${DB_POOL_RECYCLE:-300}
@@ -326,7 +382,7 @@ services:
     ports:
       - "8002:8002"
     depends_on:
-      postgres:
+      postgres-closet:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -408,4 +464,5 @@ volumes:
   postgres_data:
   postgres_closet_data:
   redis_data:
+  redis_state_data:
   uploads:

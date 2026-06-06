@@ -1,21 +1,35 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-git pull
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT_DIR"
 
-pushd frontend >/dev/null
-npm ci
-npm run build
-popd >/dev/null
+BRANCH="${DEPLOY_BRANCH:-main}"
+REMOTE_NAME="${DEPLOY_REMOTE:-origin}"
+COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.yml}"
+RUN_MIGRATIONS="${RUN_MIGRATIONS:-true}"
+RUN_HEALTH_CHECK="${RUN_HEALTH_CHECK:-true}"
 
-# Copy the built SPA into the nginx shared volume.
-container_id="$(docker create -v closetiq-integrated_frontend-dist:/usr/share/nginx/html alpine:3.20 true)"
-docker cp frontend/dist/. "${container_id}:/usr/share/nginx/html"
-docker rm "${container_id}" >/dev/null
+echo "[deploy] Fetching latest code from ${REMOTE_NAME}/${BRANCH}"
+git fetch "$REMOTE_NAME" "$BRANCH"
+git checkout "$BRANCH"
+git pull --ff-only "$REMOTE_NAME" "$BRANCH"
 
-docker compose -f docker-compose.prod.yml build api-gateway
-docker compose -f docker-compose.prod.yml up -d api-gateway nginx
-docker compose -f docker-compose.prod.yml exec api-gateway alembic upgrade head
-docker compose -f docker-compose.prod.yml exec nginx nginx -s reload
+echo "[deploy] Pulling latest container images (if any)"
+docker compose -f "$COMPOSE_FILE" pull || true
 
-echo "Deployment complete."
+echo "[deploy] Building and starting services"
+docker compose -f "$COMPOSE_FILE" up -d --build
+
+if [[ "$RUN_MIGRATIONS" == "true" ]]; then
+  echo "[deploy] Running migrations"
+  docker compose -f "$COMPOSE_FILE" run --rm migrate
+  docker compose -f "$COMPOSE_FILE" run --rm migrate-closet
+fi
+
+if [[ "$RUN_HEALTH_CHECK" == "true" ]]; then
+  echo "[deploy] Running health checks"
+  ./scripts/check-health.sh
+fi
+
+echo "[deploy] Deployment complete"

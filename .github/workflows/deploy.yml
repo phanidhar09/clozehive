@@ -5,25 +5,55 @@ on:
     workflows: ["CI"]
     types: [completed]
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   deploy:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Deployment placeholder
+      - name: Validate deploy secrets
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
         run: |
-          echo "Configure deployment here."
-          echo "Common options: SSH to a server and run docker compose pull/up, or push images to a container registry."
-          echo "Add secrets such as DEPLOY_HOST, DEPLOY_USER, SSH_PRIVATE_KEY, and registry credentials before enabling real deploys."
+          missing=0
+          for v in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_PATH; do
+            if [ -z "${!v}" ]; then
+              echo "::error::Missing required secret: $v"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || '22' }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.DEPLOY_PATH }}"
+            export DEPLOY_BRANCH="${{ github.event.workflow_run.head_branch || github.ref_name }}"
+            export DEPLOY_REMOTE="${{ secrets.DEPLOY_REMOTE || 'origin' }}"
+            export COMPOSE_FILE="${{ secrets.DEPLOY_COMPOSE_FILE || 'docker-compose.yml' }}"
+            export RUN_MIGRATIONS="${{ secrets.DEPLOY_RUN_MIGRATIONS || 'true' }}"
+            export RUN_HEALTH_CHECK="${{ secrets.DEPLOY_RUN_HEALTH_CHECK || 'true' }}"
+            ./scripts/deploy.sh
       - name: Write deployment summary
         run: |
           {
-            echo "## Deployment Placeholder"
+            echo "## Deployment Success"
             echo ""
-            echo "CI passed on main. Replace this placeholder with your production deployment steps."
+            echo "Deployed successfully via SSH using \`scripts/deploy.sh\`."
             echo ""
-            echo "- Commit: ${{ github.event.workflow_run.head_sha }}"
-            echo "- Branch: ${{ github.event.workflow_run.head_branch }}"
+            echo "- Commit: ${{ github.event.workflow_run.head_sha || github.sha }}"
+            echo "- Branch: ${{ github.event.workflow_run.head_branch || github.ref_name }}"
+            echo "- Host: ${{ secrets.DEPLOY_HOST }}"
           } >> "$GITHUB_STEP_SUMMARY"

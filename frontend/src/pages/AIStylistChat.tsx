@@ -41,6 +41,7 @@ const WELCOME: StylistChatMessage = {
     "Hey! I'm FANI — your Fashion Analysis and Nurturing Intelligence. I can build outfits from your actual wardrobe, answer styling questions, and help you look your best. What's on your mind?",
   timestamp: new Date(),
 }
+const AI_CHAT_TRIED_KEY = 'ch_ai_chat_tried'
 
 const QUICK_PROMPTS = [
   { label: '👕 Outfit today',     text: 'What should I wear today?' },
@@ -550,6 +551,7 @@ export default function AIStylistChat() {
       timestamp: new Date(),
     }
     setMessages(m => [...m, userMsg])
+    try { localStorage.setItem(AI_CHAT_TRIED_KEY, '1') } catch { /* ignore */ }
     setStreaming(true)
     setError(null)
 

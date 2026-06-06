@@ -14,6 +14,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.agent.wardrobe_agent import get_agent
 from app.api.v1.agent import router as agent_router
 from app.core.config import get_settings
+from app.core.metrics import setup_metrics
 from app.services import vector_store
 
 settings = get_settings()
@@ -98,6 +99,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(agent_router, prefix="/api/v1")
+    setup_metrics(app)
 
     @app.get("/health", include_in_schema=False)
     async def health() -> dict[str, Any]:

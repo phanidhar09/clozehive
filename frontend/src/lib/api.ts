@@ -187,6 +187,12 @@ api.interceptors.response.use(
 // ── Mappers ────────────────────────────────────────────────────────────────
 
 function mapUserResponse(raw: Record<string, unknown>): AuthUser {
+  // Runtime guard: if the backend sends a response without the expected shape
+  // (e.g. after a schema migration), surface a clear error instead of silently
+  // returning a half-populated object that breaks rendering.
+  if (!raw.id || !raw.email) {
+    console.error('[mapUserResponse] Unexpected user response shape:', Object.keys(raw))
+  }
   return {
     id: String(raw.id),
     email: String(raw.email ?? ''),
@@ -258,9 +264,12 @@ function mapUserStyleProfile(raw: Record<string, unknown>): UserStyleProfile {
 
 function mapClosetItem(raw: Record<string, unknown>): ClosetItem {
   const seasonRaw = raw.season
-  let season: string | undefined
-  if (Array.isArray(seasonRaw)) season = seasonRaw.join(', ')
-  else if (typeof seasonRaw === 'string') season = seasonRaw
+  // Backend always returns season as string[] — normalise legacy string responses too.
+  const season: string[] | undefined = Array.isArray(seasonRaw)
+    ? (seasonRaw as string[]).filter(Boolean)
+    : typeof seasonRaw === 'string' && seasonRaw.trim()
+      ? seasonRaw.split(',').map(s => s.trim()).filter(Boolean)
+      : undefined
 
   const image_url =
     resolveUploadUrl(raw.image_url as string | undefined)
@@ -544,11 +553,14 @@ export type BulkAnalyzePreviewResponse = {
 // ── Closet ──────────────────────────────────────────────────────────────────
 
 export const closetApi = {
-  async list(): Promise<ClosetItem[]> {
-    const { data } = await api.get<{ items: Record<string, unknown>[] }>('/closet/', {
-      params: { page: 1, per_page: 200 },
+  async list(page = 1, perPage = 500): Promise<{ items: ClosetItem[]; total: number; hasMore: boolean }> {
+    const { data } = await api.get<{ items: Record<string, unknown>[]; total: number }>('/closet/', {
+      params: { page, per_page: perPage },
     })
-    return (data.items ?? []).map(mapClosetItem)
+    const items = (data.items ?? []).map(mapClosetItem)
+    const total = data.total ?? items.length
+    const loadedSoFar = ((page - 1) * perPage) + items.length
+    return { items, total, hasMore: total > loadedSoFar }
   },
 
   async delete(id: string): Promise<void> {
@@ -779,14 +791,28 @@ export const socialApi = {
     return data
   },
 
-  async getFollowers(userId: string): Promise<SocialUser[]> {
-    const { data } = await api.get<Record<string, unknown>[]>(`/social/followers/${userId}`)
-    return (data ?? []).map(mapSocialUser)
+  async getFollowers(
+    userId: string,
+    opts: { limit?: number; offset?: number } = {},
+  ): Promise<{ users: SocialUser[]; hasMore: boolean }> {
+    const limit = opts.limit ?? 50
+    const { data } = await api.get<Record<string, unknown>[]>(`/social/followers/${userId}`, {
+      params: { limit, offset: opts.offset ?? 0 },
+    })
+    const users = (data ?? []).map(mapSocialUser)
+    return { users, hasMore: users.length === limit }
   },
 
-  async getFollowing(userId: string): Promise<SocialUser[]> {
-    const { data } = await api.get<Record<string, unknown>[]>(`/social/following/${userId}`)
-    return (data ?? []).map(mapSocialUser)
+  async getFollowing(
+    userId: string,
+    opts: { limit?: number; offset?: number } = {},
+  ): Promise<{ users: SocialUser[]; hasMore: boolean }> {
+    const limit = opts.limit ?? 50
+    const { data } = await api.get<Record<string, unknown>[]>(`/social/following/${userId}`, {
+      params: { limit, offset: opts.offset ?? 0 },
+    })
+    const users = (data ?? []).map(mapSocialUser)
+    return { users, hasMore: users.length === limit }
   },
 
   async getMyGroups(): Promise<Group[]> {

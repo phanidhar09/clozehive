@@ -74,10 +74,30 @@ if not _is_sqlite:
 
 engine = create_async_engine(settings.database_url, **_engine_kwargs)
 
+# ── Read-replica engine ───────────────────────────────────────────────────────
+# When DATABASE_READ_URL points at a replica, read-only endpoints use this engine
+# to take load off the primary. When unset (or equal to the primary), we reuse
+# the primary engine so there is exactly one pool and zero behaviour change.
+if not _is_sqlite and settings.has_read_replica:
+    read_engine = create_async_engine(settings.effective_database_read_url, **_engine_kwargs)
+    logger.info("read_replica_engine_created", target=settings.effective_database_read_url.split("@")[-1])
+else:
+    read_engine = engine
+
 # ── Session factory ───────────────────────────────────────────────────────────
 
 AsyncSessionLocal = async_sessionmaker(
     bind=engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+    autocommit=False,
+    autoflush=False,
+)
+
+# Read-only session factory bound to the replica engine (or the primary when no
+# replica is configured). Never commits — see get_read_session below.
+ReadSessionLocal = async_sessionmaker(
+    bind=read_engine,
     class_=AsyncSession,
     expire_on_commit=False,
     autocommit=False,
@@ -100,6 +120,22 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 
+async def get_read_session() -> AsyncGenerator[AsyncSession, None]:
+    """Yield a read-only session bound to the replica engine.
+
+    Use ONLY for endpoints that perform no writes. There is no commit — the
+    session rolls back and closes at the end, so any accidental write is
+    discarded rather than persisted. When no replica is configured this is bound
+    to the primary engine and behaves like a non-committing read session.
+    """
+    async with ReadSessionLocal() as session:
+        try:
+            yield session
+        finally:
+            await session.rollback()
+            await session.close()
+
+
 # ── Lifecycle helpers ─────────────────────────────────────────────────────────
 
 async def connect() -> None:
@@ -116,4 +152,6 @@ async def connect() -> None:
 
 async def disconnect() -> None:
     await engine.dispose()
+    if read_engine is not engine:
+        await read_engine.dispose()
     logger.info("database_disconnected")

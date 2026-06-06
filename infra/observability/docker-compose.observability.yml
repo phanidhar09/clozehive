@@ -1,0 +1,67 @@
+# Observability stack — metrics (Prometheus), alerts (Alertmanager), dashboards
+# (Grafana), and traces (Tempo). Run alongside the app stack on the same network:
+#
+#   docker compose \
+#     -f docker-compose.yml \
+#     -f infra/observability/docker-compose.observability.yml up -d
+#
+# Then point app services at the collector:
+#   OTEL_ENABLED=true OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4318
+#
+# Grafana -> http://localhost:3002  (admin / admin by default; change it)
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    restart: unless-stopped
+    volumes:
+      - ./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/observability/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+    ports:
+      - "9090:9090"
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    restart: unless-stopped
+    volumes:
+      - ./infra/observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+    ports:
+      - "9093:9093"
+
+  tempo:
+    image: grafana/tempo:2.6.0
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./infra/observability/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo_data:/var/tempo
+    ports:
+      - "3200:3200"   # Tempo query
+      - "4318:4318"   # OTLP HTTP receiver (point OTEL_EXPORTER_OTLP_ENDPOINT here)
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./infra/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/observability/grafana-dashboard.json:/var/lib/grafana/dashboards/clozehive-overview.json:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3002:3000"
+    depends_on:
+      - prometheus
+      - tempo
+
+volumes:
+  prometheus_data:
+  tempo_data:
+  grafana_data:

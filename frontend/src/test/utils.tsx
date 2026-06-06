@@ -33,8 +33,11 @@ function baseMocks(): AppState {
     addClosetItem: vi.fn(),
     removeClosetItem: vi.fn(),
     fetchClosetItems: vi.fn(),
+    loadMoreClosetItems: vi.fn(),
     closetLoading: false,
     closetError: null,
+    closetTotal: 0,
+    closetHasMore: false,
     sidebarOpen: false,
     setSidebarOpen: vi.fn(),
   }

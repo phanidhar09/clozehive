@@ -4,6 +4,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { notificationStore, toastStore } from '@/store/notificationStore'
 import BackButton from '@/components/ui/BackButton'
 import PageHeader from '@/components/ui/PageHeader'
 import { usePageState } from '@/hooks/usePageState'
@@ -1547,6 +1548,12 @@ export default function TravelPlanner() {
         activities: acts,
       })
       setTrip(response.trip)
+      notificationStore.push({
+        channel: 'ai',
+        icon: '✈️',
+        title: 'Trip plan ready!',
+        body: `Your packing plan for ${form.destination} is ready to review.`,
+      })
       if (response.packing_plan) {
         setPackingPlan(response.packing_plan)
         // Seed packed state from checklist_state
@@ -1566,7 +1573,9 @@ export default function TravelPlanner() {
       setStep(3)
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } catch (err: unknown) {
-      setGenError(tripApiErr(err, 'Failed to create trip and generate plan. Please try again.'))
+      const msg = tripApiErr(err, 'Failed to create trip and generate plan. Please try again.')
+      setGenError(msg)
+      toastStore.add({ variant: 'error', icon: '✈️', title: 'Trip creation failed', body: msg })
     } finally {
       setLoading(false)
     }
@@ -1592,8 +1601,16 @@ export default function TravelPlanner() {
       setTrip(result.trip)
       setPackingPlan(result.packing_plan)
       setPlannerSaved(true)
+      notificationStore.push({
+        channel: 'ai',
+        icon: '📋',
+        title: 'Planner saved!',
+        body: `Your packing planner for ${trip.destination} has been saved.`,
+      })
     } catch (err: unknown) {
-      setSaveError(tripApiErr(err, 'Failed to save planner.'))
+      const msg = tripApiErr(err, 'Failed to save planner.')
+      setSaveError(msg)
+      toastStore.add({ variant: 'error', icon: '📋', title: 'Save failed', body: msg })
     } finally {
       setSavingPlanner(false)
     }

@@ -18,13 +18,13 @@ from google.cloud.firestore_v1.base_query import FieldFilter
 
 from app.core.exceptions import ForbiddenError, NotFoundError
 from app.core.logging import get_logger
-from app.schemas.closet import (
+from app.api.v1.wardrobe.schemas.closet import (
     ClosetItemCreate,
     ClosetItemResponse,
     ClosetItemUpdate,
     ClosetListResponse,
 )
-from app.services import cache_service
+from app.core import cache_service
 from app.services.firestore.firestore_client import get_db
 
 logger = get_logger("firestore.closet")

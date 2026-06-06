@@ -10,6 +10,7 @@ import PageHeader from '@/components/ui/PageHeader'
 import Input, { Select } from '@/components/ui/Input'
 import Badge from '@/components/ui/Badge'
 import { useApp } from '@/store'
+import { notificationStore, toastStore } from '@/store/notificationStore'
 import { closetApi, closetSimilarityApi, resolveUploadUrl, type ClosetPreviewItem, type SimilarClosetItem } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { CLOSET_SEASONS, CLOSET_OCCASIONS } from '@/features/closet/constants'
@@ -537,10 +538,30 @@ export default function Upload() {
       setError('No items are selected to save. Include at least one item, then press Save.')
     } else if (failed.length === 0) {
       setSaveOkMessage(`${totalSaved} item${totalSaved === 1 ? '' : 's'} saved to your closet!`)
+      notificationStore.push({
+        channel: 'closet',
+        icon: '👕',
+        title: `${totalSaved} item${totalSaved === 1 ? '' : 's'} added to your closet`,
+        body: 'Your new pieces are ready to style.',
+      })
     } else {
       const names = failed.map(f => f.filename).join(', ')
-      if (totalSaved > 0) setSaveOkMessage(`${totalSaved} item${totalSaved === 1 ? '' : 's'} saved.`)
+      if (totalSaved > 0) {
+        setSaveOkMessage(`${totalSaved} item${totalSaved === 1 ? '' : 's'} saved.`)
+        notificationStore.push({
+          channel: 'closet',
+          icon: '👕',
+          title: `${totalSaved} item${totalSaved === 1 ? '' : 's'} saved`,
+          body: `${failed.length} photo${failed.length === 1 ? '' : 's'} failed — fix and retry.`,
+        })
+      }
       setError(`Couldn't save ${failed.length} photo${failed.length === 1 ? '' : 's'} (${names}). They're still here — fix any issues and press Save to retry.`)
+      toastStore.add({
+        variant: 'error',
+        icon: '⚠️',
+        title: `Failed to save ${failed.length} photo${failed.length === 1 ? '' : 's'}`,
+        body: names,
+      })
     }
 
     setSavingAll(false)
@@ -780,12 +801,14 @@ export default function Upload() {
               <CheckCircle size={32} className="text-emerald-500 mx-auto" />
               <div>
                 <p className="font-semibold text-slate-700 dark:text-slate-200">All items saved!</p>
-                <p className="text-sm text-slate-400">Upload another photo to keep growing your closet.</p>
+                <p className="text-sm text-slate-400">What do you want to do next?</p>
               </div>
-              <div className="flex gap-2 justify-center">
+              <div className="flex gap-2 justify-center flex-wrap">
                 <Link to="/closet" className="btn-secondary text-xs px-4 py-2 rounded-xl">View my closet</Link>
-                <Button size="sm" onClick={resetAll}>Upload more</Button>
+                <Link to="/outfit-builder" className="btn-secondary text-xs px-4 py-2 rounded-xl">Build outfit</Link>
+                <Link to="/ai-stylist" className="btn-secondary text-xs px-4 py-2 rounded-xl">Ask FANI</Link>
               </div>
+              <Button size="sm" onClick={resetAll}>Upload more</Button>
             </div>
           )}
 

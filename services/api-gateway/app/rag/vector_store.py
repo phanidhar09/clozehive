@@ -47,7 +47,7 @@ import numpy as np
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
-from app.services.embedding_service import pgvector_cosine_search
+from app.core.embedding_service import pgvector_cosine_search
 
 logger = get_logger("rag.vector_store")
 

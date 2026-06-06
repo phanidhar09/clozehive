@@ -15,14 +15,17 @@ accepted → processing → completed | failed) so the gateway can poll for resu
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from uuid import UUID
 
 from arq.connections import RedisSettings
+from redis.asyncio import Redis
 
 from app.core.config import get_settings
 from app.core.logging import get_logger, setup_logging
-from app.services import ai_agent_client, db
+from app.core.metrics import record_job_terminal, set_queue_depth, start_metrics_server
+from app.services import ai_agent_client, db, gateway_client
 
 settings = get_settings()
 logger = get_logger("ai_worker")
@@ -40,6 +43,17 @@ async def _fail_on_last_try(ctx: dict[str, Any], request_id: UUID, exc: Exceptio
         await db.fail_request(request_id, str(exc))
 
 
+async def _queue_depth_poll_loop(redis_client: Redis) -> None:
+    """Continuously export ARQ queue depth to Prometheus gauges."""
+    while True:
+        try:
+            depth = await redis_client.llen(settings.arq_queue_name)
+            set_queue_depth(int(depth))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("queue_depth_poll_failed", error=str(exc))
+        await asyncio.sleep(max(settings.queue_depth_poll_seconds, 5))
+
+
 async def analyze_image_task(
     ctx: dict[str, Any],
     request_id: str,
@@ -53,11 +67,14 @@ async def analyze_image_task(
         analysis = await ai_agent_client.analyze_image(file_path, media_type)
         payload = {"analysis": analysis}
         await db.complete_request(rid, payload)
+        record_job_terminal("analyze_image", "completed", await db.request_age_seconds(rid))
         logger.info("analyze_image_completed", request_id=request_id)
         return payload
     except Exception as exc:  # noqa: BLE001 — re-raised below for ARQ retry
         logger.error("analyze_image_failed", request_id=request_id, error=str(exc))
         await _fail_on_last_try(ctx, rid, exc)
+        if ctx.get("job_try", 1) >= settings.max_attempts:
+            record_job_terminal("analyze_image", "failed", await db.request_age_seconds(rid))
         raise
 
 
@@ -72,11 +89,14 @@ async def generate_outfit_task(
     try:
         result = await ai_agent_client.generate_outfit(payload)
         await db.complete_request(rid, result)
+        record_job_terminal("generate_outfit", "completed", await db.request_age_seconds(rid))
         logger.info("generate_outfit_completed", request_id=request_id)
         return result
     except Exception as exc:  # noqa: BLE001 — re-raised below for ARQ retry
         logger.error("generate_outfit_failed", request_id=request_id, error=str(exc))
         await _fail_on_last_try(ctx, rid, exc)
+        if ctx.get("job_try", 1) >= settings.max_attempts:
+            record_job_terminal("generate_outfit", "failed", await db.request_age_seconds(rid))
         raise
 
 
@@ -91,24 +111,67 @@ async def generate_packing_task(
     try:
         result = await ai_agent_client.generate_packing(payload)
         await db.complete_request(rid, result)
+        record_job_terminal("generate_packing", "completed", await db.request_age_seconds(rid))
         logger.info("generate_packing_completed", request_id=request_id)
         return result
     except Exception as exc:  # noqa: BLE001 — re-raised below for ARQ retry
         logger.error("generate_packing_failed", request_id=request_id, error=str(exc))
         await _fail_on_last_try(ctx, rid, exc)
+        if ctx.get("job_try", 1) >= settings.max_attempts:
+            record_job_terminal("generate_packing", "failed", await db.request_age_seconds(rid))
         raise
+
+
+async def generate_embedding_task(ctx: dict[str, Any], item_id: str) -> dict[str, Any]:
+    """Durably regenerate a closet item's embedding.
+
+    The embedding logic lives in the gateway (it owns the OpenAI client + closet
+    schema), so this task calls back into the gateway's token-protected internal
+    endpoint. ARQ retries on failure; no ai_requests row — this is fire-and-forget
+    background work with no client-facing status.
+    """
+    logger.info("generate_embedding_started", item_id=item_id, attempt=ctx.get("job_try"))
+    await gateway_client.regenerate_embedding(item_id)
+    logger.info("generate_embedding_completed", item_id=item_id)
+    return {"item_id": item_id, "status": "ok"}
 
 
 # ── Worker lifecycle ────────────────────────────────────────────────────────
 
 async def on_startup(ctx: dict[str, Any]) -> None:
     setup_logging()
+    start_metrics_server()
+    if settings.sentry_dsn:
+        try:
+            import sentry_sdk
+            sentry_sdk.init(
+                dsn=settings.sentry_dsn,
+                environment=settings.environment,
+                traces_sample_rate=settings.sentry_traces_sample_rate,
+            )
+            logger.info("sentry_initialized", environment=settings.environment)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("sentry_init_failed", error=str(exc))
     await db.get_pool()  # warm the asyncpg pool
+    redis_client = Redis.from_url(settings.redis_url, decode_responses=False)
+    ctx["queue_depth_redis"] = redis_client
+    ctx["queue_depth_task"] = asyncio.create_task(_queue_depth_poll_loop(redis_client))
     logger.info("ai_worker_starting", redis=settings.redis_url)
 
 
 async def on_shutdown(ctx: dict[str, Any]) -> None:
+    poll_task = ctx.get("queue_depth_task")
+    if poll_task is not None:
+        poll_task.cancel()
+        try:
+            await poll_task
+        except asyncio.CancelledError:
+            pass
+    redis_client = ctx.get("queue_depth_redis")
+    if redis_client is not None:
+        await redis_client.aclose()
     await ai_agent_client.close()
+    await gateway_client.close()
     await db.close()
     logger.info("ai_worker_stopped")
 
@@ -116,7 +179,7 @@ async def on_shutdown(ctx: dict[str, Any]) -> None:
 class WorkerSettings:
     """ARQ entrypoint: ``arq app.worker.WorkerSettings``."""
 
-    functions = [analyze_image_task, generate_outfit_task, generate_packing_task]
+    functions = [analyze_image_task, generate_outfit_task, generate_packing_task, generate_embedding_task]
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
     on_startup = on_startup
     on_shutdown = on_shutdown

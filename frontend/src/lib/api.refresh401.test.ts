@@ -92,7 +92,7 @@ describe('api client 401 handling', () => {
 
   it('calls refresh once and retries the original request', async () => {
     const { closetApi } = await import('@/lib/api')
-    const items = await closetApi.list()
+    const { items } = await closetApi.list()
 
     expect(refreshSpy).toHaveBeenCalledTimes(1)
     expect(items).toEqual([])

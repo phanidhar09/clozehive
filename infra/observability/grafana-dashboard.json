@@ -1,0 +1,116 @@
+{
+  "title": "Clozehive — Service Overview",
+  "uid": "clozehive-overview",
+  "schemaVersion": 39,
+  "version": 1,
+  "tags": ["clozehive", "golden-signals"],
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "type": "query",
+        "datasource": "Prometheus",
+        "query": "label_values(up, service)",
+        "includeAll": true,
+        "multi": true
+      }
+    ]
+  },
+  "panels": [
+    {
+      "title": "Request rate (RPS)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{service=~\"$service\"}[5m])) by (service)",
+          "legendFormat": "{{service}}"
+        }
+      ]
+    },
+    {
+      "title": "Error rate (5xx %)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "percentunit" } },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{service=~\"$service\",status=~\"5..\"}[5m])) by (service) / sum(rate(http_requests_total{service=~\"$service\"}[5m])) by (service)",
+          "legendFormat": "{{service}}"
+        }
+      ]
+    },
+    {
+      "title": "Latency p50 / p95 / p99 (s)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{service=~\"$service\"}[5m])) by (le))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{service=~\"$service\"}[5m])) by (le))", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{service=~\"$service\"}[5m])) by (le))", "legendFormat": "p99" }
+      ]
+    },
+    {
+      "title": "DB pool connections in use",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        { "expr": "clozehive_db_pool_connections_in_use", "legendFormat": "{{engine}}" }
+      ]
+    },
+    {
+      "title": "AI call p95 latency by operation (s)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(clozehive_ai_request_duration_seconds_bucket[10m])) by (le, operation))", "legendFormat": "{{operation}}" }
+      ]
+    },
+    {
+      "title": "Cache hit ratio",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 16 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 } },
+      "targets": [
+        { "expr": "sum(rate(clozehive_cache_operations_total{result=\"hit\"}[15m])) / clamp_min(sum(rate(clozehive_cache_operations_total{result=~\"hit|miss\"}[15m])), 1)" }
+      ]
+    },
+    {
+      "title": "AI tokens / min by model",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 16 },
+      "targets": [
+        { "expr": "sum(rate(clozehive_ai_tokens_total[5m])) by (model, kind) * 60", "legendFormat": "{{model}} {{kind}}" }
+      ]
+    },
+    {
+      "title": "Embedding jobs by transport (rate)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "targets": [
+        { "expr": "sum(rate(clozehive_embedding_jobs_total[5m])) by (transport)", "legendFormat": "{{transport}}" }
+      ]
+    },
+    {
+      "title": "Vision pipeline p95 by stage (s)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(clozehive_vision_stage_duration_seconds_bucket[10m])) by (le, stage))", "legendFormat": "{{stage}}" }
+      ]
+    },
+    {
+      "title": "Core Web Vitals p75 (RUM)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
+      "description": "Browser-reported LCP/INP/CLS/FCP/TTFB at p75 (Web Vitals reporting threshold). LCP/INP/FCP/TTFB in ms, CLS unitless.",
+      "targets": [
+        { "expr": "histogram_quantile(0.75, sum(rate(clozehive_web_vital_bucket[1h])) by (le, metric))", "legendFormat": "{{metric}}" }
+      ]
+    }
+  ]
+}

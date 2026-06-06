@@ -32,7 +32,9 @@ from app.core.logging import get_logger
 from app.models.ai_chat import AIChatSession
 from app.models.closet import ClosetItem
 from app.services import ai_service, weather_service
+from app.core.ai_output_validator import score_response_quality, validate_chat_response
 from app.services.ai_stylist_chat_service import (
+    _CHAT_MAX_TOKENS,
     _SYSTEM_PROMPT_TEMPLATE,
     _build_feedback_block,
     _build_knowledge_block,
@@ -46,7 +48,6 @@ from app.services.ai_stylist_chat_service import (
     _fetch_image_lookup,
     _rag_load_closet,
     _resolve_weather,
-    _validate_item_ids,
 )
 from app.services.embedding_service import generate_text_embedding
 from app.services.fashion_rag_service import get_fashion_context_for_prompt
@@ -281,7 +282,7 @@ async def stream_chat_message(
         return None
 
     closet_task = asyncio.create_task(
-        _rag_load_closet(session, user_id, query_embedding)
+        _rag_load_closet(session, user_id, query_embedding, occasion=occasion)
         if query_embedding
         else _fallback_closet(session, user_id)
     )
@@ -297,7 +298,7 @@ async def stream_chat_message(
         get_outfit_history_for_prompt(session, str(user_id), occasion, limit=5)
     )
     knowledge_task = asyncio.create_task(
-        get_fashion_context_for_prompt(session, rag_query, limit=3)
+        get_fashion_context_for_prompt(session, rag_query, limit=5)
     )
 
     closet_items, user_profile, weather, feedback_text, knowledge_text = await asyncio.gather(
@@ -328,7 +329,7 @@ async def stream_chat_message(
 
     weather_cond = (weather.get("condition") or "mild") if weather else "mild"
     fashion_rules_block = build_fashion_rules_prompt_block(
-        closet_items[:20], occasion, weather_cond, user_profile
+        closet_items, occasion, weather_cond, user_profile
     )
 
     # Conversation summarization — fold older turns once history gets long.
@@ -392,9 +393,18 @@ async def stream_chat_message(
         messages.append({"role": "user", "content": augmented})
 
     # ── Stream ──────────────────────────────────────────────────────────────
+    # Match the non-streaming pipeline's reliability settings: JSON mode so the
+    # full payload always parses, a large token budget so the structured JSON is
+    # never truncated mid-outfit, and a lower temperature for schema adherence.
     extractor = _ReplyExtractor()
     try:
-        async for chunk in ai_service.stream_chat(messages, system_prompt):
+        async for chunk in ai_service.stream_chat(
+            messages,
+            system_prompt,
+            use_json_mode=True,
+            max_tokens=_CHAT_MAX_TOKENS,
+            temperature=0.5,
+        ):
             decoded = extractor.feed(chunk)
             if decoded:
                 yield {"type": "token", "content": decoded}
@@ -412,8 +422,29 @@ async def stream_chat_message(
         logger.warning("stream_chat_bad_json", user_id=str(user_id))
         data = _fallback_response(message, closet_items)
 
-    outfits = data.get("recommended_outfits") or []
-    outfits = _validate_item_ids(outfits, valid_ids)
+    # Use the same strong validator as the non-streaming path: UUID-format check,
+    # closet-membership check, and score-breakdown correction — not just an ID strip.
+    validation = validate_chat_response(data, valid_ids)
+    if validation.warnings:
+        logger.info(
+            "stream_chat_response_warnings",
+            warnings=validation.warnings,
+            outfits_removed=validation.outfits_removed,
+            items_removed=validation.items_removed,
+            user_id=str(user_id),
+        )
+    cleaned = validation.cleaned
+    outfits = cleaned.get("recommended_outfits") or []
+
+    quality = score_response_quality(validation, len(valid_ids))
+    logger.info(
+        "stream_response_quality",
+        user_id=str(user_id),
+        quality_overall=quality.overall,
+        hallucination_risk=quality.hallucination_risk,
+        outfits=len(outfits),
+    )
+
     suggested_ids = {
         it.get("id") or ""
         for outfit in outfits
@@ -425,9 +456,9 @@ async def stream_chat_message(
 
     yield {
         "type": "structured",
-        "reply": str(data.get("reply") or ""),
+        "reply": str(cleaned.get("reply") or ""),
         "recommended_outfits": outfits,
-        "styling_suggestions": data.get("styling_suggestions") or [],
-        "purchase_gaps": data.get("purchase_gaps") or [],
-        "follow_up_questions": data.get("follow_up_questions") or [],
+        "styling_suggestions": cleaned.get("styling_suggestions") or [],
+        "purchase_gaps": cleaned.get("purchase_gaps") or [],
+        "follow_up_questions": cleaned.get("follow_up_questions") or [],
     }

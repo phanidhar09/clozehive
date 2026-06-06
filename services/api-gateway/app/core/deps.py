@@ -14,11 +14,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AuthenticationError, ForbiddenError
 from app.core.security import decode_access_token
-from app.db.session import get_session
+from app.db.session import get_read_session, get_session
 
 # ── DB session ────────────────────────────────────────────────────────────────
 
 DbSession = Annotated[AsyncSession, Depends(get_session)]
+# Read-only session routed to the read replica (falls back to primary). Use for
+# GET endpoints that never write — e.g. closet list, analytics.
+ReadDbSession = Annotated[AsyncSession, Depends(get_read_session)]
 
 # ── JWT bearer ────────────────────────────────────────────────────────────────
 

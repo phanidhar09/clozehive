@@ -35,14 +35,10 @@ from app.rag.vector_store import (
     SOURCE_PACKING_MEMORY,
     get_vector_store,
 )
-from app.services import (
-    closet_similarity_service,
-    fashion_rag_service,
-    outfit_history_service,
-    packing_memory_service,
-    purchase_gap_service,
-)
-from app.services.embedding_service import generate_text_embedding
+from app.api.v1.intelligence.services import fashion_rag_service, purchase_gap_service
+from app.api.v1.travel.services import packing_memory_service
+from app.api.v1.wardrobe.services import closet_similarity_service, outfit_history_service
+from app.core.embedding_service import generate_text_embedding
 
 logger = get_logger("rag.retriever")
 
@@ -341,7 +337,7 @@ async def _faiss_similar_items(
     limit: int,
 ) -> tuple[list[dict[str, Any]], str, str | None]:
     """Similar items search via FAISS backend."""
-    from app.services.embedding_service import item_to_embedding_text
+    from app.core.embedding_service import item_to_embedding_text
 
     text: str | None = None
     query_type = "none"

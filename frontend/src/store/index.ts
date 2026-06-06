@@ -29,8 +29,13 @@ export interface AppState {
   addClosetItem: (item: ClosetItem) => void
   removeClosetItem: (id: string) => void
   fetchClosetItems: () => Promise<void>
+  loadMoreClosetItems: () => Promise<void>
   closetLoading: boolean
   closetError: string | null
+  /** Total item count on the server — may be > closetItems.length if truncated. */
+  closetTotal: number
+  /** True when the server has more items than the current in-memory page. */
+  closetHasMore: boolean
 
   // ── UI ─────────────────────────────────────────────────────────────────────
   sidebarOpen: boolean
@@ -194,14 +199,21 @@ export function useCreateAppState(): AppState {
   const [closetItems, setClosetItems] = useState<ClosetItem[]>([])
   const [closetLoading, setClosetLoading] = useState(false)
   const [closetError, setClosetError] = useState<string | null>(null)
+  const [closetTotal, setClosetTotal] = useState(0)
+  const [closetHasMore, setClosetHasMore] = useState(false)
+  const [closetPage, setClosetPage] = useState(1)
+  const CLOSET_PAGE_SIZE = 120
 
   const fetchClosetItems = useCallback(async () => {
     if (!currentUser) return
     setClosetLoading(true)
     setClosetError(null)
     try {
-      const items = await closetApi.list()
+      const { items, total, hasMore } = await closetApi.list(1, CLOSET_PAGE_SIZE)
       setClosetItems(items)
+      setClosetTotal(total)
+      setClosetHasMore(hasMore)
+      setClosetPage(1)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Failed to load wardrobe'
       setClosetError(msg)
@@ -209,6 +221,25 @@ export function useCreateAppState(): AppState {
       setClosetLoading(false)
     }
   }, [currentUser])
+
+  const loadMoreClosetItems = useCallback(async () => {
+    if (!currentUser || closetLoading || !closetHasMore) return
+    const nextPage = closetPage + 1
+    setClosetLoading(true)
+    setClosetError(null)
+    try {
+      const { items, total, hasMore } = await closetApi.list(nextPage, CLOSET_PAGE_SIZE)
+      setClosetItems(prev => [...prev, ...items])
+      setClosetTotal(total)
+      setClosetHasMore(hasMore)
+      setClosetPage(nextPage)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to load more wardrobe items'
+      setClosetError(msg)
+    } finally {
+      setClosetLoading(false)
+    }
+  }, [closetHasMore, closetLoading, closetPage, currentUser])
 
   const addClosetItem = useCallback((item: ClosetItem) => {
     setClosetItems(prev => [item, ...prev])
@@ -240,8 +271,11 @@ export function useCreateAppState(): AppState {
     addClosetItem,
     removeClosetItem,
     fetchClosetItems,
+    loadMoreClosetItems,
     closetLoading,
     closetError,
+    closetTotal,
+    closetHasMore,
     sidebarOpen,
     setSidebarOpen,
   }

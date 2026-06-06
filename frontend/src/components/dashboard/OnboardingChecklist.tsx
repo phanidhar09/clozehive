@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react'
 import { CheckCircle2, Circle, ChevronRight, X, PartyPopper } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { profileApi, outfitHistoryApi } from '@/lib/api'
+import { profileApi, outfitHistoryApi, tripsApi } from '@/lib/api'
 import { useApp } from '@/store'
-import { cn } from '@/lib/utils'
 
 const AI_CHAT_TRIED_KEY = 'ch_ai_chat_tried'
 
@@ -11,10 +10,11 @@ function checklistDismissedKey(userId: string) {
   return `ch_checklist_dismissed_${userId}`
 }
 
-interface Step {
+interface Stage {
   id: string
-  label: string
-  hint: string
+  stage: string
+  screens: string
+  outcome: string
   done: boolean
   href: string
 }
@@ -24,6 +24,7 @@ export default function OnboardingChecklist() {
   const [profileDone, setProfileDone] = useState(false)
   const [outfitDone, setOutfitDone] = useState(false)
   const [aiChatDone, setAiChatDone] = useState(false)
+  const [planningDone, setPlanningDone] = useState(false)
   const [dismissed, setDismissed] = useState(false)
   const [ready, setReady] = useState(false)
 
@@ -40,11 +41,17 @@ export default function OnboardingChecklist() {
 
     Promise.all([
       profileApi.getOnboardingStatus().catch(() => null),
-      outfitHistoryApi.list(1, 0).catch(() => null),
-    ]).then(([profile, outfits]) => {
+      outfitHistoryApi.list(50, 0).catch(() => null),
+      tripsApi.listSaved().catch(() => []),
+    ]).then(([profile, outfits, savedTrips]) => {
       if (cancelled) return
       if (profile) setProfileDone(profile.onboarding_completed)
-      if (outfits) setOutfitDone(outfits.count > 0)
+      if (outfits) {
+        setOutfitDone(outfits.count > 0)
+        setPlanningDone((outfits.results ?? []).some(r => r.was_saved) || (savedTrips?.length ?? 0) > 0)
+      } else {
+        setPlanningDone((savedTrips?.length ?? 0) > 0)
+      }
       setAiChatDone(localStorage.getItem(AI_CHAT_TRIED_KEY) === '1')
       setReady(true)
     })
@@ -52,44 +59,53 @@ export default function OnboardingChecklist() {
     return () => { cancelled = true }
   }, [currentUser])
 
-  const itemsDone = closetItems.length >= 5
-
-  const steps: Step[] = [
+  const stages: Stage[] = [
     {
-      id: 'profile',
-      label: 'Complete your style profile',
-      hint: 'Unlocks personalised outfit recommendations',
+      id: 'account_setup',
+      stage: 'Account setup',
+      screens: 'Signup/Login + style profile',
+      outcome: 'Activation and personalization',
       done: profileDone,
       href: '/onboarding/style-profile',
     },
     {
-      id: 'items',
-      label: 'Add 5 items to your closet',
-      hint: `${Math.min(closetItems.length, 5)} of 5 added`,
-      done: itemsDone,
+      id: 'closet_bootstrapping',
+      stage: 'Closet bootstrapping',
+      screens: 'Upload and confirm first 5 items',
+      outcome: 'Unlock outfit generation',
+      done: closetItems.length >= 5,
       href: '/upload',
     },
     {
-      id: 'outfit',
-      label: 'Build your first outfit',
-      hint: 'Mix and match in the outfit builder',
+      id: 'outfit_creation',
+      stage: 'Outfit creation',
+      screens: 'OOTD + Outfit Builder',
+      outcome: 'Daily habit formation',
       done: outfitDone,
       href: '/outfit-builder',
     },
     {
-      id: 'ai',
-      label: 'Chat with FANI, your AI stylist',
-      hint: 'Get personalised fashion advice',
+      id: 'ai_assistance',
+      stage: 'AI assistance',
+      screens: 'FANI prompt and response loop',
+      outcome: 'Retention and confidence',
       done: aiChatDone,
       href: '/ai-stylist',
     },
+    {
+      id: 'planning_extensions',
+      stage: 'Planning extensions',
+      screens: 'Travel and saved outfits',
+      outcome: 'Long-term value and repeat use',
+      done: planningDone,
+      href: '/travel',
+    },
   ]
 
-  const completedCount = steps.filter(s => s.done).length
-  const allDone = completedCount === steps.length
-  const progress = Math.round((completedCount / steps.length) * 100)
+  const completedCount = stages.filter(s => s.done).length
+  const allDone = completedCount === stages.length
+  const progress = Math.round((completedCount / stages.length) * 100)
 
-  // Don't render until data is loaded, or if dismissed
   if (!ready || dismissed) return null
 
   const dismiss = () => {
@@ -101,8 +117,6 @@ export default function OnboardingChecklist() {
 
   return (
     <div className="relative rounded-3xl border border-brand-200/70 bg-gradient-to-br from-brand-50/90 via-white/60 to-brand-50/80 p-5 dark:border-brand-500/20 dark:from-brand-900/40 dark:via-slate-900/20 dark:to-brand-900/30">
-
-      {/* Dismiss */}
       <button
         onClick={dismiss}
         aria-label="Dismiss checklist"
@@ -111,27 +125,25 @@ export default function OnboardingChecklist() {
         <X size={14} />
       </button>
 
-      {/* Header */}
       <div className="mb-4 pr-6">
         {allDone ? (
           <div className="flex items-center gap-2">
             <PartyPopper size={18} className="text-brand-500" />
             <div>
-              <h3 className="font-display font-bold text-slate-800 dark:text-white">You're all set!</h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Your wardrobe is ready. Dismiss this whenever.</p>
+              <h3 className="font-display font-bold text-slate-800 dark:text-white">Workflow complete</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">You have activated every stage end-to-end.</p>
             </div>
           </div>
         ) : (
           <div>
-            <h3 className="font-display font-bold text-slate-800 dark:text-white">Get started</h3>
+            <h3 className="font-display font-bold text-slate-800 dark:text-white">Target user workflow</h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              {completedCount} of {steps.length} steps complete
+              {completedCount} of {stages.length} stages complete
             </p>
           </div>
         )}
       </div>
 
-      {/* Progress bar */}
       <div className="mb-4 h-1.5 overflow-hidden rounded-full bg-brand-100 dark:bg-brand-900/40">
         <div
           className="h-full rounded-full bg-gradient-to-r from-brand-600 to-brand-600 transition-all duration-500 ease-out"
@@ -139,19 +151,14 @@ export default function OnboardingChecklist() {
         />
       </div>
 
-      {/* Steps */}
       <div className="space-y-1">
-        {steps.map(step => (
+        {stages.map(step => (
           step.done ? (
-            <div
-              key={step.id}
-              className="flex items-center gap-3 rounded-2xl px-3 py-2.5 opacity-50"
-            >
+            <div key={step.id} className="flex items-center gap-3 rounded-2xl px-3 py-2.5 opacity-50">
               <CheckCircle2 size={17} className="flex-shrink-0 text-emerald-500" />
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-slate-400 line-through dark:text-white/30">
-                  {step.label}
-                </p>
+                <p className="text-sm font-semibold text-slate-400 line-through dark:text-white/30">{step.stage}</p>
+                <p className="text-[11px] text-slate-400 dark:text-white/30">{step.screens}</p>
               </div>
             </div>
           ) : (
@@ -162,8 +169,9 @@ export default function OnboardingChecklist() {
             >
               <Circle size={17} className="flex-shrink-0 text-brand-300 dark:text-brand-600" />
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-slate-700 dark:text-white">{step.label}</p>
-                <p className="text-xs text-slate-400 dark:text-white/40">{step.hint}</p>
+                <p className="text-sm font-semibold text-slate-700 dark:text-white">{step.stage}</p>
+                <p className="text-xs text-slate-400 dark:text-white/40">{step.screens}</p>
+                <p className="text-xs text-slate-400 dark:text-white/40">{step.outcome}</p>
               </div>
               <ChevronRight
                 size={14}

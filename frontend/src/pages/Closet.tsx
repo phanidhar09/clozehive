@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState, useEffect, useLayoutEffect } from 'react'
 import {
   Search, SlidersHorizontal, ArrowUpDown, Loader2, RefreshCw, Trash2, X,
-  Sparkles, Plus, Wand2, Shirt, Eye, Pencil, Check,
+  Plus, Wand2, Shirt, Eye, Pencil, Check,
   Heart, LayoutGrid, List,
 } from 'lucide-react'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
@@ -15,9 +15,7 @@ import ItemDetailModal from '@/components/closet/ItemDetailModal'
 import EditItemModal from '@/components/closet/EditItemModal'
 import RevealCard from '@/components/ui/RevealCard'
 import PageHeader from '@/components/ui/PageHeader'
-import { PageLoadingState } from '@/components/system/PageLoadingState'
-import { InlineError } from '@/components/system/InlineError'
-import { RetryButton } from '@/components/system/RetryButton'
+import { PageStatePanel } from '@/components/system/PageStatePanel'
 import type { ClosetItem, Category } from '@/types'
 import { cn } from '@/lib/utils'
 
@@ -56,21 +54,6 @@ function useColumnCount(): number {
 const CATEGORY_EMOJI_MAP: Record<string, string> = {
   tops: '👕', bottoms: '👖', shoes: '👟', outerwear: '🧥',
   dresses: '👗', accessories: '👜', other: '📦',
-}
-
-// ── Skeleton loading card ──────────────────────────────────────────────────────
-
-function SkeletonCard() {
-  return (
-    <div className="flex flex-col animate-pulse">
-      <div className="aspect-[4/5] rounded-2xl bg-slate-200 dark:bg-slate-800/70" />
-      <div className="mt-2 px-0.5 space-y-1.5">
-        <div className="h-3 bg-slate-200 dark:bg-slate-800/70 rounded-full w-4/5" />
-        <div className="h-2.5 bg-slate-200 dark:bg-slate-800/70 rounded-full w-1/2" />
-        <div className="h-8 bg-slate-200 dark:bg-slate-800/70 rounded-lg mt-2 w-full" />
-      </div>
-    </div>
-  )
 }
 
 // ── List-view row ──────────────────────────────────────────────────────────────
@@ -130,8 +113,8 @@ function ClosetListRow({
         {item.eco_score != null && item.eco_score >= 7 && (
           <span className="font-bold text-emerald-500">🌱{item.eco_score}</span>
         )}
-        {item.season && (
-          <span className="capitalize hidden md:inline">{item.season.split(',')[0].trim()}</span>
+        {item.season && item.season.length > 0 && (
+          <span className="capitalize hidden md:inline">{item.season[0]}</span>
         )}
       </div>
 
@@ -331,7 +314,17 @@ function ClosetItemCard({
 // ── Main page ──────────────────────────────────────────────────────────────────
 
 export default function Closet() {
-  const { closetItems, setClosetItems, closetLoading, closetError, fetchClosetItems, removeClosetItem } = useApp()
+  const {
+    closetItems,
+    setClosetItems,
+    closetLoading,
+    closetError,
+    closetTotal,
+    closetHasMore,
+    fetchClosetItems,
+    loadMoreClosetItems,
+    removeClosetItem,
+  } = useApp()
 
   // Persisted filter state — survives navigation, cleared on browser refresh
   const [category, setCategory]       = usePageState<Category>('closet-category', 'all')
@@ -347,9 +340,20 @@ export default function Closet() {
   const [editItem,  setEditItem]   = React.useState<ClosetItem | null>(null)
   const [deleting,  setDeleting]   = React.useState<string | null>(null)
   const [viewMode,  setViewMode]   = usePageState<'grid' | 'list'>('closet-view', 'grid')
+  const [isOffline, setIsOffline] = useState(typeof navigator !== 'undefined' ? !navigator.onLine : false)
 
   // Restore scroll position across navigations
   useWindowScrollRestoration('closet-scroll')
+
+  useEffect(() => {
+    const update = () => setIsOffline(!navigator.onLine)
+    window.addEventListener('online', update)
+    window.addEventListener('offline', update)
+    return () => {
+      window.removeEventListener('online', update)
+      window.removeEventListener('offline', update)
+    }
+  }, [])
 
   // Virtualizer setup
   const cols = useColumnCount()
@@ -379,12 +383,9 @@ export default function Closet() {
     if (colorFilter)    items = items.filter(i => (i.color || '').toLowerCase().includes(colorFilter.toLowerCase()))
     if (seasonFilter) {
       const want = seasonFilter.toLowerCase()
-      items = items.filter(i => {
-        const s = (i.season || '').toLowerCase()
-        if (!s) return false
-        if (s === want) return true
-        return s.split(',').some(part => part.trim() === want)
-      })
+      items = items.filter(i =>
+        (Array.isArray(i.season) ? i.season : []).some(s => s.toLowerCase() === want)
+      )
     }
     if (occasionFilter) items = items.filter(i => i.occasion?.includes(occasionFilter))
     if (sort === 'worn') items = [...items].sort((a, b) => b.wear_count - a.wear_count)
@@ -478,19 +479,6 @@ export default function Closet() {
     setColorFilter(''); setSeasonFilter(''); setOccasionFilter('')
   }
 
-  if (closetLoading && closetItems.length === 0) {
-    return (
-      <div className="space-y-5" role="status" aria-live="polite" aria-label="Loading your wardrobe">
-        <PageHeader icon={<Shirt size={18} />} title="My Closet" subtitle="Loading your wardrobe…"
-          actions={<RefreshCw size={15} className="animate-spin text-brand-500" />}
-        />
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
-          {Array.from({ length: 8 }).map((_, i) => <SkeletonCard key={i} />)}
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="space-y-5">
 
@@ -502,8 +490,8 @@ export default function Closet() {
           closetLoading
             ? 'Syncing…'
             : isFiltered
-              ? `Showing ${filtered.length} of ${closetItems.length} items`
-              : `${closetItems.length} items in your wardrobe`
+              ? `Showing ${filtered.length} of ${closetItems.length} loaded (${closetTotal} total)`
+              : `Showing ${closetItems.length} of ${closetTotal || closetItems.length} items`
         }
         actions={
           <button
@@ -517,13 +505,40 @@ export default function Closet() {
         }
       />
 
-      {/* ── Error banner ── */}
-      {closetError && (
-        <InlineError message={closetError}>
-          <RetryButton onClick={() => { void fetchClosetItems() }} className="mt-2">
-            Try again
-          </RetryButton>
-        </InlineError>
+      {/* ── Unified loading/error/empty/offline ── */}
+      <PageStatePanel
+        loading={closetLoading && closetItems.length === 0}
+        loadingTitle="Loading your wardrobe..."
+        loadingDescription="Hang tight while we fetch your closet items."
+        offline={isOffline && closetItems.length === 0}
+        error={closetItems.length === 0 ? closetError : null}
+        errorTitle="Couldn't load your closet"
+        onRetry={() => { void fetchClosetItems() }}
+        empty={closetItems.length === 0 && !closetLoading && !closetError}
+        emptyIcon={<Shirt size={28} />}
+        emptyTitle="Your wardrobe is empty"
+        emptyDescription="Drop a photo and FANI will detect your items, remove backgrounds, and auto-tag everything for you."
+        emptyPrimaryAction={{ label: 'Add items with AI', href: '/upload' }}
+      />
+
+      {/* Truncation metadata surfaced to users */}
+      {closetItems.length > 0 && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 dark:border-white/10 bg-white/70 dark:bg-white/[0.03] px-3 py-2">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Displaying <span className="font-semibold text-slate-700 dark:text-slate-200">{closetItems.length}</span> of{' '}
+            <span className="font-semibold text-slate-700 dark:text-slate-200">{closetTotal || closetItems.length}</span> items
+          </p>
+          {closetHasMore && (
+            <button
+              type="button"
+              onClick={() => { void loadMoreClosetItems() }}
+              disabled={closetLoading}
+              className="text-xs font-semibold text-brand-600 dark:text-brand-400 hover:underline disabled:opacity-50"
+            >
+              {closetLoading ? 'Loading more...' : 'Load more'}
+            </button>
+          )}
+        </div>
       )}
 
       {/* ── Closet actions strip ── */}
@@ -763,57 +778,6 @@ export default function Closet() {
           </div>
         )}
       </div>}
-
-      {/* ── Empty state ── */}
-      {closetItems.length === 0 && !closetLoading && (
-        <div className="rounded-3xl border border-cream-200 dark:border-white/[0.07] bg-white dark:bg-white/[0.03] overflow-hidden">
-          {/* Top hero */}
-          <div className="flex flex-col items-center justify-center py-10 px-6 text-center gap-4 border-b border-cream-100 dark:border-white/[0.05]">
-            <div className="text-6xl">👗</div>
-            <div>
-              <p className="font-display font-bold text-slate-800 dark:text-white text-xl">
-                Your wardrobe is empty
-              </p>
-              <p className="text-sm text-slate-400 dark:text-slate-500 mt-1 max-w-xs mx-auto">
-                Drop a photo and FANI will detect your items, remove backgrounds, and auto-tag everything for you.
-              </p>
-            </div>
-            <Link
-              to="/upload"
-              className="flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-semibold bg-gradient-to-r from-brand-500 to-brand-600 text-white shadow-md shadow-brand-500/20 hover:opacity-90 transition-opacity"
-            >
-              <Sparkles size={15} /> Add items with AI
-            </Link>
-          </div>
-
-          {/* Feature callouts */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-cream-100 dark:divide-white/[0.05]">
-            {[
-              {
-                icon: '📸',
-                title: 'Bulk upload',
-                desc: 'Drop up to 20 photos at once — AI analyses them all in one go.',
-              },
-              {
-                icon: '🏷️',
-                title: 'Auto-tagging',
-                desc: 'Category, colour, pattern, season, and occasion — all detected automatically.',
-              },
-              {
-                icon: '🔍',
-                title: 'Duplicate detection',
-                desc: 'FANI warns you before saving something you already own.',
-              },
-            ].map(({ icon, title, desc }) => (
-              <div key={title} className="flex flex-col items-center text-center gap-2 px-5 py-5">
-                <span className="text-2xl">{icon}</span>
-                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">{title}</p>
-                <p className="text-[11px] text-slate-400 dark:text-slate-500 leading-snug">{desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* ── No filter results / per-category empty state ── */}
       {closetItems.length > 0 && filtered.length === 0 && !closetLoading && (

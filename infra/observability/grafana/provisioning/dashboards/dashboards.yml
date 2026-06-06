@@ -1,0 +1,12 @@
+# Grafana dashboard provider — loads JSON dashboards from disk on startup.
+apiVersion: 1
+
+providers:
+  - name: clozehive
+    orgId: 1
+    folder: Clozehive
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards

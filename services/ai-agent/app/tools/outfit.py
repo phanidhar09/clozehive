@@ -6,9 +6,12 @@ import json
 import os
 
 import httpx
+import structlog
 from langchain_core.tools import tool
 
 from app.tools.schemas import ClosetItem, OutfitResult, OutfitSuggestion
+
+logger = structlog.get_logger("ai_agent.tools.outfit")
 
 _OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 _MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
@@ -53,8 +56,26 @@ def _format_user_profile(profile: dict | None) -> str:
     body_bits = []
     if body.get("body_type"):     body_bits.append(f"body_type={body['body_type']}")
     if body.get("preferred_fit"): body_bits.append(f"preferred_fit={body['preferred_fit']}")
+    if body.get("height_cm"):     body_bits.append(f"height={body['height_cm']}cm")
+    if body.get("weight_kg"):     body_bits.append(f"weight={body['weight_kg']}kg")
     if body_bits:
         lines.append("Body: " + ", ".join(body_bits))
+    # Skin tone is the single most impactful factor for colour grounding — always include
+    skin_tone = (
+        profile.get("skin_tone")
+        or style.get("skin_tone")
+        or body.get("skin_tone")
+    )
+    undertone = (
+        profile.get("undertone")
+        or style.get("undertone")
+        or body.get("undertone")
+    )
+    if skin_tone or undertone:
+        tone_str = skin_tone or "unspecified"
+        if undertone:
+            tone_str += f" ({undertone} undertone)"
+        lines.append(f"Skin tone: {tone_str}")
     if style.get("selected_styles"):
         lines.append(f"Preferred styles: {', '.join(style['selected_styles'])}")
     if style.get("favorite_colors"):
@@ -108,13 +129,14 @@ async def _generate_outfits(
     parts.append(f"\nWardrobe:\n{wardrobe_json}")
 
     try:
-        async with httpx.AsyncClient(timeout=45) as client:
+        async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(
                 _OPENAI_URL,
                 json={
                     "model": _MODEL,
-                    "max_tokens": 1500,
-                    "temperature": 0.7,
+                    "max_tokens": 2500,
+                    "temperature": 0.5,
+                    "response_format": {"type": "json_object"},
                     "messages": [
                         {"role": "system", "content": _SYSTEM},
                         {"role": "user",   "content": "\n".join(parts)},
@@ -131,7 +153,15 @@ async def _generate_outfits(
                 raw = raw[4:]
         return OutfitResult(**json.loads(raw))
 
-    except Exception:
+    except Exception as exc:
+        # Falling back to mock data, but make the real cause visible — otherwise
+        # an outage, bad key, or parse error is indistinguishable from "no key".
+        logger.warning(
+            "outfit_generation_failed_using_mock",
+            error=str(exc),
+            error_type=type(exc).__name__,
+            occasion=occasion,
+        )
         return _mock_result(closet_items, occasion)
 
 
@@ -163,7 +193,13 @@ async def _get_style_tips(occasion: str, weather: str, temperature: float | None
             if raw.startswith("json"):
                 raw = raw[4:]
         return json.loads(raw)
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "style_tips_failed_using_fallback",
+            error=str(exc),
+            error_type=type(exc).__name__,
+            occasion=occasion,
+        )
         return ["Layer thoughtfully for comfort and style."]
 
 

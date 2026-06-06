@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { toastStore } from '@/store/notificationStore'
 import { useNavigate } from 'react-router-dom'
 import BackButton from '@/components/ui/BackButton'
 import PageHeader from '@/components/ui/PageHeader'
@@ -12,6 +13,7 @@ import { outfitHistoryApi, type OutfitHistoryRecord } from '@/lib/api'
 import { useApp } from '@/store'
 import { cn } from '@/lib/utils'
 import type { ClosetItem } from '@/types'
+import { PageStatePanel } from '@/components/system/PageStatePanel'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -61,8 +63,20 @@ function OutfitCard({ record, closetMap, onFeedback }: OutfitCardProps) {
     try {
       await outfitHistoryApi.submitFeedback(record.id, patch)
       onFeedback(record.id, patch)
-    } catch { /* ignore */ }
-    finally { setSaving(false) }
+      if (patch.was_saved !== undefined) {
+        toastStore.add({
+          variant: 'success',
+          icon: patch.was_saved ? '❤️' : '🤍',
+          title: patch.was_saved ? 'Outfit saved' : 'Outfit unsaved',
+        })
+      } else if (patch.was_worn !== undefined) {
+        toastStore.add({ variant: 'success', icon: '👗', title: patch.was_worn ? 'Marked as worn' : 'Unmarked as worn' })
+      } else if (patch.feedback) {
+        toastStore.add({ variant: 'success', icon: '💬', title: 'Feedback submitted' })
+      }
+    } catch {
+      toastStore.add({ variant: 'error', icon: '❌', title: 'Action failed', body: 'Please try again.' })
+    } finally { setSaving(false) }
   }
 
   const wearAgain = () => {
@@ -372,6 +386,7 @@ export default function SavedOutfits() {
   const [showFilters, setShowFilters] = useState(false)
   const [page, setPage] = useState(0)
   const [hasMore, setHasMore] = useState(true)
+  const [isOffline, setIsOffline] = useState(typeof navigator !== 'undefined' ? !navigator.onLine : false)
 
   const PAGE = 20
 
@@ -398,6 +413,16 @@ export default function SavedOutfits() {
   useEffect(() => {
     fetchPage(0, true)
   }, [fetchPage])
+
+  useEffect(() => {
+    const update = () => setIsOffline(!navigator.onLine)
+    window.addEventListener('online', update)
+    window.addEventListener('offline', update)
+    return () => {
+      window.removeEventListener('online', update)
+      window.removeEventListener('offline', update)
+    }
+  }, [])
 
   const handleFeedback = (id: string, patch: { was_worn?: boolean; was_saved?: boolean; feedback?: string }) => {
     setRecords(prev => prev.map(r =>
@@ -539,25 +564,20 @@ export default function SavedOutfits() {
         </AnimatePresence>
       </div>
 
-      {/* Error */}
-      {error && (
-        <div className="rounded-2xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-4 text-sm text-red-600 dark:text-red-400">
-          {error}
-        </div>
-      )}
-
-      {/* Empty state */}
-      {!loading && filtered.length === 0 && !error && (
-        <div className="text-center py-16 space-y-3">
-          <div className="w-16 h-16 rounded-2xl bg-brand-50 dark:bg-brand-900/20 flex items-center justify-center mx-auto">
-            <Heart size={28} className="text-brand-400" />
-          </div>
-          <p className="text-base font-semibold text-slate-700 dark:text-slate-300">No outfits yet</p>
-          <p className="text-sm text-slate-400 dark:text-slate-500 max-w-xs mx-auto">
-            Ask FANI for outfit recommendations — they'll appear here automatically.
-          </p>
-        </div>
-      )}
+      <PageStatePanel
+        loading={loading && records.length === 0}
+        loadingTitle="Loading saved outfits..."
+        loadingDescription="Fetching your outfit history from FANI."
+        offline={isOffline && records.length === 0}
+        error={records.length === 0 ? error : null}
+        errorTitle="Couldn't load saved outfits"
+        onRetry={() => { void fetchPage(0, true) }}
+        empty={!loading && filtered.length === 0 && !error}
+        emptyIcon={<Heart size={28} />}
+        emptyTitle="No outfits yet"
+        emptyDescription="Ask FANI for outfit recommendations and they will appear here automatically."
+        emptyPrimaryAction={{ label: 'Ask FANI', href: '/ai-stylist' }}
+      />
 
       {/* Cards */}
       <div className="space-y-4">
@@ -584,13 +604,6 @@ export default function SavedOutfits() {
         </button>
       )}
 
-      {loading && records.length === 0 && (
-        <div className="space-y-4">
-          {[1, 2, 3].map(i => (
-            <div key={i} className="rounded-2xl border border-cream-200 dark:border-slate-700 bg-white dark:bg-slate-900 h-40 animate-pulse" />
-          ))}
-        </div>
-      )}
     </div>
   )
 }

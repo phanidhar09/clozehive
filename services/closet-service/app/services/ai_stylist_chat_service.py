@@ -241,7 +241,7 @@ async def _rag_load_closet(
             embedding=query_embedding,
             user_id=str(user_id),
             limit=_RAG_CLOSET_LIMIT,
-            threshold=0.25,
+            threshold=0.30,
             filter_archived=True,
         )
         if len(broader) > len(rows):
@@ -375,19 +375,6 @@ def _build_knowledge_block(knowledge_text: str) -> str:
     if not knowledge_text:
         return ""
     return f"\n[FASHION KNOWLEDGE — cite [SOURCE-N] when referencing these rules]\n{knowledge_text}\n[END FASHION KNOWLEDGE]"
-
-
-def _validate_item_ids(
-    outfits: list[dict[str, Any]], valid_ids: set[str]
-) -> list[dict[str, Any]]:
-    """Strip any outfit items whose ID is not in the user's actual closet."""
-    cleaned = []
-    for outfit in outfits:
-        items = [it for it in (outfit.get("items") or []) if it.get("id") in valid_ids]
-        if items:
-            outfit = {**outfit, "items": items}
-            cleaned.append(outfit)
-    return cleaned
 
 
 async def _fetch_image_lookup(
@@ -527,7 +514,7 @@ async def process_chat_message(
     )
     # RAG: fashion knowledge base
     knowledge_task = asyncio.create_task(
-        get_fashion_context_for_prompt(session, rag_query, limit=3)
+        get_fashion_context_for_prompt(session, rag_query, limit=5)
     )
 
     closet_items, user_profile, weather, feedback_text, knowledge_text = await asyncio.gather(
@@ -585,7 +572,7 @@ async def process_chat_message(
     # ── Step 3: Build fashion rules hint ─────────────────────────────────────
     weather_cond = (weather.get("condition") or "mild") if weather else "mild"
     fashion_rules_block = build_fashion_rules_prompt_block(
-        closet_items[:20], occasion, weather_cond, user_profile
+        closet_items, occasion, weather_cond, user_profile
     )
 
     # ── Step 3b: Conversation summarization (long-chat memory) ───────────────
@@ -668,7 +655,7 @@ async def process_chat_message(
             system_prompt,
             use_json_mode=True,
             max_tokens=_CHAT_MAX_TOKENS,
-            temperature=0.7,
+            temperature=0.5,
         )
         data = json.loads(_clean_json(raw))
     except json.JSONDecodeError:
@@ -680,9 +667,13 @@ async def process_chat_message(
 
     # ── Validate & enrich ─────────────────────────────────────────────────────
     validation = validate_chat_response(data, valid_ids)
-    if validation.errors:
+    if validation.errors and not validation.cleaned.get("reply"):
+        # Hard error with no usable reply — cannot recover
         logger.error("ai_chat_response_invalid", errors=validation.errors, user_id=str(user_id))
         return _fallback_response(message, closet_items)
+    if validation.errors:
+        # Structural errors but reply exists — log and continue with cleaned data
+        logger.warning("ai_chat_response_errors_degraded", errors=validation.errors, user_id=str(user_id))
     if validation.warnings:
         logger.info(
             "ai_chat_response_warnings",

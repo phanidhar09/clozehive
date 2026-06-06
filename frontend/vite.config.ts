@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import path from 'path'
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(async ({ mode }) => {
   // Load root .env and frontend .env (root takes precedence for shared vars)
   const rootEnv = loadEnv(mode, path.resolve(__dirname, '..'), '')
   const localEnv = loadEnv(mode, __dirname, '')
@@ -12,9 +12,34 @@ export default defineConfig(({ mode }) => {
   const backendUrl = env.VITE_API_URL || env.BACKEND_URL || `http://localhost:${env.API_GATEWAY_PORT || 8000}`
   const frontendPort = parseInt(env.FRONTEND_PORT || '3000')
 
+  // Optional Sentry source-map upload — only when an auth token is provided, so
+  // normal/CI builds without Sentry are unaffected. Loaded dynamically so the
+  // plugin isn't a hard build dependency.
+  const sentryPlugins = []
+  if (env.SENTRY_AUTH_TOKEN && env.SENTRY_ORG && env.SENTRY_PROJECT) {
+    try {
+      const { sentryVitePlugin } = await import('@sentry/vite-plugin')
+      sentryPlugins.push(
+        sentryVitePlugin({
+          org: env.SENTRY_ORG,
+          project: env.SENTRY_PROJECT,
+          authToken: env.SENTRY_AUTH_TOKEN,
+        }),
+      )
+    } catch {
+      // Plugin not installed — skip upload, build still succeeds.
+    }
+  }
+
   return {
+    build: {
+      // Generate source maps but don't reference them in the bundle; uploaded to
+      // Sentry for symbolication, never served to users.
+      sourcemap: 'hidden',
+    },
     plugins: [
       react(),
+      ...sentryPlugins,
       VitePWA({
         registerType: 'autoUpdate',
         includeAssets: ['favicon.svg', 'icons/apple-touch-icon.png'],

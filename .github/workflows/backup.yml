@@ -9,13 +9,58 @@ jobs:
   backup:
     runs-on: ubuntu-latest
     steps:
-      - name: Trigger backup on production server
+      - name: Validate backup secrets
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
         run: |
-          echo "Configure this step with your deployment method"
-          echo "See scripts/backup.sh for the backup script to run"
+          missing=0
+          for v in DEPLOY_HOST DEPLOY_USER DEPLOY_SSH_KEY DEPLOY_PATH; do
+            if [ -z "${!v}" ]; then
+              echo "::error::Missing required secret: $v"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+      - name: Run backup over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || '22' }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.DEPLOY_PATH }}"
+            export BACKUP_DIR="${{ secrets.BACKUP_DIR || './backups' }}"
+            export BACKUP_RETENTION_DAYS="${{ secrets.BACKUP_RETENTION_DAYS || '30' }}"
+            export PRIMARY_DB_CONTAINER="${{ secrets.PRIMARY_DB_CONTAINER || 'clozehive-postgres-1' }}"
+            export CLOSET_DB_CONTAINER="${{ secrets.CLOSET_DB_CONTAINER || 'clozehive-postgres-closet-1' }}"
+            export POSTGRES_DB="${{ secrets.POSTGRES_DB || 'clozehive' }}"
+            export CLOSET_POSTGRES_DB="${{ secrets.CLOSET_POSTGRES_DB || 'clozehive_closet' }}"
+            export POSTGRES_USER="${{ secrets.POSTGRES_USER || 'clozehive' }}"
+            export BACKUP_CLOSET_DB="${{ secrets.BACKUP_CLOSET_DB || 'true' }}"
+            export S3_BACKUP_BUCKET="${{ secrets.S3_BACKUP_BUCKET }}"
+            ./scripts/backup.sh
+            ls -lht "${BACKUP_DIR}" | sed -n '1,5p'
+      - name: Write backup summary
+        run: |
+          {
+            echo "## Backup Success"
+            echo ""
+            echo "Scheduled/Manual backup completed via SSH using \`scripts/backup.sh\`."
+            echo ""
+            echo "- Host: ${{ secrets.DEPLOY_HOST }}"
+            echo "- Backup directory: ${{ secrets.BACKUP_DIR || './backups' }}"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Notify on failure
         if: failure()
         run: |
-          echo "Backup failed - configure Slack/email notification here"
+          echo "Backup failed. Configure Slack/email webhook notification in this step if needed."
           echo "::error::Database backup failed"

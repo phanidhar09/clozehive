@@ -27,11 +27,23 @@ databases:
   # set as a Dashboard secret on the clozehive-closet service (sync: false).
 
 services:
-  # ── Redis (cache, OAuth state, sessions, closet previews) ───────────────────
+  # ── Cache Redis (evictable) — closet/profile/AI/vision caches, previews ─────
   - type: redis
     name: clozehive-redis
     plan: free
     maxmemoryPolicy: allkeys-lru
+    ipAllowList: []
+
+  # ── State Redis (NON-evictable) — OAuth CSRF/code, refresh tokens, rate
+  #    limits, ARQ queue. These must never be evicted under memory pressure.
+  #    NOTE: Render allows one free Redis per account; this second instance may
+  #    require a paid plan. If you cannot provision it, delete this service and
+  #    the REDIS_STATE_URL / ARQ_REDIS_URL entries below — the app falls back to
+  #    clozehive-redis automatically (effective_redis_state_url → redis_url).
+  - type: redis
+    name: clozehive-redis-state
+    plan: free
+    maxmemoryPolicy: noeviction
     ipAllowList: []
 
   # ── API Gateway (public API + embedded vision/closet pipelines) ─────────────
@@ -40,6 +52,15 @@ services:
     runtime: docker
     plan: free
     region: oregon
+    # ── Autoscaling ──────────────────────────────────────────────────────────
+    # Requires a Standard plan or higher (free/starter cannot autoscale). When you
+    # upgrade, bump `plan` above and uncomment the block below. Graceful drain
+    # (SHUTDOWN_DRAIN_SECONDS) is already wired so scale-in won't cut live requests.
+    # scaling:
+    #   minInstances: 1
+    #   maxInstances: 3
+    #   targetCPUPercent: 70
+    #   targetMemoryPercent: 70
     dockerfilePath: services/api-gateway/Dockerfile
     dockerContext: services/api-gateway
     healthCheckPath: /live
@@ -57,22 +78,39 @@ services:
       # instead (idempotent; gated by this flag in app/core/db_migrate.py).
       - key: RUN_MIGRATIONS_ON_STARTUP
         value: "true"
+      - key: FAIL_ON_STARTUP_MIGRATION_ERROR
+        value: "true"
       - key: DATABASE_URL
         fromDatabase:
           name: clozehive-db
           property: connectionString
+      # Optional read replica for read-only endpoints (closet list/get/similar).
+      # Paste a replica connection string in the Dashboard, or leave unset to use
+      # DATABASE_URL (the app falls back automatically). Render Postgres replicas
+      # require a paid plan; Neon offers read replicas on its free tier.
+      - key: DATABASE_READ_URL
+        sync: false
       - key: REDIS_URL
         fromService:
           type: redis
           name: clozehive-redis
           property: connectionString
-      # ARQ task queue shares the same Redis as the cache (ARQ keys are
-      # `arq:`-prefixed, so no collision). Must match clozehive-ai-worker.
+      # State Redis (non-evictable): OAuth CSRF/code, refresh tokens, rate limits.
+      - key: REDIS_STATE_URL
+        fromService:
+          type: redis
+          name: clozehive-redis-state
+          property: connectionString
+      # ARQ task queue lives on the non-evictable state Redis. Must match
+      # clozehive-ai-worker if/when the worker is re-added to the blueprint.
       - key: ARQ_REDIS_URL
         fromService:
           type: redis
-          name: clozehive-redis
+          name: clozehive-redis-state
           property: connectionString
+      # Free-tier mode: keep heavy post-write work in-process (no paid worker).
+      - key: HEAVY_WORK_ASYNC
+        value: "false"
       - key: JWT_SECRET
         generateValue: true
       - key: INTERNAL_SERVICE_TOKEN
@@ -83,6 +121,23 @@ services:
         value: "false"
       - key: REDIS_CHECK_ON_READY
         value: "true"
+      # Drain window on shutdown — /ready flips to 503 and the LB stops routing
+      # before connections are torn down. Matters most with autoscaling/zero-downtime deploys.
+      - key: SHUTDOWN_DRAIN_SECONDS
+        value: "5"
+      # ── Observability ────────────────────────────────────────────────────
+      - key: ENABLE_METRICS
+        value: "true"
+      # Sentry error tracking — paste a DSN in the Dashboard (or leave unset).
+      - key: SENTRY_DSN
+        sync: false
+      # OpenTelemetry tracing — set OTEL_ENABLED=true + an OTLP endpoint to turn on.
+      - key: OTEL_ENABLED
+        value: "false"
+      - key: OTEL_EXPORTER_OTLP_ENDPOINT
+        sync: false
+      - key: OTEL_SERVICE_NAME
+        value: api-gateway
       - key: KAFKA_ENABLED
         value: "false"
       - key: LOG_LEVEL
@@ -170,6 +225,8 @@ services:
       # startup instead (idempotent; gated by this flag in app/core/db_migrate.py).
       - key: RUN_MIGRATIONS_ON_STARTUP
         value: "true"
+      - key: FAIL_ON_STARTUP_MIGRATION_ERROR
+        value: "true"
       # Free external Postgres (Neon). Paste the Neon connection string in the
       # Dashboard. Format: postgresql://USER:PASS@HOST/DB?sslmode=require
       # (closet-service auto-enables SSL for neon.tech hosts and rewrites the
@@ -182,10 +239,15 @@ services:
           type: redis
           name: clozehive-redis
           property: connectionString
+      - key: REDIS_STATE_URL
+        fromService:
+          type: redis
+          name: clozehive-redis-state
+          property: connectionString
       - key: ARQ_REDIS_URL
         fromService:
           type: redis
-          name: clozehive-redis
+          name: clozehive-redis-state
           property: connectionString
       # MUST be byte-identical to clozehive-api's JWT_SECRET — closet-service
       # validates gateway-issued JWTs locally with this shared secret.
@@ -303,10 +365,8 @@ services:
       - key: OPENWEATHER_API_KEY
         sync: false
 
-  # ── AI Worker (ARQ async jobs) — REMOVED from blueprint ─────────────────────
-  # Render workers require a PAID instance type, so it's excluded to keep this
-  # blueprint free-tier. Async outfit/packing/vision jobs stay disabled until you
-  # re-add this `type: worker` block (plan: starter) when you move to a paid plan.
+  # ── AI Worker (ARQ async jobs) — disabled in free-tier mode ─────────────────
+  # Render workers require a paid plan. Keep this disabled until you upgrade.
 
   # ── Frontend (static SPA) ───────────────────────────────────────────────────
   - type: web
@@ -323,6 +383,12 @@ services:
         source: /*
         destination: /index.html
     headers:
+      # Content-hashed Vite assets are immutable — cache hard at browser + CDN.
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      # The SPA shell (index.html and everything else) must always revalidate so
+      # a deploy's new asset references are picked up immediately.
       - path: /*
         name: Cache-Control
         value: public, max-age=0, must-revalidate
@@ -340,3 +406,9 @@ services:
           envVarKey: RENDER_EXTERNAL_URL
       - key: VITE_HIDE_NON_MVP
         value: "true"
+      # Frontend error tracking + Web Vitals (Sentry). Paste a browser DSN, or
+      # leave unset — observability.ts no-ops without it.
+      - key: VITE_SENTRY_DSN
+        sync: false
+      - key: VITE_ENVIRONMENT
+        value: production

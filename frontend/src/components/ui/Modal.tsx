@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useId, useRef } from 'react'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -20,6 +20,9 @@ const sizes = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-2xl', xl: 'max-w-4xl'
  * Always renders a close control so it can be dismissed on touch.
  */
 export default function Modal({ open, onClose, title, children, size = 'md' }: Props) {
+  const panelRef = useRef<HTMLDivElement | null>(null)
+  const titleId = useId()
+
   useEffect(() => {
     if (open) document.body.style.overflow = 'hidden'
     else document.body.style.overflow = ''
@@ -27,10 +30,38 @@ export default function Modal({ open, onClose, title, children, size = 'md' }: P
   }, [open])
 
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    if (!open) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+      if (e.key !== 'Tab' || !panelRef.current) return
+      const focusables = panelRef.current.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      )
+      if (focusables.length === 0) return
+      const first = focusables[0]
+      const last = focusables[focusables.length - 1]
+      const active = document.activeElement as HTMLElement | null
+      if (!e.shiftKey && active === last) {
+        e.preventDefault()
+        first.focus()
+      } else if (e.shiftKey && active === first) {
+        e.preventDefault()
+        last.focus()
+      }
+    }
+    const prevActive = document.activeElement as HTMLElement | null
+    const t = window.setTimeout(() => {
+      const autoFocus = panelRef.current?.querySelector<HTMLElement>('[data-modal-autofocus]')
+      if (autoFocus) autoFocus.focus()
+      else panelRef.current?.focus()
+    }, 0)
     document.addEventListener('keydown', handler)
-    return () => document.removeEventListener('keydown', handler)
-  }, [onClose])
+    return () => {
+      window.clearTimeout(t)
+      document.removeEventListener('keydown', handler)
+      prevActive?.focus()
+    }
+  }, [open, onClose])
 
   if (!open) return null
 
@@ -40,14 +71,21 @@ export default function Modal({ open, onClose, title, children, size = 'md' }: P
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm animate-fade-in" onClick={onClose} />
 
       {/* Panel */}
-      <div className={cn(
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
+        tabIndex={-1}
+        className={cn(
         'relative w-full flex flex-col bg-white dark:bg-slate-900',
         'shadow-2xl border border-cream-300 dark:border-slate-700 animate-slide-up overflow-hidden',
         // Bottom sheet on mobile, centered card on desktop
         'rounded-t-3xl sm:rounded-2xl',
         'max-h-[92dvh] sm:max-h-[88vh]',
         sizes[size],
-      )}>
+      )}
+      >
         {/* Mobile drag handle */}
         <div className="sm:hidden flex justify-center pt-2.5 pb-1 flex-shrink-0">
           <span className="h-1.5 w-10 rounded-full bg-slate-300 dark:bg-white/15" />
@@ -55,8 +93,13 @@ export default function Modal({ open, onClose, title, children, size = 'md' }: P
 
         {title ? (
           <div className="flex items-center justify-between px-6 py-4 border-b border-cream-300 dark:border-slate-700 flex-shrink-0">
-            <h2 className="font-display font-semibold text-lg">{title}</h2>
-            <button onClick={onClose} className="p-1.5 rounded-xl hover:bg-cream-100 dark:hover:bg-slate-800 transition-colors">
+            <h2 id={titleId} className="font-display font-semibold text-lg">{title}</h2>
+            <button
+              onClick={onClose}
+              data-modal-autofocus
+              aria-label="Close dialog"
+              className="p-1.5 rounded-xl hover:bg-cream-100 dark:hover:bg-slate-800 transition-colors"
+            >
               <X size={18} className="text-slate-500" />
             </button>
           </div>
@@ -64,6 +107,7 @@ export default function Modal({ open, onClose, title, children, size = 'md' }: P
           // Floating close for title-less modals (e.g. item detail)
           <button
             onClick={onClose}
+            data-modal-autofocus
             aria-label="Close"
             className="absolute top-3 right-3 z-10 p-2 rounded-full
                        bg-white/80 dark:bg-black/40 backdrop-blur-sm shadow-sm

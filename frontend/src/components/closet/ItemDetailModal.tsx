@@ -84,14 +84,14 @@ export default function ItemDetailModal({ item, open, onClose, onDelete, onSaved
     },
     { icon: <Tag size={12} />, label: 'Fabric', value: current.fabric },
     { icon: <Tag size={12} />, label: 'Pattern', value: current.pattern },
-    { icon: <Calendar size={12} />, label: 'Season', value: Array.isArray(current.season) ? current.season.join(', ') : current.season },
+    { icon: <Calendar size={12} />, label: 'Season', value: current.season?.join(', ') },
     { icon: <Tag size={12} />, label: 'Size', value: current.size },
     { icon: <Tag size={12} />, label: 'Brand', value: current.brand },
   ].filter(a => a.value)
 
   return (
     <>
-      <Modal open={open} onClose={onClose} size="lg" title="">
+      <Modal open={open} onClose={onClose} size="lg">
         <div className="flex flex-col sm:flex-row gap-0 -m-4 sm:-m-6">
 
           {/* ── Left column: image ───────────────────────────────────────── */}
@@ -135,6 +135,7 @@ export default function ItemDetailModal({ item, open, onClose, onDelete, onSaved
                 type="button"
                 onClick={handleToggleFavorite}
                 disabled={togglingFav}
+                aria-label={current.is_favorite ? 'Remove from favourites' : 'Add to favourites'}
                 title={current.is_favorite ? 'Remove from favourites' : 'Add to favourites'}
                 className={cn(
                   'flex-shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-all',
@@ -157,6 +158,7 @@ export default function ItemDetailModal({ item, open, onClose, onDelete, onSaved
                   key={tab.id}
                   type="button"
                   onClick={() => setActiveTab(tab.id)}
+                  aria-pressed={activeTab === tab.id}
                   className={cn(
                     'px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150',
                     activeTab === tab.id

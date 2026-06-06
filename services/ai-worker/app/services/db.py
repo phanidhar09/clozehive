@@ -62,6 +62,19 @@ async def fail_request(request_id: UUID, error: str) -> None:
     )
 
 
+async def request_age_seconds(request_id: UUID) -> float:
+    """Age of an ai_request since creation (seconds)."""
+    pool = await get_pool()
+    age = await pool.fetchval(
+        "SELECT EXTRACT(EPOCH FROM (NOW() - created_at)) FROM ai_requests WHERE id=$1",
+        request_id,
+    )
+    try:
+        return float(age or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 async def already_processed(event_id: UUID) -> bool:
     pool = await get_pool()
     row = await pool.fetchrow("SELECT 1 FROM processed_events WHERE event_id=$1", event_id)

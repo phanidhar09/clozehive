@@ -56,8 +56,13 @@ class UserRepository:
         base = (settings.gateway_internal_url or "").rstrip("/")
         if not base:
             return None
+        if not settings.internal_service_token:
+            # Token not configured — skip the call rather than sending an empty
+            # header that would be rejected with a misleading 401 from the gateway.
+            logger.debug("internal_user_lookup_skipped_no_token", user_id=str(user_id))
+            return None
         url = f"{base}/internal/users/{user_id}"
-        headers = {"X-Internal-Token": settings.internal_service_token or ""}
+        headers = {"X-Internal-Token": settings.internal_service_token}
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 resp = await client.get(url, headers=headers)

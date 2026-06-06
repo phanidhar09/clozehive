@@ -24,10 +24,12 @@ from app.db.base import Base
 from app.db.session import get_session
 from app.main import app
 from app.core.rate_limit import limiter
-from app.services import auth_service, ai_client, cache_service
+from app.api.v1.identity.services import auth_service
+from app.api.v1.intelligence.services import ai_client
+from app.core import cache_service
 from app.core import redis as redis_core
-import app.api.v1.ai as ai_mod
-import app.api.v1.closet as closet_mod
+import app.api.v1.intelligence.ai as ai_mod
+import app.api.v1.wardrobe.closet as closet_mod
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
@@ -63,13 +65,27 @@ class FakeRedis:
 
 
 def _patch_postgres_arrays_for_sqlite() -> None:
-    """SQLite cannot compile PostgreSQL ARRAY, so list columns are JSON in tests."""
+    """Make PostgreSQL-specific DDL compile under SQLite for tests.
+
+    Two PostgreSQL-isms break SQLite's CREATE TABLE:
+      1. ``ARRAY`` / ``JSONB`` column types  → swapped for portable ``JSON``.
+      2. ``::`` casts inside ``server_default`` (e.g. ``'[]'::jsonb``) → SQLite
+         raises ``unrecognized token: ":"``. We strip the ``::type`` cast,
+         leaving the plain literal (``'[]'``) which SQLite accepts as a JSON
+         text default, preserving the column's default value.
+    """
+    import re as _re
+
     for table in Base.metadata.tables.values():
         for col in table.columns:
-            if isinstance(col.type, ARRAY):
+            if isinstance(col.type, (ARRAY, JSONB)):
                 col.type = JSON()
-            if isinstance(col.type, JSONB):
-                col.type = JSON()
+            sd = col.server_default
+            arg = getattr(sd, "arg", None)
+            sql_text = getattr(arg, "text", None)
+            if isinstance(sql_text, str) and "::" in sql_text:
+                # Drop PostgreSQL ``::type`` casts, e.g. "'[]'::jsonb" -> "'[]'".
+                arg.text = _re.sub(r"::\w+", "", sql_text)
 
 
 async def _deterministic_packing_list(
@@ -129,11 +145,19 @@ def fake_services(monkeypatch):
     async def mem_cache_delete(key: str) -> None:
         cache_store.pop(key, None)
 
-    monkeypatch.setattr(redis_core, "get_redis", get_fake_redis)
-    monkeypatch.setattr(auth_service, "get_redis", get_fake_redis)
-    monkeypatch.setattr(ai_mod, "get_redis", get_fake_redis)
-    monkeypatch.setattr(closet_mod, "get_redis", get_fake_redis)
-    monkeypatch.setattr(cache_service, "get_redis", get_fake_redis)
+    # Patch every Redis accessor wherever it is bound. Different modules import
+    # different accessors (``get_redis`` for cache/rate-limit, ``get_state_redis``
+    # for auth refresh tokens), and the set of importers shifts as the codebase is
+    # refactored — so patch only the attributes that actually exist on each target
+    # rather than assuming a fixed list. This keeps the fixture resilient to module
+    # moves (e.g. the api-gateway → intelligence/identity/wardrobe split).
+    def _patch_if_present(target: Any, name: str) -> None:
+        if hasattr(target, name):
+            monkeypatch.setattr(target, name, get_fake_redis)
+
+    for _target in (redis_core, auth_service, ai_mod, closet_mod, cache_service):
+        _patch_if_present(_target, "get_redis")
+        _patch_if_present(_target, "get_state_redis")
     monkeypatch.setattr(cache_service, "get", mem_cache_get)
     monkeypatch.setattr(cache_service, "set", mem_cache_set)
     monkeypatch.setattr(cache_service, "delete", mem_cache_delete)
@@ -146,11 +170,11 @@ def fake_services(monkeypatch):
         return None
 
     monkeypatch.setattr(
-        "app.services.similarity_service.update_item_embedding_in_request",
+        "app.api.v1.wardrobe.services.similarity_service.update_item_embedding_in_request",
         noop_embedding,
     )
     monkeypatch.setattr(
-        "app.services.similarity_service.update_item_embedding_job",
+        "app.api.v1.wardrobe.services.similarity_service.update_item_embedding_job",
         noop_embedding,
     )
 
@@ -199,6 +223,8 @@ async def auth_headers(async_client: AsyncClient) -> dict[str, str]:
             "email": "fixture@example.com",
             "username": "fixtureuser",
             "password": "Password1",
+            # SignupRequest now requires explicit GDPR consent (Art. 6/7).
+            "gdpr_consent": True,
         },
     )
     token = response.json()["access_token"]

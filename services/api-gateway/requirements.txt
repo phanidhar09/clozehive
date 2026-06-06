@@ -39,6 +39,19 @@ email-validator==2.3.0
 # ── Logging ───────────────────────────────────────────────────────────────────
 structlog==25.5.0
 
+# ── Observability (metrics, tracing, error tracking) ──────────────────────────
+# Prometheus /metrics. Tracing + Sentry are imported defensively (try/except) so
+# the app still starts if a package is absent; all are gated by env flags.
+prometheus-client==0.23.1
+prometheus-fastapi-instrumentator==7.1.0
+sentry-sdk[fastapi]==2.41.0
+opentelemetry-sdk==1.39.0
+opentelemetry-exporter-otlp-proto-http==1.39.0
+opentelemetry-instrumentation-fastapi==0.60b0
+opentelemetry-instrumentation-httpx==0.60b0
+opentelemetry-instrumentation-sqlalchemy==0.60b0
+opentelemetry-instrumentation-redis==0.60b0
+
 # ── Rate limiting ─────────────────────────────────────────────────────────────
 slowapi==0.1.9
 limits==5.8.0
