@@ -42,6 +42,8 @@ from app.services import cache_service, closet_preview_service, similarity_servi
 from app.services.ai_request_service import create_request
 from app.services.closet_service import ClosetService
 from app.services.upload_service import delete_upload, persist_upload, read_validated_image
+from app.repositories.style_profile_repo import UserStyleProfileRepository
+from app.utils.user_context import profile_to_context
 
 # Lazy import to avoid circular dependency — ws.manager is only accessed inside functions
 def _ws_push(user_id: str, data: dict) -> None:
@@ -204,13 +206,17 @@ async def analyze_preview_endpoint(
     request: Request,
     user_id: CurrentUser,
     file: UploadFile = File(...),
+    session: AsyncSession = Depends(get_session),
 ):
     image_bytes, content_type = await read_validated_image(file)
+    profile = await UserStyleProfileRepository(session).get_by_user_id(UUID(user_id))
+    user_context: dict | None = profile_to_context(profile) if profile else None
     return await closet_preview_service.analyze_preview(
         UUID(user_id),
         image_bytes=image_bytes,
         content_type=content_type,
         filename=file.filename,
+        user_context=user_context,
     )
 
 
@@ -251,11 +257,15 @@ async def bulk_analyze_preview(
     request: Request,
     user_id: CurrentUser,
     files: list[UploadFile] = File(...),
+    session: AsyncSession = Depends(get_session),
 ):
     if len(files) > MAX_BULK_UPLOAD_FILES:
         raise BadRequestError("Maximum 20 files per bulk upload.")
 
     user_uuid = UUID(user_id)
+    profile = await UserStyleProfileRepository(session).get_by_user_id(user_uuid)
+    user_context: dict | None = profile_to_context(profile) if profile else None
+
     results: list[BulkAnalyzePreviewFileResult] = []
     failed: list[BulkPreviewFailure] = []
 
@@ -268,6 +278,7 @@ async def bulk_analyze_preview(
                 image_bytes=image_bytes,
                 content_type=content_type,
                 filename=file.filename,
+                user_context=user_context,
             )
             results.append(BulkAnalyzePreviewFileResult(filename=filename, preview=preview))
         except Exception as exc:

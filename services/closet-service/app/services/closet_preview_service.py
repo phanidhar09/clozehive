@@ -243,6 +243,7 @@ async def analyze_preview(
     image_bytes: bytes,
     content_type: str,
     filename: str | None,
+    user_context: dict[str, Any] | None = None,
 ) -> ClosetAnalyzePreviewResponse:
     original_url = await persist_upload(image_bytes, content_type, filename)
     scan_id = str(uuid4())
@@ -251,6 +252,7 @@ async def analyze_preview(
         content_type,
         scan_id,
         preview_fast=settings.vision_preview_fast,
+        user_context=user_context,
     )
 
     preview_session_id = uuid4()

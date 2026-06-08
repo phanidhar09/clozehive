@@ -32,14 +32,19 @@ def _first_secondary(bulk: dict[str, Any]) -> str | None:
 async def enrich_detection_with_crop_analysis(
     rgba_png_bytes: bytes,
     detection: dict[str, Any],
+    *,
+    user_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Run OpenAI vision on a single cropped / background-removed item and merge
     into detection fields. Prefers crop-level detail when confident.
+
+    ``user_context`` is forwarded to the vision analysis call so skin-tone,
+    style preferences, and cultural-garment recognition can be applied.
     """
     out = dict(detection)
     try:
-        bulk = await vision_service.analyze_for_bulk(rgba_png_bytes, "image/png")
+        bulk = await vision_service.analyze_for_bulk(rgba_png_bytes, "image/png", user_context=user_context)
     except Exception as exc:
         logger.warning("crop_enrich_failed", error=str(exc))
         return out

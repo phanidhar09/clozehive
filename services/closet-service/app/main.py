@@ -105,6 +105,14 @@ async def lifespan(app: FastAPI):
     if not redis_ok:
         logger.warning("redis_unavailable", msg="Cache disabled — running without Redis")
 
+    # Weekly fashion-trend ingestion (opt-in; Redis-locked to one worker/week).
+    trend_task = None
+    if settings.trend_scheduler_enabled:
+        import asyncio as _asyncio
+        from app.services.trend_ingest_service import trend_scheduler_loop
+        trend_task = _asyncio.create_task(trend_scheduler_loop())
+        logger.info("trend_scheduler_started", interval_hours=settings.trend_refresh_interval_hours)
+
     logger.info("closet_service_ready", port=settings.port)
 
     if settings.sentry_dsn:
@@ -122,6 +130,12 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
+    if trend_task is not None:
+        trend_task.cancel()
+        try:
+            await trend_task
+        except Exception:
+            pass
     await db_disconnect()
     await cache_service.close()
     await ai_client.close_client()

@@ -818,6 +818,14 @@ function TripSummaryBanner({ trip, plan }: { trip: Trip; plan: PackingPlan }) {
         </div>
       )}
 
+      {/* Local dress notes */}
+      {plan.location_etiquette && (
+        <div className="flex items-start gap-2 text-xs text-slate-500 dark:text-white/40">
+          <MapPin size={12} className="text-brand-500 flex-shrink-0 mt-0.5" />
+          <p className="leading-relaxed">{plan.location_etiquette}</p>
+        </div>
+      )}
+
       {/* Bag optimization notes */}
       {bagCap?.optimization_notes && bagCap.optimization_notes.length > 0 && (
         <div className="flex flex-wrap gap-1.5">

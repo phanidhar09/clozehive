@@ -221,8 +221,9 @@ async def create_trip(
     body: TripCreate,
     session: AsyncSession = Depends(get_session),
 ):
-    if body.end_date <= body.start_date:
-        raise BadRequestError("end_date must be after start_date")
+    # Same-day is valid: single-event "occasion" plans send start == end.
+    if body.end_date < body.start_date:
+        raise BadRequestError("end_date must be on or after start_date")
     svc = _get_svc(session)
     trip = await svc.create_trip(UUID(user_id), body)
 

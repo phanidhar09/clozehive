@@ -71,6 +71,11 @@ google-resumable-media==2.9.0
 # would conflict. Let the resolver pick a compatible 6.x version.
 proto-plus==1.28.0
 
+# ── Trend ingestion ───────────────────────────────────────────────────────────
+# Google Trends client for live fashion-trend signals. Unofficial endpoint —
+# rate-limits aggressively; the ingest service degrades gracefully on 429s.
+pytrends==4.9.2
+
 # ── RAG / Vector search ───────────────────────────────────────────────────────
 # faiss-cpu: in-memory FAISS index for local dev / testing (no GPU required).
 # In production pgvector (already listed above) is used instead.

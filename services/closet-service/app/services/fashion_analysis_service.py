@@ -30,6 +30,7 @@ the calling contract.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import io
 import json
@@ -45,6 +46,7 @@ from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.core.openai_tracing import make_openai_client, wrap_openai_client
 from app.services.background_removal_service import remove_background
+from app.utils.user_context import build_user_context_suffix
 
 settings = get_settings()
 logger = get_logger("fashion_analysis_service")
@@ -340,9 +342,11 @@ def _fallback_item(reason: str) -> dict[str, Any]:
 async def detect_fashion_items(
     image_bytes: bytes,
     media_type: str = "image/jpeg",
+    user_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Multi-item detection via OpenAI vision. Normalizes bbox per item.
+    ``user_context`` is appended to the prompt so the model personalises garment metadata.
     Does not crop, remove background, or call per-item refine (vision pipeline does that).
     """
     if not settings.openai_api_key:
@@ -352,6 +356,7 @@ async def detect_fashion_items(
 
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
     data_url = f"data:{media_type};base64,{image_b64}"
+    prompt = _FASHION_PROMPT + build_user_context_suffix(user_context)
 
     try:
         response = await _get_client().chat.completions.create(
@@ -362,7 +367,7 @@ async def detect_fashion_items(
                     "role": "user",
                     "content": [
                         {"type": "image_url", "image_url": {"url": data_url, "detail": "high"}},
-                        {"type": "text", "text": _FASHION_PROMPT},
+                        {"type": "text", "text": prompt},
                     ],
                 }
             ],
@@ -390,102 +395,123 @@ async def detect_fashion_items(
     }
 
 
+# ── Per-item parallel worker ────────────────────────────────────────────────────
+
+async def _process_single_item(
+    image_bytes: bytes,
+    raw: dict[str, Any],
+    idx: int,
+    user_context: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """Crop → background removal → per-crop enrichment for one detected item.
+
+    Runs concurrently for all items via asyncio.gather so the total latency
+    equals the slowest item rather than the sum of all items.
+    """
+    from app.services.background_removal_service import remove_background_async
+    from app.services.item_vision_enrichment import enrich_detection_with_crop_analysis
+
+    if not isinstance(raw, dict):
+        return None
+
+    item_id = raw.get("item_id") or f"item_{idx + 1:03d}"
+    bbox = _norm_bbox(raw.get("bbox"))
+
+    try:
+        crop_bytes = await asyncio.to_thread(_crop_item, image_bytes, bbox)
+        final_bytes = await remove_background_async(crop_bytes)
+        image_b64_str = _to_base64_png(final_bytes)
+    except Exception as exc:
+        logger.warning("fashion_item_image_failed", item_id=item_id, error=str(exc))
+        image_b64_str = _to_base64_png(image_bytes)
+        final_bytes = image_bytes
+
+    det_payload: dict[str, Any] = {
+        "item_id": item_id,
+        "category": _norm_category(raw.get("category")),
+        "subcategory": raw.get("subcategory") or None,
+        "gender": raw.get("gender") or "unisex",
+        "fit": raw.get("fit") or None,
+        "sleeve_type": raw.get("sleeve_type") or None,
+        "primary_color": raw.get("primary_color") or None,
+        "secondary_color": raw.get("secondary_color") or None,
+        "pattern": raw.get("pattern") or None,
+        "material": raw.get("material") or None,
+        "brand": raw.get("brand") or None,
+        "occasions": _norm_list(raw.get("occasions")),
+        "season": _norm_list(raw.get("season")),
+        "style_tags": _norm_list(raw.get("style_tags")),
+        "description": raw.get("description") or None,
+        "detection_confidence": _safe_float(raw.get("detection_confidence")),
+        "segmentation_quality": raw.get("segmentation_quality") or "medium",
+        "bbox": bbox,
+    }
+    enriched = await enrich_detection_with_crop_analysis(final_bytes, det_payload, user_context=user_context)
+
+    item_out: dict[str, Any] = {
+        "item_id": item_id,
+        "category": enriched.get("category") or _norm_category(raw.get("category")),
+        "subcategory": enriched.get("subcategory") or raw.get("subcategory") or None,
+        "gender": enriched.get("gender") or raw.get("gender") or "unisex",
+        "fit": enriched.get("fit") or raw.get("fit") or None,
+        "sleeve_type": enriched.get("sleeve_type") or raw.get("sleeve_type") or None,
+        "primary_color": enriched.get("primary_color") or raw.get("primary_color") or None,
+        "secondary_color": enriched.get("secondary_color") or raw.get("secondary_color") or None,
+        "pattern": enriched.get("pattern") or raw.get("pattern") or None,
+        "material": enriched.get("material") or raw.get("material") or None,
+        "brand": enriched.get("brand") or raw.get("brand") or None,
+        "occasions": enriched.get("occasions") if enriched.get("occasions") else _norm_list(raw.get("occasions")),
+        "season": enriched.get("season") if enriched.get("season") else _norm_list(raw.get("season")),
+        "style_tags": enriched.get("style_tags") if enriched.get("style_tags") else _norm_list(raw.get("style_tags")),
+        "description": enriched.get("description") or raw.get("description") or None,
+        "bbox": bbox,
+        "bounding_box": _bbox_to_xywh_dict(bbox),
+        "image_base64": image_b64_str,
+        "detection_confidence": float(enriched.get("detection_confidence") or _safe_float(raw.get("detection_confidence"))),
+        "segmentation_quality": raw.get("segmentation_quality") or "medium",
+    }
+    item_out["name"] = _build_name({**enriched, "name": enriched.get("name") or raw.get("name")})
+    return item_out
+
+
 # ── Main public function ────────────────────────────────────────────────────────
 
 @traceable(name="gateway_fashion_analyze_image", run_type="chain")
 async def analyze_fashion_image(
     image_bytes: bytes,
     media_type: str = "image/jpeg",
+    user_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
-    Detect all fashion items in a single image.
+    Detect all fashion items in a single image, processing each item in parallel.
 
-    Returns a dict matching the CLOZEHIVE Fashion Analysis Agent JSON spec:
-    {
-      "total_items_detected": N,
-      "items": [ { item_id, category, …, image_base64, detection_confidence, … } ]
-    }
+    ``user_context`` (gender, body_types, skin_tone, style_preferences, etc.)
+    is forwarded to both the detection prompt and the per-item enrichment call.
 
     Never raises — all failures produce a single fallback item so the API
     always returns a parseable response.
     """
-    det = await detect_fashion_items(image_bytes, media_type)
+    det = await detect_fashion_items(image_bytes, media_type, user_context=user_context)
     raw_items = det.get("items") or []
     if not raw_items:
         return det
 
-    # ── Per item: crop → BG removal → per-crop metadata refinement ─────────────
-    processed_items: list[dict[str, Any]] = []
-
-    from app.services.item_vision_enrichment import enrich_detection_with_crop_analysis
-
-    for idx, raw in enumerate(raw_items):
-        if not isinstance(raw, dict):
-            continue
-
-        item_id = raw.get("item_id") or f"item_{idx + 1:03d}"
-        bbox = _norm_bbox(raw.get("bbox"))
-
-        try:
-            crop_bytes = _crop_item(image_bytes, bbox)
-            final_bytes = remove_background(crop_bytes)
-            image_b64_str = _to_base64_png(final_bytes)
-        except Exception as exc:
-            logger.warning("fashion_item_image_failed", item_id=item_id, error=str(exc))
-            image_b64_str = _to_base64_png(image_bytes)
-            final_bytes = base64.b64decode(image_b64_str)
-
-        det_payload: dict[str, Any] = {
-            "item_id": item_id,
-            "category": _norm_category(raw.get("category")),
-            "subcategory": raw.get("subcategory") or None,
-            "gender": raw.get("gender") or "unisex",
-            "fit": raw.get("fit") or None,
-            "sleeve_type": raw.get("sleeve_type") or None,
-            "primary_color": raw.get("primary_color") or None,
-            "secondary_color": raw.get("secondary_color") or None,
-            "pattern": raw.get("pattern") or None,
-            "material": raw.get("material") or None,
-            "brand": raw.get("brand") or None,
-            "occasions": _norm_list(raw.get("occasions")),
-            "season": _norm_list(raw.get("season")),
-            "style_tags": _norm_list(raw.get("style_tags")),
-            "description": raw.get("description") or None,
-            "detection_confidence": _safe_float(raw.get("detection_confidence")),
-            "segmentation_quality": raw.get("segmentation_quality") or "medium",
-            "bbox": bbox,
-        }
-        enriched = await enrich_detection_with_crop_analysis(final_bytes, det_payload)
-
-        item_out: dict[str, Any] = {
-            "item_id": item_id,
-            "category": enriched.get("category") or _norm_category(raw.get("category")),
-            "subcategory": enriched.get("subcategory") or raw.get("subcategory") or None,
-            "gender": enriched.get("gender") or raw.get("gender") or "unisex",
-            "fit": enriched.get("fit") or raw.get("fit") or None,
-            "sleeve_type": enriched.get("sleeve_type") or raw.get("sleeve_type") or None,
-            "primary_color": enriched.get("primary_color") or raw.get("primary_color") or None,
-            "secondary_color": enriched.get("secondary_color") or raw.get("secondary_color") or None,
-            "pattern": enriched.get("pattern") or raw.get("pattern") or None,
-            "material": enriched.get("material") or raw.get("material") or None,
-            "brand": enriched.get("brand") or raw.get("brand") or None,
-            "occasions": enriched.get("occasions") if enriched.get("occasions") else _norm_list(raw.get("occasions")),
-            "season": enriched.get("season") if enriched.get("season") else _norm_list(raw.get("season")),
-            "style_tags": enriched.get("style_tags") if enriched.get("style_tags") else _norm_list(raw.get("style_tags")),
-            "description": enriched.get("description") or raw.get("description") or None,
-            "bbox": bbox,
-            "bounding_box": _bbox_to_xywh_dict(bbox),
-            "image_base64": image_b64_str,
-            "detection_confidence": float(enriched.get("detection_confidence") or _safe_float(raw.get("detection_confidence"))),
-            "segmentation_quality": raw.get("segmentation_quality") or "medium",
-        }
-        item_out["name"] = _build_name({**enriched, "name": enriched.get("name") or raw.get("name")})
-        processed_items.append(item_out)
-
-    logger.info(
-        "fashion_analysis_complete",
-        total_detected=len(processed_items),
+    results = await asyncio.gather(
+        *[
+            _process_single_item(image_bytes, raw, idx, user_context=user_context)
+            for idx, raw in enumerate(raw_items)
+        ],
+        return_exceptions=True,
     )
+
+    processed_items: list[dict[str, Any]] = []
+    for r in results:
+        if isinstance(r, Exception):
+            logger.warning("fashion_item_processing_failed", error=str(r))
+        elif r is not None:
+            processed_items.append(r)
+
+    logger.info("fashion_analysis_complete", total_detected=len(processed_items))
 
     return {
         "total_items_detected": len(processed_items),

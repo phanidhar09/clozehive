@@ -55,8 +55,9 @@ class TripCreate(BaseModel):
     @model_validator(mode="after")
     def validate_date_range(self):
         today = date.today()
-        if self.end_date <= self.start_date:
-            raise ValueError("End date must be after start date")
+        # Same-day is valid (single-event "occasion" plans send start == end).
+        if self.end_date < self.start_date:
+            raise ValueError("End date must be on or after start date")
         if self.start_date < today - timedelta(days=365 * 2):
             raise ValueError("Start date cannot be more than 2 years in the past")
         if self.end_date > today + timedelta(days=365 * 5):
@@ -116,6 +117,7 @@ class PackingPlanResponse(BaseModel):
     checklist_state: dict[str, Any] = {}
     trip_style_direction: Optional[str] = None
     climate_summary: Optional[str] = None
+    location_etiquette: Optional[str] = None
     # ─────────────────────────────────────────────────────────────────────────
     is_saved: bool = False
     created_at: str

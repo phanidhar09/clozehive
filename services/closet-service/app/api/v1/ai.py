@@ -26,6 +26,7 @@ from app.models.closet import ClosetItem
 from app.repositories.user_repo import UserRepository
 from app.services.style_profile_context import load_merged_user_profile_for_ai
 from app.services import ai_service, cache_service, outfit_service, packing_service, vision_service, weather_service
+from app.services.location_intel_service import build_location_context_block
 from app.services.embedding_service import generate_text_embedding, pgvector_cosine_search
 from app.services.fashion_rag_service import get_fashion_context_for_prompt
 from app.services.outfit_history_service import get_outfit_history_for_prompt
@@ -130,6 +131,17 @@ def _sse(data: dict[str, Any]) -> str:
     return f"data: {json.dumps(data)}\n\n"
 
 
+def _location_prompt_block(weather: dict[str, Any] | None) -> str:
+    """Append curated/inferred local dress-norm & climate context for the saved location."""
+    if not weather:
+        return ""
+    label = weather.get("location_label")
+    if not label:
+        return ""
+    block = build_location_context_block(str(label), mode="daily")
+    return f"\n\n{block}" if block else ""
+
+
 def _weather_prompt_block(weather: dict[str, Any] | None) -> str:
     if not weather:
         return ""
@@ -179,7 +191,7 @@ def _build_stylist_system_prompt(
         return (
             "You are a personal AI stylist for ClozeHive. This user has not added any wardrobe items yet. "
             "Give general fashion advice and encourage them to upload their wardrobe items using the Smart "
-            f"Closet Scan feature.{profile_block}{_weather_prompt_block(weather)}"
+            f"Closet Scan feature.{profile_block}{_weather_prompt_block(weather)}{_location_prompt_block(weather)}"
         )
 
     lines = [f"USER'S WARDROBE ({len(closet_items)} items):"]
@@ -200,7 +212,7 @@ def _build_stylist_system_prompt(
 
 [WARDROBE CONTEXT]
 {closet_context}
-[END WARDROBE CONTEXT]{profile_block}{_weather_prompt_block(weather)}"""
+[END WARDROBE CONTEXT]{profile_block}{_weather_prompt_block(weather)}{_location_prompt_block(weather)}"""
 
 
 def _chat_messages(body: ChatRequest) -> list[dict[str, str]]:

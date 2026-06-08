@@ -1,0 +1,81 @@
+# Deploying Clozehive to Google Cloud Run
+
+Re-platforms the existing containers (the same ones in `docker-compose.yml` /
+`render.yaml`) onto Cloud Run. Backing stores are **serverless add-ons**:
+
+| Piece | Where | Notes |
+|-------|-------|-------|
+| Frontend, api-gateway, closet-service, ai-agent | Cloud Run **services** | HTTP, autoscaling |
+| ai-worker (ARQ) | Cloud Run **worker pool** | no HTTP listener, CPU always on |
+| Postgres ×2 | **Neon** | `db-url-core` (api/agent/worker) + `db-url-closet` |
+| Redis ×2 | **Upstash** | `redis-cache-url` (evictable) + `redis-state-url` (noeviction) |
+| Uploads | **GCS bucket** | auth via runtime service account (ADC), no JSON key |
+
+`min-instances=1` on api-gateway (always warm) and on the worker pool.
+
+## Prerequisites
+
+1. `gcloud` CLI installed and `gcloud auth login` done.
+2. A GCP project with billing enabled.
+3. A **Neon** account → create a project, then **two databases** (e.g.
+   `clozehive_core`, `clozehive_closet`). Copy both connection strings.
+4. An **Upstash** account → create **two Redis databases**. Set the cache one's
+   eviction to `allkeys-lru` and the state one to `noeviction`. Copy both
+   `rediss://` URLs.
+5. A **Google OAuth client** (you likely already have one from Render).
+
+## Steps
+
+```bash
+cd infra/gcp
+
+# 1. Point config at your project (edit PROJECT_ID / REGION at minimum)
+$EDITOR config.sh
+
+# 2. Fill in your secrets
+cp secrets.env.example secrets.env
+$EDITOR secrets.env          # Neon URLs, Upstash URLs, OpenAI/Google keys…
+
+# 3. Run the four scripts in order
+./00-setup.sh    # APIs, Artifact Registry, GCS bucket, runtime SA + IAM
+./01-secrets.sh  # push secrets.env → Secret Manager (auto-gens JWT/internal token)
+./02-build.sh    # Cloud Build → 5 images in Artifact Registry
+./03-deploy.sh   # deploy 4 services + worker pool, fully wired
+```
+
+The deploy prints the frontend + API URLs at the end.
+
+## After first deploy
+
+- **Google OAuth**: add `https://clozehive-api-<NUM>.<region>.run.app/api/v1/auth/google/callback`
+  to *Authorized redirect URIs* and the frontend URL to *Authorized JavaScript
+  origins*. `03-deploy.sh` echoes the exact values.
+- **Custom domain** (optional): `gcloud run domain-mappings create --service clozehive-frontend --domain app.yourdomain.com`. Then add the domain to `ALLOWED_ORIGINS` / OAuth and redeploy.
+- **DB migrations** run on startup (`RUN_MIGRATIONS_ON_STARTUP=true`), same as
+  Render free-tier mode — no separate migration job needed.
+
+## Day-2 operations
+
+- **Redeploy after code change**: `./02-build.sh && ./03-deploy.sh`
+  (or `TAG=$(git rev-parse --short HEAD) ./02-build.sh ./03-deploy.sh` for
+  immutable tags + easy rollback).
+- **Rotate a secret**: edit `secrets.env`, `./01-secrets.sh`, then redeploy the
+  affected service (Cloud Run pins `:latest` at deploy time).
+- **Logs**: `gcloud run services logs read clozehive-api --region <region>`.
+- **Rollback**: `gcloud run services update-traffic clozehive-api --to-revisions <REV>=100`.
+
+## Hardening (optional, recommended before real traffic)
+
+`closet-service` and `ai-agent` are deployed `--allow-unauthenticated` for
+simplicity (they're already protected by the shared JWT + `INTERNAL_SERVICE_TOKEN`).
+To make them reachable **only** from other Cloud Run services, redeploy them with
+`--no-allow-unauthenticated --ingress internal`, grant the runtime SA
+`roles/run.invoker` on each, and the gateway's outbound calls will carry an ID
+token automatically. Left public by default so you can verify each service's
+`/health` directly during bring-up.
+
+## Cost shape
+
+Pay-per-use except: api-gateway `min-instances=1` and the worker pool
+`min-instances=1` bill continuously (~a few $/mo each at idle). Neon + Upstash
+have free tiers. GCS is pennies. Scale-to-zero on closet/ai-agent/frontend.

@@ -24,4 +24,16 @@ export const CLOSET_SORT_OPTIONS = [
 ]
 
 export const CLOSET_SEASONS = ['spring', 'summer', 'fall', 'winter'] as const
-export const CLOSET_OCCASIONS = ['casual', 'formal', 'work', 'sport', 'evening', 'travel'] as const
+
+/** Standard everyday occasions shown as the primary chip row */
+export const CLOSET_OCCASIONS = [
+  'casual', 'formal', 'work', 'sport', 'evening', 'travel',
+  'party', 'date night', 'beach', 'gym', 'wedding',
+] as const
+
+/** Cultural, religious, and festival occasions — shown in a second chip row */
+export const CLOSET_CULTURAL_OCCASIONS = [
+  'diwali', 'navratri', 'holi', 'durga puja', 'eid', 'ramadan',
+  'christmas', 'hanukkah', 'thanksgiving', 'onam', 'pongal',
+  'baisakhi', 'chinese new year', 'raksha bandhan', 'new year',
+] as const

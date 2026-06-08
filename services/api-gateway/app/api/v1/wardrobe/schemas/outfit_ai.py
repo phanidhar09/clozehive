@@ -27,8 +27,8 @@ class ScoreBreakdown(BaseModel):
     color: int = Field(ge=0, le=25, description="Color compatibility (max 25)")
     occasion: int = Field(ge=0, le=25, description="Occasion match (max 25)")
     fit: int = Field(ge=0, le=20, description="Fit & size alignment (max 20)")
-    style: int = Field(ge=0, le=15, description="Style consistency (max 15)")
-    weather: int = Field(ge=0, le=10, description="Weather suitability (max 10)")
+    style: int = Field(ge=0, le=13, description="Style consistency (max 13)")
+    weather: int = Field(ge=0, le=12, description="Weather & local climate suitability (max 12)")
     preference: int = Field(ge=0, le=5, description="User preference match (max 5)")
 
 

@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 
 from app.core.deps import CurrentUser, DbSession
+from app.repositories.style_profile_repo import UserStyleProfileRepository
 from app.services import closet_similarity_service
+from app.utils.user_context import profile_to_context
 
 router = APIRouter(prefix="/closet", tags=["Closet Similarity"])
 
@@ -84,12 +88,16 @@ async def check_similar_before_save(
             "season_tags": body.season_tags,
         }
 
+        profile = await UserStyleProfileRepository(session).get_by_user_id(UUID(user_id))
+        user_context = profile_to_context(profile) if profile else None
+
         results = await closet_similarity_service.check_similar_for_new_item(
             session,
             user_id,
             source_metadata=metadata,
             limit=body.limit,
-            threshold_score=55,
+            threshold_score=70,
+            user_context=user_context,
         )
         return {"similar_items": results}
     except Exception as exc:

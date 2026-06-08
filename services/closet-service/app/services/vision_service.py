@@ -17,6 +17,7 @@ from app.schemas.vision_canonical import (
     normalized_to_legacy_upload_dict,
     parse_vision_ai_payload,
 )
+from app.utils.user_context import build_user_context_suffix
 
 settings = get_settings()
 logger = get_logger("vision_service")
@@ -175,10 +176,16 @@ Return ONLY valid JSON. No markdown fences, no prose, no trailing commas."""
 
 
 @traceable(name="gateway_vision_analyze_for_bulk", run_type="chain")
-async def analyze_for_bulk(image_bytes: bytes, media_type: str = "image/jpeg") -> dict[str, Any]:
+async def analyze_for_bulk(
+    image_bytes: bytes,
+    media_type: str = "image/jpeg",
+    user_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """
     Rich garment analysis for ingest and preview fallback.
 
+    ``user_context`` (gender, skin_tone, style_preferences, etc.) is appended to
+    the prompt so the model returns personalised metadata.
     Returns a dict with primary_color, occasion_tags, etc., merged with validated canonical fields.
     """
     if not settings.openai_api_key:
@@ -190,6 +197,7 @@ async def analyze_for_bulk(image_bytes: bytes, media_type: str = "image/jpeg") -
 
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
     data_url = f"data:{media_type};base64,{image_b64}"
+    prompt = _BULK_PROMPT + build_user_context_suffix(user_context)
     try:
         response = await _get_client().chat.completions.create(
             model=settings.openai_model,
@@ -201,7 +209,7 @@ async def analyze_for_bulk(image_bytes: bytes, media_type: str = "image/jpeg") -
                     "role": "user",
                     "content": [
                         {"type": "image_url", "image_url": {"url": data_url, "detail": "high"}},
-                        {"type": "text", "text": _BULK_PROMPT},
+                        {"type": "text", "text": prompt},
                     ],
                 }
             ],

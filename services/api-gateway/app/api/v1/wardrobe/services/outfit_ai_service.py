@@ -4,8 +4,8 @@ Scoring formula (max 100):
   color        25%  — palette harmony, contrast
   occasion     25%  — suitability for stated occasion
   fit          20%  — size/fit compatibility across pieces
-  style        15%  — coherent style narrative
-  weather      10%  — seasonal/weather appropriateness
+  style        13%  — coherent style narrative
+  weather      12%  — seasonal/weather/local-climate appropriateness
   preference    5%  — alignment with user profile preferences
 """
 
@@ -36,8 +36,8 @@ SCORING FORMULA — score_breakdown values must sum EXACTLY to matching_score (i
   color      max 25  Color Compatibility: harmony, contrast, palette cohesion
   occasion   max 25  Occasion Match: suitability for stated occasion
   fit        max 20  Fit & Size Alignment: size/fit compatibility across pieces
-  style      max 15  Style Consistency: coherent style narrative
-  weather    max 10  Weather Suitability: appropriate for weather/season (use 7 if no weather)
+  style      max 13  Style Consistency: coherent style narrative
+  weather    max 12  Weather & Local Climate: appropriate for weather/season AND the local climate/conditions described in [LOCAL CONTEXT] (use 9 if no weather)
   preference max  5  User Preference Match: alignment with stated user preferences
 
 STRICT RULES:
@@ -112,8 +112,8 @@ SCORING FORMULA — score_breakdown values must sum EXACTLY to matching_score (i
   color      max 25  Color Compatibility: harmony, contrast, palette cohesion
   occasion   max 25  Occasion Match: suitability for stated occasion
   fit        max 20  Fit & Size Alignment: size/fit compatibility across pieces
-  style      max 15  Style Consistency: coherent style narrative
-  weather    max 10  Weather Suitability: appropriate for weather/season (use 7 if none provided)
+  style      max 13  Style Consistency: coherent style narrative
+  weather    max 12  Weather & Local Climate: appropriate for weather/season AND the local climate/conditions described in [LOCAL CONTEXT] (use 9 if none provided)
   preference max  5  User Preference Match: alignment with stated user preferences
 
 STRICT RULES:
@@ -168,6 +168,13 @@ EXACT RESPONSE SCHEMA:
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
+
+def _location_prompt_suffix(location_context: str) -> str:
+    """Append the local-climate / dress-norm context to a system prompt (empty if none)."""
+    if not location_context or not location_context.strip():
+        return ""
+    return f"\n\n{location_context.strip()}\n"
+
 
 def _clean_json(text: str) -> str:
     text = text.strip()
@@ -375,6 +382,7 @@ async def generate_outfits(
     temperature: float | None = None,
     user_profile: dict[str, Any] | None = None,
     rag_context: str | None = None,
+    location_context: str = "",
 ) -> dict[str, Any]:
     """Generate 3 diverse, scored outfit combinations from the user's full wardrobe."""
     if not closet_items:
@@ -395,10 +403,12 @@ async def generate_outfits(
         payload_dict["rag_context"] = rag_context
     payload = json.dumps(payload_dict, default=str)
 
+    system_prompt = _GENERATE_SYSTEM_PROMPT + _location_prompt_suffix(location_context)
+
     try:
         raw = await ai_service.chat(
             [{"role": "user", "content": payload}],
-            _GENERATE_SYSTEM_PROMPT,
+            system_prompt,
         )
         data = json.loads(_clean_json(raw))
         if isinstance(data, dict) and "outfits" in data:
@@ -418,6 +428,7 @@ async def analyze_outfit(
     temperature: float | None = None,
     user_profile: dict[str, Any] | None = None,
     rag_context: str | None = None,
+    location_context: str = "",
 ) -> dict[str, Any]:
     """Score and provide recommendations for a specific outfit combination chosen by the user."""
     if not selected_items:
@@ -440,10 +451,12 @@ async def analyze_outfit(
         analyze_dict["rag_context"] = rag_context
     payload = json.dumps(analyze_dict, default=str)
 
+    system_prompt = _ANALYZE_SYSTEM_PROMPT + _location_prompt_suffix(location_context)
+
     try:
         raw = await ai_service.chat(
             [{"role": "user", "content": payload}],
-            _ANALYZE_SYSTEM_PROMPT,
+            system_prompt,
         )
         data = json.loads(_clean_json(raw))
         if isinstance(data, dict) and "outfit" in data:

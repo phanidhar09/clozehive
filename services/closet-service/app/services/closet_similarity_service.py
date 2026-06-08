@@ -426,6 +426,7 @@ async def check_similar_for_new_item(
     source_metadata: dict[str, Any],
     limit: int = 5,
     threshold_score: int = 70,
+    user_context: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Check if a newly uploaded item (not saved yet) is similar to existing closet items.
@@ -436,6 +437,8 @@ async def check_similar_for_new_item(
     3. Hybrid category-aware re-ranking to remove false positives
     4. Metadata fallback (items WITHOUT embeddings, or when pgvector unavailable)
     5. Merge both result sets — deduplicating by item ID, keeping higher score
+    6. If ``user_context`` is provided: filter out results whose color matches
+       the user's avoided_colors list.
 
     Runs BOTH paths every time so that recently-saved items (whose background
     embedding task hasn't completed yet) are still caught by the metadata scorer.
@@ -478,7 +481,18 @@ async def check_similar_for_new_item(
             merged.append(r)
 
     merged.sort(key=lambda x: x["similarity_score"], reverse=True)
-    return merged[:limit]
+    result = merged[:limit]
+
+    # Personalisation: strip results whose color the user wants to avoid
+    if user_context:
+        avoided = {c.lower().strip() for c in (user_context.get("avoided_colors") or [])}
+        if avoided:
+            result = [
+                r for r in result
+                if not any(a in (r.get("color") or "").lower() for a in avoided)
+            ]
+
+    return result
 
 
 async def _metadata_fallback_search(

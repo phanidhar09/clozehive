@@ -301,8 +301,8 @@ const SCORE_FACTORS: { key: keyof ScoreBreakdown; label: string; max: number }[]
   { key: 'color',      label: 'Color Compatibility', max: 25 },
   { key: 'occasion',   label: 'Occasion Match',       max: 25 },
   { key: 'fit',        label: 'Fit & Size Alignment', max: 20 },
-  { key: 'style',      label: 'Style Consistency',    max: 15 },
-  { key: 'weather',    label: 'Weather Suitability',  max: 10 },
+  { key: 'style',      label: 'Style Consistency',    max: 13 },
+  { key: 'weather',    label: 'Weather & Climate',     max: 12 },
   { key: 'preference', label: 'Preference Match',     max: 5  },
 ]
 

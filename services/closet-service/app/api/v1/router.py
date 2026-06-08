@@ -24,6 +24,7 @@ from app.api.v1 import (
     purchase_gaps,
     rag,
     shopping_check,
+    trends,
     trips,
 )
 
@@ -47,6 +48,7 @@ api_router.include_router(fashion_rag.router)
 api_router.include_router(outfit_history.router)
 api_router.include_router(purchase_gaps.router)
 api_router.include_router(rag.router)                   # unified /rag/* endpoints
+api_router.include_router(trends.router)                # admin trend ingestion
 
 # Health (also exposed at /health by the app factory)
 api_router.include_router(health.router, prefix="/health", tags=["health"])

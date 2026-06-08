@@ -110,6 +110,10 @@ class Settings(BaseSettings):
     openweather_api_key: str = ""
     ai_cache_enabled: bool = True
     ai_cache_ttl: int = 600
+    # Weekly fashion-trend ingestion (pytrends → fashion_knowledge_documents).
+    # Disabled by default; enable on exactly one deployment to avoid duplicate runs.
+    trend_scheduler_enabled: bool = False
+    trend_refresh_interval_hours: int = 168   # 7 days
     # text-embedding-3-small: same 1536-dim output as ada-002 but ~20% better on
     # semantic retrieval benchmarks and cheaper.  Changing this requires running
     # POST /api/v1/closet/re-embed to regenerate all stored embeddings.

@@ -276,12 +276,14 @@ async def run_pipeline(
     scan_id: str,
     *,
     preview_fast: bool = False,
+    user_context: dict[str, Any] | None = None,
 ) -> VisionAnalyzeResponse:
     """
     Compress → cache → vision detection → per-item processing.
 
     ``preview_fast=True`` (closet analyze-preview): skips per-item BG removal and crop
     re-analysis (saves one OpenAI call per detected item + rembg time).
+    ``user_context`` is forwarded to detection and enrichment prompts for personalisation.
     """
     t0 = time.monotonic()
 
@@ -311,7 +313,7 @@ async def run_pipeline(
 
     # 3. Vision AI — Gemini primary, OpenAI fallback
     try:
-        raw_result = await _run_detection(compressed, compressed_type)
+        raw_result = await _run_detection(compressed, compressed_type, user_context=user_context)
     except asyncio.TimeoutError:
         ms = round((time.monotonic() - t0) * 1000)
         logger.error("vision_pipeline_timeout", scan_id=scan_id, ms=ms)
@@ -429,7 +431,7 @@ async def run_pipeline(
             img_b64 = base64.b64encode(final_bytes).decode("utf-8")
 
             merged = dict(raw)
-            merged = await enrich_detection_with_crop_analysis(final_bytes, merged)
+            merged = await enrich_detection_with_crop_analysis(final_bytes, merged, user_context=user_context)
 
         bb_model = _bbox_to_normalized_model(raw)
 
@@ -541,10 +543,15 @@ def _build_name(raw: dict[str, Any]) -> str:
 
 # ── Detection router (Gemini → OpenAI fallback) ───────────────────────────────
 
-async def _run_detection(image_bytes: bytes, media_type: str) -> dict[str, Any]:
+async def _run_detection(
+    image_bytes: bytes,
+    media_type: str,
+    user_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """
     Choose Gemini 1.5 Flash (fast) when configured, fall back to GPT-4o.
     Returns the standard detection dict shape.
+    ``user_context`` is forwarded to the OpenAI fallback for personalisation.
     """
     from app.services import gemini_service  # lazy import to avoid circular deps
 
@@ -557,9 +564,9 @@ async def _run_detection(image_bytes: bytes, media_type: str) -> dict[str, Any]:
         except Exception as exc:
             logger.warning("gemini_detection_failed", error=str(exc), fallback="openai")
 
-    # OpenAI fallback
+    # OpenAI fallback — forward user_context so garment metadata is personalised
     return await asyncio.wait_for(
-        fashion_analysis_service.detect_fashion_items(image_bytes, media_type),
+        fashion_analysis_service.detect_fashion_items(image_bytes, media_type, user_context=user_context),
         timeout=_VISION_TIMEOUT,
     )
 

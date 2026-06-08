@@ -394,6 +394,7 @@ export interface PackingPlan {
   checklist_state: Record<string, boolean>
   trip_style_direction?: string | null
   climate_summary?: string | null
+  location_etiquette?: string | null
   // ─────────────────────────────────────────────────────────────────────────
   is_saved: boolean
   created_at: string

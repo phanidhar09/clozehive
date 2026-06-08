@@ -19,6 +19,7 @@ from app.core.config import get_settings
 from app.core.llm_safety import sanitize_user_text
 from app.core.logging import get_logger
 from app.core.openai_tracing import make_openai_client, wrap_openai_client
+from app.api.v1.travel.services.location_intel_service import build_location_context_block
 from app.api.v1.travel.services.weather_service import fetch_weather_async, summarise_weather
 
 logger = get_logger("packing_service")
@@ -220,6 +221,7 @@ async def _ai_activity_aware_packing(
     notes: str | None,
     style_profile_context_text: str | None = None,
     rag_context: str | None = None,
+    location_context: str | None = None,
 ) -> dict[str, Any] | None:
     """
     Core AI call — generates a full activity-aware day-by-day outfit planner.
@@ -249,6 +251,9 @@ async def _ai_activity_aware_packing(
         )
     if rag_context and rag_context.strip():
         style_block += f"\nFashion context:\n{rag_context.strip()}\n"
+    location_block = ""
+    if location_context and location_context.strip():
+        location_block = f"\n{location_context.strip()}\n"
 
     prompt = f"""You are FANI, a professional travel stylist and personal wardrobe manager. Generate a day-by-day travel outfit planner.
 
@@ -261,7 +266,7 @@ TRIP DETAILS:
 - Weather: {weather_text}
 {per_day_block}
 - Notes: {notes or 'None'}
-{style_block}
+{location_block}{style_block}
 PLANNED ACTIVITIES:
 {activities_block}
 
@@ -289,12 +294,18 @@ INSTRUCTIONS:
 8. Keep total unique items within bag size limits.
 9. Provide clear styling notes and rewear notes per outfit slot.
 10. Activity priority order: fixed/booked > time-specific > general everyday wear.
+11. LOCATION NORMS ARE CONSTRAINTS. If destination location preferences are given above,
+    respect the local climate, modesty level, formality baseline, and cultural dress norms:
+    prefer wardrobe items that fit them, suggest cover-ups/layers from the closet where coverage
+    is needed (temples, mosques, conservative areas), and never plan items that would violate
+    local norms. Summarise the single most useful local dressing tip in trip_summary.location_etiquette.
 
 Return ONLY valid JSON with this structure:
 {{
   "trip_summary": {{
     "style_direction": "2-3 sentence description of the overall style approach for this trip",
-    "climate_summary": "brief climate description and what it means for dressing"
+    "climate_summary": "brief climate description and what it means for dressing",
+    "location_etiquette": "1-2 sentence note on local dress norms/modesty/culture for this destination and how the plan respects them"
   }},
   "day_plans": [
     {{
@@ -822,12 +833,16 @@ async def generate_packing_list(
         if merged_ctx is None and user_style_profile:
             merged_ctx = user_style_profile.get("style_profile_context_text")
 
+        # ── Destination location preferences (curated profile or LLM fallback) ─
+        location_context = build_location_context_block(destination, mode="travel")
+
         # ── New activity-aware AI call ────────────────────────────────────────
         ai_rich = await _ai_activity_aware_packing(
             destination, start_date, end_date, purpose, trip_style, bag_size,
             trip_days, closet_items, weather_summary, weather_days, activities, notes,
             style_profile_context_text=merged_ctx,
             rag_context=rag_context,
+            location_context=location_context,
         )
 
         # ── Legacy AI call for backward-compat take_from / you_might_need ────
@@ -846,6 +861,7 @@ async def generate_packing_list(
         bag_capacity_summary: dict[str, Any] = {}
         trip_style_direction: str | None = None
         climate_summary: str | None = None
+        location_etiquette: str | None = None
 
         if ai_rich:
             day_plans_rich = ai_rich.get("day_plans") or []
@@ -855,6 +871,7 @@ async def generate_packing_list(
             summary_block = ai_rich.get("trip_summary") or {}
             trip_style_direction = summary_block.get("style_direction")
             climate_summary = summary_block.get("climate_summary")
+            location_etiquette = summary_block.get("location_etiquette")
 
             # Enrich with closet images
             day_plans_rich = _enrich_day_plans_with_images(day_plans_rich, closet_items)
@@ -956,6 +973,7 @@ async def generate_packing_list(
             "packing_checklist": packing_checklist,
             "trip_style_direction": trip_style_direction,
             "climate_summary": climate_summary,
+            "location_etiquette": location_etiquette,
             # ── Legacy fields (backward compat) ──────────────────────────────
             "packing_list": packing_list,
             "items": packing_list,

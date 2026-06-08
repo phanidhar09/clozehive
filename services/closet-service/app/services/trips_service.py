@@ -89,8 +89,9 @@ class TripsService:
 
     async def create_trip(self, user_id: UUID, data: TripCreate) -> Trip:
         """Create a Trip ORM object (returns the raw model, not response schema)."""
-        if data.end_date <= data.start_date:
-            raise BadRequestError("end_date must be after start_date")
+        # Same-day is valid: single-event "occasion" plans send start == end.
+        if data.end_date < data.start_date:
+            raise BadRequestError("end_date must be on or after start_date")
         trip = Trip(
             user_id=user_id,
             destination=data.destination,
@@ -108,8 +109,9 @@ class TripsService:
         return trip
 
     async def update_trip(self, trip_id: UUID, user_id: UUID, data: TripCreate) -> TripResponse:
-        if data.end_date <= data.start_date:
-            raise BadRequestError("end_date must be after start_date")
+        # Same-day is valid: single-event "occasion" plans send start == end.
+        if data.end_date < data.start_date:
+            raise BadRequestError("end_date must be on or after start_date")
         stmt = select(Trip).where(Trip.id == trip_id, Trip.user_id == user_id)
         result = await self.session.execute(stmt)
         trip = result.scalar_one_or_none()
@@ -275,6 +277,7 @@ class TripsService:
             checklist_state=state,
             trip_style_direction=raw.get("trip_style_direction"),
             climate_summary=raw.get("climate_summary"),
+            location_etiquette=raw.get("location_etiquette"),
             is_saved=plan.is_saved,
             created_at=plan.created_at.isoformat(),
             updated_at=plan.updated_at.isoformat(),

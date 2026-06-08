@@ -113,3 +113,6 @@ ai-service/venv/
 clozehive-clean/
 Roo-Code/
 .vercel
+
+# GCP deploy secrets
+infra/gcp/secrets.env

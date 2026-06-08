@@ -13,7 +13,7 @@ import { useApp } from '@/store'
 import { notificationStore, toastStore } from '@/store/notificationStore'
 import { closetApi, closetSimilarityApi, resolveUploadUrl, type ClosetPreviewItem, type SimilarClosetItem } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { CLOSET_SEASONS, CLOSET_OCCASIONS } from '@/features/closet/constants'
+import { CLOSET_SEASONS, CLOSET_OCCASIONS, CLOSET_CULTURAL_OCCASIONS } from '@/features/closet/constants'
 import { InlineError } from '@/components/system/InlineError'
 import { LoadingSpinner } from '@/components/system/LoadingSpinner'
 import SimilarityWarningBanner from '@/components/closet/SimilarityWarningBanner'
@@ -97,42 +97,65 @@ function confidenceTier(c: number) {
  * Mirrors the pill pattern used in the closet editor for consistency.
  */
 function TokenField({
-  label, value, suggestions, placeholder, aiState, id, onChange,
+  label, value, suggestions, extraSuggestions, extraSuggestionsLabel, placeholder, aiState, id, onChange,
 }: {
   label: string
   value: string
   suggestions: readonly string[]
+  extraSuggestions?: readonly string[]
+  extraSuggestionsLabel?: string
   placeholder?: string
   aiState?: AIProvenance
   id: string
   onChange: (v: string) => void
 }) {
+  const [showExtra, setShowExtra] = useState(false)
   const active = parseCommaList(value)
+
+  const renderChips = (chips: readonly string[]) =>
+    chips.map(s => {
+      const isOn = active.includes(s)
+      return (
+        <button
+          key={s}
+          type="button"
+          onClick={() => onChange(toggleToken(value, s))}
+          aria-pressed={isOn}
+          className={cn(
+            'px-2.5 py-1 rounded-full text-[11px] font-semibold capitalize transition-colors border',
+            isOn
+              ? 'bg-brand-500 text-white border-brand-500'
+              : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:border-brand-300 dark:hover:border-brand-600',
+          )}
+        >
+          {s}
+        </button>
+      )
+    })
+
   return (
     <div>
       <AIFieldLabel label={label} state={aiState ?? null} htmlFor={id} />
       <Input id={id} value={value} placeholder={placeholder} onChange={e => onChange(e.target.value)} />
       <div className="flex flex-wrap gap-1.5 mt-2">
-        {suggestions.map(s => {
-          const isOn = active.includes(s)
-          return (
-            <button
-              key={s}
-              type="button"
-              onClick={() => onChange(toggleToken(value, s))}
-              aria-pressed={isOn}
-              className={cn(
-                'px-2.5 py-1 rounded-full text-[11px] font-semibold capitalize transition-colors border',
-                isOn
-                  ? 'bg-brand-500 text-white border-brand-500'
-                  : 'bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:border-brand-300 dark:hover:border-brand-600',
-              )}
-            >
-              {s}
-            </button>
-          )
-        })}
+        {renderChips(suggestions)}
       </div>
+      {extraSuggestions && extraSuggestions.length > 0 && (
+        <div className="mt-1.5">
+          <button
+            type="button"
+            onClick={() => setShowExtra(v => !v)}
+            className="text-[10px] font-semibold text-brand-500 dark:text-brand-400 hover:underline"
+          >
+            {showExtra ? '▲ Hide' : '▼'} {extraSuggestionsLabel ?? 'More'}
+          </button>
+          {showExtra && (
+            <div className="flex flex-wrap gap-1.5 mt-1.5">
+              {renderChips(extraSuggestions)}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -1054,7 +1077,9 @@ export default function Upload() {
                         id={`f-${d.detected_item_id}-occasion`}
                         value={d.occasionStr}
                         suggestions={CLOSET_OCCASIONS}
-                        placeholder="casual, work"
+                        extraSuggestions={CLOSET_CULTURAL_OCCASIONS}
+                        extraSuggestionsLabel="Cultural & religious occasions"
+                        placeholder="casual, work, diwali…"
                         aiState={aiFieldState(d, 'occasionStr')}
                         onChange={v => updateDraft(currentWizardItem.sessionId, d.slot_index, { occasionStr: v })}
                       />

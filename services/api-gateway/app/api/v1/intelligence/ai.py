@@ -27,6 +27,7 @@ from app.api.v1.identity.repositories.user_repo import UserRepository
 from app.api.v1.identity.services.style_profile_context import load_merged_user_profile_for_ai
 from app.api.v1.intelligence.services import ai_service
 from app.api.v1.travel.services import packing_service, weather_service
+from app.api.v1.travel.services.location_intel_service import build_location_context_block
 from app.api.v1.wardrobe.services import outfit_service, vision_service
 from app.core import cache_service
 from app.core.embedding_service import generate_text_embedding, pgvector_cosine_search
@@ -175,6 +176,16 @@ def _sse(data: dict[str, Any]) -> str:
     return f"data: {json.dumps(data)}\n\n"
 
 
+def _location_prompt_block(weather: dict[str, Any] | None) -> str:
+    if not weather:
+        return ""
+    label = weather.get("location_label")
+    if not label:
+        return ""
+    block = build_location_context_block(str(label), mode="daily")
+    return f"\n\n{block}" if block else ""
+
+
 def _weather_prompt_block(weather: dict[str, Any] | None) -> str:
     if not weather:
         return ""
@@ -224,7 +235,7 @@ def _build_stylist_system_prompt(
         return (
             "You are a personal AI stylist for ClozeHive. This user has not added any wardrobe items yet. "
             "Give general fashion advice and encourage them to upload their wardrobe items using the Smart "
-            f"Closet Scan feature.{profile_block}{_weather_prompt_block(weather)}"
+            f"Closet Scan feature.{profile_block}{_weather_prompt_block(weather)}{_location_prompt_block(weather)}"
         )
 
     lines = [f"USER'S WARDROBE ({len(closet_items)} items):"]
@@ -245,7 +256,7 @@ def _build_stylist_system_prompt(
 
 [WARDROBE CONTEXT]
 {closet_context}
-[END WARDROBE CONTEXT]{profile_block}{_weather_prompt_block(weather)}"""
+[END WARDROBE CONTEXT]{profile_block}{_weather_prompt_block(weather)}{_location_prompt_block(weather)}"""
 
 
 def _chat_messages(body: ChatRequest) -> list[dict[str, str]]:

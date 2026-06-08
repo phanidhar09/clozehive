@@ -17,6 +17,7 @@ from app.models.closet import ClosetItem, Outfit
 from app.services.style_profile_context import load_merged_user_profile_for_ai
 from app.schemas.outfit_ai import AnalyzeOutfitRequest, AnalyzeOutfitResponse
 from app.services import outfit_ai_service
+from app.services.location_intel_service import build_location_context_block
 from app.services.weather_service import get_weather_by_city
 from app.services.fashion_rag_service import get_fashion_context_for_prompt
 from app.services.outfit_history_service import (
@@ -218,6 +219,8 @@ async def analyze_outfit(request: Request, body: AnalyzeOutfitRequest, user_id: 
         pass
     rag_context = "\n\n".join(rag_parts) or None
 
+    location_context = build_location_context_block(body.location or "", mode="daily")
+
     data = await outfit_ai_service.analyze_outfit(
         items_for_ai,
         body.occasion,
@@ -225,6 +228,7 @@ async def analyze_outfit(request: Request, body: AnalyzeOutfitRequest, user_id: 
         effective_temp,
         user_profile=profile,
         rag_context=rag_context,
+        location_context=location_context,
     )
 
     # ── Suggest complementary pairings from the rest of the user's closet ────

@@ -1,0 +1,17 @@
+# Builds the frontend image with VITE_API_URL baked in at build time, then
+# pushes it. Invoked by 02-build.sh with substitutions.
+#   gcloud builds submit frontend --config infra/gcp/cloudbuild.frontend.yaml \
+#       --substitutions _IMAGE=...,_VITE_API_URL=https://clozehive-api-....run.app
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --build-arg
+      - VITE_API_URL=${_VITE_API_URL}
+      - -t
+      - ${_IMAGE}
+      - .
+images:
+  - ${_IMAGE}
+options:
+  logging: CLOUD_LOGGING_ONLY

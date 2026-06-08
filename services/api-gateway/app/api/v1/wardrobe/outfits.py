@@ -23,6 +23,7 @@ from app.api.v1.identity.services.style_profile_context import load_merged_user_
 from app.api.v1.wardrobe.schemas.outfit_ai import AnalyzeOutfitRequest, AnalyzeOutfitResponse
 from app.api.v1.wardrobe.services import outfit_ai_service
 from app.api.v1.travel.services.weather_service import get_weather_by_city
+from app.api.v1.travel.services.location_intel_service import build_location_context_block
 from app.api.v1.intelligence.services.fashion_rag_service import get_fashion_context_for_prompt
 from app.api.v1.wardrobe.services.outfit_history_service import (
     get_outfit_history_for_prompt,
@@ -197,6 +198,7 @@ async def analyze_outfit(request: Request, body: AnalyzeOutfitRequest, user_id: 
             effective_temp = wx.get("temp_c", effective_temp)
         except Exception:
             pass
+    location_context = build_location_context_block(body.location or "", mode="daily")
 
     logger.info(
         "outfit_analyze_request",
@@ -238,6 +240,7 @@ async def analyze_outfit(request: Request, body: AnalyzeOutfitRequest, user_id: 
             effective_temp,
             user_profile=profile,
             rag_context=rag_context,
+            location_context=location_context,
         )
         _analyze_cache[_cache_key] = (data, _now)
         if len(_analyze_cache) > 500:
