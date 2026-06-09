@@ -50,3 +50,17 @@ async def resolve_purchase_gap(
     if not result:
         raise NotFoundError("Purchase gap not found")
     return result
+
+
+@router.delete("/{gap_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_purchase_gap(
+    gap_id: UUID,
+    user_id: CurrentUser,
+    session: DbSession,
+):
+    """Permanently delete a purchase gap from the user's list."""
+    ok = await purchase_gap_service.delete_purchase_gap(
+        session, str(gap_id), user_id
+    )
+    if not ok:
+        raise NotFoundError("Purchase gap not found")

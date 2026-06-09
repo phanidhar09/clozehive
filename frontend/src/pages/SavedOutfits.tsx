@@ -6,8 +6,8 @@ import PageHeader from '@/components/ui/PageHeader'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Heart, Shirt, Star, ChevronDown, ChevronUp, Calendar,
-  Wand2, Filter, SlidersHorizontal, CheckCircle2, ThumbsUp,
-  ThumbsDown, MessageSquare, X, Search, RefreshCw,
+  Wand2, SlidersHorizontal, CheckCircle2,
+  MessageSquare, X, Search, RefreshCw, Trash2, Loader2,
 } from 'lucide-react'
 import { outfitHistoryApi, type OutfitHistoryRecord } from '@/lib/api'
 import { useApp } from '@/store'
@@ -45,14 +45,17 @@ interface OutfitCardProps {
   record: OutfitHistoryRecord
   closetMap: Record<string, ClosetItem>
   onFeedback: (id: string, patch: { was_worn?: boolean; was_saved?: boolean; feedback?: string }) => void
+  onDelete: (id: string) => void
 }
 
-function OutfitCard({ record, closetMap, onFeedback }: OutfitCardProps) {
+function OutfitCard({ record, closetMap, onFeedback, onDelete }: OutfitCardProps) {
   const navigate = useNavigate()
   const [expanded, setExpanded] = useState(false)
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [feedbackText, setFeedbackText] = useState(record.user_feedback ?? '')
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
 
   const items = (record.selected_item_ids ?? [])
     .map(id => closetMap[id])
@@ -83,6 +86,24 @@ function OutfitCard({ record, closetMap, onFeedback }: OutfitCardProps) {
     navigate('/outfit-builder', {
       state: { preselectedIds: record.selected_item_ids, occasion: record.occasion },
     })
+  }
+
+  const handleDelete = async () => {
+    if (!confirmingDelete) {
+      setConfirmingDelete(true)
+      setTimeout(() => setConfirmingDelete(false), 3000)
+      return
+    }
+    setConfirmingDelete(false)
+    setDeleting(true)
+    try {
+      await outfitHistoryApi.delete(record.id)
+      onDelete(record.id)
+      toastStore.add({ variant: 'success', icon: '🗑️', title: 'Outfit deleted' })
+    } catch {
+      setDeleting(false)
+      toastStore.add({ variant: 'error', icon: '❌', title: 'Delete failed', body: 'Please try again.' })
+    }
   }
 
   return (
@@ -221,6 +242,8 @@ function OutfitCard({ record, closetMap, onFeedback }: OutfitCardProps) {
           onClick={() => submitFeedback({ was_worn: !record.was_worn })}
           disabled={saving}
           title={record.was_worn ? 'Mark as not worn' : 'Mark as worn'}
+          aria-label={record.was_worn ? 'Mark as not worn' : 'Mark as worn'}
+          aria-pressed={record.was_worn}
           className={cn(
             'p-2 rounded-xl border text-[11px] transition-colors',
             record.was_worn
@@ -235,6 +258,8 @@ function OutfitCard({ record, closetMap, onFeedback }: OutfitCardProps) {
           onClick={() => submitFeedback({ was_saved: !record.was_saved })}
           disabled={saving}
           title={record.was_saved ? 'Unsave' : 'Save'}
+          aria-label={record.was_saved ? 'Unsave outfit' : 'Save outfit'}
+          aria-pressed={record.was_saved}
           className={cn(
             'p-2 rounded-xl border text-[11px] transition-colors',
             record.was_saved
@@ -248,9 +273,28 @@ function OutfitCard({ record, closetMap, onFeedback }: OutfitCardProps) {
         <button
           onClick={() => setFeedbackOpen(v => !v)}
           title="Add note"
+          aria-label="Add a note"
+          aria-expanded={feedbackOpen}
           className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-400 hover:border-brand-300 hover:text-brand-500 transition-colors"
         >
           <MessageSquare size={14} />
+        </button>
+
+        {/* Delete — pushed to the far right; two-tap confirm */}
+        <button
+          onClick={handleDelete}
+          disabled={deleting}
+          title={confirmingDelete ? 'Click again to confirm delete' : 'Delete outfit'}
+          aria-label={confirmingDelete ? 'Confirm delete outfit' : 'Delete outfit'}
+          className={cn(
+            'ml-auto flex items-center gap-1.5 rounded-xl border px-2 py-2 text-[11px] font-semibold transition-colors disabled:opacity-50',
+            confirmingDelete
+              ? 'bg-red-500 border-red-500 text-white'
+              : 'border-slate-200 dark:border-slate-700 text-slate-400 hover:border-red-300 hover:text-red-500',
+          )}
+        >
+          {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+          {confirmingDelete && <span>Delete?</span>}
         </button>
       </div>
 
@@ -437,6 +481,10 @@ export default function SavedOutfits() {
     ))
   }
 
+  const handleDelete = (id: string) => {
+    setRecords(prev => prev.filter(r => r.id !== id))
+  }
+
   const loadMore = () => {
     const next = page + 1
     setPage(next)
@@ -489,11 +537,13 @@ export default function SavedOutfits() {
       <div className="space-y-3">
         <div className="flex items-center gap-2">
           {/* Saved / Worn / All tabs */}
-          <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 rounded-xl p-1">
+          <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 rounded-xl p-1" role="tablist" aria-label="Filter outfits">
             {(['all', 'saved', 'worn'] as const).map(f => (
               <button
                 key={f}
                 onClick={() => setFilter(f)}
+                role="tab"
+                aria-selected={filter === f}
                 className={cn(
                   'px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors capitalize',
                   filter === f
@@ -588,6 +638,7 @@ export default function SavedOutfits() {
               record={record}
               closetMap={closetMap}
               onFeedback={handleFeedback}
+              onDelete={handleDelete}
             />
           ))}
         </AnimatePresence>

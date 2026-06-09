@@ -923,6 +923,10 @@ export const outfitHistoryApi = {
     const { data } = await api.post(`/outfits/history/${historyId}/feedback`, body)
     return data as ReturnType<typeof outfitHistoryApi.submitFeedback> extends Promise<infer T> ? T : never
   },
+
+  async delete(historyId: string): Promise<void> {
+    await api.delete(`/outfits/history/${historyId}`)
+  },
 }
 
 // ── RAG: Packing Memory ────────────────────────────────────────────────────────
@@ -977,6 +981,10 @@ export const purchaseGapsApi = {
   async resolve(gapId: string): Promise<{ id: string; resolved: true }> {
     const { data } = await api.patch(`/purchase-gaps/${gapId}/resolve`)
     return data as { id: string; resolved: true }
+  },
+
+  async delete(gapId: string): Promise<void> {
+    await api.delete(`/purchase-gaps/${gapId}`)
   },
 }
 

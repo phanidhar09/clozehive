@@ -75,3 +75,17 @@ async def submit_outfit_feedback(
     if not result:
         raise NotFoundError("Outfit history record not found")
     return result
+
+
+@router.delete("/{history_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_outfit_history(
+    history_id: str,
+    user_id: CurrentUser,
+    session: DbSession,
+):
+    """Permanently delete a past outfit recommendation from the user's history."""
+    ok = await outfit_history_service.delete_outfit_history(
+        session, history_id=history_id, user_id=user_id
+    )
+    if not ok:
+        raise NotFoundError("Outfit history record not found")

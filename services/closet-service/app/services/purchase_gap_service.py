@@ -225,6 +225,21 @@ async def resolve_purchase_gap(
     return {"id": str(record.id), "resolved": True}
 
 
+async def delete_purchase_gap(
+    session: AsyncSession,
+    gap_id: str,
+    user_id: str,
+) -> bool:
+    """Permanently delete a purchase gap. Returns True if a row was removed."""
+    record = await session.get(PurchaseGap, uuid.UUID(gap_id))
+    if not record or str(record.user_id) != user_id:
+        return False
+    await session.delete(record)
+    await session.flush()
+    logger.info("purchase_gap_deleted", gap_id=gap_id, user_id=user_id)
+    return True
+
+
 async def get_gap_summary_for_prompt(
     session: AsyncSession,
     user_id: str,

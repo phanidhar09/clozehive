@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ShoppingBag, CheckCircle, AlertCircle, Loader2, RefreshCw } from 'lucide-react'
+import { ShoppingBag, CheckCircle, AlertCircle, Loader2, RefreshCw, Trash2 } from 'lucide-react'
 import BackButton from '@/components/ui/BackButton'
 import GlassCard from '@/components/ui/GlassCard'
 import PageHeader from '@/components/ui/PageHeader'
@@ -20,8 +20,10 @@ function priorityLabel(score: number | null): 'high' | 'medium' | 'low' {
   return 'low'
 }
 
-function GapCard({ gap, onResolve }: { gap: PurchaseGap; onResolve: (id: string) => void }) {
+function GapCard({ gap, onResolve, onDelete }: { gap: PurchaseGap; onResolve: (id: string) => void; onDelete: (id: string) => void }) {
   const [resolving, setResolving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
   const level = priorityLabel(gap.priority_score)
 
   const handleResolve = async () => {
@@ -31,6 +33,22 @@ function GapCard({ gap, onResolve }: { gap: PurchaseGap; onResolve: (id: string)
       onResolve(gap.id)
     } catch {
       setResolving(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!confirmingDelete) {
+      setConfirmingDelete(true)
+      setTimeout(() => setConfirmingDelete(false), 3000)
+      return
+    }
+    setConfirmingDelete(false)
+    setDeleting(true)
+    try {
+      await purchaseGapsApi.delete(gap.id)
+      onDelete(gap.id)
+    } catch {
+      setDeleting(false)
     }
   }
 
@@ -81,16 +99,32 @@ function GapCard({ gap, onResolve }: { gap: PurchaseGap; onResolve: (id: string)
         </div>
       )}
 
-      <button
-        onClick={handleResolve}
-        disabled={resolving}
-        className="self-end flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg
-                   bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400
-                   hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors disabled:opacity-50"
-      >
-        {resolving ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle size={12} />}
-        {resolving ? 'Resolving…' : 'Mark resolved'}
-      </button>
+      <div className="flex items-center justify-end gap-2">
+        <button
+          onClick={handleDelete}
+          disabled={deleting}
+          aria-label={confirmingDelete ? 'Confirm delete gap' : 'Delete gap'}
+          className={cn(
+            'flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50',
+            confirmingDelete
+              ? 'bg-red-500 text-white'
+              : 'bg-slate-100 dark:bg-white/[0.06] text-slate-500 dark:text-white/50 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-500',
+          )}
+        >
+          {deleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+          {deleting ? 'Deleting…' : confirmingDelete ? 'Delete?' : 'Delete'}
+        </button>
+        <button
+          onClick={handleResolve}
+          disabled={resolving}
+          className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg
+                     bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400
+                     hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors disabled:opacity-50"
+        >
+          {resolving ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle size={12} />}
+          {resolving ? 'Resolving…' : 'Mark resolved'}
+        </button>
+      </div>
     </GlassCard>
   )
 }
@@ -119,6 +153,10 @@ export default function PurchaseGaps() {
   }, [showResolved])
 
   const handleResolve = (id: string) => {
+    setGaps(prev => prev.filter(g => g.id !== id))
+  }
+
+  const handleDelete = (id: string) => {
     setGaps(prev => prev.filter(g => g.id !== id))
   }
 
@@ -179,7 +217,7 @@ export default function PurchaseGaps() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {gaps.map(gap => (
-            <GapCard key={gap.id} gap={gap} onResolve={handleResolve} />
+            <GapCard key={gap.id} gap={gap} onResolve={handleResolve} onDelete={handleDelete} />
           ))}
         </div>
       )}

@@ -197,6 +197,21 @@ async def update_outfit_feedback(
     }
 
 
+async def delete_outfit_history(
+    session: AsyncSession,
+    history_id: str,
+    user_id: str,
+) -> bool:
+    """Permanently delete an outfit history record. Returns True if a row was removed."""
+    record = await session.get(OutfitHistory, uuid.UUID(history_id))
+    if not record or str(record.user_id) != user_id:
+        return False
+    await session.delete(record)
+    await session.flush()
+    logger.info("outfit_history_deleted", history_id=history_id, user_id=user_id)
+    return True
+
+
 async def list_outfit_history(
     session: AsyncSession,
     user_id: str,
