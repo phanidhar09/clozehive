@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState, useEffect, useLayoutEffect } from 'react'
 import {
   Search, SlidersHorizontal, ArrowUpDown, Loader2, RefreshCw, Trash2, X,
-  Plus, Wand2, Shirt, Eye, Pencil, Check,
+  Plus, Wand2, Shirt, Pencil, Check,
   Heart, LayoutGrid, List,
 } from 'lucide-react'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
@@ -131,15 +131,16 @@ function ClosetListRow({
           onClick={handleDeleteClick}
           disabled={deleting}
           className={cn(
-            'p-2 rounded-lg text-[10px] font-semibold transition-all disabled:opacity-40',
+            'flex items-center gap-1 rounded-lg p-2 text-[10px] font-semibold transition-colors disabled:opacity-40',
             confirmingDelete
-              ? 'bg-red-500 text-white animate-pulse px-2'
+              ? 'bg-red-500 text-white px-2'
               : 'bg-slate-100 dark:bg-white/[0.06] text-slate-400 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-500',
           )}
-          title={confirmingDelete ? 'Click to confirm' : 'Delete'}
+          title={confirmingDelete ? 'Click again to confirm delete' : 'Delete'}
+          aria-label={confirmingDelete ? `Confirm delete ${item.name}` : `Delete ${item.name}`}
         >
           {deleting ? <Loader2 size={12} className="animate-spin" />
-            : confirmingDelete ? '×del'
+            : confirmingDelete ? <><Trash2 size={12} />Delete?</>
             : <Trash2 size={13} />}
         </button>
       </div>
@@ -184,10 +185,13 @@ function CategoryTab({
   return (
     <button
       onClick={onClick}
+      role="tab"
+      aria-selected={active}
+      aria-label={`${cat.label}${count > 0 ? ` (${count})` : ''}`}
       className={cn(
-        'flex flex-col items-center gap-1.5 px-4 py-2.5 rounded-2xl text-xs font-semibold transition-all duration-200 flex-shrink-0',
+        'flex flex-col items-center gap-1.5 px-4 py-2.5 rounded-2xl text-xs font-semibold transition-colors duration-200 flex-shrink-0',
         active
-          ? 'bg-gradient-to-br from-brand-500 to-brand-600 text-white shadow-md shadow-brand-500/25 ring-2 ring-brand-400/30'
+          ? 'bg-brand-500 text-white shadow-sm'
           : 'bg-white/60 dark:bg-white/5 text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-white/10 border border-white/80 dark:border-white/10',
       )}
     >
@@ -249,9 +253,38 @@ function ClosetItemCard({
             {item.wear_count}×
           </div>
         )}
+
+        {/* Quick actions — Edit & Delete. View = tap the card.
+            Always visible on touch; reveal on hover/focus on desktop (sm+). */}
+        <div className="absolute top-2 left-2 z-30 flex gap-1
+                        opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100
+                        transition-opacity duration-200">
+          <button
+            onClick={e => { e.stopPropagation(); onEdit(item) }}
+            className="p-1.5 rounded-lg bg-black/45 backdrop-blur-sm text-white hover:bg-black/65 transition-colors"
+            title="Edit item"
+            aria-label={`Edit ${item.name}`}
+          >
+            <Pencil size={13} />
+          </button>
+          <button
+            onClick={handleDeleteClick}
+            disabled={deleting}
+            className={cn(
+              'flex items-center gap-1 rounded-lg px-1.5 py-1.5 text-[10px] font-semibold backdrop-blur-sm transition-colors disabled:opacity-40',
+              confirmingDelete ? 'bg-red-500 text-white' : 'bg-black/45 text-white hover:bg-red-500/80',
+            )}
+            title={confirmingDelete ? 'Click again to confirm delete' : 'Delete item'}
+            aria-label={confirmingDelete ? `Confirm delete ${item.name}` : `Delete ${item.name}`}
+          >
+            {deleting ? <Loader2 size={13} className="animate-spin" />
+              : confirmingDelete ? <><Trash2 size={12} />Delete?</>
+              : <Trash2 size={13} />}
+          </button>
+        </div>
       </div>
 
-      {/* Item name + always-visible quick actions */}
+      {/* Item name + at-a-glance metadata */}
       <div className="mt-1.5 px-0.5 flex-1 flex flex-col">
         <p className="text-xs font-semibold truncate text-slate-700 dark:text-slate-200">{item.name}</p>
         {item.brand && <p className="text-[10px] text-slate-400 truncate">{item.brand}</p>}
@@ -260,51 +293,11 @@ function ClosetItemCard({
           <div className="flex items-center gap-1 mt-0.5">
             {item.color_hex
               ? <span className="w-2.5 h-2.5 rounded-full border border-slate-300 dark:border-white/20 flex-shrink-0" style={{ backgroundColor: item.color_hex }} />
-              : <span className="w-2.5 h-2.5 rounded-full bg-slate-300 dark:bg-slate-600 flex-shrink-0" />
+              : <span className="flex h-2.5 w-2.5 items-center justify-center rounded-full border border-slate-300 dark:border-white/20 text-[6px] font-bold uppercase text-slate-400 flex-shrink-0">{item.color.charAt(0)}</span>
             }
             <span className="text-[10px] text-slate-400 truncate capitalize">{item.color}</span>
           </div>
         )}
-        {/* Quick action bar — always visible, touch-friendly */}
-        <div className="flex gap-1 mt-1.5">
-          <button
-            onClick={e => { e.stopPropagation(); onOpen(item) }}
-            className="flex-1 flex items-center justify-center gap-1 py-2 rounded-lg bg-slate-100 dark:bg-white/[0.06] text-slate-500 dark:text-slate-400 hover:bg-brand-50 dark:hover:bg-brand-900/30 hover:text-brand-600 dark:hover:text-brand-400 text-[10px] font-semibold transition-colors"
-            title="View full details"
-            aria-label="View item details"
-          >
-            <Eye size={11} />
-            View
-          </button>
-          <button
-            onClick={e => { e.stopPropagation(); onEdit(item) }}
-            className="flex-1 flex items-center justify-center gap-1 py-2 rounded-lg bg-slate-100 dark:bg-white/[0.06] text-slate-500 dark:text-slate-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 hover:text-amber-600 dark:hover:text-amber-400 text-[10px] font-semibold transition-colors"
-            title="Edit item"
-            aria-label="Edit item"
-          >
-            <Pencil size={11} />
-            Edit
-          </button>
-          <button
-            onClick={handleDeleteClick}
-            disabled={deleting}
-            className={cn(
-              'flex items-center justify-center gap-1 px-2 py-2 rounded-lg text-[10px] font-semibold transition-all disabled:opacity-40',
-              confirmingDelete
-                ? 'bg-red-500 text-white animate-pulse'
-                : 'bg-slate-100 dark:bg-white/[0.06] text-slate-400 dark:text-slate-500 hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-500 dark:hover:text-red-400',
-            )}
-            title={confirmingDelete ? 'Click again to confirm delete' : 'Delete item'}
-            aria-label={confirmingDelete ? 'Confirm delete' : 'Delete item'}
-          >
-            {deleting
-              ? <Loader2 size={10} className="animate-spin" />
-              : confirmingDelete
-                ? <><Trash2 size={10} />Sure?</>
-                : <Trash2 size={10} />
-            }
-          </button>
-        </div>
       </div>
     </div>
   )
@@ -359,6 +352,7 @@ export default function Closet() {
   const cols = useColumnCount()
   const gridRef  = useRef<HTMLDivElement>(null)
   const listRef  = useRef<HTMLDivElement>(null)
+  const loadMoreRef = useRef<HTMLDivElement>(null)
   const [gridScrollMargin, setGridScrollMargin] = useState(0)
   const [listScrollMargin, setListScrollMargin] = useState(0)
 
@@ -447,6 +441,23 @@ export default function Closet() {
     scrollMargin: listScrollMargin,
   })
 
+  // Auto-load the next page when the sentinel scrolls into view.
+  // Only for the full (unfiltered) closet — filtering works on already-loaded items.
+  useEffect(() => {
+    const el = loadMoreRef.current
+    if (!el || isFiltered || !closetHasMore) return
+    const io = new IntersectionObserver(
+      entries => {
+        if (entries[0]?.isIntersecting && closetHasMore && !closetLoading && !isFiltered) {
+          void loadMoreClosetItems()
+        }
+      },
+      { rootMargin: '600px 0px' },
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [isFiltered, closetHasMore, closetLoading, loadMoreClosetItems])
+
   const handleItemSaved = (updated: ClosetItem) => {
     setClosetItems(closetItems.map(i => i.id === updated.id ? updated : i))
     setSelected(updated)
@@ -521,76 +532,25 @@ export default function Closet() {
         emptyPrimaryAction={{ label: 'Add items with AI', href: '/upload' }}
       />
 
-      {/* Truncation metadata surfaced to users */}
-      {closetItems.length > 0 && (
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 dark:border-white/10 bg-white/70 dark:bg-white/[0.03] px-3 py-2">
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Displaying <span className="font-semibold text-slate-700 dark:text-slate-200">{closetItems.length}</span> of{' '}
-            <span className="font-semibold text-slate-700 dark:text-slate-200">{closetTotal || closetItems.length}</span> items
-          </p>
-          {closetHasMore && (
-            <button
-              type="button"
-              onClick={() => { void loadMoreClosetItems() }}
-              disabled={closetLoading}
-              className="text-xs font-semibold text-brand-600 dark:text-brand-400 hover:underline disabled:opacity-50"
-            >
-              {closetLoading ? 'Loading more...' : 'Load more'}
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* ── Closet actions strip ── */}
-      {closetItems.length <= 8 ? (
-        <div className="-mx-4 lg:-mx-6 px-4 lg:px-6 py-2.5 border-b border-cream-200/70 dark:border-white/[0.06]">
-          <div className="grid grid-cols-2 gap-2.5">
-            <Link
-              to="/upload"
-              className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-md shadow-brand-500/20 hover:shadow-brand-500/35 hover:-translate-y-0.5 transition-all duration-200"
-            >
-              <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center flex-shrink-0">
-                <Plus size={16} />
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-bold leading-tight">Add Items</p>
-                <p className="text-[11px] text-white/70 leading-tight">Upload new clothing</p>
-              </div>
-            </Link>
-            <Link
-              to="/closet-match"
-              className="flex items-center gap-3 px-4 py-3 rounded-2xl bg-gradient-to-br from-pink-500 to-rose-600 text-white shadow-md shadow-pink-500/20 hover:shadow-pink-500/35 hover:-translate-y-0.5 transition-all duration-200"
-            >
-              <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center flex-shrink-0">
-                <Wand2 size={16} />
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-bold leading-tight">Fit Match</p>
-                <p className="text-[11px] text-white/70 leading-tight">Match pieces before you buy</p>
-              </div>
-            </Link>
-          </div>
-        </div>
-      ) : (
-        <div className="flex items-center gap-2">
-          <Link
-            to="/upload"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-brand-50 dark:bg-brand-900/20 text-brand-600 dark:text-brand-300 border border-brand-200 dark:border-brand-700 hover:bg-brand-100 dark:hover:bg-brand-800/40 transition-colors"
-          >
-            <Plus size={13} /> Add Items
-          </Link>
-          <Link
-            to="/closet-match"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-pink-50 dark:bg-pink-900/20 text-pink-600 dark:text-pink-300 border border-pink-200 dark:border-pink-700 hover:bg-pink-100 dark:hover:bg-pink-800/40 transition-colors"
-          >
-            <Wand2 size={13} /> Fit Match
-          </Link>
-        </div>
-      )}
+      {/* ── Closet actions strip — single consistent treatment, one accent ── */}
+      <div className="flex items-center gap-2">
+        <Link
+          to="/upload"
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-brand-500 text-white shadow-sm hover:bg-brand-600 transition-colors"
+        >
+          <Plus size={13} /> Add Items
+        </Link>
+        <Link
+          to="/closet-match"
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-brand-50 dark:bg-brand-900/20 text-brand-600 dark:text-brand-300 border border-brand-200 dark:border-brand-700 hover:bg-brand-100 dark:hover:bg-brand-800/40 transition-colors"
+        >
+          <Wand2 size={13} /> Fit Match
+        </Link>
+      </div>
 
       {/* ── Category tabs — hidden when closet is empty ── */}
       {closetItems.length > 0 && <div className="relative">
-        <div className="flex gap-2.5 overflow-x-auto pb-1 scrollbar-hide">
+        <div className="flex gap-2.5 overflow-x-auto pb-1 scrollbar-hide" role="tablist" aria-label="Filter by category">
           {CLOSET_CATEGORY_TABS.map(cat => {
             const count = cat.value === 'all'
               ? closetItems.length
@@ -621,11 +581,21 @@ export default function Closet() {
           <div className="relative flex-1 min-w-48">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
-              className="input pl-9 bg-white/70 dark:bg-slate-800/70"
+              className="input pl-9 pr-9 bg-white/70 dark:bg-slate-800/70"
               placeholder="Search by name, brand, color…"
               value={search}
               onChange={e => setSearch(e.target.value)}
+              aria-label="Search your closet"
             />
+            {search && (
+              <button
+                onClick={() => setSearch('')}
+                aria-label="Clear search"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/10 transition-colors"
+              >
+                <X size={13} />
+              </button>
+            )}
           </div>
 
           <div className="flex gap-2">
@@ -661,6 +631,8 @@ export default function Closet() {
               <button
                 onClick={() => setViewMode('grid')}
                 title="Grid view"
+                aria-label="Grid view"
+                aria-pressed={viewMode === 'grid'}
                 className={cn(
                   'px-3 flex items-center justify-center transition-colors',
                   viewMode === 'grid'
@@ -673,6 +645,8 @@ export default function Closet() {
               <button
                 onClick={() => setViewMode('list')}
                 title="List view"
+                aria-label="List view"
+                aria-pressed={viewMode === 'list'}
                 className={cn(
                   'px-3 flex items-center justify-center transition-colors border-l border-slate-200 dark:border-white/10',
                   viewMode === 'list'
@@ -833,7 +807,17 @@ export default function Closet() {
                   : category === 'all' ? 'All Items' : CLOSET_CATEGORY_TABS.find(c => c.value === category)?.label ?? 'Items'}
               </h3>
             </div>
-            <span className="text-[11px] text-slate-400">{filtered.length} items</span>
+            {/* Load more lives here now — only relevant for the full (unfiltered) closet */}
+            {!isFiltered && closetHasMore && (
+              <button
+                type="button"
+                onClick={() => { void loadMoreClosetItems() }}
+                disabled={closetLoading}
+                className="text-xs font-semibold text-brand-600 dark:text-brand-400 hover:underline disabled:opacity-50"
+              >
+                {closetLoading ? 'Loading…' : 'Load more'}
+              </button>
+            )}
           </div>
 
           {viewMode === 'grid' ? (
@@ -900,6 +884,13 @@ export default function Closet() {
             </div>
           )}
         </section>
+      )}
+
+      {/* Infinite-scroll sentinel — auto-loads the next page near the bottom */}
+      {!isFiltered && closetHasMore && (
+        <div ref={loadMoreRef} className="flex items-center justify-center py-6 text-xs text-slate-400">
+          {closetLoading ? <Loader2 size={16} className="animate-spin text-brand-500" /> : 'Scroll for more'}
+        </div>
       )}
 
 
