@@ -88,15 +88,6 @@ const MOOD_OPTIONS: { value: Mood; label: string; emoji: string }[] = [
 
 // ── Occasion → compatible moods / times (for badge logic) ────────────────────
 
-const OCCASION_SEASON_MAP: Record<string, string[]> = {
-  'casual':     ['all-season', 'summer', 'spring'],
-  'business':   ['all-season', 'fall', 'winter'],
-  'formal':     ['all-season', 'fall', 'winter'],
-  'sport':      ['all-season', 'summer', 'spring'],
-  'beach':      ['summer', 'spring'],
-  'date-night': ['all-season', 'spring', 'fall'],
-}
-
 // ── Weather icon helper ───────────────────────────────────────────────────────
 
 function WeatherIcon({ condition }: { condition: string }) {
@@ -1021,7 +1012,7 @@ export default function OutfitBuilder() {
   const [shuffleError, setShuffleError] = useState<string | null>(null)
 
   // Smart-start filter
-  const [smartStartCategory, setSmartStartCategory] = useState<string | null>(null)
+  const [, setSmartStartCategory] = useState<string | null>(null)
 
   // AI results drawer
   const [drawerOpen, setDrawerOpen] = useState(false)

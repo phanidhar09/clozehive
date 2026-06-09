@@ -7,7 +7,7 @@ import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
   {
-    ignores: ['dist/**', 'node_modules/**', 'coverage/**'],
+    ignores: ['dist/**', 'dev-dist/**', 'node_modules/**', 'coverage/**'],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
@@ -34,6 +34,9 @@ export default tseslint.config(
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',
       'react/prop-types': 'off',
+      // Apostrophes/quotes in user-facing copy are legitimate; escaping every
+      // one as &apos; hurts readability without any real benefit.
+      'react/no-unescaped-entities': 'off',
       '@typescript-eslint/no-unused-vars': [
         'warn',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },

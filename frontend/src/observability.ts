@@ -32,7 +32,6 @@ async function initSentry(): Promise<void> {
     });
   } catch (err) {
     // Never let observability setup break app startup.
-    // eslint-disable-next-line no-console
     console.warn('Sentry init skipped:', err);
   }
 }
@@ -72,7 +71,6 @@ async function initWebVitals(): Promise<void> {
     onFCP(report);
     onTTFB(report);
   } catch (err) {
-    // eslint-disable-next-line no-console
     console.warn('Web Vitals reporting skipped:', err);
   }
 }

@@ -97,6 +97,7 @@ postgres_data/
 redis_data/
 backups/
 *.sql.gz
+*.sql
 
 # ── Uploads / user-generated files ───────────────────────────
 uploads/

@@ -14,7 +14,6 @@ import { AnimatePresence, motion } from 'framer-motion'
 import BackButton from '@/components/ui/BackButton'
 import {
   AlertTriangle,
-  ChevronLeft,
   Clock,
   History,
   Lightbulb,

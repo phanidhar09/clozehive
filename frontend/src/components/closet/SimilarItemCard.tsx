@@ -3,7 +3,7 @@
  * Used in both the SimilarItems panel (detail view) and the SimilarityWarningBanner (upload flow).
  */
 
-import { AlertTriangle, Copy, Layers, Link2 } from 'lucide-react'
+import { Copy, Layers, Link2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { SimilarClosetItem } from '@/lib/api'
 

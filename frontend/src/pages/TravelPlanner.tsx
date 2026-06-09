@@ -10,10 +10,10 @@ import PageHeader from '@/components/ui/PageHeader'
 import { usePageState } from '@/hooks/usePageState'
 import {
   Plane, Calendar, MapPin, Loader2, ArrowLeft, CheckCircle2,
-  ShoppingCart, Shirt, Star, BookmarkCheck, BookmarkPlus, Bookmark,
+  ShoppingCart, Shirt, Star, BookmarkPlus, Bookmark,
   ChevronRight, AlertCircle, Plus, X, ChevronDown, ChevronUp,
-  RefreshCw, Layers, Sparkles, Clock, Package, Tag, Luggage,
-  Sun, CloudRain, Thermometer, AlertTriangle, Check,
+  RefreshCw, Sparkles, Package, Luggage,
+  Sun, Thermometer, AlertTriangle, Check,
 } from 'lucide-react'
 import Button from '@/components/ui/Button'
 import Input, { Select } from '@/components/ui/Input'
@@ -261,7 +261,7 @@ function ActivityChip({
 // ── Selected activity inline editor ──────────────────────────────────────
 
 function SelectedActivityCard({
-  activity, index, tripDays, onUpdate, onRemove,
+  activity, tripDays, onUpdate, onRemove,
 }: {
   activity: ActivityDraft
   index: number
@@ -423,7 +423,7 @@ function OutfitItemCard({ item }: { item: RichDayPlan['outfits'][0]['items'][0] 
 
 // ── Day plan card ─────────────────────────────────────────────────────────
 
-function DayPlanCard({ day, startDate }: { day: RichDayPlan; startDate: string }) {
+function DayPlanCard({ day }: { day: RichDayPlan; startDate: string }) {
   const [expanded, setExpanded] = useState(day.day_number <= 3)
   const dateStr = day.date
     ? new Date(day.date + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
@@ -590,7 +590,7 @@ const CHECKLIST_CATEGORY_ORDER = [
 ]
 
 function PackingChecklistPanel({
-  items, tripId, packedState, onToggle,
+  items, packedState, onToggle,
 }: {
   items: PackingChecklistItem[]
   tripId: string
@@ -855,7 +855,7 @@ function TripSummaryBanner({ trip, plan }: { trip: Trip; plan: PackingPlan }) {
 // ── Saved planners tab ────────────────────────────────────────────────────
 
 function SavedPlannersTab({
-  closetItems,
+  closetItems: _closetItems,
 }: { closetItems: { id: string; name: string }[] }) {
   const [savedTrips, setSavedTrips] = useState<Trip[]>([])
   const [loading, setLoading] = useState(false)
@@ -884,7 +884,7 @@ function SavedPlannersTab({
       const p = await tripsApi.getPackingPlan(t.id)
       setPlan(p)
       const state: Record<string, boolean> = {}
-      ;(p.checklist_state || {}) && Object.assign(state, p.checklist_state)
+      if (p.checklist_state) Object.assign(state, p.checklist_state)
       setPackedState(state)
     } catch { setPlanError('Could not load packing plan.') }
     finally { setPlanLoading(false) }
