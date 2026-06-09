@@ -1,17 +1,41 @@
-"""Weather tool — climate-profile-based forecast wrapped as LangChain tools."""
+"""Weather tool — live OpenWeather forecasts with a climate-profile fallback.
+
+When ``OPENWEATHER_API_KEY`` is configured, ``get_weather_forecast`` /
+``get_weather_summary`` return real day-by-day forecasts from the OpenWeather
+5-day/3-hour API. The static climate profiles below are used only when:
+
+* no API key is configured,
+* the requested dates fall outside the ~5-day live window, or
+* the upstream call fails for any reason.
+
+Each ``WeatherDay`` carries a ``data_source`` ("live" or "static_profile") so the
+agent — and downstream packing/outfit advice — can tell real forecasts apart
+from climatology estimates.
+"""
 
 from __future__ import annotations
 
 import json
 import math
-from collections import Counter
-from datetime import date, timedelta
+from collections import Counter, defaultdict
+from datetime import date, datetime, timedelta
+from typing import Any
 
+import httpx
+import structlog
 from langchain_core.tools import tool
 
+from app.core.config import get_settings
 from app.tools.schemas import WeatherDay, WeatherSummary
 
-# ── Climate profiles (condition, temp_high, temp_low) ─────────────────────────
+logger = structlog.get_logger("ai_agent.tools.weather")
+settings = get_settings()
+
+_OWM_FORECAST_URL = "https://api.openweathermap.org/data/2.5/forecast"
+# OpenWeather's free 5-day/3-hour forecast reaches ~5 days out.
+_FORECAST_WINDOW_DAYS = 5
+
+# ── Climate profiles (condition, temp_high, temp_low) — fallback only ─────────
 
 _PROFILES: dict[str, tuple[str, float, float]] = {
     "dubai": ("Sunny", 38.0, 28.0),
@@ -68,7 +92,7 @@ def _profile(destination: str) -> tuple[str, float, float]:
     key = destination.strip().lower()
     if key in _PROFILES:
         return _PROFILES[key]
-    first_word = key.split()[0]
+    first_word = key.split()[0] if key.split() else key
     for k, v in _PROFILES.items():
         if first_word in k:
             return v
@@ -101,24 +125,104 @@ def _description(condition: str, high: float, low: float) -> str:
     return templates.get(condition, f"{condition}, high {high:.0f}°C / low {low:.0f}°C.")
 
 
-def _fetch_weather(destination: str, start_date: str, end_date: str) -> list[WeatherDay]:
+def _static_day(destination: str, offset: int, current: date) -> WeatherDay:
+    """One day of climatology-based estimate for the given offset into the trip."""
     base_cond, base_high, base_low = _profile(destination)
+    condition = _day_condition(base_cond, offset)
+    variation = math.sin(offset * 0.7) * 2.0
+    high = round(base_high + variation, 1)
+    low = round(base_low + variation * 0.6, 1)
+    return WeatherDay(
+        date=current.isoformat(),
+        condition=condition,
+        temp_high=high,
+        temp_low=low,
+        description=_description(condition, high, low),
+        data_source="static_profile",
+    )
+
+
+def _fetch_weather_static(destination: str, start_date: str, end_date: str) -> list[WeatherDay]:
     start = date.fromisoformat(start_date)
-    end   = date.fromisoformat(end_date)
+    end = date.fromisoformat(end_date)
+    return [
+        _static_day(destination, i, start + timedelta(days=i))
+        for i in range((end - start).days + 1)
+    ]
+
+
+async def _fetch_owm_daily(destination: str) -> dict[str, dict[str, Any]]:
+    """Call OpenWeather and aggregate 3-hourly slots into per-day buckets."""
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.get(
+            _OWM_FORECAST_URL,
+            params={
+                "q": destination,
+                "appid": settings.openweather_api_key,
+                "units": "metric",
+                "cnt": 40,
+            },
+        )
+        resp.raise_for_status()
+        forecast_data = resp.json()
+
+    daily: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {"highs": [], "lows": [], "conditions": []}
+    )
+    for item in forecast_data.get("list", []):
+        dt = datetime.fromtimestamp(item["dt"])
+        day_key = dt.date().isoformat()
+        main = item["main"]
+        daily[day_key]["highs"].append(main.get("temp_max", main["temp"]))
+        daily[day_key]["lows"].append(main.get("temp_min", main["temp"]))
+        daily[day_key]["conditions"].append(item["weather"][0]["description"].title())
+    return daily
+
+
+async def _fetch_weather(destination: str, start_date: str, end_date: str) -> list[WeatherDay]:
+    """
+    Return per-day weather for the date range.
+
+    Uses the OpenWeather 5-day/3-hour forecast for in-window days when a key is
+    configured; out-of-window days and any failure fall back to static profiles.
+    """
+    start = date.fromisoformat(start_date)
+    end = date.fromisoformat(end_date)
+
+    if not settings.openweather_api_key:
+        return _fetch_weather_static(destination, start_date, end_date)
+
+    # Entirely beyond the live forecast window → no point calling the API.
+    if start > date.today() + timedelta(days=_FORECAST_WINDOW_DAYS):
+        return _fetch_weather_static(destination, start_date, end_date)
+
+    try:
+        daily = await _fetch_owm_daily(destination)
+    except Exception as exc:
+        logger.warning("weather_owm_failed", destination=destination, error=str(exc))
+        return _fetch_weather_static(destination, start_date, end_date)
+
     days: list[WeatherDay] = []
-    for i in range((end - start).days + 1):
-        current = start + timedelta(days=i)
-        condition = _day_condition(base_cond, i)
-        variation = math.sin(i * 0.7) * 2.0
-        high = round(base_high + variation, 1)
-        low  = round(base_low  + variation * 0.6, 1)
-        days.append(WeatherDay(
-            date=current.isoformat(),
-            condition=condition,
-            temp_high=high,
-            temp_low=low,
-            description=_description(condition, high, low),
-        ))
+    current = start
+    while current <= end:
+        day_key = current.isoformat()
+        bucket = daily.get(day_key)
+        if bucket and bucket["highs"]:
+            condition = Counter(bucket["conditions"]).most_common(1)[0][0]
+            high = round(max(bucket["highs"]), 1)
+            low = round(min(bucket["lows"]), 1)
+            days.append(WeatherDay(
+                date=day_key,
+                condition=condition,
+                temp_high=high,
+                temp_low=low,
+                description=_description(condition, high, low),
+                data_source="live",
+            ))
+        else:
+            # Beyond the live window — fill from climatology.
+            days.append(_static_day(destination, (current - start).days, current))
+        current += timedelta(days=1)
     return days
 
 
@@ -140,6 +244,14 @@ def _summarise_weather(days: list[WeatherDay]) -> WeatherSummary:
     else:
         rec = "Mild conditions — versatile layers covering both warm and cool periods."
 
+    sources = {d.data_source for d in days}
+    if sources == {"live"}:
+        data_source = "live"
+    elif "live" in sources:
+        data_source = "partial"
+    else:
+        data_source = "static_profile"
+
     return WeatherSummary(
         dominant_condition=dominant,
         avg_high=avg_high,
@@ -147,6 +259,7 @@ def _summarise_weather(days: list[WeatherDay]) -> WeatherSummary:
         rainy_days=rainy,
         total_days=len(days),
         recommendation=rec,
+        data_source=data_source,
         days=days,
     )
 
@@ -164,14 +277,15 @@ async def get_weather_forecast(destination: str, start_date: str, end_date: str)
         end_date:    Trip end date in YYYY-MM-DD format.
 
     Returns:
-        JSON array of WeatherDay objects: date, condition, temp_high, temp_low, description.
+        JSON array of WeatherDay objects: date, condition, temp_high, temp_low,
+        description, data_source ("live" or "static_profile").
     """
     if not destination.strip():
         return json.dumps({"error": "destination cannot be empty"})
     if start_date > end_date:
         return json.dumps({"error": "start_date must be before end_date"})
     try:
-        days = _fetch_weather(destination, start_date, end_date)
+        days = await _fetch_weather(destination, start_date, end_date)
         return json.dumps([d.model_dump() for d in days], indent=2)
     except Exception as exc:
         return json.dumps({"error": str(exc)})
@@ -189,12 +303,12 @@ async def get_weather_summary(destination: str, start_date: str, end_date: str) 
 
     Returns:
         JSON WeatherSummary with dominant_condition, avg_high, avg_low, rainy_days,
-        recommendation, and a days[] list.
+        recommendation, data_source, and a days[] list.
     """
     if not destination.strip():
         return json.dumps({"error": "destination cannot be empty"})
     try:
-        days = _fetch_weather(destination, start_date, end_date)
+        days = await _fetch_weather(destination, start_date, end_date)
         summary = _summarise_weather(days)
         return summary.model_dump_json(indent=2)
     except Exception as exc:

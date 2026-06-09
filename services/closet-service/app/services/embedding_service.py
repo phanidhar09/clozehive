@@ -1,7 +1,7 @@
 """Shared embedding service used by all RAG features.
 
 Provides:
-- generate_text_embedding(text)  — OpenAI text-embedding-ada-002
+- generate_text_embedding(text)  — OpenAI text-embedding-3-small (1536-dim)
 - item_to_embedding_text(item)   — normalise closet item metadata to searchable text
 - cosine_search(session, model, limit, threshold, vector)  — generic pgvector search
 """

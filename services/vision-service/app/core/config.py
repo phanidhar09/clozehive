@@ -34,7 +34,10 @@ class Settings(BaseSettings):
     # ── OpenAI ────────────────────────────────────────────────────────────────
     openai_api_key: str = ""
     openai_api_base_url: str = "https://api.openai.com/v1"
-    embedding_model: str = "text-embedding-ada-002"
+    # text-embedding-3-small: same 1536-dim output as ada-002 but cheaper and
+    # better recall. MUST match the model used by api-gateway / closet-service,
+    # since all three write/read the same closet_items.embedding vector space.
+    embedding_model: str = "text-embedding-3-small"
     openai_model: str = "gpt-4o"
 
     # ── Gemini AI ─────────────────────────────────────────────────────────────

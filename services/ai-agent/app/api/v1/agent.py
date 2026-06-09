@@ -5,12 +5,18 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from starlette.background import BackgroundTask
 
 from app.agent.wardrobe_agent import get_agent
 from app.core.config import get_settings
+from app.services.style_memory import (
+    extract_and_store_memories,
+    format_memories_block,
+    retrieve_style_memories,
+)
 from app.services.vector_store import search_closet_context
 
 router = APIRouter(prefix="/agent", tags=["Agent"])
@@ -146,13 +152,8 @@ def _sse(data: dict[str, Any]) -> str:
     return f"data: {json.dumps(data)}\n\n"
 
 
-@router.post("/chat", response_model=ChatResponse)
-async def chat(body: ChatRequest):
-    """Full agent-orchestrated wardrobe chat."""
-    _require_openai_key()
-    agent = _require_agent()
-
-    # Enrich message with closet context
+async def _build_chat_message(body: ChatRequest) -> str:
+    """Enrich the user's message with wardrobe context + remembered style preferences."""
     message = body.message
     if body.closet_items:
         message += (
@@ -166,10 +167,27 @@ async def chat(body: ChatRequest):
         vector_matches = await search_closet_context(body.user_id, body.message)
         if vector_matches:
             message += f"\n\n[Relevant wardrobe memory]:\n{json.dumps(vector_matches, default=str)}"
+        # Cross-session style memory — durable preferences from past conversations.
+        memories = await retrieve_style_memories(body.user_id, body.message)
+        message += format_memories_block(memories)
+    return message
+
+
+@router.post("/chat", response_model=ChatResponse)
+async def chat(body: ChatRequest, background: BackgroundTasks):
+    """Full agent-orchestrated wardrobe chat."""
+    _require_openai_key()
+    agent = _require_agent()
+
+    message = await _build_chat_message(body)
 
     try:
         reply = await agent.chat(message, history=body.history)
         mode = "full" if agent.available_tools else "llm_only"
+        # Learn durable preferences from the raw user message — runs after the
+        # response is sent so chat latency is unaffected.
+        if body.user_id:
+            background.add_task(extract_and_store_memories, body.user_id, body.message)
         return ChatResponse(reply=reply, mode=mode)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
@@ -181,19 +199,7 @@ async def chat_stream(body: ChatRequest):
     _require_openai_key()
     agent = _require_agent()
 
-    message = body.message
-    if body.closet_items:
-        message += (
-            "\n\nYou are a personal stylist. When suggesting outfits, ONLY recommend items from "
-            "the user's wardrobe listed above. Always refer to items by their exact name as listed. "
-            "If the wardrobe does not have a suitable item for part of an outfit, say so explicitly "
-            "rather than inventing items.\n\n"
-            f"{_format_wardrobe(body.closet_items)}"
-        )
-    if body.user_id:
-        vector_matches = await search_closet_context(body.user_id, body.message)
-        if vector_matches:
-            message += f"\n\n[Relevant wardrobe memory]:\n{json.dumps(vector_matches, default=str)}"
+    message = await _build_chat_message(body)
 
     mode = "full" if agent.available_tools else "llm_only"
 
@@ -206,6 +212,13 @@ async def chat_stream(body: ChatRequest):
         except Exception as exc:
             yield _sse({"type": "error", "message": str(exc)})
 
+    # Learn durable preferences after the stream finishes — never blocks tokens.
+    learn_task = (
+        BackgroundTask(extract_and_store_memories, body.user_id, body.message)
+        if body.user_id
+        else None
+    )
+
     return StreamingResponse(
         events(),
         media_type="text/event-stream",
@@ -214,6 +227,7 @@ async def chat_stream(body: ChatRequest):
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",
         },
+        background=learn_task,
     )
 
 

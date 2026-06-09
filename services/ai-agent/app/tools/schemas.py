@@ -11,6 +11,8 @@ class WeatherDay(BaseModel):
     temp_high: float
     temp_low: float
     description: str
+    # "live" = real OpenWeather forecast; "static_profile" = climatology fallback.
+    data_source: str = "static_profile"
 
 
 class WeatherSummary(BaseModel):
@@ -20,6 +22,8 @@ class WeatherSummary(BaseModel):
     rainy_days: int
     total_days: int
     recommendation: str
+    # "live" (all days from OpenWeather), "partial" (mix), or "static_profile".
+    data_source: str = "static_profile"
     days: list[WeatherDay] = Field(default_factory=list)
 
 

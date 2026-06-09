@@ -232,6 +232,21 @@ def websocket_broadcast_channel() -> str:
     return namespaced_key("ws", "broadcast")
 
 
+async def publish_ws(user_id: str, data: dict[str, Any]) -> None:
+    """Best-effort real-time push to a user's browser tabs.
+
+    Publishes to the same Redis channel the api-gateway WebSocket hub subscribes
+    to (``clozehive:v1:ws:user:<id>``). Pub/Sub is instance-wide (not scoped by
+    DB index), so this reaches the hub even though services use different Redis
+    DB indexes. Never raises — a failed push must not break the request.
+    """
+    try:
+        client = await get_redis()
+        await client.publish(websocket_user_channel(user_id), json.dumps(data, default=str))
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("ws_publish_failed", user_id=user_id, error=str(exc))
+
+
 # ── AI response cache helpers ─────────────────────────────────────────────────
 
 def build_closet_hash(closet_items: list[dict[str, Any]]) -> str:

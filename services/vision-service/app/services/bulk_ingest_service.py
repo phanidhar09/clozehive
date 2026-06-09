@@ -12,7 +12,7 @@ from typing import Any
 
 from app.core.logging import get_logger
 from app.core.redis import get_redis
-from app.services import vision_service
+from app.services import cache_service, vision_service
 from app.services.background_removal_service import remove_background
 from app.services.upload_service import persist_upload, read_upload_bytes
 
@@ -227,6 +227,18 @@ async def process_job(
         logger.error("ingest_job_not_found_in_background", job_id=job_id)
         return
 
+    total = len(file_infos)
+
+    def _progress(event: str, **extra: Any) -> dict[str, Any]:
+        return {
+            "type": "notification",
+            "channel": "ingest",
+            "data": {"event": event, "job_id": job_id, "total": total, **extra},
+        }
+
+    # Real-time "processing" state for the UI (in addition to the pollable job).
+    await cache_service.publish_ws(user_id, _progress("ingest_started", status="processing"))
+
     items: list[dict[str, Any]] = []
 
     for idx, info in enumerate(file_infos):
@@ -280,9 +292,25 @@ async def process_job(
         job["items_detected"] = len(items)
         await _set_job(redis, job)
 
+        await cache_service.publish_ws(user_id, _progress(
+            "ingest_progress",
+            status="processing",
+            processed=idx + 1,
+            items_detected=len(items),
+            failed=job.get("failed_images", 0),
+        ))
+
     job["status"] = "completed"
     job["items_detected"] = len(items)
     await _set_job(redis, job)
+
+    await cache_service.publish_ws(user_id, _progress(
+        "ingest_completed",
+        status="completed",
+        processed=total,
+        items_detected=len(items),
+        failed=job.get("failed_images", 0),
+    ))
 
     logger.info(
         "ingest_job_completed",

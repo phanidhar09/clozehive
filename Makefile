@@ -2,7 +2,7 @@
 #  CLOZEHIVE — Developer Makefile
 # ─────────────────────────────────────────────────────────────────────────────
 
-.PHONY: help up stop down down-clean build migrate db-backup db-restore test test-api build-frontend test-frontend lint clean smoke health logs shell-api shell-db
+.PHONY: help up stop down down-clean build migrate db-backup db-restore test test-api test-closet build-frontend test-frontend lint clean smoke health logs shell-api shell-db
 
 # Prefer repo-root .venv when present (see services/api-gateway/requirements-dev.txt).
 PYTHON := $(shell test -x $(CURDIR)/.venv/bin/python && echo $(CURDIR)/.venv/bin/python || echo python3)
@@ -69,11 +69,14 @@ db-status: ## Show row counts for all tables
 
 # ── Testing ───────────────────────────────────────────────────────────────────
 
-test: ## Run backend pytest + frontend Vitest
-	$(MAKE) test-api test-frontend
+test: ## Run backend pytest (gateway + closet-service) + frontend Vitest
+	$(MAKE) test-api test-closet test-frontend
 
 test-api: ## Run API gateway tests
 	cd services/api-gateway && $(PYTHON) -m pytest tests/ -v --tb=short
+
+test-closet: ## Run closet-service tests (SQLite + fakes, no external services)
+	cd services/closet-service && PYTHONPATH=. $(PYTHON) -m pytest tests/ -v --tb=short
 
 build-frontend: ## Build the frontend
 	cd frontend && npm run build

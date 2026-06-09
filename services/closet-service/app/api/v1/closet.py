@@ -45,17 +45,15 @@ from app.services.upload_service import delete_upload, persist_upload, read_vali
 from app.repositories.style_profile_repo import UserStyleProfileRepository
 from app.utils.user_context import profile_to_context
 
-# Lazy import to avoid circular dependency — ws.manager is only accessed inside functions
-def _ws_push(user_id: str, data: dict) -> None:
-    """Fire-and-forget WebSocket push — never raises."""
-    try:
-        import asyncio
-        from app.api.v1.ws import manager as _ws_manager
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            asyncio.ensure_future(_ws_manager.broadcast_to_user(user_id, data))
-    except Exception:
-        pass
+async def _ws_push(user_id: str, data: dict) -> None:
+    """Fire-and-forget WebSocket push via Redis pub/sub — never raises.
+
+    closet-service has no local WS hub; browsers connect to the api-gateway hub,
+    which subscribes to ``clozehive:v1:ws:user:*``. Publishing to that channel
+    (shared Redis instance) reaches the user's tabs. Run as a FastAPI background
+    task so it never blocks the response.
+    """
+    await cache_service.publish_ws(user_id, data)
 
 
 router = APIRouter(prefix="/closet", tags=["Closet"])

@@ -1,0 +1,5 @@
+# Local / CI test dependencies for closet-service (install into a venv).
+# Integration tests run on SQLite + fakes, so no Postgres/Redis/OpenAI needed.
+-r requirements.txt
+pytest>=8.0.0
+pytest-asyncio>=0.23.0

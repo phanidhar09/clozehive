@@ -118,6 +118,38 @@ class PackingMemory(Base):
     )
 
 
+class UserStyleMemory(Base):
+    """Persistent per-user style/preference facts retrieved on every FANI chat.
+
+    Written by the ai-agent (via asyncpg) as it extracts durable preferences
+    from conversations; defined here so the gateway shares one schema source of
+    truth and can read/expose memories later.
+    """
+
+    __tablename__ = "user_style_memory"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    # color_pref | style_pref | fit_pref | occasion | dislike | brand | general
+    kind: Mapped[str] = mapped_column(String(40), nullable=False, default="general")
+    source: Mapped[str] = mapped_column(String(40), nullable=False, default="chat")
+    embedding: Mapped[Optional[list[float]]] = mapped_column(Vector(1536), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), index=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
 class PurchaseGap(Base):
     __tablename__ = "purchase_gaps"
 

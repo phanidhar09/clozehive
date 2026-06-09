@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     # OpenAI
     openai_api_key: str = ""
     openai_model: str = "gpt-4o"
+
+    # OpenWeather — when set, the weather tool returns live forecasts and falls
+    # back to static climate profiles only on error / out-of-range dates.
+    openweather_api_key: str = ""
     openai_embedding_model: str = "text-embedding-3-small"
     # Passed explicitly into clients so OS OPENAI_BASE_URL cannot hijack calls.
     openai_api_base_url: str = "https://api.openai.com/v1"
@@ -54,6 +58,16 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://clozehive:clozehive@postgres:5432/clozehive"
     vector_search_limit: int = 8
     vector_score_threshold: float = 0.78
+
+    # Persistent per-user style memory — durable preference facts ("dislikes
+    # yellow", "prefers smart-casual") retrieved on every chat so FANI remembers
+    # the user across sessions. Extraction runs in the background after a reply.
+    style_memory_enabled: bool = True
+    style_memory_retrieve_limit: int = 6
+    style_memory_score_threshold: float = 0.45  # broad: preferences need only loose relevance
+    style_memory_dedup_threshold: float = 0.90  # >= this similarity = near-duplicate, skip insert
+    style_memory_max_per_user: int = 100
+    style_memory_extract_model: str = "gpt-4o-mini"
 
     # Agent config
     agent_max_iterations: int = 10

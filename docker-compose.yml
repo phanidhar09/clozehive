@@ -162,6 +162,8 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       VECTOR_STORE: pgvector
       OPENAI_MODEL: gpt-4o
+      # Live trip-forecast weather tool; falls back to static climate profiles when unset.
+      OPENWEATHER_API_KEY: ${OPENWEATHER_API_KEY:-}
       ENABLE_METRICS: ${ENABLE_METRICS:-true}
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
       OPENAI_API_BASE_URL: https://api.openai.com/v1

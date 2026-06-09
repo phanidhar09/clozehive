@@ -1,10 +1,15 @@
-"""Travel domain — trips, packing memory, weather."""
+"""Travel domain — weather (gateway-owned); trips + packing memory (migrated)."""
 
 from fastapi import APIRouter
 
+from app.core.config import get_settings
 from app.api.v1.travel import packing_memory, trips, weather
 
 router = APIRouter()
-router.include_router(trips.router)
-router.include_router(packing_memory.router)
+# weather stays on the gateway (nginx routes /weather here).
 router.include_router(weather.router)
+
+# trips + packing memory (both under /trips) were migrated to closet-service.
+if get_settings().mount_migrated_routes:
+    router.include_router(trips.router)
+    router.include_router(packing_memory.router)

@@ -123,6 +123,26 @@ def closet_key(user_id: str) -> str:
     return namespaced_key("closet", user_id)
 
 
+def websocket_user_channel(user_id: str) -> str:
+    """Per-user WS channel — must match the api-gateway hub's subscription."""
+    return namespaced_key("ws", "user", user_id)
+
+
+async def publish_ws(user_id: str, data: dict[str, Any]) -> None:
+    """Best-effort real-time push to a user's browser tabs.
+
+    Publishes to the channel the api-gateway WebSocket hub subscribes to
+    (``clozehive:v1:ws:user:<id>``). Redis Pub/Sub is instance-wide (not scoped
+    by DB index), so this reaches the hub even though vision-service uses a
+    different Redis DB index. Never raises.
+    """
+    try:
+        client = await get_redis()
+        await client.publish(websocket_user_channel(user_id), json.dumps(data, default=str))
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("ws_publish_failed", user_id=user_id, error=str(exc))
+
+
 async def invalidate_closet_list_cache(user_id: str) -> None:
     """Delete every cached closet-list page for a user."""
     await delete_pattern(f"{closet_key(user_id)}:*")

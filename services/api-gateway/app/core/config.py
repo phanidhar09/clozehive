@@ -53,6 +53,14 @@ class Settings(BaseSettings):
     environment: str = "development"  # development | staging | production
     debug: bool = False
 
+    # The wardrobe/intelligence/trips/analytics domains were extracted to
+    # closet-service; nginx routes those prefixes there, so the gateway's copies
+    # are unreachable via the production entrypoint. We therefore stop mounting
+    # them in production (single owner, no stale-copy drift) while keeping them
+    # in dev/test so the existing gateway suite still exercises that logic.
+    # Set SERVE_MIGRATED_DOMAIN_ROUTES explicitly to override the env-based default.
+    serve_migrated_domain_routes: bool | None = None
+
     # ── Server ────────────────────────────────────────────────────────────────
     host: str = "0.0.0.0"
     port: int = 8000
@@ -277,6 +285,17 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
+
+    @property
+    def mount_migrated_routes(self) -> bool:
+        """Whether the gateway should still mount the closet-service-owned domain
+        routers (closet, outfits, trips, ai, ai-chat, analytics, rag, …).
+
+        Explicit override wins; otherwise default to off in production only.
+        """
+        if self.serve_migrated_domain_routes is not None:
+            return self.serve_migrated_domain_routes
+        return not self.is_production
 
     @property
     def effective_database_read_url(self) -> str:
