@@ -95,7 +95,7 @@ describe('Dashboard', () => {
     expect(screen.getAllByText('Jacket').length).toBeGreaterThanOrEqual(1)
   })
 
-  it('redirects to style profile onboarding when onboarding is incomplete and arriving from login', async () => {
+  it('stays on the dashboard when onboarding is incomplete (the login-time redirect lives in the auth flow)', async () => {
     vi.mocked(Api.profileApi.getOnboardingStatus).mockResolvedValue({
       onboarding_completed: false,
       onboarding_skipped: false,
@@ -104,12 +104,15 @@ describe('Dashboard', () => {
 
     const router = renderDashboard({ items: [], locationState: { fromLogin: true } })
 
+    // The onboarding redirect now happens in Login/Signup/OAuthCallback before
+    // the dashboard renders — the dashboard itself must not redirect.
     await waitFor(() => {
-      expect(router.state.location.pathname).toBe('/onboarding/style-profile')
+      expect(screen.getByRole('heading', { name: /Welcome to Cloz/i })).toBeInTheDocument()
     })
+    expect(router.state.location.pathname).toBe('/dashboard')
   })
 
-  it('shows a style-profile reminder (no redirect) when onboarding is incomplete without a login redirect', async () => {
+  it('surfaces the onboarding checklist (account-setup step) when onboarding is incomplete', async () => {
     vi.mocked(Api.profileApi.getOnboardingStatus).mockResolvedValue({
       onboarding_completed: false,
       onboarding_skipped: false,
@@ -118,19 +121,16 @@ describe('Dashboard', () => {
 
     const router = renderDashboard({ items: [wardrobeItem()] })
 
-    await waitFor(() => {
-      expect(screen.getByText(/Complete your Style Profile/i)).toBeInTheDocument()
-    })
-    // Stays on the dashboard — redirect only happens when coming from login
+    // The style-profile reminder now lives in the OnboardingChecklist.
+    expect(await screen.findByText(/Account setup/i)).toBeInTheDocument()
+    // Stays on the dashboard — no redirect from here.
     expect(router.state.location.pathname).toBe('/dashboard')
   })
 
   it('shows the guided empty state when wardrobe has no items', async () => {
     renderDashboard({ items: [] })
 
-    await waitFor(() => {
-      expect(screen.getByText(/Welcome to Cloz/i)).toBeInTheDocument()
-    })
-    expect(screen.getByText(/Add your first items/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Welcome to Cloz/i)).toBeInTheDocument()
+    expect(screen.getByText(/Start guided setup/i)).toBeInTheDocument()
   })
 })

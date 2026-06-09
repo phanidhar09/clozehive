@@ -17,7 +17,7 @@ export function ErrorState({
   className?: string
 }) {
   return (
-    <div className={cn('flex justify-center p-4', className)}>
+    <div role="alert" className={cn('flex justify-center p-4', className)}>
       <GlassCard padding="lg" className="max-w-md w-full text-center">
         <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-red-50 dark:bg-red-900/20">
           <AlertTriangle className="h-6 w-6 text-red-500" aria-hidden />

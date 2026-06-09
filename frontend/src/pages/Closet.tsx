@@ -417,11 +417,15 @@ export default function Closet() {
     return out
   }, [filtered, cols])
 
-  // Capture container offsets after layout so virtualizers position items correctly
+  // Capture container offsets after layout so virtualizers position items
+  // correctly. These intentionally run every render and self-guard against
+  // re-renders (no deps array) so they track layout shifts from any source.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useLayoutEffect(() => {
     const gm = gridRef.current?.offsetTop ?? 0
     if (gm !== gridScrollMargin) setGridScrollMargin(gm)
   })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useLayoutEffect(() => {
     const lm = listRef.current?.offsetTop ?? 0
     if (lm !== listScrollMargin) setListScrollMargin(lm)
