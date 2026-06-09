@@ -384,7 +384,7 @@ const HOW_IT_WORKS = [
     icon: Wand2,
     title: 'Build outfits',
     desc: 'Mix and match your wardrobe in the outfit builder. Save looks for any occasion — work, casual, travel, or a night out.',
-    color: 'from-pink-500 to-rose-500',
+    color: 'from-brand-500 to-brand-600',
     href: '/outfit-builder',
   },
   {
@@ -392,7 +392,7 @@ const HOW_IT_WORKS = [
     icon: Sparkles,
     title: 'Get daily suggestions',
     desc: 'Every morning FANI picks Today\'s Look from your closet — weather-aware, occasion-matched, and rated for style.',
-    color: 'from-amber-500 to-orange-500',
+    color: 'from-brand-500 to-brand-600',
     href: '/dashboard',
   },
   {
@@ -400,7 +400,7 @@ const HOW_IT_WORKS = [
     icon: MessageSquare,
     title: 'Chat with your AI stylist',
     desc: 'Ask FANI anything — "What goes with my navy blazer?" — and get advice grounded in items you actually own.',
-    color: 'from-violet-500 to-purple-600',
+    color: 'from-brand-500 to-brand-600',
     href: '/ai-stylist',
   },
 ]

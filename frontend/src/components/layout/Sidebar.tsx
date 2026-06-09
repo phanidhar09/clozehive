@@ -1,9 +1,9 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
-  Home, Shirt, Plane,
+  Home, Shirt, Plus, Plane, Heart,
   X, Moon, Sun, LogOut,
-  Sparkles, Wand2, ShoppingCart,
+  Sparkles, Wand2, ShoppingCart, ShoppingBag,
   BarChart3, Layers,
   type LucideIcon,
 } from 'lucide-react'
@@ -15,19 +15,77 @@ type SidebarNavItem = {
   to: string
   label: string
   icon: LucideIcon
-  gradient?: string
 }
 
-const NAV_MAIN: SidebarNavItem[] = [
-  { to: '/dashboard',      label: 'Home',           icon: Home },
-  { to: '/closet',         label: 'My Closet',      icon: Shirt },
-  { to: '/outfit-builder', label: 'Build Outfit',   icon: Wand2,     gradient: 'from-pink-500 to-rose-600' },
-  { to: '/shopping-check', label: 'Shop with FANI', icon: ShoppingCart, gradient: 'from-green-500 to-emerald-500' },
-  { to: '/travel',         label: 'Travel Packing', icon: Plane,     gradient: 'from-sky-500 to-cyan-500' },
-  { to: '/ai-stylist',     label: 'FANI',           icon: Sparkles,  gradient: 'from-brand-500 to-brand-600' },
-  { to: '/analytics',      label: 'Style Insights', icon: BarChart3, gradient: 'from-amber-500 to-orange-500' },
-  { to: '/closet-match',   label: 'Fit Match',      icon: Layers,    gradient: 'from-violet-500 to-purple-600' },
+type SidebarNavGroup = {
+  heading: string
+  items: SidebarNavItem[]
+}
+
+// Top-level item shown alone above the grouped sections.
+const NAV_TOP: SidebarNavItem = { to: '/dashboard', label: 'Dashboard', icon: Home }
+
+// Grouped destinations — every feature stays visible, parsed as 4 short sections.
+const NAV_GROUPS: SidebarNavGroup[] = [
+  {
+    heading: 'Wardrobe',
+    items: [
+      { to: '/closet', label: 'My Closet', icon: Shirt },
+      { to: '/upload', label: 'Add Items', icon: Plus },
+    ],
+  },
+  {
+    heading: 'Create',
+    items: [
+      { to: '/outfit-builder', label: 'Build Outfit',   icon: Wand2 },
+      { to: '/saved-outfits',  label: 'Saved Outfits',  icon: Heart },
+      { to: '/travel',         label: 'Travel Packing', icon: Plane },
+    ],
+  },
+  {
+    heading: 'FANI · AI',
+    items: [
+      { to: '/ai-stylist',     label: 'Stylist Chat',   icon: Sparkles },
+      { to: '/shopping-check', label: 'Shop with FANI', icon: ShoppingCart },
+      { to: '/closet-match',   label: 'Fit Match',      icon: Layers },
+    ],
+  },
+  {
+    heading: 'Insights',
+    items: [
+      { to: '/analytics',     label: 'Style Insights', icon: BarChart3 },
+      { to: '/purchase-gaps', label: 'Purchase Gaps',  icon: ShoppingBag },
+    ],
+  },
 ]
+
+/** Single sidebar link — neutral icon; teal accent comes from `.nav-item.active`. */
+function NavItem({ item, onNavigate }: { item: SidebarNavItem; onNavigate: () => void }) {
+  const { to, label, icon: Icon } = item
+  return (
+    <NavLink
+      to={to}
+      onClick={onNavigate}
+      className={({ isActive }) => cn('nav-item relative overflow-hidden', isActive && 'active')}
+    >
+      {({ isActive }) => (
+        <>
+          {isActive && (
+            <motion.div
+              layoutId="sidebar-active-main"
+              className="absolute inset-0 rounded-xl bg-slate-100 dark:bg-white/[0.10]"
+              transition={{ duration: 0.18, ease: 'easeOut' }}
+            />
+          )}
+          <span className="relative z-10 flex-shrink-0">
+            <Icon size={17} />
+          </span>
+          <span className="relative z-10">{label}</span>
+        </>
+      )}
+    </NavLink>
+  )
+}
 
 export default function Sidebar() {
   const { sidebarOpen, setSidebarOpen, currentUser, logout } = useApp()
@@ -95,29 +153,19 @@ export default function Sidebar() {
 
         {/* ── Navigation ───────────────────────────────────────────────── */}
         <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-0.5">
-          {NAV_MAIN.map(({ to, label, icon: Icon, gradient }) => (
-            <NavLink
-              key={to}
-              to={to}
-              onClick={() => setSidebarOpen(false)}
-              className={({ isActive }) => cn('nav-item relative overflow-hidden', isActive && 'active')}
-            >
-              {({ isActive }) => (
-                <>
-                  {isActive && (
-                    <motion.div
-                      layoutId="sidebar-active-main"
-                      className="absolute inset-0 rounded-xl bg-slate-100 dark:bg-white/[0.10]"
-                      transition={{ duration: 0.18, ease: 'easeOut' }}
-                    />
-                  )}
-                  <span className={cn('relative z-10 flex-shrink-0', gradient && `flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br ${gradient} text-white`)}>
-                    <Icon size={17} />
-                  </span>
-                  <span className="relative z-10">{label}</span>
-                </>
-              )}
-            </NavLink>
+          {/* Dashboard — top-level, above the grouped sections */}
+          <NavItem item={NAV_TOP} onNavigate={() => setSidebarOpen(false)} />
+
+          {NAV_GROUPS.map(({ heading, items }) => (
+            <div key={heading} className="pt-4 first:pt-3">
+              <p className="px-3 pb-1.5 text-[10px] font-bold uppercase tracking-widest
+                            text-slate-400 dark:text-white/30">
+                {heading}
+              </p>
+              {items.map((item) => (
+                <NavItem key={item.to} item={item} onNavigate={() => setSidebarOpen(false)} />
+              ))}
+            </div>
           ))}
         </nav>
 

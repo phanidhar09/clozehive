@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   Menu, LogOut, User, Settings,
-  Moon, Sun, Sparkles, Heart, ShoppingBag, ChevronRight, PlusCircle, Layers,
+  Moon, Sun, Sparkles, ChevronRight,
 } from 'lucide-react'
 import { useApp } from '@/store'
 import { useColorScheme } from '@/hooks/useColorScheme'
@@ -26,14 +26,7 @@ const TITLES: Record<string, string> = {
   '/closet-match':     'Fit Match',
 }
 
-/* ── Premium profile hover dropdown ────────────────────────────────────────── */
-
-const MORE_LINKS = [
-  { to: '/upload',        label: 'Add to Closet', icon: PlusCircle,  gradient: 'from-brand-500 to-brand-700',   desc: 'Upload new items' },
-  { to: '/saved-outfits', label: 'Saved Outfits', icon: Heart,       gradient: 'from-rose-500 to-pink-500',     desc: 'Your FANI-curated looks' },
-  { to: '/purchase-gaps', label: 'Wardrobe Gaps', icon: ShoppingBag, gradient: 'from-amber-500 to-orange-500',  desc: 'What your closet is missing' },
-  { to: '/closet-match',  label: 'Fit Match',     icon: Layers,      gradient: 'from-violet-500 to-purple-600', desc: 'Match items from your closet' },
-]
+/* ── Premium profile hover dropdown — account menu only ────────────────────── */
 
 function ProfileDropdown({ onNavigate }: { onNavigate: (to: string) => void }) {
   const { currentUser, logout } = useApp()
@@ -85,40 +78,8 @@ function ProfileDropdown({ onNavigate }: { onNavigate: (to: string) => void }) {
         </div>
       </div>
 
-      {/* ── More section ──────────────────────────────────────────────────── */}
-      <div className="px-3 pt-3 pb-1">
-        <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate-400 dark:text-white/30 px-2 mb-1.5">
-          More
-        </p>
-        <div className="space-y-0.5">
-          {MORE_LINKS.map(({ to, label, icon: Icon, gradient, desc }) => (
-            <button
-              key={to}
-              onClick={() => go(to)}
-              className="w-full flex items-center gap-3 px-2.5 py-2.5 rounded-2xl text-left
-                         hover:bg-slate-50 dark:hover:bg-white/[0.06]
-                         transition-colors duration-150 group"
-            >
-              <div className={`w-9 h-9 rounded-xl bg-gradient-to-br ${gradient}
-                              flex items-center justify-center flex-shrink-0
-                              shadow-sm group-hover:shadow-md transition-shadow`}>
-                <Icon size={15} className="text-white" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-slate-800 dark:text-white leading-tight">{label}</p>
-                <p className="text-[11px] text-slate-400 dark:text-white/35 truncate">{desc}</p>
-              </div>
-              <ChevronRight size={13} className="text-slate-300 dark:text-white/20 flex-shrink-0 group-hover:text-slate-400 dark:group-hover:text-white/40 transition-colors" />
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Divider ───────────────────────────────────────────────────────── */}
-      <div className="mx-4 my-2 h-px bg-gradient-to-r from-transparent via-slate-200 dark:via-white/[0.07] to-transparent" />
-
       {/* ── Account section ───────────────────────────────────────────────── */}
-      <div className="px-3 pb-1">
+      <div className="px-3 pt-3 pb-1">
         <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate-400 dark:text-white/30 px-2 mb-1.5">
           Account
         </p>

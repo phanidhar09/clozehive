@@ -1,5 +1,5 @@
 import { NavLink, useLocation } from 'react-router-dom'
-import { Home, Shirt, Plus, Sparkles, Wand2, Heart, Plane, Menu, type LucideIcon } from 'lucide-react'
+import { Home, Shirt, Plus, Sparkles, Wand2, Menu, type LucideIcon } from 'lucide-react'
 import { useApp } from '@/store'
 import { cn } from '@/lib/utils'
 
@@ -16,15 +16,13 @@ type Tab = { to: string; label: string; icon: LucideIcon; primary?: boolean; end
 const TABS: Tab[] = [
   { to: '/dashboard',  label: 'Home',   icon: Home,     end: true },
   { to: '/closet',     label: 'Closet', icon: Shirt },
-  { to: '/outfit-builder', label: 'Outfit', icon: Wand2 },
-  { to: '/saved-outfits', label: 'Saved', icon: Heart },
-  { to: '/travel', label: 'Travel', icon: Plane },
   { to: '/upload',     label: 'Add',    icon: Plus,     primary: true },
+  { to: '/outfit-builder', label: 'Outfit', icon: Wand2 },
   { to: '/ai-stylist', label: 'FANI',   icon: Sparkles },
 ]
 
 // Routes that own a dedicated tab above.
-const TAB_PATHS = ['/dashboard', '/closet', '/outfit-builder', '/saved-outfits', '/travel', '/upload', '/ai-stylist']
+const TAB_PATHS = ['/dashboard', '/closet', '/upload', '/outfit-builder', '/ai-stylist']
 
 export default function BottomNav() {
   const { setSidebarOpen } = useApp()
