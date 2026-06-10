@@ -19,6 +19,8 @@ from app.core.embedding_service import (
     generate_text_embedding,
     pgvector_cosine_search,
 )
+from app.rag.query_builder import build_packing_memory_query
+from app.rag.rerank import rerank_packing_memories
 
 logger = get_logger("packing_memory_service")
 
@@ -107,20 +109,23 @@ async def search_similar_packing_memories(
     limit: int = _DEFAULT_LIMIT,
 ) -> list[dict[str, Any]]:
     """Retrieve past packing memories similar to the current trip context."""
-    query_text = _packing_context_text(destination, purpose, weather_summary, start_date, end_date)
+    query_text = build_packing_memory_query(
+        destination, purpose, weather_summary, start_date, end_date
+    )
     embedding = await generate_text_embedding(query_text)
     if not embedding:
         return []
 
+    fetch_limit = min(max(limit * 3, limit), 15)
     rows = await pgvector_cosine_search(
         session,
         table="packing_memory",
         embedding=embedding,
         user_id=user_id,
-        limit=limit,
-        threshold=0.60,
+        limit=fetch_limit,
+        threshold=0.55,
     )
-    return [
+    records = [
         {
             "id": str(r["id"]),
             "destination": r["destination"],
@@ -136,6 +141,10 @@ async def search_similar_packing_memories(
         }
         for r in rows
     ]
+    reranked = rerank_packing_memories(
+        records, purpose=purpose, destination=destination
+    )
+    return reranked[:limit]
 
 
 async def get_packing_memory_for_prompt(

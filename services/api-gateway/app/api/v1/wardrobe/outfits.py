@@ -17,13 +17,16 @@ from sqlalchemy import select, desc
 
 from app.core.deps import CurrentUser, DbSession
 from app.core.exceptions import BadRequestError
+from app.core.constraint_priority import build_constraint_priority_block
 from app.core.logging import get_logger
 from app.models.closet import ClosetItem, Outfit
 from app.api.v1.identity.services.style_profile_context import load_merged_user_profile_for_ai
 from app.api.v1.wardrobe.schemas.outfit_ai import AnalyzeOutfitRequest, AnalyzeOutfitResponse
 from app.api.v1.wardrobe.services import outfit_ai_service
 from app.api.v1.travel.services.weather_service import get_weather_by_city
-from app.api.v1.travel.services.location_intel_service import build_location_context_block
+from app.api.v1.travel.services.location_intel_service import (
+    build_location_context_block_async,
+)
 from app.api.v1.intelligence.services.fashion_rag_service import get_fashion_context_for_prompt
 from app.api.v1.wardrobe.services.outfit_history_service import (
     get_outfit_history_for_prompt,
@@ -198,7 +201,18 @@ async def analyze_outfit(request: Request, body: AnalyzeOutfitRequest, user_id: 
             effective_temp = wx.get("temp_c", effective_temp)
         except Exception:
             pass
-    location_context = build_location_context_block(body.location or "", mode="daily")
+    location_context = await build_location_context_block_async(body.location or "", mode="daily")
+
+    # Constraint priority — arbitrates location norms vs weather vs occasion vs
+    # style when several layers are active (see app.core.constraint_priority).
+    priority_block = build_constraint_priority_block(
+        mandatory=bool(location_context),
+        weather=bool(effective_weather),
+        occasion=bool(body.occasion),
+        style=bool(profile),
+    )
+    if priority_block:
+        location_context = f"{priority_block}\n\n{location_context}" if location_context else priority_block
 
     logger.info(
         "outfit_analyze_request",

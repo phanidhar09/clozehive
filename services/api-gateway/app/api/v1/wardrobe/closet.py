@@ -63,7 +63,8 @@ def _ws_push(user_id: str, data: dict) -> None:
         if loop.is_running():
             asyncio.ensure_future(_ws_manager.broadcast_to_user(user_id, data))
     except Exception as exc:  # noqa: BLE001
-        _log.warning("ws_push_failed", user_id=user_id, event=data.get("type"), error=str(exc))
+        # NB: "event" is reserved by structlog for the message itself.
+        _log.warning("ws_push_failed", user_id=user_id, event_type=data.get("type"), error=str(exc))
 
 
 router = APIRouter(prefix="/closet", tags=["Closet"])

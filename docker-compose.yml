@@ -128,6 +128,20 @@ services:
       timeout: 3s
       retries: 5
 
+  # Mailpit — local SMTP catcher for dev. All app email (password resets, etc.)
+  # lands here instead of real inboxes. Web UI: http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:latest
+    <<: [*restart, *logging]
+    ports:
+      - "${MAILPIT_UI_PORT:-8025}:8025"   # web UI
+      - "${MAILPIT_SMTP_PORT:-1025}:1025" # SMTP (for running services on the host)
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
   # ── Vision MCP (optional — higher resource usage) ───────────────────────────
   mcp-vision:
     profiles: ["vision", "legacy-mcp"]
@@ -262,6 +276,13 @@ services:
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:8000/api/v1/auth/google/callback}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3001}
+      # Email — dev default routes everything into Mailpit (UI at :8025).
+      # Set EMAIL_PROVIDER=resend + RESEND_API_KEY in .env to test real delivery.
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-smtp}
+      EMAIL_FROM: ${EMAIL_FROM:-Clozehive <no-reply@clozehive.local>}
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
       # Firebase / Firestore — set FIREBASE_CREDENTIALS_JSON to service account JSON contents
       # or mount a credentials file and set GOOGLE_APPLICATION_CREDENTIALS to its path
       FIREBASE_CREDENTIALS_JSON: ${FIREBASE_CREDENTIALS_JSON:-}

@@ -23,9 +23,11 @@ from app.core.logging import get_logger
 from app.core.config import get_settings
 from app.core.redis import get_redis
 from app.models.closet import ClosetItem
+from app.models.trips import Trip
 from app.api.v1.identity.repositories.user_repo import UserRepository
 from app.api.v1.identity.services.style_profile_context import load_merged_user_profile_for_ai
 from app.api.v1.intelligence.services import ai_service
+from app.api.v1.intelligence.services import festival_calendar
 from app.api.v1.travel.services import packing_service, weather_service
 from app.api.v1.travel.services.location_intel_service import build_location_context_block
 from app.api.v1.wardrobe.services import outfit_service, vision_service
@@ -494,6 +496,43 @@ async def outfit_of_day(user_id: CurrentUser, session: DbSession):
     weather_str = weather.get("condition", "mild") if weather else "mild"
     temp = float(weather.get("temp_c", 20.0)) if weather else 20.0
 
+    # Festival awareness — when today is a festival at the user's location, dress
+    # for the festival instead of the default weekday occasion. If the user is
+    # mid-trip, the destination wins over home so travellers get destination
+    # festivals (static calendar only — OOTD needs a clean occasion label).
+    festival_payload: dict | None = None
+    try:
+        today_date = datetime.utcnow().date()
+        festival_location = (weather or {}).get("location_label")
+        active_trip = (
+            await session.execute(
+                select(Trip)
+                .where(
+                    Trip.user_id == uid,
+                    Trip.start_date <= today_date,
+                    Trip.end_date >= today_date,
+                )
+                .order_by(Trip.start_date.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if active_trip:
+            festival_location = active_trip.destination
+        country = festival_calendar.infer_country(festival_location)
+        todays = festival_calendar.festivals_on(country, today_date)
+        if todays:
+            festival = todays[0]
+            occasion = festival_calendar.festival_occasion(festival)
+            festival_payload = {
+                "name": festival["name"],
+                "emoji": festival["emoji"],
+                "dress": festival["dress"],
+            }
+            logger.info("outfit_of_day_festival", user_id=user_id, festival=festival["name"])
+    except Exception as exc:  # noqa: BLE001 — festival layer is best-effort
+        logger.warning("outfit_festival_failed", error=str(exc))
+        await session.rollback()
+
     # RAG: load only occasion-relevant items via vector search
     closet = await _get_closet_for_occasion(session, uid, occasion, weather_str)
 
@@ -505,6 +544,7 @@ async def outfit_of_day(user_id: CurrentUser, session: DbSession):
         "outfit": outfits[0] if outfits else None,
         "weather": weather,
         "occasion": occasion,
+        "festival": festival_payload,
         "style_tips": result.get("style_tips") or [],
     }
 

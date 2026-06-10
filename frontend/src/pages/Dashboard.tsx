@@ -143,12 +143,18 @@ function TodaysLookCard({ closetItems }: { closetItems: ClosetItem[] }) {
   const [saved, setSaved]     = useState(false)
   const [error, setError]     = useState<string | null>(null)
 
+  // No point asking FANI for a look when there's nothing in the closet —
+  // the API returns a generic outfit with zero matched items, which renders
+  // as a nonsense "Excellent" card. Show the add-items state instead.
+  const hasItems = closetItems.length > 0
+
   const load = useCallback(async () => {
+    if (!hasItems) { setData(null); setLoading(false); return }
     setLoading(true); setError(null); setSaved(false)
     try   { setData(await outfitsApi.getOutfitOfDay()) }
     catch { setError("Couldn't generate today's look. Try again.") }
     finally { setLoading(false) }
-  }, [])
+  }, [hasItems])
 
   useEffect(() => { load() }, [load])
 
@@ -241,7 +247,7 @@ function TodaysLookCard({ closetItems }: { closetItems: ClosetItem[] }) {
           </div>
         )}
 
-        {!loading && !error && data?.outfit && (() => {
+        {!loading && !error && hasItems && data?.outfit && (() => {
           const rating = getOutfitRating(
             data.outfit!.style_score,
             resolvedItems.length,
@@ -346,7 +352,7 @@ function TodaysLookCard({ closetItems }: { closetItems: ClosetItem[] }) {
           )
         })()}
 
-        {!loading && !error && !data?.outfit && closetItems.length === 0 && (
+        {!loading && !error && !hasItems && (
           <div className="py-10 text-center space-y-3">
             <div className="w-12 h-12 rounded-2xl bg-brand-50 dark:bg-brand-500/10
                             flex items-center justify-center mx-auto">

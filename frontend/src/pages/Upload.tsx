@@ -682,7 +682,7 @@ export default function Upload() {
                   <p className="font-semibold text-sm text-slate-600 dark:text-slate-300">Drop your photo here</p>
                   <p className="text-xs text-slate-400 mt-0.5">or click to browse</p>
                 </div>
-                <p className="text-[11px] text-slate-300 dark:text-slate-600">JPG, PNG, WEBP · Max 10MB each · Up to 20 files</p>
+                <p className="text-[11px] text-slate-500 dark:text-white/40">JPG, PNG, WEBP · Max 10MB each · Up to 20 files</p>
               </div>
             )}
           </div>

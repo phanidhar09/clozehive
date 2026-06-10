@@ -50,7 +50,7 @@ from app.api.v1.identity.schemas.auth import (
     UpdateProfileRequest,
     UserResponse,
 )
-from app.core import cache_service
+from app.core import cache_service, email_service
 from app.api.v1.identity.services import account_purge_service
 from app.api.v1.identity.services.auth_service import AuthService
 
@@ -284,6 +284,7 @@ async def change_password(
 async def forgot_password(
     request: Request,
     body: ForgotPasswordRequest,
+    bg: BackgroundTasks,
     svc: AuthService = Depends(_svc),
 ):
     """Send a password reset link to the given email address.
@@ -292,27 +293,16 @@ async def forgot_password(
     account-enumeration attacks.  The frontend must show a generic success
     message like "If that email exists, a reset link has been sent."
 
-    NOTE: This endpoint calls ``request_password_reset`` which returns the raw
-    token.  In production, **send it by email** instead of logging it.  The
-    token is intentionally not returned in the response body.
+    Delivery happens in a background task so response time is identical for
+    known and unknown emails (no timing-based enumeration), and a slow email
+    provider can't stall the request. The token is never returned in the
+    response body or written to logs.
     """
     raw_token = await svc.request_password_reset(body.email)
 
     if raw_token:
-        # TODO: replace with a real email delivery service (SendGrid, SES, etc.)
-        # For now, log at DEBUG level so the token is visible in local dev logs.
-        # In production, set LOG_LEVEL=INFO and this will be suppressed.
-        logger.debug(
-            "password_reset_token_issued",
-            email=body.email,
-            # REMOVE the token from the log before going to production!
-            token_preview=raw_token[:8] + "…",
-        )
-        # Construct the reset URL using the configured frontend URL.
         reset_url = f"{settings.frontend_url.rstrip('/')}/reset-password?token={raw_token}"
-        logger.info("password_reset_link_generated", reset_url_length=len(reset_url))
-        # ── email delivery placeholder ────────────────────────────────────────
-        # await email_service.send_password_reset(email=body.email, reset_url=reset_url)
+        bg.add_task(email_service.send_password_reset, email=body.email, reset_url=reset_url)
 
     return {"message": "If that email is registered, a reset link has been sent."}
 

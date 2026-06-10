@@ -5,6 +5,13 @@ planner and the daily-outfit engine. Curated profiles give deterministic, high
 quality guidance for top destinations; everywhere else the block instructs the
 model to infer local norms from its own knowledge (the hybrid fallback).
 
+``build_location_context_block_async`` (Phase 2 of the web-intelligence roadmap)
+adds a middle tier for non-curated destinations: live dress-guideline guidance
+fetched via Tavily and cached for 30 days per destination. Resolution order is
+static-first, search-second, LLM-infer last:
+
+  curated profile  >  live web guidance (Tavily)  >  LLM-infer fallback
+
 The curated key set and fuzzy-match logic deliberately mirror
 ``weather_service._profile`` so weather and location data line up for the same
 destinations.
@@ -14,7 +21,12 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+from app.core import web_intelligence
+
 Mode = Literal["travel", "daily"]
+
+# Live dress guidelines are stable — a city's norms don't shift week to week.
+DRESS_GUIDELINES_TTL_S = 30 * 24 * 3600
 
 # ── Curated location profiles ─────────────────────────────────────────────────
 # modesty: relaxed | moderate | conservative
@@ -368,6 +380,77 @@ def build_location_context_block(name: str, *, mode: Mode = "travel") -> str:
         f"{label}, infer its typical climate and current season, local dress norms and "
         "modesty expectations, formality baseline, and characteristic local style. Apply "
         "them as described below.",
+        "",
+        constraint,
+        "[END LOCATION PREFERENCES]" if mode == "travel" else "[END LOCAL CONTEXT]",
+    ]
+    return "\n".join(lines)
+
+
+# ── Live dress guidelines (Phase 2 — Tavily-backed middle tier) ───────────────
+
+def _mode_texts(mode: Mode) -> tuple[str, str]:
+    """(header, constraint) for the given mode — mirrors the sync builder."""
+    if mode == "travel":
+        return (
+            "[DESTINATION LOCATION PREFERENCES]",
+            "Treat the local dress norms and modesty level as CONSTRAINTS when choosing "
+            "wardrobe items: prefer pieces that respect them, suggest cover-ups or layers "
+            "from the user's closet where coverage is needed (e.g. temples/mosques/conservative "
+            "areas), and never recommend items that would violate local norms. Reflect the most "
+            "important point in the trip_summary.location_etiquette field.",
+        )
+    return (
+        "[LOCAL CONTEXT]",
+        "Factor the local climate and everyday appropriateness for this place into the "
+        "recommendation and its weather/style scoring. Favour items suited to the typical "
+        "local conditions and dress sensibilities.",
+    )
+
+
+async def _fetch_live_dress_guidelines(label: str) -> dict[str, Any] | None:
+    """Tavily-backed dress guidance for a destination. None when unavailable."""
+    query = (
+        f"What should visitors wear in {label}? Local dress code, modesty norms, "
+        "religious site clothing requirements, and cultural clothing etiquette for tourists."
+    )
+    return await web_intelligence.cached_search(
+        query,
+        namespace="dress-guidelines",
+        key=label,
+        ttl_seconds=DRESS_GUIDELINES_TTL_S,
+    )
+
+
+async def build_location_context_block_async(name: str, *, mode: Mode = "travel") -> str:
+    """Location-context block with the live web-guidance middle tier.
+
+    Static-first: curated destinations never trigger a web call. Non-curated
+    destinations get Tavily guidance (cached 30 days, shared across users);
+    when that's unavailable the existing LLM-infer fallback applies, so the
+    output is never worse than ``build_location_context_block``.
+    """
+    if not name or not name.strip():
+        return ""
+
+    label = name.strip()
+    if get_location_profile(label):
+        return build_location_context_block(label, mode=mode)
+
+    live = await _fetch_live_dress_guidelines(label)
+    if not live:
+        return build_location_context_block(label, mode=mode)
+
+    header, constraint = _mode_texts(mode)
+    sources_line = web_intelligence.format_sources_line(live)
+    lines = [
+        header,
+        f"Location: {label}",
+        f"Dress guidance (live web research): {live['answer']}",
+    ]
+    if sources_line:
+        lines.append(sources_line)
+    lines += [
         "",
         constraint,
         "[END LOCATION PREFERENCES]" if mode == "travel" else "[END LOCAL CONTEXT]",

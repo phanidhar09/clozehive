@@ -55,10 +55,13 @@ async function initWebVitals(): Promise<void> {
         rating: metric.rating,
       });
       try {
+        // text/plain is CORS-safelisted: no preflight, which sendBeacon cannot
+        // perform. An application/json Blob silently fails on any cross-origin
+        // API base. The RUM endpoint parses the raw body regardless of type.
         if (navigator.sendBeacon) {
-          navigator.sendBeacon(url, new Blob([body], { type: 'application/json' }));
+          navigator.sendBeacon(url, new Blob([body], { type: 'text/plain' }));
         } else {
-          void fetch(url, { method: 'POST', body, headers: { 'Content-Type': 'application/json' }, keepalive: true });
+          void fetch(url, { method: 'POST', body, headers: { 'Content-Type': 'text/plain' }, keepalive: true });
         }
       } catch {
         /* best-effort — never disrupt the page */

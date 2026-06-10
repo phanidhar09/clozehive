@@ -92,6 +92,11 @@ class WardrobeAgent:
     def available_tools(self) -> list[str]:
         return [t.name for t in ALL_TOOLS]
 
+    @property
+    def tools(self) -> list[Any]:
+        """The inline LangChain tools the agent runs with."""
+        return list(ALL_TOOLS)
+
     async def chat(
         self,
         message: str,

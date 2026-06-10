@@ -27,7 +27,7 @@ import structlog
 from langsmith import traceable
 
 from app.core.config import get_settings
-from app.services.vector_store import embed_query, get_openai, get_pool
+from app.services.vector_store import embed_queries, embed_query, get_openai, get_pool
 
 logger = structlog.get_logger("style_memory")
 settings = get_settings()
@@ -81,12 +81,19 @@ def _enabled() -> bool:
 # ── Retrieval ─────────────────────────────────────────────────────────────────
 
 @traceable(name="style_memory_retrieve", run_type="retriever")
-async def retrieve_style_memories(user_id: str, query: str, limit: int | None = None) -> list[str]:
+async def retrieve_style_memories(
+    user_id: str,
+    query: str,
+    limit: int | None = None,
+    embedding: list[float] | None = None,
+) -> list[str]:
     """Return the user's most relevant remembered style preferences as strings.
 
     Uses vector similarity against the chat query when embeddings are available;
     falls back to most-recent memories so a user with no embedding-indexed rows
-    (or an embedding failure) still gets their preferences.
+    (or an embedding failure) still gets their preferences.  Pass ``embedding``
+    when the query was already embedded elsewhere in the request to avoid a
+    duplicate OpenAI call.
     """
     if not user_id or not _enabled():
         return []
@@ -98,11 +105,12 @@ async def retrieve_style_memories(user_id: str, query: str, limit: int | None = 
         logger.warning("style_memory_pool_unavailable", error=str(exc))
         return []
 
-    try:
-        embedding = await embed_query(query) if query.strip() else None
-    except Exception as exc:
-        logger.warning("style_memory_embed_failed", error=str(exc))
-        embedding = None
+    if embedding is None:
+        try:
+            embedding = await embed_query(query) if query.strip() else None
+        except Exception as exc:
+            logger.warning("style_memory_embed_failed", error=str(exc))
+            embedding = None
 
     try:
         async with pool.acquire() as conn:
@@ -197,15 +205,20 @@ async def extract_and_store_memories(user_id: str, user_message: str) -> int:
         logger.warning("style_memory_pool_unavailable", error=str(exc))
         return 0
 
-    stored = 0
-    for cand in candidates:
-        content, kind = cand["content"], cand["kind"]
-        try:
-            embedding = await embed_query(content)
-        except Exception as exc:
-            logger.warning("style_memory_candidate_embed_failed", error=str(exc))
-            embedding = None
+    # Embed every candidate in one API call instead of one round-trip each.
+    try:
+        candidate_embeddings: list[list[float] | None] = list(
+            await embed_queries([c["content"] for c in candidates])
+        )
+    except Exception as exc:
+        logger.warning("style_memory_candidate_embed_failed", error=str(exc))
+        candidate_embeddings = [None] * len(candidates)
+    if len(candidate_embeddings) != len(candidates):
+        candidate_embeddings = [None] * len(candidates)
 
+    stored = 0
+    for cand, embedding in zip(candidates, candidate_embeddings):
+        content, kind = cand["content"], cand["kind"]
         try:
             async with pool.acquire() as conn:
                 # Dedup: skip exact text match or a near-duplicate by embedding.

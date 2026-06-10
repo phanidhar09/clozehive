@@ -42,10 +42,16 @@ class TestSanitizeOpenAIBaseURL:
 
 
 class TestSettingsDefaults:
-    def test_default_environment_is_development(self) -> None:
+    def test_default_environment_is_development(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("ENVIRONMENT", raising=False)
         assert Settings().environment == "development"
 
-    def test_is_production_false_in_development(self) -> None:
+    def test_is_production_false_in_development(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("ENVIRONMENT", raising=False)
         assert Settings().is_production is False
 
     def test_is_production_true_when_set(self) -> None:

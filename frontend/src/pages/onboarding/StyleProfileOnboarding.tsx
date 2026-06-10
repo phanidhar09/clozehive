@@ -780,9 +780,11 @@ export default function StyleProfileOnboarding() {
     setSaving(true)
     try {
       await profileApi.completeOnboarding(true)
-      navigate('/closet')
+      // Land skippers on the dashboard: that's where the welcome card and the
+      // get-started checklist live, so they still get a guided overview.
+      navigate('/dashboard')
     } catch {
-      navigate('/closet')
+      navigate('/dashboard')
     } finally {
       setSaving(false)
     }
@@ -826,7 +828,7 @@ export default function StyleProfileOnboarding() {
           {/* Logo */}
           <span className="flex items-center gap-2 font-bold text-brand-600 dark:text-brand-400 text-base shrink-0">
             <Sparkles size={18} />
-            ClozeHive
+            ClozéHive
           </span>
 
           {/* Progress bar + step name */}

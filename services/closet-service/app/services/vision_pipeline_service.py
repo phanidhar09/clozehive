@@ -57,7 +57,17 @@ _JPEG_QUALITY_FAST = 82    # preview_fast per-item thumbnails
 _CACHE_TTL      = 3_600     # 1 hour (Redis seconds)
 _VISION_TIMEOUT = 45.0      # seconds — OpenAI Vision call
 _BG_TIMEOUT     = 30.0      # seconds — per-item BG removal
-_CACHE_KEY_PFX  = "vision_pipeline:v3:"
+# v4: cache stores enriched detection metadata (bbox in x_min/x_max form);
+# images are regenerated locally on every hit.
+_CACHE_KEY_PFX  = "vision_pipeline:v4:"
+
+# Cap concurrent ONNX/PIL background removals — each one saturates a CPU core,
+# so a 10-item flat-lay must not launch 10 inferences at once.
+_BG_CONCURRENCY = 3
+_bg_semaphore = asyncio.Semaphore(_BG_CONCURRENCY)
+
+# Marker on cached items signalling crop-level enrichment already ran.
+_ENRICHED_KEY = "_enriched"
 
 # Multi-item deduplication thresholds
 _IOU_DEDUP_THRESHOLD  = 0.70   # merge/drop bbox if IOU exceeds this
@@ -216,10 +226,11 @@ async def _remove_bg_timed(crop_bytes: bytes) -> tuple[bytes, str]:
     Returns (processed_bytes, status).
     """
     try:
-        result = await asyncio.wait_for(
-            remove_background_async(crop_bytes),
-            timeout=_BG_TIMEOUT,
-        )
+        async with _bg_semaphore:
+            result = await asyncio.wait_for(
+                remove_background_async(crop_bytes),
+                timeout=_BG_TIMEOUT,
+            )
         return result
     except asyncio.TimeoutError:
         logger.warning("bg_removal_timeout")
@@ -288,7 +299,11 @@ async def run_pipeline(
     t0 = time.monotonic()
 
     fast_side = _MAX_DIMENSION_PREVIEW_FAST if preview_fast else None
-    compressed, compressed_type = _compress_image(image_bytes, media_type, max_side=fast_side)
+    # PIL resize/re-encode blocks for hundreds of ms on large photos — keep it
+    # off the event loop.
+    compressed, compressed_type = await asyncio.to_thread(
+        _compress_image, image_bytes, media_type, max_side=fast_side
+    )
     logger.info(
         "vision_pipeline_start",
         scan_id=scan_id,
@@ -299,42 +314,41 @@ async def run_pipeline(
 
     cache_key = _CACHE_KEY_PFX + ("fast:" if preview_fast else "") + _image_hash(compressed)
     cached_data = await _cache_get(cache_key)
-    if cached_data:
-        ms = round((time.monotonic() - t0) * 1000)
-        logger.info("vision_pipeline_cache_hit", scan_id=scan_id, ms=ms, preview_fast=preview_fast)
-        items = [VisionAnalysisItem(**i) for i in cached_data.get("items", [])]
-        return VisionAnalyzeResponse(
-            scan_id=scan_id,
-            total_items_detected=len(items),
-            items=items,
-            processing_time_ms=ms,
-            cached=True,
-        )
+    from_cache = bool(cached_data)
 
-    # 3. Vision AI — Gemini primary, OpenAI fallback
-    try:
-        raw_result = await _run_detection(compressed, compressed_type, user_context=user_context)
-    except asyncio.TimeoutError:
-        ms = round((time.monotonic() - t0) * 1000)
-        logger.error("vision_pipeline_timeout", scan_id=scan_id, ms=ms)
-        return VisionAnalyzeResponse(
-            scan_id=scan_id,
-            total_items_detected=0,
-            items=[],
-            processing_time_ms=ms,
-        )
-    except Exception as exc:
-        ms = round((time.monotonic() - t0) * 1000)
-        logger.error("vision_pipeline_error", scan_id=scan_id, error=str(exc), ms=ms)
-        return VisionAnalyzeResponse(
-            scan_id=scan_id,
-            total_items_detected=0,
-            items=[],
-            processing_time_ms=ms,
-        )
+    if from_cache:
+        # Cache holds detection (+enrichment) metadata only — the expensive AI
+        # calls.  Crops, background removal, and encoding are cheap local work
+        # and are re-run below so cache hits still return full images.
+        logger.info("vision_pipeline_cache_hit", scan_id=scan_id, preview_fast=preview_fast)
+        raw_items: list[dict[str, Any]] = [
+            i for i in (cached_data or {}).get("items", []) if isinstance(i, dict)
+        ]
+    else:
+        # 3. Vision AI — Gemini primary, OpenAI fallback
+        try:
+            raw_result = await _run_detection(compressed, compressed_type, user_context=user_context)
+        except asyncio.TimeoutError:
+            ms = round((time.monotonic() - t0) * 1000)
+            logger.error("vision_pipeline_timeout", scan_id=scan_id, ms=ms)
+            return VisionAnalyzeResponse(
+                scan_id=scan_id,
+                total_items_detected=0,
+                items=[],
+                processing_time_ms=ms,
+            )
+        except Exception as exc:
+            ms = round((time.monotonic() - t0) * 1000)
+            logger.error("vision_pipeline_error", scan_id=scan_id, error=str(exc), ms=ms)
+            return VisionAnalyzeResponse(
+                scan_id=scan_id,
+                total_items_detected=0,
+                items=[],
+                processing_time_ms=ms,
+            )
 
-    raw_items: list[dict[str, Any]] = _filter_and_dedup(raw_result.get("items") or [])
-    if not raw_items:
+        raw_items = _filter_and_dedup(raw_result.get("items") or [])
+    if not raw_items and not from_cache:
         # Model may return valid boxes that all get dropped by area/confidence thresholds.
         # Keep a single best-effort detection (expand tiny boxes to full frame) so preview
         # still gets a crop instead of falling through to empty pipeline → confusing UX.
@@ -370,14 +384,15 @@ async def run_pipeline(
     # Assign a stable detected_item_id to each raw item immediately after detection.
     # This UUID is the source of truth for image↔metadata correlation across the
     # entire pipeline: crop → BG removal → metadata enrichment → preview response → confirm.
+    # Cached items keep the id they were first assigned.
     num_items = len(raw_items)
     for raw in raw_items:
-        raw["detected_item_id"] = str(uuid4())
+        raw.setdefault("detected_item_id", str(uuid4()))
 
     # 4. Per item: full BG + OpenAI enrich, OR (preview_fast) JPEG crop only
     from app.services.fashion_analysis_service import _crop_item  # type: ignore[attr-defined]
 
-    async def _process_item(raw: dict[str, Any]) -> VisionAnalysisItem:
+    async def _process_item(raw: dict[str, Any]) -> tuple[VisionAnalysisItem, dict[str, Any]]:
         detected_item_id: str = raw["detected_item_id"]
         bbox_raw = raw.get("bbox")
         has_valid_bbox = isinstance(bbox_raw, dict) and bool(bbox_raw)
@@ -402,7 +417,7 @@ async def run_pipeline(
         bbox = cast(dict[str, float], bbox_raw)
 
         try:
-            crop_bytes = _crop_item(image_bytes, bbox)
+            crop_bytes = await asyncio.to_thread(_crop_item, image_bytes, bbox)
         except Exception as crop_exc:
             if num_items > 1:
                 logger.warning(
@@ -418,7 +433,9 @@ async def run_pipeline(
 
         if preview_fast:
             try:
-                img_b64 = _bytes_to_jpeg_b64(crop_bytes, quality=_JPEG_QUALITY_FAST)
+                img_b64 = await asyncio.to_thread(
+                    _bytes_to_jpeg_b64, crop_bytes, quality=_JPEG_QUALITY_FAST
+                )
             except Exception as exc:
                 logger.warning("preview_fast_jpeg_failed", detected_item_id=detected_item_id, error=str(exc))
                 img_b64 = base64.b64encode(crop_bytes).decode("utf-8")
@@ -431,7 +448,11 @@ async def run_pipeline(
             img_b64 = base64.b64encode(final_bytes).decode("utf-8")
 
             merged = dict(raw)
-            merged = await enrich_detection_with_crop_analysis(final_bytes, merged, user_context=user_context)
+            # Crop-level enrichment is an OpenAI vision call — skip it when the
+            # cached metadata already carries the enrichment result.
+            if not merged.get(_ENRICHED_KEY):
+                merged = await enrich_detection_with_crop_analysis(final_bytes, merged, user_context=user_context)
+                merged[_ENRICHED_KEY] = True
 
         bb_model = _bbox_to_normalized_model(raw)
 
@@ -444,7 +465,7 @@ async def run_pipeline(
             description=(str(merged.get("description") or raw.get("description") or ""))[:120],
         )
 
-        return VisionAnalysisItem(
+        item = VisionAnalysisItem(
             detected_item_id=detected_item_id,
             item_id=str(raw.get("item_id") or detected_item_id),
             category=_norm_cat(merged.get("category") or raw.get("category")),
@@ -470,14 +491,16 @@ async def run_pipeline(
             background_removal_status=bg_status,
             segmentation_quality=str(merged.get("segmentation_quality") or raw.get("segmentation_quality") or "medium"),
         )
+        return item, merged
 
     # Run all items in parallel; collect failures per-item so one bad crop doesn't abort all.
-    gather_results: list[VisionAnalysisItem | BaseException] = await asyncio.gather(
+    gather_results: list[tuple[VisionAnalysisItem, dict[str, Any]] | BaseException] = await asyncio.gather(
         *[_process_item(raw) for raw in raw_items],
         return_exceptions=True,
     )
 
     processed_items: list[VisionAnalysisItem] = []
+    enriched_meta: list[dict[str, Any]] = []
     failed_items: list[dict[str, Any]] = []
     for i, result in enumerate(gather_results):
         raw = raw_items[i]
@@ -493,7 +516,9 @@ async def run_pipeline(
                 error=str(result),
             )
         else:
-            processed_items.append(result)
+            item, merged = result
+            processed_items.append(item)
+            enriched_meta.append(merged)
 
     ms = round((time.monotonic() - t0) * 1000)
     logger.info(
@@ -503,23 +528,27 @@ async def run_pipeline(
         failed=len(failed_items),
         ms=ms,
         preview_fast=preview_fast,
+        cached=from_cache,
     )
 
-    # 5. Cache the result (strip image bytes — they are per-request and must be re-cropped on hit)
-    cacheable = {
-        "items": [
-            {k: v for k, v in item.model_dump().items() if k not in ("image_base64", "processed_image")}
-            for item in processed_items
-        ]
-    }
-    await _cache_set(cache_key, cacheable)
+    if not from_cache:
+        # Cache the enriched detection metadata (never image bytes) so repeat
+        # scans skip every AI call but still get freshly generated images.
+        cacheable = {
+            "items": [
+                {k: v for k, v in merged.items()
+                 if k not in ("image_base64", "processed_image")}
+                for merged in enriched_meta
+            ]
+        }
+        await _cache_set(cache_key, cacheable)
 
     return VisionAnalyzeResponse(
         scan_id=scan_id,
         total_items_detected=len(processed_items),
         items=processed_items,
         processing_time_ms=ms,
-        cached=False,
+        cached=from_cache,
         failed_items=failed_items,
     )
 
@@ -599,7 +628,9 @@ async def run_pipeline_streaming(
     t0 = time.monotonic()
 
     # ── Stage 1: Compress ────────────────────────────────────────────────────
-    compressed, compressed_type = _compress_image(image_bytes, media_type)
+    compressed, compressed_type = await asyncio.to_thread(
+        _compress_image, image_bytes, media_type
+    )
     logger.info(
         "stream_pipeline_start",
         scan_id=scan_id,
@@ -613,11 +644,16 @@ async def run_pipeline_streaming(
 
     if cached_data:
         raw_items: list[dict[str, Any]] = cached_data.get("items", [])
+        for raw in raw_items:
+            raw.setdefault("detected_item_id", str(_uuid.uuid4()))
         yield _sse({
             "type": "items_detected",
             "count": len(raw_items),
             "cached": True,
-            "items": raw_items,
+            "items": [
+                {k: v for k, v in item.items() if k != _ENRICHED_KEY}
+                for item in raw_items
+            ],
         })
     else:
         # ── Stage 3: Detection ───────────────────────────────────────────────
@@ -674,7 +710,7 @@ async def run_pipeline_streaming(
         item_id = raw.get("item_id") or detected_item_id
         bbox = raw.get("bbox") or {}
         try:
-            crop = _crop_item(image_bytes, bbox)
+            crop = await asyncio.to_thread(_crop_item, image_bytes, bbox)
         except Exception as exc:
             logger.warning("stream_crop_failed", detected_item_id=detected_item_id, error=str(exc))
             crop = image_bytes
@@ -760,8 +796,10 @@ async def run_pipeline_streaming(
 
     # ── Stage 5: Cache metadata + emit complete ───────────────────────────────
     if not cached_data:
-        cacheable = {"items": [{k: v for k, v in i.items() if k != "image_base64"}
-                               for i in raw_items]}
+        cacheable = {"items": [
+            {k: v for k, v in i.items() if k not in ("image_base64", "processed_image")}
+            for i in raw_items
+        ]}
         await _cache_set(cache_key, cacheable)
 
     ms = round((time.monotonic() - t0) * 1000)

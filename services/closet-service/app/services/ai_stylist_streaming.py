@@ -53,6 +53,7 @@ from app.services.embedding_service import generate_text_embedding
 from app.services.fashion_rag_service import get_fashion_context_for_prompt
 from app.services.fashion_rules import build_fashion_rules_prompt_block
 from app.services.outfit_history_service import get_outfit_history_for_prompt
+from app.rag.query_builder import build_closet_rag_query
 from app.services.style_profile_context import load_merged_user_profile_for_ai
 
 logger = get_logger("ai_stylist_streaming")
@@ -270,11 +271,8 @@ async def stream_chat_message(
     weather_required = ctx.get("weather_required", False)
     mood = ctx.get("mood") or ""
 
-    rag_query = message
-    if occasion:
-        rag_query += f" occasion:{occasion}"
-    if mood:
-        rag_query += f" mood:{mood}"
+    rag_query = build_closet_rag_query(message, occasion=occasion, mood=mood)
+    weather_str = location or ""
 
     query_embedding = await generate_text_embedding(rag_query)
 
@@ -295,10 +293,18 @@ async def stream_chat_message(
         else _no_weather()
     )
     feedback_task = asyncio.create_task(
-        get_outfit_history_for_prompt(session, str(user_id), occasion, limit=5)
+        get_outfit_history_for_prompt(
+            session,
+            str(user_id),
+            occasion=occasion,
+            limit=5,
+            message=message,
+        )
     )
     knowledge_task = asyncio.create_task(
-        get_fashion_context_for_prompt(session, rag_query, limit=5)
+        get_fashion_context_for_prompt(
+            session, rag_query, limit=5, occasion=occasion, weather=weather_str
+        )
     )
 
     closet_items, user_profile, weather, feedback_text, knowledge_text = await asyncio.gather(

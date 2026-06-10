@@ -111,7 +111,7 @@ async def test_analyze_preview_does_not_create_closet_row(
     from app.api.v1.wardrobe.schemas.closet import VisionAnalysisItem, VisionAnalyzeResponse
     from app.api.v1.wardrobe.services import closet_preview_service
 
-    async def fake_run(_image_bytes: bytes, _content_type: str, scan_id: str) -> VisionAnalyzeResponse:
+    async def fake_run(_image_bytes: bytes, _content_type: str, scan_id: str, **_kw) -> VisionAnalyzeResponse:
         return VisionAnalyzeResponse(
             scan_id=scan_id,
             total_items_detected=1,
@@ -128,12 +128,11 @@ async def test_analyze_preview_does_not_create_closet_row(
             cached=False,
         )
 
+    async def fake_persist_upload(*_args, **_kwargs) -> str:
+        return "/uploads/preview_fixture.jpg"
+
     monkeypatch.setattr(closet_preview_service, "run_pipeline", fake_run)
-    monkeypatch.setattr(
-        closet_preview_service,
-        "persist_upload",
-        lambda *args, **kwargs: "/uploads/preview_fixture.jpg",
-    )
+    monkeypatch.setattr(closet_preview_service, "persist_upload", fake_persist_upload)
 
     list_before = await async_client.get("/api/v1/closet/", headers=auth_headers)
     assert list_before.json()["total"] == 0
@@ -163,7 +162,7 @@ async def test_confirm_preview_persists_closet_items(
     from app.api.v1.wardrobe.schemas.closet import VisionAnalysisItem, VisionAnalyzeResponse
     from app.api.v1.wardrobe.services import closet_preview_service
 
-    async def fake_run(_image_bytes: bytes, _content_type: str, scan_id: str) -> VisionAnalyzeResponse:
+    async def fake_run(_image_bytes: bytes, _content_type: str, scan_id: str, **_kw) -> VisionAnalyzeResponse:
         return VisionAnalyzeResponse(
             scan_id=scan_id,
             total_items_detected=1,
@@ -180,12 +179,11 @@ async def test_confirm_preview_persists_closet_items(
             cached=False,
         )
 
+    async def fake_persist_upload(*_args, **_kwargs) -> str:
+        return "/uploads/confirm_fixture.jpg"
+
     monkeypatch.setattr(closet_preview_service, "run_pipeline", fake_run)
-    monkeypatch.setattr(
-        closet_preview_service,
-        "persist_upload",
-        lambda *args, **kwargs: "/uploads/confirm_fixture.jpg",
-    )
+    monkeypatch.setattr(closet_preview_service, "persist_upload", fake_persist_upload)
 
     jpeg_buf = BytesIO()
     Image.new("RGB", (8, 8), color=(200, 200, 200)).save(jpeg_buf, format="JPEG")

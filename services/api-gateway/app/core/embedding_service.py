@@ -8,8 +8,11 @@ Provides:
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import uuid as _uuid
+from collections import OrderedDict
 from typing import Any, Type, TypeVar
 
 from langsmith import traceable
@@ -59,10 +62,68 @@ def _get_client() -> AsyncOpenAI:
 
 _EMBED_CHAR_LIMIT = 8000  # text-embedding-3-small token limit ≈ 8191 tokens; 8000 chars is a safe proxy
 
+# ── Embedding cache ───────────────────────────────────────────────────────────
+# Two tiers: an in-process LRU (free, per-worker) and Redis (cross-worker).
+# Chat and RAG paths frequently embed identical text (same message embedded for
+# closet search, memory retrieval, and history search) — caching removes the
+# repeated OpenAI round-trips entirely.
+
+_EMBED_CACHE_MAX = 512
+_EMBED_CACHE_TTL = 21_600  # 6h — embeddings for fixed model/text never go stale
+_embed_lru: OrderedDict[str, list[float]] = OrderedDict()
+
+
+def _embed_cache_key(text_value: str) -> str:
+    digest = hashlib.sha256(text_value.encode("utf-8")).hexdigest()[:32]
+    return f"embed:{settings.embedding_model}:{digest}"
+
+
+def _lru_get(key: str) -> list[float] | None:
+    vec = _embed_lru.get(key)
+    if vec is not None:
+        _embed_lru.move_to_end(key)
+    return vec
+
+
+def _lru_put(key: str, vec: list[float]) -> None:
+    _embed_lru[key] = vec
+    _embed_lru.move_to_end(key)
+    while len(_embed_lru) > _EMBED_CACHE_MAX:
+        _embed_lru.popitem(last=False)
+
+
+async def _redis_cache_get(key: str) -> list[float] | None:
+    try:
+        from app.core.redis import get_redis  # lazy: redis is optional at import time
+
+        redis = await get_redis()
+        raw = await redis.get(key)
+        if raw:
+            vec = json.loads(raw)
+            if isinstance(vec, list) and len(vec) == _EMBEDDING_DIM:
+                return vec
+    except Exception:
+        pass
+    return None
+
+
+async def _redis_cache_set(key: str, vec: list[float]) -> None:
+    try:
+        from app.core.redis import get_redis
+
+        redis = await get_redis()
+        await redis.set(key, json.dumps(vec), ex=_EMBED_CACHE_TTL)
+    except Exception:
+        pass
+
 
 @traceable(name="rag_embed_text", run_type="embedding")
 async def generate_text_embedding(text_input: str) -> list[float] | None:
-    """Return a 1536-dim embedding or None when OpenAI is unavailable."""
+    """Return a 1536-dim embedding or None when OpenAI is unavailable.
+
+    Results are cached (in-process LRU + Redis) keyed on the model + text hash,
+    so repeated queries cost no API calls.
+    """
     if not settings.openai_api_key:
         return None
     stripped = text_input.strip()
@@ -75,6 +136,16 @@ async def generate_text_embedding(text_input: str) -> list[float] | None:
             truncated_to=_EMBED_CHAR_LIMIT,
         )
         stripped = stripped[:_EMBED_CHAR_LIMIT]
+
+    cache_key = _embed_cache_key(stripped)
+    cached = _lru_get(cache_key)
+    if cached is not None:
+        return cached
+    cached = await _redis_cache_get(cache_key)
+    if cached is not None:
+        _lru_put(cache_key, cached)
+        return cached
+
     from app.core.metrics import record_ai_tokens, track_ai
 
     try:
@@ -86,7 +157,10 @@ async def generate_text_embedding(text_input: str) -> list[float] | None:
         usage = getattr(response, "usage", None)
         if usage is not None:
             record_ai_tokens(settings.embedding_model, prompt=getattr(usage, "prompt_tokens", 0) or 0)
-        return response.data[0].embedding
+        embedding = response.data[0].embedding
+        _lru_put(cache_key, embedding)
+        await _redis_cache_set(cache_key, embedding)
+        return embedding
     except Exception as exc:
         logger.warning("embedding_failed", error=str(exc))
         return None
@@ -283,7 +357,14 @@ async def pgvector_cosine_search(
         async with session.begin_nested():
             result = await session.execute(sql, params)
             rows = result.mappings().all()
-        return [dict(r) for r in rows]
+        # Drop the raw vector (1536 floats per row) — no caller uses it, and it
+        # otherwise bloats every payload built from these rows.
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            d = dict(r)
+            d.pop("embedding", None)
+            out.append(d)
+        return out
     except Exception as exc:
         logger.warning("pgvector_search_failed", table=table, error=str(exc))
         return []

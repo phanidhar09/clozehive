@@ -25,6 +25,7 @@ from app.services.embedding_service import (
     _resolve,
     _resolve_list,
 )
+from app.rag.query_builder import build_fashion_knowledge_query
 from app.services.similarity_service import generate_item_embedding
 
 logger = get_logger("closet_similarity_service")
@@ -275,20 +276,28 @@ async def find_similar_by_text(
     limit: int = _DEFAULT_LIMIT,
 ) -> list[dict[str, Any]]:
     """Find closet items matching a text description."""
-    embedding = await generate_text_embedding(query)
+    enriched = build_fashion_knowledge_query(query)
+    embedding = await generate_text_embedding(enriched)
     if not embedding:
         return []
 
+    fetch_limit = min(max(limit * 3, limit), 20)
     rows = await pgvector_cosine_search(
         session,
         table="closet_items",
         embedding=embedding,
         user_id=user_id,
-        limit=limit,
-        threshold=0.60,
+        limit=fetch_limit,
+        threshold=0.55,
         filter_archived=True,
     )
-    return _format_similarity_results(rows, {})
+    if not rows:
+        return []
+
+    query_source = _normalise_source({"description": query, "category": ""})
+    reranked = _hybrid_rerank(rows, query_source, boost_same_category=0.03, penalise_cross_category=0.08)
+    filtered = [r for r in reranked if r["similarity_score"] >= 0.58]
+    return _format_similarity_results(filtered[:limit], {})
 
 
 async def find_similar_by_image_url(

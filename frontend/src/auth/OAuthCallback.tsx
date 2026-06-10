@@ -94,7 +94,9 @@ export default function OAuthCallback() {
         navigate('/dashboard', { replace: true, state: { fromLogin: true } })
       })
       .catch(err => {
-        console.error('[OAuth] token exchange failed', err)
+        // Log only the message — the raw axios error carries the full response
+        // body and request config, which can include tokens.
+        console.error('[OAuth] token exchange failed:', err instanceof Error ? err.message : String(err))
         tokenStorage.clear()
         navigate(`/login?${oauthFailureQuery(err)}`, { replace: true })
       })

@@ -158,6 +158,10 @@ class Settings(BaseSettings):
     # Base URL of closet-service for internal calls (user-data purge on account deletion).
     closet_service_url: str = "http://closet-service:8003"
     openweather_api_key: str = ""
+    # Tavily web search — powers live destination dress guidelines (and later
+    # festival/venue lookups). Empty key disables the web-intelligence layer;
+    # every feature degrades to its static/LLM-infer fallback.
+    tavily_api_key: str = ""
     ai_cache_enabled: bool = True
     ai_cache_ttl: int = 600
     # When True, heavy post-write work (closet item embeddings) is handed to the
@@ -239,6 +243,23 @@ class Settings(BaseSettings):
     google_client_secret: str = ""
     google_redirect_uri: str = "http://localhost:8000/api/v1/auth/google/callback"
     frontend_url: str = "http://localhost:3000"
+
+    # ── Email delivery ────────────────────────────────────────────────────────
+    # Provider for transactional email (password reset, etc.):
+    #   • console — log instead of sending (default; local dev without Docker).
+    #   • smtp    — SMTP relay. In Docker dev this is Mailpit (UI at :8025),
+    #               which catches all mail so nothing ever leaves your machine.
+    #   • resend  — Resend HTTP API (production). Requires RESEND_API_KEY and a
+    #               verified sending domain for EMAIL_FROM.
+    email_provider: str = "console"
+    email_from: str = "Clozehive <no-reply@clozehive.local>"
+    smtp_host: str = "localhost"
+    smtp_port: int = 1025
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_use_tls: bool = False     # implicit TLS (port 465)
+    smtp_starttls: bool = False    # STARTTLS upgrade (port 587)
+    resend_api_key: str = ""
 
     # ── Firebase / Firestore ──────────────────────────────────────────────────
     # Set FIREBASE_CREDENTIALS_JSON to the full contents of your service account JSON,
@@ -350,6 +371,19 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "INTERNAL_SERVICE_TOKEN must be set in production. "
                     "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
+                )
+            # Email: "console" silently breaks password reset for real users; a
+            # misconfigured resend key fails every send. Warn loudly rather than
+            # crash so a missing email key can't take the whole API down.
+            if self.email_provider == "console":
+                _CFG_LOG.warning(
+                    "EMAIL_PROVIDER=console in production — password-reset emails "
+                    "will NOT be delivered. Set EMAIL_PROVIDER=resend + RESEND_API_KEY."
+                )
+            elif self.email_provider == "resend" and not self.resend_api_key:
+                _CFG_LOG.warning(
+                    "EMAIL_PROVIDER=resend but RESEND_API_KEY is empty — all email "
+                    "sends will fail."
                 )
             # The refresh-token cookie must be HTTPS-only in production, otherwise
             # a network attacker on an http:// page can intercept it.

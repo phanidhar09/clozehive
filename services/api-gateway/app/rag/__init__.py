@@ -2,9 +2,11 @@
 RAG (Retrieval-Augmented Generation) module for CLOZEHIVE.
 
 Sub-modules:
-    vector_store  — Abstract VectorStore protocol, FAISSVectorStore, PGVectorStore.
-    retriever     — High-level retrieval orchestration for each RAG use case.
-    schemas       — Pydantic request/response models for /api/v1/rag/* endpoints.
+    vector_store   — Abstract VectorStore protocol, FAISSVectorStore, PGVectorStore.
+    retriever      — High-level retrieval orchestration for each RAG use case.
+    query_builder  — Consistent natural-language query construction for embeddings.
+    rerank         — Metadata-aware post-retrieval score adjustment.
+    schemas        — Pydantic request/response models for /api/v1/rag/* endpoints.
 
 Design principles:
     - All retrieval is user-scoped: user_id is always checked at the store layer.
