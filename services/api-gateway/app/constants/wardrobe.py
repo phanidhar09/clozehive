@@ -34,12 +34,14 @@ class Occasion(StrEnum):
 
 DEFAULT_CATEGORY = ClosetCategory.UNCATEGORISED
 
-CLOSET_SECTIONS = frozenset({
-    "clothing",
-    "accessories",
-    "shoes",
-    "outerwear",
-    "dresses",
-    "inners",
-    "special_occasion",
-})
+CLOSET_SECTIONS = frozenset(
+    {
+        "clothing",
+        "accessories",
+        "shoes",
+        "outerwear",
+        "dresses",
+        "inners",
+        "special_occasion",
+    }
+)

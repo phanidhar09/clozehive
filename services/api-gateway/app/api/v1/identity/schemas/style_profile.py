@@ -352,5 +352,3 @@ class OnboardingSubmitBody(BaseModel):
     skin_tone: str | None = Field(None, max_length=32)
     undertone: UndertoneValue | None = None
     climate_preferences: list[str] = Field(default_factory=list)
-
-

@@ -42,18 +42,18 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
-from app.core.logging import get_logger
-from app.core.redis import get_redis
 from app.api.v1.wardrobe.services import vision_service
 from app.api.v1.wardrobe.services.background_removal_service import remove_background
+from app.core.logging import get_logger
+from app.core.redis import get_redis
 from app.core.upload_service import persist_upload, read_upload_bytes
 
 logger = get_logger("bulk_ingest_service")
 
-_JOB_TTL = 86_400        # 24 h — enough for any review session
+_JOB_TTL = 86_400  # 24 h — enough for any review session
 _ITEM_REVIEW_TTL = 86_400
 
 _JOB_KEY = "clozehive:ingest:{}"
@@ -62,8 +62,9 @@ _ITEMS_KEY = "clozehive:ingest:{}:items"
 
 # ── Pydantic-free data models (dicts serialised to/from Redis JSON) ───────────
 
+
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def make_job(
@@ -74,7 +75,7 @@ def make_job(
     return {
         "job_id": job_id,
         "user_id": user_id,
-        "status": "processing",          # pending | processing | completed | failed
+        "status": "processing",  # pending | processing | completed | failed
         "total_images": total_images,
         "processed_images": 0,
         "items_detected": 0,
@@ -115,7 +116,7 @@ def make_review_item(
         "brand": vision.get("brand") or "",
         "confidence_score": float(vision.get("confidence_score") or vision.get("confidence") or 0.0),
         # ── Review state ──────────────────────────────────────────────────────
-        "status": "pending_review",      # pending_review | approved | rejected
+        "status": "pending_review",  # pending_review | approved | rejected
         "needs_review": float(vision.get("confidence_score") or 0.0) < 0.70,
         "warnings": list(vision.get("warnings") or []),
     }
@@ -153,6 +154,7 @@ def _normalise_category(raw: Any) -> str:
 
 # ── Redis helpers ──────────────────────────────────────────────────────────────
 
+
 async def _get_job(redis: Any, job_id: str) -> dict[str, Any] | None:
     raw = await redis.get(_JOB_KEY.format(job_id))
     return json.loads(raw) if raw else None
@@ -181,6 +183,7 @@ async def _set_items(redis: Any, job_id: str, items: list[dict[str, Any]]) -> No
 
 
 # ── Job lifecycle ──────────────────────────────────────────────────────────────
+
 
 async def create_job(user_id: str, total_images: int) -> str:
     """
@@ -229,10 +232,19 @@ async def update_item(
     for i, item in enumerate(items):
         if item["temp_item_id"] == item_id:
             allowed_keys = {
-                "name", "category", "subcategory", "primary_color",
-                "secondary_colors", "pattern", "material",
-                "occasion_tags", "season_tags", "style_tags", "fit",
-                "brand", "description",
+                "name",
+                "category",
+                "subcategory",
+                "primary_color",
+                "secondary_colors",
+                "pattern",
+                "material",
+                "occasion_tags",
+                "season_tags",
+                "style_tags",
+                "fit",
+                "brand",
+                "description",
             }
             for k, v in updates.items():
                 if k in allowed_keys:
@@ -258,6 +270,7 @@ async def reject_item(job_id: str, item_id: str, user_id: str) -> bool:
 
 
 # ── Background processing pipeline ────────────────────────────────────────────
+
 
 async def process_job(
     job_id: str,
@@ -287,7 +300,6 @@ async def process_job(
     for idx, info in enumerate(file_infos):
         filename = info.get("filename") or f"image_{idx}"
         original_url = info["original_url"]
-        file_path = info["file_path"]
         content_type = info.get("content_type", "image/jpeg")
 
         logger.info(

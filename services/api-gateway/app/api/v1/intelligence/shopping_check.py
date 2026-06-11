@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, File, UploadFile, status, Query
+from fastapi import APIRouter, BackgroundTasks, File, Query, UploadFile, status
 from pydantic import BaseModel
 
+from app.api.v1.intelligence.services import shopping_check_service
 from app.core.deps import CurrentUser, DbSession
 from app.core.exceptions import NotFoundError
-from app.api.v1.intelligence.services import shopping_check_service
-from app.core.upload_service import delete_upload, read_validated_image, persist_upload
+from app.core.upload_service import delete_upload, persist_upload, read_validated_image
 
 router = APIRouter(prefix="/shopping", tags=["Shopping Check"])
 
@@ -109,6 +109,7 @@ async def delete_shopping_check(
 
 
 # ── Closet → Shopping ─────────────────────────────────────────────────────────
+
 
 class ClosetMatchRequest(BaseModel):
     closet_item_id: str

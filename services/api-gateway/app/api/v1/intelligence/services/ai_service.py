@@ -95,7 +95,7 @@ async def stream_chat(
             return
         except RateLimitError as exc:
             if attempt < _MAX_RETRIES:
-                delay = _RETRY_BASE_DELAY * (2 ** attempt)
+                delay = _RETRY_BASE_DELAY * (2**attempt)
                 logger.warning("openai_rate_limited_retry", attempt=attempt + 1, delay=delay)
                 await asyncio.sleep(delay)
                 continue
@@ -104,7 +104,7 @@ async def stream_chat(
             return
         except APIError as exc:
             if attempt < _MAX_RETRIES and getattr(exc, "status_code", 0) >= 500:
-                delay = _RETRY_BASE_DELAY * (2 ** attempt)
+                delay = _RETRY_BASE_DELAY * (2**attempt)
                 logger.warning("openai_server_error_retry", attempt=attempt + 1, delay=delay, status=exc.status_code)
                 await asyncio.sleep(delay)
                 continue

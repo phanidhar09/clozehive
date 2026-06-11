@@ -12,35 +12,43 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from starlette.responses import Response as StarletteResponse
 from pydantic import ValidationError
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+from starlette.responses import Response as StarletteResponse
 
-from app.api.v1.router import api_router
+from app.api.v1.intelligence.services import ai_client
 from app.api.v1.platform.health import health_payload, live_payload, ready_payload
+from app.api.v1.router import api_router
+from app.core import cache_service
 from app.core.config import get_settings
 from app.core.error_response import json_error
 from app.core.exceptions import AppError, app_error_handler, http_exception_handler, unhandled_error_handler
 from app.core.logging import get_logger, setup_logging
 from app.core.rate_limit import limiter
-from app.db.session import connect as db_connect, disconnect as db_disconnect
+from app.db.session import connect as db_connect
+from app.db.session import disconnect as db_disconnect
 from app.middleware.etag import ETagMiddleware
 from app.middleware.logging import AccessLogMiddleware
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
-from app.api.v1.intelligence.services import ai_client
-from app.core import cache_service
 
 # Non-MVP: Firestore is optional — import conditionally
 try:
     from app.services.firestore.firestore_client import (
         close_firestore as _close_firestore,
+    )
+    from app.services.firestore.firestore_client import (
         init_firestore as _init_firestore,
     )
 except ImportError:
-    _close_firestore = lambda: None  # type: ignore
-    _init_firestore = lambda: None  # type: ignore
+
+    def _close_firestore() -> None:  # type: ignore
+        return None
+
+    def _init_firestore() -> None:  # type: ignore
+        return None
+
 
 settings = get_settings()
 logger = get_logger("main")
@@ -53,6 +61,7 @@ _startup_migrations_ok: bool = True
 _startup_migrations_error: str = ""
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
+
 
 async def rate_limit_handler(request: Request, _exc: RateLimitExceeded) -> JSONResponse:
     return json_error(
@@ -67,10 +76,12 @@ def _validation_errors(errors: list[dict]) -> list[dict[str, str]]:
     clean_errors = []
     for error in errors:
         loc = [str(part) for part in error.get("loc", []) if part not in {"body", "query", "path"}]
-        clean_errors.append({
-            "field": ".".join(loc) or "request",
-            "message": str(error.get("msg", "Invalid value")),
-        })
+        clean_errors.append(
+            {
+                "field": ".".join(loc) or "request",
+                "message": str(error.get("msg", "Invalid value")),
+            }
+        )
     return clean_errors
 
 
@@ -82,6 +93,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         status_code=422,
         extra={"errors": _validation_errors(exc.errors())},
     )
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -109,6 +121,7 @@ async def lifespan(app: FastAPI):
     if settings.run_migrations_on_startup:
         logger.info("startup_migrations_begin")
         from app.core.db_migrate import run_migrations_on_startup as _apply_migrations
+
         _startup_migrations_ok = await _apply_migrations(
             raise_on_error=settings.fail_on_startup_migration_error,
         )
@@ -136,7 +149,9 @@ async def lifespan(app: FastAPI):
     # Account-deletion saga: background reconciliation loop retries any pending
     # cross-service purges (survives restarts — the outbox lives in Postgres).
     import asyncio as _asyncio
+
     from app.api.v1.identity.services.account_purge_service import reconcile_loop
+
     app.state.purge_reconcile_task = _asyncio.create_task(reconcile_loop())
 
     logger.info("api_gateway_ready", port=settings.port)
@@ -144,6 +159,7 @@ async def lifespan(app: FastAPI):
     if settings.sentry_dsn:
         try:
             import sentry_sdk
+
             sentry_sdk.init(
                 dsn=settings.sentry_dsn,
                 environment=settings.environment,
@@ -163,7 +179,7 @@ async def lifespan(app: FastAPI):
         logger.warning(
             "sentry_not_configured",
             msg="SENTRY_DSN is unset — production errors will not be captured in Sentry. "
-                "Set SENTRY_DSN to enable error observability.",
+            "Set SENTRY_DSN to enable error observability.",
         )
 
     yield
@@ -172,9 +188,11 @@ async def lifespan(app: FastAPI):
     # before we tear down DB/Redis connections and cut in-flight requests.
     if settings.shutdown_drain_seconds > 0:
         from app.api.v1.platform.health import begin_draining
+
         begin_draining()
         logger.info("draining", seconds=settings.shutdown_drain_seconds)
         import asyncio
+
         await asyncio.sleep(settings.shutdown_drain_seconds)
 
     task = getattr(app.state, "purge_reconcile_task", None)
@@ -186,6 +204,7 @@ async def lifespan(app: FastAPI):
     await ai_client.close_client()
     await _close_firestore()
     from app.core.task_queue import close_arq_pool
+
     await close_arq_pool()
     logger.info("shutdown_complete")
 
@@ -206,10 +225,13 @@ class CachedStaticFiles(StaticFiles):
 
 # ── App factory ───────────────────────────────────────────────────────────────
 
+
 def create_app() -> FastAPI:
     cors_origins = list(dict.fromkeys(settings.origins_list))
     if not cors_origins:
-        logger.warning("cors_no_origins_configured", msg="ALLOWED_ORIGINS is empty — browser clients cannot call the API")
+        logger.warning(
+            "cors_no_origins_configured", msg="ALLOWED_ORIGINS is empty — browser clients cannot call the API"
+        )
 
     app = FastAPI(
         title=settings.app_name,
@@ -272,12 +294,14 @@ def create_app() -> FastAPI:
 
     # Internal service-to-service routes (token-protected, outside /api/v1).
     from app.api.internal import router as internal_router
+
     app.include_router(internal_router)
 
     # Observability: Prometheus /metrics (gated by ENABLE_METRICS) and
     # OpenTelemetry distributed tracing (gated by OTEL_ENABLED).
     from app.core.metrics import setup_metrics
     from app.core.tracing import setup_tracing
+
     setup_metrics(app)
     setup_tracing(app)
 
@@ -308,6 +332,7 @@ app = create_app()
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(
         "app.main:app",
         host=settings.host,

@@ -29,7 +29,7 @@ settings = get_settings()
 _initialized = False
 
 
-def setup_tracing(app: "FastAPI") -> None:
+def setup_tracing(app: FastAPI) -> None:
     """Initialise OTel tracing and instrument the app. No-op when disabled."""
     global _initialized
     if not settings.otel_enabled:
@@ -40,12 +40,12 @@ def setup_tracing(app: "FastAPI") -> None:
     try:
         from opentelemetry import trace
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+        from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
         from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
         from opentelemetry.sdk.trace.sampling import TraceIdRatioBased
-        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-        from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
     except ImportError as exc:
         logger.warning("tracing_unavailable", reason=f"opentelemetry packages missing: {exc}")
         return
@@ -62,9 +62,7 @@ def setup_tracing(app: "FastAPI") -> None:
 
         # Instrument frameworks/clients. Health/metrics excluded from HTTP spans
         # to avoid trace noise from probes and scrapes.
-        FastAPIInstrumentor.instrument_app(
-            app, excluded_urls="/live,/health,/ready,/metrics"
-        )
+        FastAPIInstrumentor.instrument_app(app, excluded_urls="/live,/health,/ready,/metrics")
         HTTPXClientInstrumentor().instrument()
         _instrument_db_and_redis()
 

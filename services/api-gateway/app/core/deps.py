@@ -4,10 +4,9 @@ FastAPI dependency injection — reusable dependencies for all routes.
 
 from __future__ import annotations
 
-from typing import Annotated, Optional
-from uuid import UUID
+from typing import Annotated
 
-from fastapi import Depends, Header, status
+from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,7 +28,7 @@ _bearer = HTTPBearer(auto_error=False)
 
 
 async def get_current_user_id(
-    credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(_bearer)],
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
 ) -> str:
     """
     Validate the JWT Bearer token and return the user_id (sub claim).
@@ -48,7 +47,7 @@ async def get_current_user_id(
 
 async def get_current_admin(
     user_id: Annotated[str, Depends(get_current_user_id)],
-    credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(_bearer)],
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
 ) -> str:
     """Like get_current_user_id but also checks role == 'admin'."""
     if credentials is None:

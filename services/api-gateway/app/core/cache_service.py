@@ -13,7 +13,7 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import date, datetime
 from enum import Enum
-from typing import Optional, Any
+from typing import Any
 
 import redis.asyncio as aioredis
 
@@ -145,6 +145,7 @@ async def delete(key: str) -> None:
 
 # ── Single-flight lock + stale-while-revalidate compute ───────────────────────
 
+
 async def acquire_lock(key: str, ttl: int = 10) -> bool:
     """Best-effort single-flight lock (SET NX EX). True = caller owns the lock.
 
@@ -259,6 +260,7 @@ async def warm(key: str, value: Any, ttl: int, *, swr_seconds: int = 0) -> None:
 # that must survive memory pressure: OAuth CSRF state, OAuth code→token exchange,
 # and any other single-use security token kept in Redis.
 
+
 async def state_get(key: str) -> Any | None:
     try:
         client = await get_state_redis()
@@ -359,6 +361,7 @@ async def close() -> None:
 
 # ── Named key helpers ─────────────────────────────────────────────────────────
 
+
 def user_profile_key(user_id: str) -> str:
     return namespaced_key("profile", user_id)
 
@@ -368,6 +371,7 @@ def closet_key(user_id: str) -> str:
 
 
 # ── Closet list cache key helpers ─────────────────────────────────────────────
+
 
 def _normalize_filter_value(value: Any) -> Any:
     """Recursively normalise a single filter value to a stable, JSON-serialisable form."""
@@ -462,6 +466,7 @@ def websocket_broadcast_channel() -> str:
 
 # ── AI response cache helpers ─────────────────────────────────────────────────
 
+
 def build_closet_hash(closet_items: list[dict[str, Any]]) -> str:
     ids = sorted(str(item.get("id", "")) for item in closet_items)
     return hashlib.sha256(json.dumps(ids, separators=(",", ":")).encode("utf-8")).hexdigest()
@@ -478,17 +483,13 @@ def build_profile_hash(profile: dict | None) -> str:
         "favorite_colors": sorted(profile.get("favorite_colors") or []),
         "style_preferences": sorted(profile.get("style_preferences") or []),
     }
-    return hashlib.sha256(
-        json.dumps(fields, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()[:16]
+    return hashlib.sha256(json.dumps(fields, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()[:16]
 
 
 def build_cache_key(user_id: str, messages: list, closet_hash: str, profile_hash: str = "") -> str:
     recent = messages[-3:]
     messages_json = json.dumps(recent, sort_keys=True, separators=(",", ":"), default=str)
-    digest = hashlib.sha256(
-        f"{user_id}:{messages_json}:{closet_hash}:{profile_hash}".encode("utf-8")
-    ).hexdigest()
+    digest = hashlib.sha256(f"{user_id}:{messages_json}:{closet_hash}:{profile_hash}".encode()).hexdigest()
     return f"ai_cache:{user_id}:{digest}"
 
 

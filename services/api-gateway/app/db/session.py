@@ -107,6 +107,7 @@ ReadSessionLocal = async_sessionmaker(
 
 # ── FastAPI dependency ────────────────────────────────────────────────────────
 
+
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
     """Yield a request-scoped session; commit on success, rollback on errors."""
     async with AsyncSessionLocal() as session:
@@ -137,6 +138,7 @@ async def get_read_session() -> AsyncGenerator[AsyncSession, None]:
 
 
 # ── Lifecycle helpers ─────────────────────────────────────────────────────────
+
 
 async def connect() -> None:
     """Verify the database is reachable on startup."""

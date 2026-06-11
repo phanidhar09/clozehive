@@ -185,6 +185,7 @@ bbox, the most specific color name, and a material that matches the visible text
 
 # ── JSON cleaning ─────────────────────────────────────────────────────────────
 
+
 def _clean_json(text: str) -> str:
     text = text.strip()
     match = re.search(r"```(?:json)?\s*([\s\S]+?)\s*```", text)
@@ -194,6 +195,7 @@ def _clean_json(text: str) -> str:
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
 
 def is_available() -> bool:
     """True only when GEMINI_API_KEY looks like a real developer key (.env placeholders skipped)."""
@@ -222,9 +224,9 @@ async def detect_and_classify(image_bytes: bytes, media_type: str) -> dict[str, 
     client = _get_client()
 
     # Gemini accepts inline image bytes
-    effective_mime = media_type if media_type in (
-        "image/jpeg", "image/png", "image/webp", "image/gif"
-    ) else "image/jpeg"
+    effective_mime = (
+        media_type if media_type in ("image/jpeg", "image/png", "image/webp", "image/gif") else "image/jpeg"
+    )
 
     try:
         response = await client.aio.models.generate_content(

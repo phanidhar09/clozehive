@@ -10,11 +10,11 @@ import uuid
 from collections import Counter
 from typing import Any
 
-from sqlalchemy import select, desc
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
-from app.models.rag import OutfitHistory, PackingMemory, PurchaseGap
+from app.models.rag import PurchaseGap
 
 logger = get_logger("purchase_gap_service")
 
@@ -22,7 +22,12 @@ logger = get_logger("purchase_gap_service")
 # ── Gap detection helpers ─────────────────────────────────────────────────────
 
 _ESSENTIAL_CATEGORIES = {
-    "tops", "bottoms", "shoes", "outerwear", "accessories", "dresses",
+    "tops",
+    "bottoms",
+    "shoes",
+    "outerwear",
+    "accessories",
+    "dresses",
 }
 
 _OCCASION_ESSENTIALS: dict[str, list[str]] = {
@@ -46,32 +51,38 @@ def _detect_closet_gaps(
 
     for cat in _ESSENTIAL_CATEGORIES:
         if category_counts.get(cat, 0) == 0:
-            gaps.append({
-                "gap_type": "structural",
-                "missing_category": cat,
-                "reason": f"You have no {cat} in your closet — this is an essential wardrobe category.",
-                "priority_score": 0.85 if cat in ("tops", "bottoms", "shoes") else 0.60,
-                "suggested_attributes": {"occasion": "versatile", "season": "all-season"},
-            })
+            gaps.append(
+                {
+                    "gap_type": "structural",
+                    "missing_category": cat,
+                    "reason": f"You have no {cat} in your closet — this is an essential wardrobe category.",
+                    "priority_score": 0.85 if cat in ("tops", "bottoms", "shoes") else 0.60,
+                    "suggested_attributes": {"occasion": "versatile", "season": "all-season"},
+                }
+            )
 
     tops = category_counts.get("tops", 0)
     bottoms = category_counts.get("bottoms", 0) + category_counts.get("dresses", 0)
     if tops > 0 and bottoms > 0 and tops > bottoms * 2:
-        gaps.append({
-            "gap_type": "proportion",
-            "missing_category": "bottoms",
-            "reason": f"You have {tops} tops but only {bottoms} bottoms/dresses — balance your wardrobe.",
-            "priority_score": 0.70,
-            "suggested_attributes": {"color": "neutral", "occasion": "versatile"},
-        })
+        gaps.append(
+            {
+                "gap_type": "proportion",
+                "missing_category": "bottoms",
+                "reason": f"You have {tops} tops but only {bottoms} bottoms/dresses — balance your wardrobe.",
+                "priority_score": 0.70,
+                "suggested_attributes": {"color": "neutral", "occasion": "versatile"},
+            }
+        )
     if bottoms > tops * 2 and tops > 0:
-        gaps.append({
-            "gap_type": "proportion",
-            "missing_category": "tops",
-            "reason": f"You have {bottoms} bottoms but only {tops} tops — add more tops to unlock more outfit combinations.",
-            "priority_score": 0.70,
-            "suggested_attributes": {"color": "neutral", "season": "all-season"},
-        })
+        gaps.append(
+            {
+                "gap_type": "proportion",
+                "missing_category": "tops",
+                "reason": f"You have {bottoms} bottoms but only {tops} tops — add more tops to unlock more outfit combinations.",
+                "priority_score": 0.70,
+                "suggested_attributes": {"color": "neutral", "season": "all-season"},
+            }
+        )
 
     return gaps
 
@@ -91,14 +102,16 @@ def _detect_gaps_from_missing_items(
         if key in seen:
             continue
         seen.add(key)
-        gaps.append({
-            "gap_type": "trip_packing",
-            "missing_category": cat,
-            "reason": item.get("reason") or f"Missing for {source}",
-            "priority_score": 0.78,
-            "source_context": source_context,
-            "suggested_attributes": {"occasion": "travel"},
-        })
+        gaps.append(
+            {
+                "gap_type": "trip_packing",
+                "missing_category": cat,
+                "reason": item.get("reason") or f"Missing for {source}",
+                "priority_score": 0.78,
+                "source_context": source_context,
+                "suggested_attributes": {"occasion": "travel"},
+            }
+        )
     return gaps
 
 
@@ -129,15 +142,17 @@ async def detect_and_save_gaps(
 
     if outfit_missing_pieces:
         for piece in outfit_missing_pieces:
-            all_gaps.append({
-                "gap_type": "outfit",
-                "missing_category": piece.lower(),
-                "missing_occasion": occasion,
-                "reason": f"Missing {piece} to complete your {occasion or 'outfit'} look.",
-                "priority_score": 0.72,
-                "source_context": {"occasion": occasion},
-                "suggested_attributes": {"occasion": occasion or "versatile"},
-            })
+            all_gaps.append(
+                {
+                    "gap_type": "outfit",
+                    "missing_category": piece.lower(),
+                    "missing_occasion": occasion,
+                    "reason": f"Missing {piece} to complete your {occasion or 'outfit'} look.",
+                    "priority_score": 0.72,
+                    "source_context": {"occasion": occasion},
+                    "suggested_attributes": {"occasion": occasion or "versatile"},
+                }
+            )
 
     saved: list[PurchaseGap] = []
     for gap in all_gaps:
@@ -251,7 +266,5 @@ async def get_gap_summary_for_prompt(
         return ""
     lines = ["[Wardrobe Gaps — items to consider purchasing]"]
     for g in gaps:
-        lines.append(
-            f"• Missing {g['missing_category']} ({g['gap_type']}): {g['reason'][:120]}"
-        )
+        lines.append(f"• Missing {g['missing_category']} ({g['gap_type']}): {g['reason'][:120]}")
     return "\n".join(lines)

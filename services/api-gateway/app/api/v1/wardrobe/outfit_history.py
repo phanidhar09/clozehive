@@ -5,9 +5,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Query, status
 from pydantic import BaseModel
 
+from app.api.v1.wardrobe.services import outfit_history_service
 from app.core.deps import CurrentUser, DbSession
 from app.core.exceptions import NotFoundError
-from app.api.v1.wardrobe.services import outfit_history_service
 
 router = APIRouter(prefix="/outfits/history", tags=["Outfit History"])
 
@@ -26,9 +26,7 @@ async def list_outfit_history(
     offset: int = Query(0, ge=0),
 ):
     """List the user's outfit history, newest first."""
-    records = await outfit_history_service.list_outfit_history(
-        session, user_id, limit=limit, offset=offset
-    )
+    records = await outfit_history_service.list_outfit_history(session, user_id, limit=limit, offset=offset)
     return {"count": len(records), "results": records}
 
 
@@ -84,8 +82,6 @@ async def delete_outfit_history(
     session: DbSession,
 ):
     """Permanently delete a past outfit recommendation from the user's history."""
-    ok = await outfit_history_service.delete_outfit_history(
-        session, history_id=history_id, user_id=user_id
-    )
+    ok = await outfit_history_service.delete_outfit_history(session, history_id=history_id, user_id=user_id)
     if not ok:
         raise NotFoundError("Outfit history record not found")

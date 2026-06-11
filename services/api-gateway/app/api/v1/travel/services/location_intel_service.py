@@ -132,8 +132,7 @@ _LOCATION_PROFILES: dict[str, dict[str, Any]] = {
         "seasonal_note": "Hot summers, pleasant winters, modest monsoon.",
         "modesty": "moderate",
         "formality_baseline": "smart casual",
-        "cultural_notes": "Cover up at Charminar, mosques, and temples; modest dress respected "
-        "in the old city.",
+        "cultural_notes": "Cover up at Charminar, mosques, and temples; modest dress respected in the old city.",
         "local_vibe": "Heritage-rich, modest-modern blend.",
         "fabric_tips": "Breathable cottons, a light scarf.",
         "avoid": "Revealing outfits in the old city and religious sites.",
@@ -143,8 +142,7 @@ _LOCATION_PROFILES: dict[str, dict[str, Any]] = {
         "seasonal_note": "Very hot summers; pleasant winters.",
         "modesty": "conservative",
         "formality_baseline": "modest, simple",
-        "cultural_notes": "Sacred city — dress conservatively at ghats and temples; cover shoulders "
-        "and knees.",
+        "cultural_notes": "Sacred city — dress conservatively at ghats and temples; cover shoulders and knees.",
         "local_vibe": "Spiritual, understated.",
         "fabric_tips": "Loose cotton, a scarf, slip-on shoes for temple visits.",
         "avoid": "Shorts, tank tops, and bold revealing wear.",
@@ -388,6 +386,7 @@ def build_location_context_block(name: str, *, mode: Mode = "travel") -> str:
 
 
 # ── Live dress guidelines (Phase 2 — Tavily-backed middle tier) ───────────────
+
 
 def _mode_texts(mode: Mode) -> tuple[str, str]:
     """(header, constraint) for the given mode — mirrors the sync builder."""

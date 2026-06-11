@@ -5,16 +5,11 @@ Handles cache invalidation, access control, wear-log, and file upload.
 
 from __future__ import annotations
 
-from typing import Optional
-
 from datetime import date
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
-from app.core.exceptions import ForbiddenError, NotFoundError
-from app.core.logging import get_logger
 from app.api.v1.wardrobe.repositories.closet_repo import ClosetRepository
 from app.api.v1.wardrobe.schemas.closet import (
     ClosetItemCreate,
@@ -23,6 +18,9 @@ from app.api.v1.wardrobe.schemas.closet import (
     ClosetListResponse,
 )
 from app.core import cache_service
+from app.core.config import get_settings
+from app.core.exceptions import NotFoundError
+from app.core.logging import get_logger
 from app.core.upload_service import signed_url_for_stored
 
 logger = get_logger("closet_service")
@@ -51,9 +49,9 @@ class ClosetService:
         self,
         user_id: UUID,
         *,
-        section: Optional[str] = None,
-        category: Optional[str] = None,
-        season: Optional[str] = None,
+        section: str | None = None,
+        category: str | None = None,
+        season: str | None = None,
         page: int = 1,
         per_page: int = 50,
     ) -> ClosetListResponse:
@@ -92,9 +90,7 @@ class ClosetService:
         logger.info("closet_item_created", user_id=str(user_id), item_id=str(item.id))
         return _to_response(item)
 
-    async def update_item(
-        self, item_id: UUID, user_id: UUID, data: ClosetItemUpdate
-    ) -> ClosetItemResponse:
+    async def update_item(self, item_id: UUID, user_id: UUID, data: ClosetItemUpdate) -> ClosetItemResponse:
         item = await self.repo.get_owned(item_id, user_id)
         if not item:
             raise NotFoundError(f"Item {item_id} not found")
@@ -114,7 +110,8 @@ class ClosetService:
             raise NotFoundError(f"Item {item_id} not found")
         # Collect image URLs before the row is gone
         image_urls = [
-            u for u in (
+            u
+            for u in (
                 item.original_image_url,
                 item.processed_image_url,
                 item.image_url,

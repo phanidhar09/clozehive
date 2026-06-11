@@ -8,7 +8,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.closet import ClosetItem
+from app.api.v1.intelligence.services.purchase_gap_service import detect_and_save_gaps
 from app.api.v1.platform.schemas.analytics import (
     CategoryCoverageItem,
     CategoryStats,
@@ -18,7 +18,7 @@ from app.api.v1.platform.schemas.analytics import (
     OutfitReadiness,
     PurchaseGapInsight,
 )
-from app.api.v1.intelligence.services.purchase_gap_service import detect_and_save_gaps
+from app.models.closet import ClosetItem
 
 
 class AnalyticsService:

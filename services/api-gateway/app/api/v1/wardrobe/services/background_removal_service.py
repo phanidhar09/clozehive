@@ -35,7 +35,6 @@ import asyncio
 import io
 import math
 import statistics
-from typing import Tuple
 
 from PIL import Image, ImageFilter
 
@@ -44,7 +43,7 @@ from app.core.logging import get_logger
 logger = get_logger("background_removal")
 
 # Public type alias for the return value
-BgResult = Tuple[bytes, str]   # (image_bytes, status)
+BgResult = tuple[bytes, str]  # (image_bytes, status)
 
 # ── Tuning constants ───────────────────────────────────────────────────────────
 
@@ -55,6 +54,7 @@ _UNIFORMITY_THRESHOLD = 0.50
 
 # ── rembg detection ────────────────────────────────────────────────────────────
 
+
 def _try_rembg(image_bytes: bytes) -> bytes | None:
     """
     Attempt background removal using rembg (ONNX U2Net).
@@ -62,6 +62,7 @@ def _try_rembg(image_bytes: bytes) -> bytes | None:
     """
     try:
         import rembg  # type: ignore[import]
+
         result = rembg.remove(image_bytes)
         if result:
             logger.debug("rembg_success", size_kb=round(len(result) / 1024, 1))
@@ -75,6 +76,7 @@ def _try_rembg(image_bytes: bytes) -> bytes | None:
 
 # ── PIL corner-sampling helpers ────────────────────────────────────────────────
 
+
 def _sample_bg_colour(img: Image.Image) -> tuple[int, int, int]:
     rgb = img.convert("RGB")
     w, h = rgb.size
@@ -86,7 +88,9 @@ def _sample_bg_colour(img: Image.Image) -> tuple[int, int, int]:
         for dx in range(patch):
             for dy in range(patch):
                 r, g, b = rgb.getpixel((min(x0 + dx, w - 1), min(y0 + dy, h - 1)))  # type: ignore[misc]
-                r_vals.append(r); g_vals.append(g); b_vals.append(b)
+                r_vals.append(r)
+                g_vals.append(g)
+                b_vals.append(b)
     return int(statistics.median(r_vals)), int(statistics.median(g_vals)), int(statistics.median(b_vals))
 
 
@@ -175,6 +179,7 @@ def _as_png(image_bytes: bytes) -> bytes:
 
 # ── Public sync API ────────────────────────────────────────────────────────────
 
+
 def remove_background(image_bytes: bytes, base_tolerance: int = _DEFAULT_TOLERANCE) -> bytes:
     """
     Legacy single-return wrapper (backward compatible).
@@ -217,6 +222,7 @@ def remove_background_with_status(
 
 
 # ── Public async API ───────────────────────────────────────────────────────────
+
 
 async def remove_background_async(
     image_bytes: bytes,

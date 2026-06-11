@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query
 
-from app.core.deps import CurrentUser, DbSession
 from app.api.v1.intelligence.services.fashion_rag_service import search_fashion_knowledge
+from app.core.deps import CurrentUser, DbSession
 
 router = APIRouter(prefix="/fashion-knowledge", tags=["Fashion Knowledge"])
 
@@ -16,7 +16,9 @@ async def search_fashion_knowledge_endpoint(
     session: DbSession,
     query: str = Query(..., min_length=2, max_length=500, description="Fashion question or keyword"),
     limit: int = Query(5, ge=1, le=10),
-    category: str | None = Query(None, description="Filter by category: color, occasion, seasonal, styling, travel, fit, wardrobe, weather"),
+    category: str | None = Query(
+        None, description="Filter by category: color, occasion, seasonal, styling, travel, fit, wardrobe, weather"
+    ),
 ):
     """
     Search the fashion knowledge base for styling advice.

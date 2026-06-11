@@ -3,7 +3,12 @@
 from fastapi import APIRouter
 
 from app.api.v1.wardrobe import (
-    closet, closet_similarity, outfit_history, outfits, smart_ingest, vision_pipeline,
+    closet,
+    closet_similarity,
+    outfit_history,
+    outfits,
+    smart_ingest,
+    vision_pipeline,
 )
 
 router = APIRouter()

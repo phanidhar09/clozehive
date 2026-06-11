@@ -15,23 +15,24 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.logging import get_logger
-from app.models.closet import ClosetItem
+from app.api.v1.wardrobe.services.similarity_service import generate_item_embedding
 from app.core.embedding_service import (
     _DEFAULT_LIMIT,
+    _resolve,
+    _resolve_list,
     generate_text_embedding,
     item_to_embedding_text,
     pgvector_cosine_search,
-    _resolve,
-    _resolve_list,
 )
+from app.core.logging import get_logger
+from app.models.closet import ClosetItem
 from app.rag.query_builder import build_fashion_knowledge_query
-from app.api.v1.wardrobe.services.similarity_service import generate_item_embedding
 
 logger = get_logger("closet_similarity_service")
 
 
 # ── Similarity label thresholds (score is 0–100) ──────────────────────────────
+
 
 def _similarity_label(score: int) -> str:
     if score >= 90:
@@ -44,6 +45,7 @@ def _similarity_label(score: int) -> str:
 
 
 # ── Difference summary ────────────────────────────────────────────────────────
+
 
 def _build_difference_summary(source: dict[str, Any], existing: dict[str, Any]) -> str:
     """Generate a human-readable difference summary between two items."""
@@ -127,6 +129,7 @@ def _to_list(val: Any) -> list[str]:
 
 # ── Metadata-based scoring (fallback, no embeddings needed) ──────────────────
 
+
 def _metadata_similarity_score(
     source: dict[str, Any],
     existing_item: ClosetItem,
@@ -208,6 +211,7 @@ def _categories_compatible(a: str, b: str) -> bool:
 
 # ── Embedding helpers ─────────────────────────────────────────────────────────
 
+
 async def _ensure_item_embedding(session: AsyncSession, item: ClosetItem) -> list[float] | None:
     """Return the item's embedding, generating and persisting it if missing."""
     if item.embedding:
@@ -224,6 +228,7 @@ async def _ensure_item_embedding(session: AsyncSession, item: ClosetItem) -> lis
 
 # ── Similarity search for EXISTING items ────────────────────────────────────
 
+
 async def find_similar_by_item_id(
     session: AsyncSession,
     item_id: str,
@@ -235,18 +240,20 @@ async def find_similar_by_item_id(
     if not source or str(source.user_id) != user_id or source.is_archived:
         return []
 
-    source_dict = _normalise_source({
-        "name":     source.name,
-        "category": source.category,
-        "color":    source.color or "",
-        "fabric":   source.fabric or "",
-        "pattern":  source.pattern or "",
-        "season":   source.season or [],
-        "occasion": source.occasion or [],
-        "tags":     source.tags or [],
-        "notes":    source.notes or "",
-        "brand":    source.brand or "",
-    })
+    source_dict = _normalise_source(
+        {
+            "name": source.name,
+            "category": source.category,
+            "color": source.color or "",
+            "fabric": source.fabric or "",
+            "pattern": source.pattern or "",
+            "season": source.season or [],
+            "occasion": source.occasion or [],
+            "tags": source.tags or [],
+            "notes": source.notes or "",
+            "brand": source.brand or "",
+        }
+    )
 
     embedding = await _ensure_item_embedding(session, source)
     if embedding:
@@ -314,6 +321,7 @@ async def find_similar_by_image_url(
 
 # ── Vision-metadata normalisation ─────────────────────────────────────────────
 
+
 def _normalise_source(source_metadata: dict[str, Any]) -> dict[str, Any]:
     """
     Produce a canonical dict with both DB-column names AND vision-analysis aliases
@@ -326,26 +334,26 @@ def _normalise_source(source_metadata: dict[str, Any]) -> dict[str, Any]:
 
     We keep BOTH so _resolve() / _resolve_list() always finds a value.
     """
-    color    = _resolve(source_metadata, "color", "primary_color")
-    fabric   = _resolve(source_metadata, "fabric", "material")
+    color = _resolve(source_metadata, "color", "primary_color")
+    fabric = _resolve(source_metadata, "fabric", "material")
     occasion = _resolve_list(source_metadata, "occasion", "occasion_tags")
-    season   = _resolve_list(source_metadata, "season", "season_tags")
-    tags     = _resolve_list(source_metadata, "tags", "style_tags")
-    notes    = _resolve(source_metadata, "notes", "description")
+    season = _resolve_list(source_metadata, "season", "season_tags")
+    tags = _resolve_list(source_metadata, "tags", "style_tags")
+    notes = _resolve(source_metadata, "notes", "description")
 
     return {
-        **source_metadata,          # keep originals so callers still work
-        "color":    color,
+        **source_metadata,  # keep originals so callers still work
+        "color": color,
         "primary_color": color,
-        "fabric":   fabric,
+        "fabric": fabric,
         "material": fabric,
         "occasion": occasion,
         "occasion_tags": occasion,
-        "season":   season,
+        "season": season,
         "season_tags": season,
-        "tags":     tags,
+        "tags": tags,
         "style_tags": tags,
-        "notes":    notes,
+        "notes": notes,
         "description": notes,
     }
 
@@ -355,19 +363,47 @@ def _normalise_source(source_metadata: dict[str, Any]) -> dict[str, Any]:
 # Items flagged as "similar" should be in the same category family.
 # Cross-category results are valid pairings but NOT "similar items".
 _CATEGORY_GROUPS: list[frozenset[str]] = [
-    frozenset({"tops", "shirt", "t-shirt", "blouse", "sweater", "hoodie",
-               "jumper", "polo", "tank", "top", "turtleneck", "henley"}),
-    frozenset({"bottoms", "pants", "trousers", "jeans", "shorts", "skirt",
-               "leggings", "chinos", "joggers", "slacks"}),
-    frozenset({"outerwear", "jacket", "coat", "blazer", "cardigan", "vest",
-               "puffer", "windbreaker", "parka", "trench"}),
-    frozenset({"shoes", "sneakers", "boots", "heels", "flats", "sandals",
-               "loafers", "oxfords", "mules", "pumps", "footwear"}),
+    frozenset(
+        {
+            "tops",
+            "shirt",
+            "t-shirt",
+            "blouse",
+            "sweater",
+            "hoodie",
+            "jumper",
+            "polo",
+            "tank",
+            "top",
+            "turtleneck",
+            "henley",
+        }
+    ),
+    frozenset({"bottoms", "pants", "trousers", "jeans", "shorts", "skirt", "leggings", "chinos", "joggers", "slacks"}),
+    frozenset(
+        {"outerwear", "jacket", "coat", "blazer", "cardigan", "vest", "puffer", "windbreaker", "parka", "trench"}
+    ),
+    frozenset(
+        {"shoes", "sneakers", "boots", "heels", "flats", "sandals", "loafers", "oxfords", "mules", "pumps", "footwear"}
+    ),
     frozenset({"dresses", "dress", "jumpsuit", "romper", "gown", "playsuit"}),
-    frozenset({"accessories", "bag", "belt", "scarf", "hat", "cap", "watch",
-               "jewelry", "sunglasses", "tie", "pocket square", "gloves"}),
-    frozenset({"activewear", "sport", "gym", "athletic", "sportswear",
-               "leggings", "sports bra", "shorts"}),
+    frozenset(
+        {
+            "accessories",
+            "bag",
+            "belt",
+            "scarf",
+            "hat",
+            "cap",
+            "watch",
+            "jewelry",
+            "sunglasses",
+            "tie",
+            "pocket square",
+            "gloves",
+        }
+    ),
+    frozenset({"activewear", "sport", "gym", "athletic", "sportswear", "leggings", "sports bra", "shorts"}),
 ]
 
 
@@ -399,16 +435,16 @@ def _hybrid_rerank(
     - Exact same color      → +0.03
     - Exact same pattern    → +0.02
     """
-    src_cat   = source.get("category", "").lower()
+    src_cat = source.get("category", "").lower()
     src_color = _resolve(source, "color", "primary_color").lower()
-    src_pat   = _resolve(source, "pattern").lower()
+    src_pat = _resolve(source, "pattern").lower()
 
     adjusted: list[dict[str, Any]] = []
     for r in rows:
         score = float(r.get("similarity_score", 0))
-        row_cat   = (r.get("category") or "").lower()
+        row_cat = (r.get("category") or "").lower()
         row_color = (r.get("color") or "").lower()
-        row_pat   = (r.get("pattern") or "").lower()
+        row_pat = (r.get("pattern") or "").lower()
 
         if src_cat and row_cat:
             if _same_category_family(src_cat, row_cat):
@@ -428,6 +464,7 @@ def _hybrid_rerank(
 
 
 # ── Similarity check for NEW (not-yet-saved) items ────────────────────────────
+
 
 async def check_similar_for_new_item(
     session: AsyncSession,
@@ -457,7 +494,7 @@ async def check_similar_for_new_item(
             table="closet_items",
             embedding=embedding,
             user_id=user_id,
-            limit=limit * 3,          # fetch more, then re-rank and trim
+            limit=limit * 3,  # fetch more, then re-rank and trim
             threshold=0.50,
             filter_archived=True,
         )
@@ -468,9 +505,7 @@ async def check_similar_for_new_item(
             return _format_similarity_results(filtered[:limit], normalised)
 
     # Fallback: metadata scoring against all items in same/compatible category
-    return await _metadata_fallback_search(
-        session, user_id, None, normalised, limit, threshold_score
-    )
+    return await _metadata_fallback_search(session, user_id, None, normalised, limit, threshold_score)
 
 
 async def _metadata_fallback_search(
@@ -506,37 +541,47 @@ async def _metadata_fallback_search(
     results = []
     for score, item in scored[:limit]:
         label = _similarity_label(score)
-        reason = _build_similarity_reason(score, source_metadata, {
-            "category": item.category,
-            "color": item.color,
-            "occasion": item.occasion,
-            "season": item.season,
-        })
-        diff = _build_difference_summary(source_metadata, {
-            "color": item.color,
-            "season": item.season,
-            "fabric": item.fabric,
-            "pattern": item.pattern,
-        })
-        results.append({
-            "id": str(item.id),
-            "item_id": str(item.id),
-            "name": item.name,
-            "category": item.category,
-            "color": item.color or "",
-            "brand": item.brand or "",
-            "image_url": item.processed_image_url or item.image_url or "",
-            "colors": [item.color] if item.color else [],
-            "similarity_score": score,
-            "similarity_label": label,
-            "similarity_reason": reason,
-            "difference_summary": diff,
-        })
+        reason = _build_similarity_reason(
+            score,
+            source_metadata,
+            {
+                "category": item.category,
+                "color": item.color,
+                "occasion": item.occasion,
+                "season": item.season,
+            },
+        )
+        diff = _build_difference_summary(
+            source_metadata,
+            {
+                "color": item.color,
+                "season": item.season,
+                "fabric": item.fabric,
+                "pattern": item.pattern,
+            },
+        )
+        results.append(
+            {
+                "id": str(item.id),
+                "item_id": str(item.id),
+                "name": item.name,
+                "category": item.category,
+                "color": item.color or "",
+                "brand": item.brand or "",
+                "image_url": item.processed_image_url or item.image_url or "",
+                "colors": [item.color] if item.color else [],
+                "similarity_score": score,
+                "similarity_label": label,
+                "similarity_reason": reason,
+                "difference_summary": diff,
+            }
+        )
 
     return results
 
 
 # ── Result formatting (for embedding-based results) ──────────────────────────
+
 
 def _format_similarity_results(
     rows: list[dict[str, Any]],
@@ -550,26 +595,29 @@ def _format_similarity_results(
         reason = _build_similarity_reason(score_int, source_metadata, dict(r))
         diff = _build_difference_summary(source_metadata, dict(r))
         color = r.get("color") or ""
-        results.append({
-            "id": str(r.get("id", "")),
-            "item_id": str(r.get("id", "")),
-            "name": r.get("name", ""),
-            "category": r.get("category", ""),
-            "color": color,
-            "brand": r.get("brand") or "",
-            "image_url": r.get("processed_image_url") or r.get("image_url") or "",
-            "colors": [color] if color else [],
-            "similarity_score": score_int,
-            "similarity_label": label,
-            "similarity_reason": reason,
-            "difference_summary": diff,
-            # Legacy field for backward-compat
-            "reason": reason,
-        })
+        results.append(
+            {
+                "id": str(r.get("id", "")),
+                "item_id": str(r.get("id", "")),
+                "name": r.get("name", ""),
+                "category": r.get("category", ""),
+                "color": color,
+                "brand": r.get("brand") or "",
+                "image_url": r.get("processed_image_url") or r.get("image_url") or "",
+                "colors": [color] if color else [],
+                "similarity_score": score_int,
+                "similarity_label": label,
+                "similarity_reason": reason,
+                "difference_summary": diff,
+                # Legacy field for backward-compat
+                "reason": reason,
+            }
+        )
     return results
 
 
 # ── Legacy duplicate-check on upload ─────────────────────────────────────────
+
 
 async def check_duplicate_on_upload(
     session: AsyncSession,

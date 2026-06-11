@@ -10,11 +10,10 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import CurrentUser
-from app.db.session import get_session
 from app.api.v1.platform.schemas.analytics import ClosetAnalyticsResponse
 from app.api.v1.platform.services.analytics_service import AnalyticsService
-
+from app.core.deps import CurrentUser
+from app.db.session import get_session
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
@@ -24,6 +23,7 @@ def _get_svc(session: AsyncSession) -> AnalyticsService:
 
 
 # ── Closet Analytics ──────────────────────────────────────────────────────────
+
 
 @router.get("/closet", response_model=ClosetAnalyticsResponse)
 async def get_closet_analytics(

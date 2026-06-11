@@ -10,11 +10,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.embedding_service import item_to_embedding_text
 from app.core.logging import get_logger
 from app.core.openai_tracing import make_openai_client, wrap_openai_client
 from app.db.session import AsyncSessionLocal
 from app.models.closet import ClosetItem
-from app.core.embedding_service import item_to_embedding_text
 
 settings = get_settings()
 logger = get_logger("similarity_service")
@@ -42,18 +42,20 @@ async def generate_item_embedding(item: ClosetItem) -> list[float]:
     which caused stored embeddings and search embeddings to differ, degrading
     cosine similarity results.
     """
-    description = item_to_embedding_text({
-        "name":     item.name,
-        "category": item.category,
-        "color":    item.color or "",
-        "fabric":   item.fabric or "",
-        "pattern":  item.pattern or "",
-        "season":   item.season or [],
-        "occasion": item.occasion or [],
-        "tags":     item.tags or [],
-        "notes":    item.notes or "",
-        "brand":    item.brand or "",
-    })
+    description = item_to_embedding_text(
+        {
+            "name": item.name,
+            "category": item.category,
+            "color": item.color or "",
+            "fabric": item.fabric or "",
+            "pattern": item.pattern or "",
+            "season": item.season or [],
+            "occasion": item.occasion or [],
+            "tags": item.tags or [],
+            "notes": item.notes or "",
+            "brand": item.brand or "",
+        }
+    )
     if not settings.openai_api_key:
         logger.warning("embedding_fallback", reason="OPENAI_API_KEY not set", item_id=str(item.id))
         return [0.0] * 1536

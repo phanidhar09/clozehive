@@ -7,22 +7,13 @@ Data stored in PostgreSQL via ClosetService.
 from __future__ import annotations
 
 import asyncio
-from typing import Optional, Any, cast
-
-from pathlib import Path
+from typing import Any, cast
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, Request, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
-from app.core.redis import get_redis
-from app.core.deps import CurrentUser
-from app.core.rate_limit import limiter
-from app.db.session import get_read_session, get_session
-from app.constants.wardrobe import CLOSET_SECTIONS
-from app.core.exceptions import BadRequestError
 from app.api.v1.wardrobe.schemas.closet import (
     BulkAnalyzePreviewFileResult,
     BulkAnalyzePreviewResponse,
@@ -38,27 +29,34 @@ from app.api.v1.wardrobe.schemas.closet import (
     LogWearRequest,
     coerce_closet_category,
 )
-from app.core.logging import get_logger
 from app.api.v1.wardrobe.services import closet_preview_service, similarity_service, vision_service
+from app.api.v1.wardrobe.services.closet_service import ClosetService
+from app.constants.wardrobe import CLOSET_SECTIONS
 from app.core import cache_service
+from app.core.config import get_settings
+from app.core.deps import CurrentUser
+from app.core.exceptions import BadRequestError
+from app.core.logging import get_logger
+from app.core.rate_limit import limiter
+from app.core.redis import get_redis
+from app.core.upload_service import delete_upload, persist_upload, read_validated_image
+from app.db.session import get_read_session, get_session
 
 _log = get_logger("closet_routes")
-from app.api.v1.intelligence.services.ai_request_service import create_request
-from app.api.v1.wardrobe.services.closet_service import ClosetService
-import asyncio
-
-from app.core.upload_service import delete_upload, persist_upload, read_validated_image
 
 # Hard cap for any vision-service / OpenAI vision call.  Without this a
 # hanging upstream can block a worker process indefinitely.
 _VISION_TIMEOUT_S: float = 30.0
+
 
 # Lazy import to avoid circular dependency — ws.manager is only accessed inside functions
 def _ws_push(user_id: str, data: dict) -> None:
     """Fire-and-forget WebSocket push — never raises but always logs on failure."""
     try:
         import asyncio
+
         from app.api.v1.platform.ws import manager as _ws_manager
+
         loop = asyncio.get_event_loop()
         if loop.is_running():
             asyncio.ensure_future(_ws_manager.broadcast_to_user(user_id, data))
@@ -106,15 +104,13 @@ def _notes_from_vision(vision: dict[str, Any]) -> str | None:
 def _item_from_vision(
     vision: dict[str, Any],
     image_url: str,
-    name: Optional[str] = None,
-    category: Optional[str] = None,
+    name: str | None = None,
+    category: str | None = None,
 ) -> ClosetItemCreate:
     garment_notes = _notes_from_vision(vision)
     return ClosetItemCreate(
         name=name or str(vision.get("name") or "Clothing Item"),
-        category=coerce_closet_category(
-            category or (str(vision["category"]) if vision.get("category") else None)
-        ),
+        category=coerce_closet_category(category or (str(vision["category"]) if vision.get("category") else None)),
         color=str(vision["color"]) if vision.get("color") else None,
         fabric=str(vision["material"]) if vision.get("material") else None,
         pattern=str(vision["pattern"]) if vision.get("pattern") else None,
@@ -136,7 +132,7 @@ async def _analyse_file(file: UploadFile) -> tuple[str, dict[str, Any]]:
             vision_service.analyze_image(image_bytes, content_type),
             timeout=_VISION_TIMEOUT_S,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         _log.warning("vision_analysis_timeout", filename=file.filename, timeout=_VISION_TIMEOUT_S)
         raw = {}
     vision = raw if isinstance(raw, dict) else {}
@@ -149,12 +145,13 @@ def _get_svc(session: AsyncSession) -> ClosetService:
 
 # ── List / get ────────────────────────────────────────────────────────────────
 
+
 @router.get("/", response_model=ClosetListResponse)
 async def list_items(
     user_id: CurrentUser,
-    section: Optional[str] = Query(None),
-    category: Optional[str] = Query(None),
-    season: Optional[str] = Query(None),
+    section: str | None = Query(None),
+    category: str | None = Query(None),
+    season: str | None = Query(None),
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=500),
     session: AsyncSession = Depends(get_read_session),
@@ -185,6 +182,7 @@ async def get_similar_items(user_id: CurrentUser, item_id: UUID, session: AsyncS
 
 # ── Create ────────────────────────────────────────────────────────────────────
 
+
 @router.post("/", response_model=ClosetItemResponse, status_code=status.HTTP_201_CREATED)
 async def create_item(
     user_id: CurrentUser,
@@ -197,11 +195,15 @@ async def create_item(
     await cache_service.invalidate_user_ai_cache(await get_redis(), user_id)
     await similarity_service.schedule_embedding_update(background_tasks, str(item.id))
     # Real-time push: notify the user's open browser tabs that a new item was added
-    background_tasks.add_task(_ws_push, user_id, {
-        "type": "notification",
-        "channel": "closet",
-        "data": {"event": "item_added", "item_name": item.name, "category": item.category},
-    })
+    background_tasks.add_task(
+        _ws_push,
+        user_id,
+        {
+            "type": "notification",
+            "channel": "closet",
+            "data": {"event": "item_added", "item_name": item.name, "category": item.category},
+        },
+    )
     return item
 
 
@@ -304,8 +306,8 @@ async def upload_item(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
-    name: Optional[str] = None,
-    category: Optional[str] = None,
+    name: str | None = None,
+    category: str | None = None,
 ):
     image_bytes, content_type = await read_validated_image(file)
 
@@ -318,7 +320,7 @@ async def upload_item(
             timeout=_VISION_TIMEOUT_S,
         )
         vision = raw if isinstance(raw, dict) else {}
-    except asyncio.TimeoutError:
+    except TimeoutError:
         _log.warning("vision_upload_timeout", timeout=_VISION_TIMEOUT_S)
         vision = {}
     except Exception:
@@ -380,6 +382,7 @@ async def bulk_upload_items(
 
 # ── Update / delete ───────────────────────────────────────────────────────────
 
+
 @router.patch("/{item_id}", response_model=ClosetItemResponse)
 async def update_item(
     item_id: UUID,
@@ -414,13 +417,17 @@ async def delete_item(
 
 # ── Wear log ──────────────────────────────────────────────────────────────────
 
+
 @router.post("/{item_id}/wear", response_model=ClosetItemResponse)
-async def log_wear(item_id: UUID, body: LogWearRequest, user_id: CurrentUser, session: AsyncSession = Depends(get_session)):
+async def log_wear(
+    item_id: UUID, body: LogWearRequest, user_id: CurrentUser, session: AsyncSession = Depends(get_session)
+):
     svc = _get_svc(session)
     return await svc.log_wear(item_id, UUID(user_id), body.worn_date)
 
 
 # ── Re-embed all items ────────────────────────────────────────────────────────
+
 
 @router.post("/re-embed", status_code=status.HTTP_202_ACCEPTED)
 async def re_embed_closet(
@@ -440,10 +447,11 @@ async def re_embed_closet(
     Embeddings are updated in batches of 20 with a small delay to avoid
     rate-limiting the OpenAI Embeddings API.
     """
+    from sqlalchemy import select
     from sqlalchemy import text as sql_text
+
     from app.api.v1.wardrobe.services.similarity_service import generate_item_embedding
     from app.models.closet import ClosetItem
-    from sqlalchemy import select
 
     # Count items first (fast)
     count_sql = sql_text(
@@ -456,6 +464,7 @@ async def re_embed_closet(
     async def _run_re_embed(uid: str, do_force: bool) -> None:
         """Background task: batch re-embed all user's items."""
         import asyncio
+
         from app.db.session import AsyncSessionLocal
 
         async with AsyncSessionLocal() as bg_session:
@@ -478,13 +487,12 @@ async def re_embed_closet(
                 except Exception as exc:
                     failed += 1
                     import logging
-                    logging.getLogger("re_embed").warning(
-                        "re_embed_item_failed", item_id=str(item.id), error=str(exc)
-                    )
+
+                    logging.getLogger("re_embed").warning("re_embed_item_failed", item_id=str(item.id), error=str(exc))
                 # Commit in batches of 20
                 if (i + 1) % 20 == 0:
                     await bg_session.commit()
-                    await asyncio.sleep(0.3)   # brief pause for API rate limits
+                    await asyncio.sleep(0.3)  # brief pause for API rate limits
 
             await bg_session.commit()
 

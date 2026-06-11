@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, File, UploadFile
@@ -17,31 +17,31 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from app.core.deps import CurrentUser, DbSession
-from app.core.exceptions import AIServiceError, AppError, ServiceUnavailableError
-from app.core.logging import get_logger
-from app.core.config import get_settings
-from app.core.redis import get_redis
-from app.models.closet import ClosetItem
-from app.models.trips import Trip
 from app.api.v1.identity.repositories.user_repo import UserRepository
 from app.api.v1.identity.services.style_profile_context import load_merged_user_profile_for_ai
-from app.api.v1.intelligence.services import ai_service
-from app.api.v1.intelligence.services import festival_calendar
+from app.api.v1.intelligence.services import ai_service, festival_calendar
+from app.api.v1.intelligence.services.fashion_rag_service import get_fashion_context_for_prompt
 from app.api.v1.travel.services import packing_service, weather_service
 from app.api.v1.travel.services.location_intel_service import build_location_context_block
 from app.api.v1.wardrobe.services import outfit_service, vision_service
-from app.core import cache_service
-from app.core.embedding_service import generate_text_embedding, pgvector_cosine_search
-from app.api.v1.intelligence.services.fashion_rag_service import get_fashion_context_for_prompt
 from app.api.v1.wardrobe.services.outfit_history_service import get_outfit_history_for_prompt
+from app.core import cache_service
+from app.core.config import get_settings
+from app.core.deps import CurrentUser, DbSession
+from app.core.embedding_service import generate_text_embedding, pgvector_cosine_search
+from app.core.exceptions import AIServiceError, AppError, ServiceUnavailableError
+from app.core.logging import get_logger
+from app.core.redis import get_redis
 from app.core.upload_service import read_validated_image
+from app.models.closet import ClosetItem
+from app.models.trips import Trip
 
 router = APIRouter(prefix="/ai", tags=["AI"])
 logger = get_logger("ai.routes")
 settings = get_settings()
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
+
 
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
@@ -61,7 +61,7 @@ class OutfitRequest(BaseModel):
     weather: str = "mild"
     temperature: float = Field(20.0, ge=-30, le=55)
     # Optional client-side override; if absent we load profile from DB.
-    user_profile: Optional[dict[str, Any]] = None
+    user_profile: dict[str, Any] | None = None
 
 
 class PackingRequest(BaseModel):
@@ -76,13 +76,42 @@ class PackingRequest(BaseModel):
 
 # Trivial messages that never need wardrobe context. Skipping the closet load for
 # these avoids an embedding API call + pgvector query on every greeting/ack.
-_TRIVIAL_CHAT_MESSAGES = frozenset({
-    "hi", "hii", "hey", "hello", "yo", "sup", "hiya",
-    "thanks", "thank you", "thx", "ty", "thank u", "cheers",
-    "ok", "okay", "k", "cool", "nice", "great", "got it", "gotcha",
-    "bye", "goodbye", "see ya", "good night", "gn",
-    "yes", "no", "yeah", "nope", "yep", "sure",
-})
+_TRIVIAL_CHAT_MESSAGES = frozenset(
+    {
+        "hi",
+        "hii",
+        "hey",
+        "hello",
+        "yo",
+        "sup",
+        "hiya",
+        "thanks",
+        "thank you",
+        "thx",
+        "ty",
+        "thank u",
+        "cheers",
+        "ok",
+        "okay",
+        "k",
+        "cool",
+        "nice",
+        "great",
+        "got it",
+        "gotcha",
+        "bye",
+        "goodbye",
+        "see ya",
+        "good night",
+        "gn",
+        "yes",
+        "no",
+        "yeah",
+        "nope",
+        "yep",
+        "sure",
+    }
+)
 
 
 def _message_needs_closet(message: str) -> bool:
@@ -98,8 +127,19 @@ def _message_needs_closet(message: str) -> bool:
     # Very short messages (≤ 2 words) with no wardrobe keyword → skip.
     if len(normalized.split()) <= 2:
         wardrobe_keywords = (
-            "wear", "outfit", "closet", "wardrobe", "style", "dress",
-            "shirt", "pants", "shoes", "look", "fit", "color", "match",
+            "wear",
+            "outfit",
+            "closet",
+            "wardrobe",
+            "style",
+            "dress",
+            "shirt",
+            "pants",
+            "shoes",
+            "look",
+            "fit",
+            "color",
+            "match",
         )
         if not any(kw in normalized for kw in wardrobe_keywords):
             return False
@@ -119,7 +159,10 @@ def _item_dict(item: ClosetItem) -> dict[str, Any]:
 
 
 async def _get_closet_for_occasion(
-    session, user_id: UUID, occasion: str, weather_cond: str = "mild",
+    session,
+    user_id: UUID,
+    occasion: str,
+    weather_cond: str = "mild",
     query_text: str | None = None,
 ) -> list[dict[str, Any]]:
     """RAG-aware closet loader: vector search first, fallback to wear_count.
@@ -164,9 +207,7 @@ async def _get_closet_for_occasion(
     return [_item_dict(item) for item in result.scalars().all()]
 
 
-async def _resolve_user_profile(
-    session, user_id: UUID, override: Optional[dict[str, Any]]
-) -> dict[str, Any] | None:
+async def _resolve_user_profile(session, user_id: UUID, override: dict[str, Any] | None) -> dict[str, Any] | None:
     """
     Build personalization context for AI routes (legacy JSONB + dedicated style profile).
     Client-supplied `override` wins so the UI can temporarily tune a request.
@@ -274,6 +315,7 @@ _STREAM_HEADERS = {
 
 # ── Chat ──────────────────────────────────────────────────────────────────────
 
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(body: ChatRequest, user_id: CurrentUser, session: DbSession):
     """Send a message to the CLOZEHIVE wardrobe AI."""
@@ -294,10 +336,12 @@ async def chat(body: ChatRequest, user_id: CurrentUser, session: DbSession):
         pass
     messages = _chat_messages(body)
     cache_key = cache_service.build_cache_key(
-        user_id, messages,
+        user_id,
+        messages,
         cache_service.build_closet_hash(closet),
         cache_service.build_profile_hash(user_profile),
     )
+
     async def _compute_reply() -> str:
         system_prompt = _build_stylist_system_prompt(closet, weather, user_profile)
         if fashion_ctx.strip():
@@ -336,7 +380,6 @@ async def chat_stream(body: ChatRequest, user_id: CurrentUser, session: DbSessio
     """SSE stream of assistant tokens proxied from the AI agent."""
 
     async def events():
-        done = False
         try:
             yield _sse({"type": "status", "message": "Thinking…"})
             uid = UUID(user_id)
@@ -355,7 +398,8 @@ async def chat_stream(body: ChatRequest, user_id: CurrentUser, session: DbSessio
                 pass
             messages = _chat_messages(body)
             cache_key = cache_service.build_cache_key(
-                user_id, messages,
+                user_id,
+                messages,
                 cache_service.build_closet_hash(closet),
                 cache_service.build_profile_hash(user_profile),
             )
@@ -376,8 +420,9 @@ async def chat_stream(body: ChatRequest, user_id: CurrentUser, session: DbSessio
                 full_response.append(chunk)
                 yield _sse({"type": "token", "content": chunk})
             if settings.ai_cache_enabled:
-                await cache_service.cache_response(await get_redis(), cache_key, "".join(full_response), settings.ai_cache_ttl)
-            done = True
+                await cache_service.cache_response(
+                    await get_redis(), cache_key, "".join(full_response), settings.ai_cache_ttl
+                )
             yield _sse({"type": "done"})
         except AppError as exc:
             yield _sse({"type": "error", "message": exc.message})
@@ -388,6 +433,7 @@ async def chat_stream(body: ChatRequest, user_id: CurrentUser, session: DbSessio
 
 
 # ── Outfit ────────────────────────────────────────────────────────────────────
+
 
 @router.post("/outfit")
 async def outfit(body: OutfitRequest, user_id: CurrentUser, session: DbSession):
@@ -403,7 +449,11 @@ async def outfit(body: OutfitRequest, user_id: CurrentUser, session: DbSession):
         return_exceptions=True,
     )
     return await outfit_service.generate_outfits(
-        closet, body.occasion, body.weather, body.temperature, user_profile=profile,
+        closet,
+        body.occasion,
+        body.weather,
+        body.temperature,
+        user_profile=profile,
         fashion_context=fashion_ctx if isinstance(fashion_ctx, str) else "",
         history_context=history_ctx if isinstance(history_ctx, str) else "",
     )
@@ -426,7 +476,11 @@ async def outfit_stream(body: OutfitRequest, user_id: CurrentUser, session: DbSe
                 return_exceptions=True,
             )
             data = await outfit_service.generate_outfits(
-                closet, body.occasion, body.weather, body.temperature, user_profile=profile,
+                closet,
+                body.occasion,
+                body.weather,
+                body.temperature,
+                user_profile=profile,
                 fashion_context=fashion_ctx if isinstance(fashion_ctx, str) else "",
                 history_context=history_ctx if isinstance(history_ctx, str) else "",
             )
@@ -442,11 +496,13 @@ async def outfit_stream(body: OutfitRequest, user_id: CurrentUser, session: DbSe
 
 # ── Outfit of the Day ────────────────────────────────────────────────────────
 
+
 def _seconds_until_midnight_utc() -> int:
     """Seconds remaining until 00:00 UTC — used as the daily cache TTL."""
     now = datetime.utcnow()
     midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
     from datetime import timedelta
+
     midnight += timedelta(days=1)
     return max(60, int((midnight - now).total_seconds()))
 
@@ -537,7 +593,11 @@ async def outfit_of_day(user_id: CurrentUser, session: DbSession):
     closet = await _get_closet_for_occasion(session, uid, occasion, weather_str)
 
     result = await outfit_service.generate_outfits(
-        closet, occasion, weather_str, temp, user_profile=profile,
+        closet,
+        occasion,
+        weather_str,
+        temp,
+        user_profile=profile,
     )
     outfits = result.get("outfits") or []
     payload = {
@@ -557,6 +617,7 @@ async def outfit_of_day(user_id: CurrentUser, session: DbSession):
 
 
 # ── Packing ───────────────────────────────────────────────────────────────────
+
 
 @router.post("/packing")
 async def packing(body: PackingRequest, user_id: CurrentUser, session: DbSession):
@@ -625,6 +686,7 @@ async def packing_stream(body: PackingRequest, user_id: CurrentUser, session: Db
 
 
 # ── Vision ────────────────────────────────────────────────────────────────────
+
 
 @router.post("/vision/analyze")
 async def vision_analyze(user_id: CurrentUser, file: UploadFile = File(...)):

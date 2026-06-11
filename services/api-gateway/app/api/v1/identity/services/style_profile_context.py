@@ -7,10 +7,10 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.user import User
-from app.models.user_style_profile import UserStyleProfile
 from app.api.v1.identity.repositories.style_profile_repo import UserStyleProfileRepository
 from app.api.v1.identity.repositories.user_repo import UserRepository
+from app.models.user import User
+from app.models.user_style_profile import UserStyleProfile
 
 
 def style_profile_table_to_prompt_dict(row: UserStyleProfile) -> dict[str, Any]:

@@ -12,12 +12,8 @@ from datetime import UTC, date, datetime
 from typing import Any
 from uuid import UUID
 
-from google.cloud import firestore
-from google.cloud.firestore_v1 import AsyncClient
 from google.cloud.firestore_v1.base_query import FieldFilter
 
-from app.core.exceptions import ForbiddenError, NotFoundError
-from app.core.logging import get_logger
 from app.api.v1.wardrobe.schemas.closet import (
     ClosetItemCreate,
     ClosetItemResponse,
@@ -25,6 +21,8 @@ from app.api.v1.wardrobe.schemas.closet import (
     ClosetListResponse,
 )
 from app.core import cache_service
+from app.core.exceptions import ForbiddenError, NotFoundError
+from app.core.logging import get_logger
 from app.services.firestore.firestore_client import get_db
 
 logger = get_logger("firestore.closet")
@@ -129,6 +127,7 @@ class FirestoreClosetService:
         response = ClosetListResponse(items=items, total=total, page=page, per_page=per_page)
 
         from app.core.config import get_settings
+
         ttl = get_settings().cache_ttl_closet
         await cache_service.set(cache_key, response.model_dump(mode="json"), ttl)
 
@@ -187,9 +186,7 @@ class FirestoreClosetService:
 
     # ── Update ────────────────────────────────────────────────────────────────
 
-    async def update_item(
-        self, item_id: UUID, user_id: UUID, data: ClosetItemUpdate
-    ) -> ClosetItemResponse:
+    async def update_item(self, item_id: UUID, user_id: UUID, data: ClosetItemUpdate) -> ClosetItemResponse:
         db = get_db()
         ref = db.collection(_COLLECTION).document(str(item_id))
         doc = await ref.get()
@@ -222,9 +219,7 @@ class FirestoreClosetService:
 
     # ── Wear log ──────────────────────────────────────────────────────────────
 
-    async def log_wear(
-        self, item_id: UUID, user_id: UUID, worn_date: date | None = None
-    ) -> ClosetItemResponse:
+    async def log_wear(self, item_id: UUID, user_id: UUID, worn_date: date | None = None) -> ClosetItemResponse:
         db = get_db()
         ref = db.collection(_COLLECTION).document(str(item_id))
         doc = await ref.get()
@@ -260,14 +255,16 @@ class FirestoreClosetService:
         result = []
         async for doc in query.stream():
             d = doc.to_dict()
-            result.append({
-                "id": d.get("id", ""),
-                "name": d.get("name", ""),
-                "category": d.get("category", ""),
-                "color": d.get("color") or "",
-                "fabric": d.get("fabric") or "",
-                "season": d.get("season") or "",
-                "occasion": d.get("occasion") or [],
-                "tags": d.get("tags") or [],
-            })
+            result.append(
+                {
+                    "id": d.get("id", ""),
+                    "name": d.get("name", ""),
+                    "category": d.get("category", ""),
+                    "color": d.get("color") or "",
+                    "fabric": d.get("fabric") or "",
+                    "season": d.get("season") or "",
+                    "occasion": d.get("occasion") or [],
+                    "tags": d.get("tags") or [],
+                }
+            )
         return result

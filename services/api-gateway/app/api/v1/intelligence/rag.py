@@ -43,7 +43,9 @@ router = APIRouter(prefix="/rag", tags=["RAG"])
 async def get_outfit_context(
     user_id: CurrentUser,
     session: DbSession,
-    occasion: str = Query(..., min_length=1, max_length=100, description="Target occasion, e.g. 'wedding', 'business casual'"),
+    occasion: str = Query(
+        ..., min_length=1, max_length=100, description="Target occasion, e.g. 'wedding', 'business casual'"
+    ),
     weather: str = Query("", max_length=100, description="Optional weather description, e.g. 'warm and sunny'"),
     limit: int = Query(5, ge=1, le=10, description="Max outfit history records to return"),
 ):

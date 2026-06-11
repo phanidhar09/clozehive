@@ -14,9 +14,6 @@ from uuid import UUID
 
 from fastapi import APIRouter, Query
 
-from app.core.deps import CurrentUser, DbSession
-from app.core.exceptions import BadRequestError, ConflictError, ForbiddenError, NotFoundError
-from app.core.logging import get_logger
 from app.api.v1.identity.repositories.user_repo import UserRepository
 from app.api.v1.social.schemas.social import (
     FollowResponse,
@@ -24,9 +21,12 @@ from app.api.v1.social.schemas.social import (
     GroupMemberResponse,
     GroupResponse,
     JoinGroupRequest,
-    RoleUpdateRequest,
     PublicUserResponse,
+    RoleUpdateRequest,
 )
+from app.core.deps import CurrentUser, DbSession
+from app.core.exceptions import BadRequestError, ConflictError, ForbiddenError, NotFoundError
+from app.core.logging import get_logger
 from app.services.firestore.closet_service import FirestoreClosetService
 from app.services.firestore.social_service import (
     FirestoreFollowService,
@@ -39,6 +39,7 @@ router = APIRouter(prefix="/social", tags=["Social"])
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 async def _build_public_user(
     db: DbSession,
@@ -94,14 +95,16 @@ async def _build_group_response(
         member_user = user_map.get(uid)
         if member_user is None:
             continue
-        members_resp.append(GroupMemberResponse(
-            user_id=member_user.id,
-            username=member_user.username,
-            name=member_user.name,
-            avatar_url=member_user.avatar_url,
-            role=m["role"],
-            joined_at=m["joined_at"],
-        ))
+        members_resp.append(
+            GroupMemberResponse(
+                user_id=member_user.id,
+                username=member_user.username,
+                name=member_user.name,
+                avatar_url=member_user.avatar_url,
+                role=m["role"],
+                joined_at=m["joined_at"],
+            )
+        )
         if uid == me_id:
             my_role = m["role"]
             is_member = True
@@ -123,6 +126,7 @@ async def _build_group_response(
 
 
 # ── User search ───────────────────────────────────────────────────────────────
+
 
 @router.get("/users", response_model=list[PublicUserResponse])
 async def search_users(
@@ -171,6 +175,7 @@ async def get_profile(target_id: UUID, user_id: CurrentUser, db: DbSession):
 
 # ── Follow / unfollow ─────────────────────────────────────────────────────────
 
+
 @router.post("/follow/{target_id}", response_model=FollowResponse)
 async def follow(target_id: UUID, user_id: CurrentUser, db: DbSession):
     me = UUID(user_id)
@@ -201,13 +206,16 @@ async def unfollow(target_id: UUID, user_id: CurrentUser):
 
 
 async def _list_followers(
-    target_id: UUID, user_id: CurrentUser, db: DbSession,
-    limit: int = 50, offset: int = 0,
+    target_id: UUID,
+    user_id: CurrentUser,
+    db: DbSession,
+    limit: int = 50,
+    offset: int = 0,
 ) -> list[PublicUserResponse]:
     me = UUID(user_id)
     follows = FirestoreFollowService()
     all_ids = await follows.get_follower_ids(target_id)
-    page_ids = all_ids[offset: offset + limit]
+    page_ids = all_ids[offset : offset + limit]
     users_repo = UserRepository(db)
     result = []
     for uid in page_ids:
@@ -215,25 +223,35 @@ async def _list_followers(
             u = await users_repo.get_or_raise(uid)
             f_count = await follows.follower_count(uid)
             is_fol = await follows.is_following(me, uid)
-            result.append(PublicUserResponse(
-                id=u.id, username=u.username, name=u.name,
-                bio=u.bio, avatar_url=u.avatar_url,
-                follower_count=f_count, following_count=0,
-                item_count=0, is_following=is_fol,
-            ))
+            result.append(
+                PublicUserResponse(
+                    id=u.id,
+                    username=u.username,
+                    name=u.name,
+                    bio=u.bio,
+                    avatar_url=u.avatar_url,
+                    follower_count=f_count,
+                    following_count=0,
+                    item_count=0,
+                    is_following=is_fol,
+                )
+            )
         except NotFoundError:
             pass
     return result
 
 
 async def _list_following(
-    target_id: UUID, user_id: CurrentUser, db: DbSession,
-    limit: int = 50, offset: int = 0,
+    target_id: UUID,
+    user_id: CurrentUser,
+    db: DbSession,
+    limit: int = 50,
+    offset: int = 0,
 ) -> list[PublicUserResponse]:
     me = UUID(user_id)
     follows = FirestoreFollowService()
     all_ids = await follows.get_following_ids(target_id)
-    page_ids = all_ids[offset: offset + limit]
+    page_ids = all_ids[offset : offset + limit]
     users_repo = UserRepository(db)
     result = []
     for uid in page_ids:
@@ -241,12 +259,19 @@ async def _list_following(
             u = await users_repo.get_or_raise(uid)
             f_count = await follows.follower_count(uid)
             is_fol = await follows.is_following(me, uid)
-            result.append(PublicUserResponse(
-                id=u.id, username=u.username, name=u.name,
-                bio=u.bio, avatar_url=u.avatar_url,
-                follower_count=f_count, following_count=0,
-                item_count=0, is_following=is_fol,
-            ))
+            result.append(
+                PublicUserResponse(
+                    id=u.id,
+                    username=u.username,
+                    name=u.name,
+                    bio=u.bio,
+                    avatar_url=u.avatar_url,
+                    follower_count=f_count,
+                    following_count=0,
+                    item_count=0,
+                    is_following=is_fol,
+                )
+            )
         except NotFoundError:
             pass
     return result
@@ -254,7 +279,9 @@ async def _list_following(
 
 @router.get("/followers/{target_id}", response_model=list[PublicUserResponse])
 async def list_followers(
-    target_id: UUID, user_id: CurrentUser, db: DbSession,
+    target_id: UUID,
+    user_id: CurrentUser,
+    db: DbSession,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
@@ -263,7 +290,9 @@ async def list_followers(
 
 @router.get("/following/{target_id}", response_model=list[PublicUserResponse])
 async def list_following(
-    target_id: UUID, user_id: CurrentUser, db: DbSession,
+    target_id: UUID,
+    user_id: CurrentUser,
+    db: DbSession,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
@@ -271,6 +300,7 @@ async def list_following(
 
 
 # ── Groups ────────────────────────────────────────────────────────────────────
+
 
 @router.get("/groups", response_model=list[GroupResponse])
 async def my_groups(user_id: CurrentUser, db: DbSession):

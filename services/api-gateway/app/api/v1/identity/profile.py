@@ -6,8 +6,6 @@ from uuid import UUID
 
 from fastapi import APIRouter, status
 
-from app.core.deps import CurrentUser, DbSession
-from app.core.exceptions import NotFoundError
 from app.api.v1.identity.schemas.style_profile import (
     CompleteOnboardingBody,
     OnboardingStatusResponse,
@@ -17,6 +15,8 @@ from app.api.v1.identity.schemas.style_profile import (
     StyleProfileUpdate,
 )
 from app.api.v1.identity.services import style_profile_service
+from app.core.deps import CurrentUser, DbSession
+from app.core.exceptions import NotFoundError
 
 router = APIRouter(prefix="/profile", tags=["Profile"])
 
@@ -35,30 +35,22 @@ async def get_style_profile(user_id: CurrentUser, session: DbSession):
 
 
 @router.post("/style", response_model=StyleProfileResponse, status_code=status.HTTP_201_CREATED)
-async def create_style_profile(
-    body: StyleProfileCreate, user_id: CurrentUser, session: DbSession
-):
+async def create_style_profile(body: StyleProfileCreate, user_id: CurrentUser, session: DbSession):
     return await style_profile_service.create_style_profile(session, UUID(user_id), body)
 
 
 @router.patch("/style", response_model=StyleProfileResponse)
-async def patch_style_profile(
-    body: StyleProfileUpdate, user_id: CurrentUser, session: DbSession
-):
+async def patch_style_profile(body: StyleProfileUpdate, user_id: CurrentUser, session: DbSession):
     return await style_profile_service.update_style_profile(session, UUID(user_id), body)
 
 
 @router.post("/style/complete", response_model=StyleProfileResponse)
-async def complete_style_onboarding(
-    body: CompleteOnboardingBody, user_id: CurrentUser, session: DbSession
-):
+async def complete_style_onboarding(body: CompleteOnboardingBody, user_id: CurrentUser, session: DbSession):
     return await style_profile_service.complete_onboarding(session, UUID(user_id), body)
 
 
 @router.post("/onboarding/submit", response_model=StyleProfileResponse)
-async def submit_onboarding(
-    body: OnboardingSubmitBody, user_id: CurrentUser, session: DbSession
-):
+async def submit_onboarding(body: OnboardingSubmitBody, user_id: CurrentUser, session: DbSession):
     """V2 onboarding wizard — saves all answers in one call and marks completion."""
     return await style_profile_service.submit_onboarding(session, UUID(user_id), body)
 

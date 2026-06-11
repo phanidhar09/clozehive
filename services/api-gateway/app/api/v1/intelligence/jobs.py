@@ -12,11 +12,12 @@ of truth this router reads from.
 from __future__ import annotations
 
 import json
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, status
 from pydantic import BaseModel, Field
+from sqlalchemy import text
 
 from app.core.deps import CurrentUser, DbSession
 from app.core.exceptions import NotFoundError
@@ -25,19 +26,19 @@ from app.core.task_queue import (
     TASK_GENERATE_PACKING,
     enqueue_ai_job,
 )
-from sqlalchemy import text
 
 router = APIRouter(prefix="/ai/jobs", tags=["AI Jobs"])
 
 
 # ── Schemas ─────────────────────────────────────────────────────────────────
 
+
 class OutfitJobRequest(BaseModel):
     """Free-form payload forwarded to the ai-agent's outfit generator."""
 
     occasion: str = Field(..., max_length=200)
-    weather: Optional[str] = Field(default=None, max_length=200)
-    notes: Optional[str] = Field(default=None, max_length=2000)
+    weather: str | None = Field(default=None, max_length=200)
+    notes: str | None = Field(default=None, max_length=2000)
     extra: dict[str, Any] = Field(default_factory=dict)
 
     def to_payload(self) -> dict[str, Any]:
@@ -50,8 +51,8 @@ class PackingJobRequest(BaseModel):
     """Free-form payload forwarded to the ai-agent's packing generator."""
 
     destination: str = Field(..., max_length=200)
-    start_date: Optional[str] = Field(default=None, max_length=40)
-    end_date: Optional[str] = Field(default=None, max_length=40)
+    start_date: str | None = Field(default=None, max_length=40)
+    end_date: str | None = Field(default=None, max_length=40)
     extra: dict[str, Any] = Field(default_factory=dict)
 
     def to_payload(self) -> dict[str, Any]:
@@ -73,11 +74,12 @@ class JobStatus(BaseModel):
     request_id: UUID
     request_type: str
     status: str
-    result: Optional[dict[str, Any]] = None
-    error: Optional[str] = None
+    result: dict[str, Any] | None = None
+    error: str | None = None
 
 
 # ── Routes ──────────────────────────────────────────────────────────────────
+
 
 @router.post("/outfit", response_model=JobAccepted, status_code=status.HTTP_202_ACCEPTED)
 async def enqueue_outfit(body: OutfitJobRequest, user_id: CurrentUser, session: DbSession) -> JobAccepted:

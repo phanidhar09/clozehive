@@ -3,7 +3,13 @@
 from fastapi import APIRouter
 
 from app.api.v1.intelligence import (
-    ai, ai_chat, fashion_rag, jobs, purchase_gaps, rag, shopping_check,
+    ai,
+    ai_chat,
+    fashion_rag,
+    jobs,
+    purchase_gaps,
+    rag,
+    shopping_check,
 )
 
 router = APIRouter()

@@ -9,14 +9,14 @@ from typing import Any
 from langsmith import traceable
 from openai import AsyncOpenAI
 
-from app.core.config import get_settings
-from app.core.logging import get_logger
-from app.core.openai_tracing import make_openai_client, wrap_openai_client
 from app.api.v1.wardrobe.schemas.vision_canonical import (
     normalized_to_bulk_api_dict,
     normalized_to_legacy_upload_dict,
     parse_vision_ai_payload,
 )
+from app.core.config import get_settings
+from app.core.logging import get_logger
+from app.core.openai_tracing import make_openai_client, wrap_openai_client
 
 settings = get_settings()
 logger = get_logger("vision_service")
@@ -27,9 +27,7 @@ _client: AsyncOpenAI | None = None
 def _get_client() -> AsyncOpenAI:
     global _client
     if _client is None:
-        _client = wrap_openai_client(
-            make_openai_client(settings.openai_api_key, base_url=settings.openai_api_base_url)
-        )
+        _client = wrap_openai_client(make_openai_client(settings.openai_api_key, base_url=settings.openai_api_base_url))
     return _client
 
 
@@ -81,13 +79,15 @@ def _bulk_fallback_raw(reason: str) -> dict[str, Any]:
 
 # ── Standard single-item analysis (used by /upload, /bulk-upload) ─────────────
 
+
 @traceable(name="gateway_vision_analyze_image", run_type="chain")
 async def analyze_image(image_bytes: bytes, media_type: str = "image/jpeg") -> dict[str, Any]:
     if not settings.openai_api_key:
         return normalized_to_legacy_upload_dict(
-            parse_vision_ai_payload(_fallback_raw(
-                "No OpenAI credentials — add OPENAI_API_KEY to your `.env` and restart the API server"
-            ), source="fallback")
+            parse_vision_ai_payload(
+                _fallback_raw("No OpenAI credentials — add OPENAI_API_KEY to your `.env` and restart the API server"),
+                source="fallback",
+            )
         )
 
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
@@ -133,9 +133,7 @@ async def analyze_image(image_bytes: bytes, media_type: str = "image/jpeg") -> d
         return normalized_to_legacy_upload_dict(n)
     except BaseException as exc:
         logger.error("vision_analysis_failed", error=str(exc))
-        return normalized_to_legacy_upload_dict(
-            parse_vision_ai_payload(_fallback_raw(str(exc)), source="fallback")
-        )
+        return normalized_to_legacy_upload_dict(parse_vision_ai_payload(_fallback_raw(str(exc)), source="fallback"))
 
 
 # ── Rich bulk-ingestion analysis (used by smart-ingest, closet preview fallback) ─

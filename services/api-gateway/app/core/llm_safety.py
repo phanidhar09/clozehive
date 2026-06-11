@@ -107,25 +107,26 @@ _ROLE_PREFIXES = re.compile(
 
 # ── Default field length limits ───────────────────────────────────────────────
 
-_DEFAULT_MAX_LEN = 2000   # generic upper bound
+_DEFAULT_MAX_LEN = 2000  # generic upper bound
 FIELD_LIMITS: dict[str, int] = {
-    "name":        100,
-    "category":     50,
-    "color":        60,
-    "brand":        80,
-    "material":    100,
-    "pattern":      80,
+    "name": 100,
+    "category": 50,
+    "color": 60,
+    "brand": 80,
+    "material": 100,
+    "pattern": 80,
     "description": 800,
-    "notes":       800,
-    "activity":    200,
-    "trip_notes":  600,
-    "message":    2000,   # chat messages get a larger allowance
-    "feedback":    500,
+    "notes": 800,
+    "activity": 200,
+    "trip_notes": 600,
+    "message": 2000,  # chat messages get a larger allowance
+    "feedback": 500,
     "style_notes": 300,
 }
 
 
 # ── Core sanitiser ────────────────────────────────────────────────────────────
+
 
 def sanitize_user_text(
     text: str | None,
@@ -190,14 +191,11 @@ def sanitize_list(
     """Sanitise each element of a list.  Returns an empty list for falsy input."""
     if not items:
         return []
-    return [
-        sanitize_user_text(item, field=field, max_len=max_len)
-        for item in items[:max_items]
-        if item
-    ]
+    return [sanitize_user_text(item, field=field, max_len=max_len) for item in items[:max_items] if item]
 
 
 # ── Prompt construction helpers ───────────────────────────────────────────────
+
 
 def wrap_untrusted(label: str, content: str) -> str:
     """Wrap sanitised user content in a clearly labelled block.
@@ -220,12 +218,12 @@ def wrap_untrusted(label: str, content: str) -> str:
 
 def build_closet_item_summary(item: dict) -> str:
     """Return a single sanitised line describing a closet item for prompt injection."""
-    name        = sanitize_user_text(item.get("name", ""), field="name")
-    category    = sanitize_user_text(item.get("category", ""), field="category")
-    color       = sanitize_user_text(item.get("color", ""), field="color")
-    fabric      = sanitize_user_text(item.get("fabric") or item.get("material", ""), field="material")
-    occasion    = sanitize_user_text(str(item.get("occasion") or ""), field="notes", max_len=80)
-    season      = sanitize_user_text(str(item.get("season") or ""), field="notes", max_len=60)
+    name = sanitize_user_text(item.get("name", ""), field="name")
+    category = sanitize_user_text(item.get("category", ""), field="category")
+    color = sanitize_user_text(item.get("color", ""), field="color")
+    fabric = sanitize_user_text(item.get("fabric") or item.get("material", ""), field="material")
+    occasion = sanitize_user_text(str(item.get("occasion") or ""), field="notes", max_len=80)
+    season = sanitize_user_text(str(item.get("season") or ""), field="notes", max_len=60)
     return (
         f"{name} | {category} | color={color} | fabric={fabric} "
         f"| occasion={occasion} | season={season} | worn={item.get('wear_count', 0)}x"

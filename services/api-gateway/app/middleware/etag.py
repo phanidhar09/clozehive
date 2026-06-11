@@ -58,8 +58,7 @@ class ETagMiddleware(BaseHTTPMiddleware):
         # the browser/CDN revalidates in the background. Private user data, so the
         # cache is per-client (private), not shared.
         headers["cache-control"] = (
-            f"private, max-age={_settings.http_cache_max_age}, "
-            f"stale-while-revalidate={_settings.http_cache_swr}"
+            f"private, max-age={_settings.http_cache_max_age}, stale-while-revalidate={_settings.http_cache_swr}"
         )
 
         # Client already has this exact representation → 304, no body.

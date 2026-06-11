@@ -5,16 +5,22 @@ Single source of truth for all authentication logic.
 
 from __future__ import annotations
 
-from typing import Optional
-
 import secrets
-from datetime import timezone, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.identity.repositories.user_repo import (
+    CredentialRepository,
+    PasswordResetTokenRepository,
+    RefreshTokenRepository,
+    UserRepository,
+)
+from app.api.v1.identity.schemas.auth import AuthResponse, SignupRequest, UserResponse
+from app.api.v1.identity.services.style_profile_service import create_default_profile_row
 from app.core.config import get_settings
-from app.core.exceptions import AuthenticationError, BadRequestError, ConflictError
+from app.core.exceptions import AuthenticationError, ConflictError
 from app.core.logging import get_logger
 from app.core.redis import (
     get_state_redis,
@@ -29,15 +35,7 @@ from app.core.security import (
     hash_token,
     verify_password,
 )
-from app.models.user import RefreshToken, User, UserCredential
-from app.api.v1.identity.repositories.user_repo import (
-    CredentialRepository,
-    PasswordResetTokenRepository,
-    RefreshTokenRepository,
-    UserRepository,
-)
-from app.api.v1.identity.schemas.auth import AuthResponse, SignupRequest, UserResponse
-from app.api.v1.identity.services.style_profile_service import create_default_profile_row
+from app.models.user import RefreshToken, User
 from app.utils.username import generate_unique_username
 
 logger = get_logger("auth_service")
@@ -82,9 +80,7 @@ class AuthService:
                 raise ConflictError("Username already taken")
             resolved_username = data.username.lower()
         else:
-            resolved_username = await generate_unique_username(
-                self.session, data.name, data.email
-            )
+            resolved_username = await generate_unique_username(self.session, data.name, data.email)
 
         user = await self.users.create(
             email=data.email.lower(),
@@ -186,9 +182,7 @@ class AuthService:
         await self.tokens.revoke_all_for_user(user_id)
         logger.info("all_sessions_revoked", user_id=str(user_id))
 
-    async def change_password(
-        self, user_id: UUID, current_password: str, new_password: str
-    ) -> None:
+    async def change_password(self, user_id: UUID, current_password: str, new_password: str) -> None:
         cred = await self.creds.get_by_user_id(user_id)
         if not cred or not verify_password(current_password, cred.password_hash or ""):
             raise AuthenticationError("Current password is incorrect")
@@ -201,7 +195,7 @@ class AuthService:
         google_id: str,
         email: str,
         name: str,
-        avatar_url: Optional[str] = None,
+        avatar_url: str | None = None,
         email_verified: bool = False,
     ) -> tuple[AuthResponse, str]:
         """Find or create a user from Google OAuth, then return a token pair."""
@@ -229,9 +223,7 @@ class AuthService:
 
                 # Repair missing / empty username — must never be blank
                 if not user.username:
-                    updates["username"] = await generate_unique_username(
-                        self.session, name or user.name, email
-                    )
+                    updates["username"] = await generate_unique_username(self.session, name or user.name, email)
 
                 # Set avatar only when the user has none
                 if avatar_url and not user.avatar_url:
@@ -274,7 +266,7 @@ class AuthService:
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     async def _store_refresh(self, user_id: UUID, raw_token: str) -> RefreshToken:
-        expires_at = datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days)
+        expires_at = datetime.now(UTC) + timedelta(days=settings.refresh_token_expire_days)
         stored = await self.tokens.create(
             user_id=user_id,
             token_hash=hash_token(raw_token),
@@ -293,7 +285,7 @@ class AuthService:
 
     _RESET_TOKEN_EXPIRE_MINUTES = 30  # short window to reduce brute-force surface
 
-    async def request_password_reset(self, email: str) -> Optional[str]:
+    async def request_password_reset(self, email: str) -> str | None:
         """Generate a reset token for *email* (if it exists).
 
         Returns the raw token so the caller can send it by email.
@@ -314,7 +306,7 @@ class AuthService:
         await self.reset_tokens.invalidate_all_for_user(user.id)
 
         raw_token = secrets.token_urlsafe(48)
-        expires_at = datetime.now(timezone.utc) + timedelta(minutes=self._RESET_TOKEN_EXPIRE_MINUTES)
+        expires_at = datetime.now(UTC) + timedelta(minutes=self._RESET_TOKEN_EXPIRE_MINUTES)
         await self.reset_tokens.create(
             user_id=user.id,
             token_hash=hash_token(raw_token),
@@ -340,7 +332,7 @@ class AuthService:
             raise AuthenticationError("Account not found or inactive.")
 
         # Mark token as used — prevents replay even within expiry window.
-        await self.reset_tokens.update(stored, used_at=datetime.now(timezone.utc))
+        await self.reset_tokens.update(stored, used_at=datetime.now(UTC))
 
         # Update password.
         cred = await self.creds.get_by_user_id(user.id)

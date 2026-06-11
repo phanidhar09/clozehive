@@ -17,9 +17,7 @@ async def get_redis() -> aioredis.Redis:
     """General client for evictable cache data (cache invalidation, AI/vision cache)."""
     global _redis
     if _redis is None:
-        _redis = aioredis.from_url(
-            settings.effective_redis_cache_url, encoding="utf-8", decode_responses=True
-        )
+        _redis = aioredis.from_url(settings.effective_redis_cache_url, encoding="utf-8", decode_responses=True)
     return _redis
 
 
@@ -27,9 +25,7 @@ async def get_state_redis() -> aioredis.Redis:
     """Client for non-evictable state (refresh tokens). Falls back to redis_url."""
     global _state_redis
     if _state_redis is None:
-        _state_redis = aioredis.from_url(
-            settings.effective_redis_state_url, encoding="utf-8", decode_responses=True
-        )
+        _state_redis = aioredis.from_url(settings.effective_redis_state_url, encoding="utf-8", decode_responses=True)
     return _state_redis
 
 

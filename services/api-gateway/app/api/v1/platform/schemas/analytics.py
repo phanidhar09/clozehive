@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from pydantic import BaseModel
 
 
@@ -16,9 +14,9 @@ class CategoryCoverageItem(BaseModel):
 
 class ClosetSummary(BaseModel):
     total_items: int
-    strongest_category: Optional[str]
-    most_common_color: Optional[str]
-    best_covered_occasion: Optional[str]
+    strongest_category: str | None
+    most_common_color: str | None
+    best_covered_occasion: str | None
 
 
 class ColorStats(BaseModel):
@@ -47,11 +45,12 @@ class UsageInsights(BaseModel):
 
 class PurchaseGapInsight(BaseModel):
     """A wardrobe gap identified by the RAG purchase-gap detector."""
+
     gap_type: str
     missing_category: str
     reason: str
     priority_score: float
-    suggested_attributes: Optional[dict] = None
+    suggested_attributes: dict | None = None
 
 
 class ClosetAnalyticsResponse(BaseModel):
@@ -60,5 +59,5 @@ class ClosetAnalyticsResponse(BaseModel):
     color_stats: list[ColorStats]
     category_stats: list[CategoryStats]
     outfit_readiness: OutfitReadiness
-    usage_insights: Optional[UsageInsights] = None
+    usage_insights: UsageInsights | None = None
     purchase_gap_insights: list[PurchaseGapInsight] = []

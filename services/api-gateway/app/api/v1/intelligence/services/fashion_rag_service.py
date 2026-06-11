@@ -12,13 +12,13 @@ from typing import Any
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.logging import get_logger
-from app.models.rag import FashionKnowledgeDocument
 from app.core.embedding_service import (
     _DEFAULT_LIMIT,
     generate_text_embedding,
     pgvector_cosine_search,
 )
+from app.core.logging import get_logger
+from app.models.rag import FashionKnowledgeDocument
 from app.rag.query_builder import (
     build_fashion_knowledge_query,
     extract_keywords,
@@ -443,11 +443,10 @@ _KNOWLEDGE_SEED: list[dict[str, Any]] = [
 
 # ── Service functions ─────────────────────────────────────────────────────────
 
+
 async def ensure_seeded(session: AsyncSession) -> None:
     """Seed missing fashion knowledge documents. Idempotent — only inserts missing titles."""
-    existing_titles_result = await session.execute(
-        select(FashionKnowledgeDocument.title)
-    )
+    existing_titles_result = await session.execute(select(FashionKnowledgeDocument.title))
     existing_titles = {row[0] for row in existing_titles_result.all()}
 
     missing = [doc for doc in _KNOWLEDGE_SEED if doc["title"] not in existing_titles]
@@ -546,12 +545,14 @@ async def _keyword_fallback(
     conditions = []
     for kw in keywords:
         pattern = f"%{kw}%"
-        conditions.extend([
-            FashionKnowledgeDocument.title.ilike(pattern),
-            FashionKnowledgeDocument.content.ilike(pattern),
-            FashionKnowledgeDocument.occasion.ilike(pattern),
-            FashionKnowledgeDocument.season.ilike(pattern),
-        ])
+        conditions.extend(
+            [
+                FashionKnowledgeDocument.title.ilike(pattern),
+                FashionKnowledgeDocument.content.ilike(pattern),
+                FashionKnowledgeDocument.occasion.ilike(pattern),
+                FashionKnowledgeDocument.season.ilike(pattern),
+            ]
+        )
 
     stmt = select(FashionKnowledgeDocument).where(or_(*conditions))
     if category:
@@ -587,9 +588,7 @@ async def get_fashion_context_for_prompt(
     weather: str = "",
 ) -> str:
     """Return a formatted string of relevant fashion knowledge for LLM prompt injection."""
-    docs = await search_fashion_knowledge(
-        session, query, limit=limit, occasion=occasion, weather=weather
-    )
+    docs = await search_fashion_knowledge(session, query, limit=limit, occasion=occasion, weather=weather)
     if not docs:
         return ""
     lines = ["[Fashion Knowledge Context]"]

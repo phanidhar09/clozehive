@@ -15,10 +15,10 @@ from uuid import UUID
 
 from fastapi import APIRouter, Header
 
+from app.api.v1.identity.repositories.user_repo import UserRepository
 from app.core.config import get_settings
 from app.core.deps import DbSession
 from app.core.exceptions import AuthenticationError, NotFoundError
-from app.api.v1.identity.repositories.user_repo import UserRepository
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 settings = get_settings()

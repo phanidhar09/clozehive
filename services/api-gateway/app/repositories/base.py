@@ -5,7 +5,7 @@ Subclass this for each model — get all the basics for free.
 
 from __future__ import annotations
 
-from typing import Optional, Any, Generic, TypeVar
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -13,10 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import Base
 
-ModelT = TypeVar("ModelT", bound=Base)
 
-
-class BaseRepository(Generic[ModelT]):
+class BaseRepository[ModelT: Base]:
     """
     Thread-safe async CRUD repository.
     Each instance holds a reference to the current request's AsyncSession.
@@ -36,6 +34,7 @@ class BaseRepository(Generic[ModelT]):
             if exc:
                 raise exc
             from app.core.exceptions import NotFoundError
+
             raise NotFoundError(f"{self.model.__name__} {id} not found")
         return obj
 

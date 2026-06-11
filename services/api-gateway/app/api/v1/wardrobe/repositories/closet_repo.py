@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from uuid import UUID
 
 from sqlalchemy import and_, select
@@ -19,9 +17,9 @@ class ClosetRepository(BaseRepository[ClosetItem]):
         self,
         user_id: UUID,
         *,
-        section: Optional[str] = None,
-        category: Optional[str] = None,
-        season: Optional[str] = None,
+        section: str | None = None,
+        category: str | None = None,
+        season: str | None = None,
         include_archived: bool = False,
         limit: int = 100,
         offset: int = 0,
@@ -57,9 +55,7 @@ class ClosetRepository(BaseRepository[ClosetItem]):
     async def get_owned(self, item_id: UUID, user_id: UUID) -> ClosetItem | None:
         """Return item only if it belongs to the given user."""
         result = await self.session.execute(
-            select(ClosetItem).where(
-                and_(ClosetItem.id == item_id, ClosetItem.user_id == user_id)
-            )
+            select(ClosetItem).where(and_(ClosetItem.id == item_id, ClosetItem.user_id == user_id))
         )
         return result.scalar_one_or_none()
 
@@ -80,5 +76,3 @@ class ClosetRepository(BaseRepository[ClosetItem]):
             )
         )
         return {item.id: item for item in result.scalars().all()}
-
-

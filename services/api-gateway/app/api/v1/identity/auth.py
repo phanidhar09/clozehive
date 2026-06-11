@@ -20,23 +20,14 @@ import hashlib
 import secrets
 import ssl
 import uuid as _uuid
-from typing import Optional
 from urllib.parse import urlencode
-
-from pydantic import BaseModel
 
 import certifi
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, Header, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse, RedirectResponse
-from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import BaseModel
 
-from app.core.config import get_settings
-from app.core.deps import CurrentUser, DbSession
-from app.core.exceptions import AuthenticationError, ConflictError, NotFoundError
-from app.core.logging import get_logger
-from app.core.rate_limit import auth_limiter, limiter
-from app.core.security import build_google_auth_url
 from app.api.v1.identity.repositories.user_repo import UserRepository
 from app.api.v1.identity.schemas.auth import (
     AuthResponse,
@@ -50,9 +41,14 @@ from app.api.v1.identity.schemas.auth import (
     UpdateProfileRequest,
     UserResponse,
 )
+from app.api.v1.identity.services import AuthService, account_purge_service
 from app.core import cache_service, email_service
-from app.api.v1.identity.services import account_purge_service
-from app.api.v1.identity.services.auth_service import AuthService
+from app.core.config import get_settings
+from app.core.deps import CurrentUser, DbSession
+from app.core.exceptions import AuthenticationError, ConflictError
+from app.core.logging import get_logger
+from app.core.rate_limit import auth_limiter, limiter
+from app.core.security import build_google_auth_url
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 settings = get_settings()
@@ -81,9 +77,8 @@ def _request_fingerprint(request: Request) -> str:
     back to the ASGI client address. The result is a one-way SHA-256 hash so the
     real IP is never stored in Redis.
     """
-    ip = (
-        request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-        or (request.client.host if request.client else "unknown")
+    ip = request.headers.get("x-forwarded-for", "").split(",")[0].strip() or (
+        request.client.host if request.client else "unknown"
     )
     ua = request.headers.get("user-agent", "")
     raw = f"{ip}:{ua}"
@@ -94,8 +89,8 @@ def _oauth_login_redirect(
     frontend: str,
     *,
     error: str,
-    reason: Optional[str] = None,
-    detail: Optional[str] = None,
+    reason: str | None = None,
+    detail: str | None = None,
 ) -> str:
     """Build a safe frontend login redirect URL with optional OAuth reason/detail.
 
@@ -131,10 +126,10 @@ def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
         key=_REFRESH_COOKIE_NAME,
         value=refresh_token,
         httponly=True,
-        secure=settings.cookie_secure,      # True in production
+        secure=settings.cookie_secure,  # True in production
         samesite=settings.cookie_samesite,  # "Lax" default
         max_age=max_age,
-        path="/api/v1/auth",               # Scope cookie to auth paths only
+        path="/api/v1/auth",  # Scope cookie to auth paths only
         domain=settings.cookie_domain or None,
     )
 
@@ -156,6 +151,7 @@ def _svc(session: DbSession) -> AuthService:
 
 
 # ── Public ────────────────────────────────────────────────────────────────────
+
 
 @router.post("/signup", response_model=AuthResponse, status_code=201)
 @auth_limiter.limit("3/minute")
@@ -197,7 +193,7 @@ async def refresh(
     response: Response,
     # Read refresh token from HttpOnly cookie (preferred path).
     # Fall back to body field for backwards compatibility with old clients.
-    ch_refresh_token: Optional[str] = Cookie(default=None),
+    ch_refresh_token: str | None = Cookie(default=None),
     body: RefreshRequest = RefreshRequest(),
     svc: AuthService = Depends(_svc),
 ):
@@ -229,6 +225,7 @@ async def refresh(
 
 
 # ── Authenticated ─────────────────────────────────────────────────────────────
+
 
 @router.get("/me", response_model=UserResponse)
 async def me(user_id: CurrentUser, session: DbSession):
@@ -278,6 +275,7 @@ async def change_password(
 
 
 # ── Password reset ─────────────────────────────────────────────────────────────
+
 
 @router.post("/forgot-password", status_code=202)
 @auth_limiter.limit("3/hour")
@@ -333,9 +331,9 @@ async def reset_password(
 async def logout(
     response: Response,
     # Cookie path (preferred — HttpOnly, never exposed to JS)
-    ch_refresh_token: Optional[str] = Cookie(default=None),
-    body: Optional[RefreshRequest] = None,
-    authorization: Optional[str] = Header(default=None),
+    ch_refresh_token: str | None = Cookie(default=None),
+    body: RefreshRequest | None = None,
+    authorization: str | None = Header(default=None),
     svc: AuthService = Depends(_svc),
 ):
     """Revoke the refresh token and clear the HttpOnly cookie.
@@ -366,6 +364,7 @@ async def logout_all(user_id: CurrentUser, svc: AuthService = Depends(_svc)):
 
 
 # ── GDPR endpoints ────────────────────────────────────────────────────────────
+
 
 async def _cleanup_user_uploads(image_urls: list[str], user_id: str) -> None:
     """Background task: delete all GCS / local-disk uploads for a user.
@@ -412,6 +411,7 @@ async def delete_account(
     the storage layer is temporarily unavailable.
     """
     from sqlalchemy import select
+
     from app.models.closet import ClosetItem
 
     uid = _uuid.UUID(user_id)
@@ -420,17 +420,22 @@ async def delete_account(
 
     # Collect image URLs *before* deleting the user row (CASCADE will wipe them).
     # Deduplicate to avoid redundant GCS calls for shared blobs.
-    closet_items = (await session.execute(
-        select(ClosetItem.image_url, ClosetItem.original_image_url, ClosetItem.processed_image_url)
-        .where(ClosetItem.user_id == uid)
-    )).all()
+    closet_items = (
+        await session.execute(
+            select(ClosetItem.image_url, ClosetItem.original_image_url, ClosetItem.processed_image_url).where(
+                ClosetItem.user_id == uid
+            )
+        )
+    ).all()
 
-    image_urls: list[str] = list({
-        url
-        for row in closet_items
-        for url in (row.image_url, row.original_image_url, row.processed_image_url)
-        if url  # filter out None / empty
-    })
+    image_urls: list[str] = list(
+        {
+            url
+            for row in closet_items
+            for url in (row.image_url, row.original_image_url, row.processed_image_url)
+            if url  # filter out None / empty
+        }
+    )
 
     users = UserRepository(session)
     user = await users.get_or_raise(uid)
@@ -462,35 +467,33 @@ async def export_my_data(
 ):
     """Return a JSON export of everything held about the authenticated user (GDPR Art. 20)."""
     from datetime import date as _date
+
     from sqlalchemy import select
+
+    from app.models.ai_chat import AIChatMessage, AIChatSession
     from app.models.closet import ClosetItem
     from app.models.trips import Trip
-    from app.models.ai_chat import AIChatSession, AIChatMessage
 
     uid = _uuid.UUID(user_id)
     users = UserRepository(session)
     user = await users.get_or_raise(uid)
 
     # Closet items
-    closet_rows = (await session.execute(
-        select(ClosetItem).where(ClosetItem.user_id == uid)
-    )).scalars().all()
+    closet_rows = (await session.execute(select(ClosetItem).where(ClosetItem.user_id == uid))).scalars().all()
 
     # Trips
-    trip_rows = (await session.execute(
-        select(Trip).where(Trip.user_id == uid)
-    )).scalars().all()
+    trip_rows = (await session.execute(select(Trip).where(Trip.user_id == uid))).scalars().all()
 
     # AI chat sessions + messages
-    session_rows = (await session.execute(
-        select(AIChatSession).where(AIChatSession.user_id == uid)
-    )).scalars().all()
+    session_rows = (await session.execute(select(AIChatSession).where(AIChatSession.user_id == uid))).scalars().all()
     session_ids = [s.id for s in session_rows]
     message_rows = []
     if session_ids:
-        message_rows = (await session.execute(
-            select(AIChatMessage).where(AIChatMessage.session_id.in_(session_ids))
-        )).scalars().all()
+        message_rows = (
+            (await session.execute(select(AIChatMessage).where(AIChatMessage.session_id.in_(session_ids))))
+            .scalars()
+            .all()
+        )
 
     def _str(v):
         if isinstance(v, (_uuid.UUID,)):
@@ -519,9 +522,26 @@ async def export_my_data(
             "preferences": user.preferences,
         },
         "closet_items": [
-            _row(item, ["id", "name", "category", "color", "fabric", "pattern",
-                        "season", "occasion", "tags", "brand", "size", "price",
-                        "image_url", "notes", "created_at"])
+            _row(
+                item,
+                [
+                    "id",
+                    "name",
+                    "category",
+                    "color",
+                    "fabric",
+                    "pattern",
+                    "season",
+                    "occasion",
+                    "tags",
+                    "brand",
+                    "size",
+                    "price",
+                    "image_url",
+                    "notes",
+                    "created_at",
+                ],
+            )
             for item in closet_rows
         ],
         "trips": [
@@ -541,7 +561,8 @@ async def export_my_data(
                         "content": _str(m.message),
                         "created_at": _str(m.created_at),
                     }
-                    for m in message_rows if m.session_id == s.id
+                    for m in message_rows
+                    if m.session_id == s.id
                 ],
             }
             for s in session_rows
@@ -556,13 +577,12 @@ async def export_my_data(
 
 # ── Google OAuth ──────────────────────────────────────────────────────────────
 
+
 @router.get("/google/login", include_in_schema=True, tags=["Auth"])
 @auth_limiter.limit("10/minute")
 async def google_login(request: Request):
     """Redirect the browser to Google's OAuth consent screen."""
-    if not settings.google_client_id or settings.google_client_id.strip().startswith(
-        ("your-", "replace", "REPLACE")
-    ):
+    if not settings.google_client_id or settings.google_client_id.strip().startswith(("your-", "replace", "REPLACE")):
         from fastapi.responses import JSONResponse
 
         return JSONResponse(
@@ -592,10 +612,10 @@ async def google_login(request: Request):
 async def google_callback(
     request: Request,
     svc: AuthService = Depends(_svc),
-    code: Optional[str] = Query(default=None),
-    state: Optional[str] = Query(default=None),
-    error: Optional[str] = Query(default=None),
-    error_description: Optional[str] = Query(default=None),
+    code: str | None = Query(default=None),
+    state: str | None = Query(default=None),
+    error: str | None = Query(default=None),
+    error_description: str | None = Query(default=None),
 ):
     """Handle Google's redirect after OAuth consent. Issues JWT and redirects to the frontend."""
     frontend = settings.frontend_url.rstrip("/")
@@ -704,7 +724,7 @@ async def google_callback(
         google_id: str = info["id"]
         email: str = info.get("email", "")
         name: str = info.get("name") or (email.split("@")[0] if email else "User")
-        avatar_url: Optional[str] = info.get("picture")
+        avatar_url: str | None = info.get("picture")
         # Google returns verified_email=true for any email it owns/verified. We
         # only trust this address for linking to an existing account when verified.
         email_verified: bool = bool(info.get("verified_email") or info.get("email_verified"))
@@ -772,6 +792,7 @@ async def google_callback(
 # google_callback into real JWT tokens.  The code is deleted on first read so
 # it cannot be replayed.
 # ---------------------------------------------------------------------------
+
 
 class _OAuthExchangeRequest(BaseModel):
     code: str

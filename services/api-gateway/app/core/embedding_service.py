@@ -13,11 +13,11 @@ import json
 import re
 import uuid as _uuid
 from collections import OrderedDict
-from typing import Any, Type, TypeVar
+from typing import Any, TypeVar
 
 from langsmith import traceable
 from openai import AsyncOpenAI
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -31,13 +31,15 @@ logger = get_logger("embedding_service")
 # Tables that are permitted as targets for pgvector_cosine_search.
 # This allowlist prevents table-name injection — PostgreSQL cannot parameterise
 # table/column identifiers, so we validate the caller-supplied name explicitly.
-_ALLOWED_TABLES: frozenset[str] = frozenset({
-    "closet_items",
-    "outfit_history",
-    "packing_memory",
-    "fashion_knowledge_documents",
-    "purchase_gaps",
-})
+_ALLOWED_TABLES: frozenset[str] = frozenset(
+    {
+        "closet_items",
+        "outfit_history",
+        "packing_memory",
+        "fashion_knowledge_documents",
+        "purchase_gaps",
+    }
+)
 
 # Matches the exact string produced by vector_literal(): "[f,f,f,…]"
 _VEC_RE = re.compile(r"\[[\d.,eE+\-]+\]")
@@ -54,9 +56,7 @@ M = TypeVar("M", bound=Base)
 def _get_client() -> AsyncOpenAI:
     global _client
     if _client is None:
-        _client = wrap_openai_client(
-            make_openai_client(settings.openai_api_key, base_url=settings.openai_api_base_url)
-        )
+        _client = wrap_openai_client(make_openai_client(settings.openai_api_key, base_url=settings.openai_api_base_url))
     return _client
 
 
@@ -206,20 +206,20 @@ def item_to_embedding_text(item: dict[str, Any]) -> str:
       in vector space regardless of which fields are populated
     """
     # ── Field resolution (handles both naming conventions) ───────────────────
-    category    = _resolve(item, "category")
+    category = _resolve(item, "category")
     subcategory = _resolve(item, "subcategory")
-    name        = _resolve(item, "name")
-    color       = _resolve(item, "color", "primary_color")
-    material    = _resolve(item, "fabric", "material")
-    pattern     = _resolve(item, "pattern")
-    fit         = _resolve(item, "fit")
-    brand       = _resolve(item, "brand")
+    name = _resolve(item, "name")
+    color = _resolve(item, "color", "primary_color")
+    material = _resolve(item, "fabric", "material")
+    pattern = _resolve(item, "pattern")
+    fit = _resolve(item, "fit")
+    brand = _resolve(item, "brand")
     description = _resolve(item, "notes", "description")
 
-    occasions   = _resolve_list(item, "occasion", "occasion_tags")
-    seasons     = _resolve_list(item, "season", "season_tags")
-    tags        = _resolve_list(item, "tags", "style_tags")
-    sec_colors  = _resolve_list(item, "secondary_colors")
+    occasions = _resolve_list(item, "occasion", "occasion_tags")
+    seasons = _resolve_list(item, "season", "season_tags")
+    tags = _resolve_list(item, "tags", "style_tags")
+    sec_colors = _resolve_list(item, "secondary_colors")
 
     # ── Build natural-language sentence ──────────────────────────────────────
     # Format: "<color> <material> <fit> <subcategory or category> called '<name>'"

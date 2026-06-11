@@ -19,7 +19,7 @@ Contract:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -84,7 +84,7 @@ async def _tavily_search(query: str, *, max_results: int) -> dict[str, Any] | No
     return {
         "answer": answer,
         "sources": sources,
-        "fetched_at": datetime.now(timezone.utc).isoformat(),
+        "fetched_at": datetime.now(UTC).isoformat(),
     }
 
 

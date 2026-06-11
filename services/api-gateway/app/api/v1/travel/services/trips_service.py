@@ -3,16 +3,13 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import BadRequestError, NotFoundError
-from app.models.packing import PackingPlan
-from app.models.trips import Trip
 from app.api.v1.travel.schemas.trips import (
     AddActivitiesRequest,
     PackingPlanResponse,
@@ -21,6 +18,9 @@ from app.api.v1.travel.schemas.trips import (
     TripListResponse,
     TripResponse,
 )
+from app.core.exceptions import BadRequestError, NotFoundError
+from app.models.packing import PackingPlan
+from app.models.trips import Trip
 
 
 class TripsService:
@@ -65,8 +65,8 @@ class TripsService:
         already_saved = trip.is_saved and plan.is_saved
         trip.is_saved = True
         plan.is_saved = True
-        plan.updated_at = datetime.now(timezone.utc)
-        trip.updated_at = datetime.now(timezone.utc)
+        plan.updated_at = datetime.now(UTC)
+        trip.updated_at = datetime.now(UTC)
 
         await self.session.flush()
         await self.session.refresh(trip)
@@ -132,9 +132,7 @@ class TripsService:
         await self.session.refresh(trip)
         return self._to_response(trip)
 
-    async def add_activities(
-        self, trip_id: UUID, user_id: UUID, body: AddActivitiesRequest
-    ) -> TripResponse:
+    async def add_activities(self, trip_id: UUID, user_id: UUID, body: AddActivitiesRequest) -> TripResponse:
         stmt = select(Trip).where(Trip.id == trip_id, Trip.user_id == user_id)
         result = await self.session.execute(stmt)
         trip = result.scalar_one_or_none()
@@ -149,7 +147,7 @@ class TripsService:
             existing.extend(new_acts)
             trip.activities = existing
 
-        trip.updated_at = datetime.now(timezone.utc)
+        trip.updated_at = datetime.now(UTC)
         await self.session.flush()
         await self.session.refresh(trip)
         return self._to_response(trip)
@@ -171,7 +169,7 @@ class TripsService:
         state = dict(plan.checklist_state or {})
         state[item_key] = is_packed
         plan.checklist_state = state
-        plan.updated_at = datetime.now(timezone.utc)
+        plan.updated_at = datetime.now(UTC)
         await self.session.flush()
         return {"item_key": item_key, "is_packed": is_packed}
 
@@ -215,7 +213,7 @@ class TripsService:
             plan.bag_capacity_summary = bag_cap
             plan.packing_checklist = checklist
             plan.activities = activities
-            plan.updated_at = datetime.now(timezone.utc)
+            plan.updated_at = datetime.now(UTC)
         else:
             plan = PackingPlan(
                 id=uuid.uuid4(),

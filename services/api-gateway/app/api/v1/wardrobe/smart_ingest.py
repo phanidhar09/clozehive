@@ -28,24 +28,22 @@ independently.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, File, UploadFile, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
 
+from app.api.v1.wardrobe.schemas.closet import ClosetItemCreate
+from app.api.v1.wardrobe.services import bulk_ingest_service, similarity_service
+from app.api.v1.wardrobe.services.closet_similarity_service import check_similar_for_new_item
+from app.core import cache_service
 from app.core.deps import CurrentUser, DbSession
 from app.core.exceptions import BadRequestError, NotFoundError
 from app.core.logging import get_logger
-from app.models.closet import ClosetItem
-from app.api.v1.identity.repositories.user_repo import UserRepository
-from app.api.v1.wardrobe.schemas.closet import ClosetItemCreate
-from app.api.v1.wardrobe.services import bulk_ingest_service, similarity_service
-from app.core import cache_service
-from app.api.v1.wardrobe.services.closet_similarity_service import check_similar_for_new_item
-from app.core.upload_service import persist_upload, read_validated_image, signed_url_for_stored
 from app.core.redis import get_redis
+from app.core.upload_service import persist_upload, read_validated_image, signed_url_for_stored
+from app.models.closet import ClosetItem
 
 # Keys in a review-item dict that may hold a stored GCS URL. Signed for outgoing
 # responses only; the Redis job store keeps raw URLs (approve reads those).
@@ -71,6 +69,7 @@ def _sign_review_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 item[key] = signed_url_for_stored(item[key])
     return items
 
+
 router = APIRouter(prefix="/smart-ingest", tags=["Smart Ingest"])
 logger = get_logger("smart_ingest")
 
@@ -78,6 +77,7 @@ MAX_INGEST_FILES = 20
 
 
 # ── Request / Response schemas ─────────────────────────────────────────────────
+
 
 class IngestStartResponse(BaseModel):
     job_id: str
@@ -88,14 +88,14 @@ class IngestStartResponse(BaseModel):
 
 class IngestStatusResponse(BaseModel):
     job_id: str
-    status: str                 # processing | completed | failed
+    status: str  # processing | completed | failed
     total_images: int
     processed_images: int
     items_detected: int
     failed_images: int
     created_at: str
     updated_at: str
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class IngestResultsResponse(BaseModel):
@@ -107,23 +107,23 @@ class IngestResultsResponse(BaseModel):
 
 
 class ItemUpdateRequest(BaseModel):
-    name: Optional[str] = Field(None, max_length=255)
-    category: Optional[str] = Field(None, max_length=100)
-    subcategory: Optional[str] = Field(None, max_length=100)
-    primary_color: Optional[str] = Field(None, max_length=100)
-    secondary_colors: Optional[list[str]] = None
-    pattern: Optional[str] = Field(None, max_length=100)
-    material: Optional[str] = Field(None, max_length=100)
-    occasion_tags: Optional[list[str]] = None
-    season_tags: Optional[list[str]] = None
-    style_tags: Optional[list[str]] = None
-    fit: Optional[str] = Field(None, max_length=50)
-    brand: Optional[str] = Field(None, max_length=100)
-    description: Optional[str] = Field(None, max_length=1000)
+    name: str | None = Field(None, max_length=255)
+    category: str | None = Field(None, max_length=100)
+    subcategory: str | None = Field(None, max_length=100)
+    primary_color: str | None = Field(None, max_length=100)
+    secondary_colors: list[str] | None = None
+    pattern: str | None = Field(None, max_length=100)
+    material: str | None = Field(None, max_length=100)
+    occasion_tags: list[str] | None = None
+    season_tags: list[str] | None = None
+    style_tags: list[str] | None = None
+    fit: str | None = Field(None, max_length=50)
+    brand: str | None = Field(None, max_length=100)
+    description: str | None = Field(None, max_length=1000)
 
 
 class ApproveRequest(BaseModel):
-    item_ids: Optional[list[str]] = Field(
+    item_ids: list[str] | None = Field(
         None,
         description="IDs to approve. If omitted, all pending_review items are approved.",
     )
@@ -131,6 +131,7 @@ class ApproveRequest(BaseModel):
 
 class SimilarItemWarning(BaseModel):
     """RAG-detected duplicate warning returned with the approval response."""
+
     new_item_name: str
     similar_item_id: str
     similar_item_name: str
@@ -147,6 +148,7 @@ class ApproveResponse(BaseModel):
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
+
 def _require_job(job: dict[str, Any] | None, job_id: str) -> dict[str, Any]:
     """Raise 404 if job is missing or user mismatch (service returns None for both)."""
     if job is None:
@@ -155,6 +157,7 @@ def _require_job(job: dict[str, Any] | None, job_id: str) -> dict[str, Any]:
 
 
 # ── Endpoints ──────────────────────────────────────────────────────────────────
+
 
 @router.post(
     "/",
@@ -199,16 +202,20 @@ async def start_ingest(
             image_bytes, content_type = await read_validated_image(file)
             url = await persist_upload(image_bytes, content_type, file.filename)
             from app.core.config import get_settings
+
             settings = get_settings()
             from pathlib import Path
+
             file_path = str(settings.upload_path / Path(url).name)
 
-            file_infos.append({
-                "filename": file.filename or f"image_{len(file_infos)}",
-                "original_url": url,
-                "file_path": file_path,
-                "content_type": content_type,
-            })
+            file_infos.append(
+                {
+                    "filename": file.filename or f"image_{len(file_infos)}",
+                    "original_url": url,
+                    "file_path": file_path,
+                    "content_type": content_type,
+                }
+            )
         except Exception as exc:
             validation_errors.append(f"{file.filename or 'unknown'}: {exc}")
 
@@ -356,7 +363,7 @@ async def approve_items(
     • Closet cache is invalidated so the Closet page shows fresh data.
     • Embedding generation is enqueued as a background task per item.
     """
-    job = _require_job(
+    _require_job(
         await bulk_ingest_service.get_job_status(job_id, user_id),
         job_id,
     )
@@ -365,17 +372,15 @@ async def approve_items(
     # Filter: only pending_review; apply item_ids whitelist if supplied
     id_filter = set(body.item_ids) if body.item_ids else None
     to_approve = [
-        i for i in all_items
-        if i.get("status") == "pending_review"
-        and (id_filter is None or i["temp_item_id"] in id_filter)
+        i
+        for i in all_items
+        if i.get("status") == "pending_review" and (id_filter is None or i["temp_item_id"] in id_filter)
     ]
 
     if not to_approve:
         raise BadRequestError("No pending review items match the supplied IDs.")
 
     uid = UUID(user_id)
-    user_repo = UserRepository(session)
-    user_obj = await user_repo.get(uid)
 
     created_ids: list[str] = []
     failed = 0
@@ -453,12 +458,10 @@ async def approve_items(
                 brand=item_create.brand,
             )
             session.add(new_item)
-            await session.flush()   # get the DB-assigned id
+            await session.flush()  # get the DB-assigned id
             created_ids.append(str(new_item.id))
 
-            await similarity_service.schedule_embedding_update(
-                background_tasks, str(new_item.id)
-            )
+            await similarity_service.schedule_embedding_update(background_tasks, str(new_item.id))
 
         except Exception as exc:
             logger.error(
@@ -493,10 +496,11 @@ async def approve_items(
 
 # ── Tiny helpers ───────────────────────────────────────────────────────────────
 
+
 def _pick_season(season_tags: list[str] | None) -> str | None:
     """Pick the first recognised season from the AI tags list."""
     valid = {"spring", "summer", "fall", "winter", "autumn"}
-    for tag in (season_tags or []):
+    for tag in season_tags or []:
         if tag.lower() in valid:
             # Normalise autumn → fall for consistency with existing schema
             return "fall" if tag.lower() == "autumn" else tag.lower()
@@ -516,7 +520,7 @@ def _build_tags(item: dict[str, Any]) -> list[str]:
         if t and t.lower() not in seen:
             seen.add(t.lower())
             result.append(t)
-    return result[:20]   # closet schema allows max 20 tags
+    return result[:20]  # closet schema allows max 20 tags
 
 
 def _safe_float(val: Any) -> float | None:

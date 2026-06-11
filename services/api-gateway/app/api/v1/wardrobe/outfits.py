@@ -7,39 +7,40 @@ import hashlib
 import time
 from uuid import UUID
 
-_analyze_cache: dict[str, tuple[dict, float]] = {}
-_ANALYZE_CACHE_TTL = 300  # 5 minutes
-
 from fastapi import APIRouter, BackgroundTasks, Request, status
-from app.core.rate_limit import limiter
 from pydantic import BaseModel, Field
-from sqlalchemy import select, desc
+from sqlalchemy import desc, select
 
-from app.core.deps import CurrentUser, DbSession
-from app.core.exceptions import BadRequestError
-from app.core.constraint_priority import build_constraint_priority_block
-from app.core.logging import get_logger
-from app.models.closet import ClosetItem, Outfit
 from app.api.v1.identity.services.style_profile_context import load_merged_user_profile_for_ai
-from app.api.v1.wardrobe.schemas.outfit_ai import AnalyzeOutfitRequest, AnalyzeOutfitResponse
-from app.api.v1.wardrobe.services import outfit_ai_service
-from app.api.v1.travel.services.weather_service import get_weather_by_city
+from app.api.v1.intelligence.services.fashion_rag_service import get_fashion_context_for_prompt
+from app.api.v1.intelligence.services.purchase_gap_service import detect_and_save_gaps
 from app.api.v1.travel.services.location_intel_service import (
     build_location_context_block_async,
 )
-from app.api.v1.intelligence.services.fashion_rag_service import get_fashion_context_for_prompt
+from app.api.v1.travel.services.weather_service import get_weather_by_city
+from app.api.v1.wardrobe.schemas.outfit_ai import AnalyzeOutfitRequest, AnalyzeOutfitResponse
+from app.api.v1.wardrobe.services import outfit_ai_service
 from app.api.v1.wardrobe.services.outfit_history_service import (
     get_outfit_history_for_prompt,
     save_outfit_history,
 )
+from app.core.constraint_priority import build_constraint_priority_block
+from app.core.deps import CurrentUser, DbSession
 from app.core.embedding_service import generate_text_embedding, pgvector_cosine_search
-from app.api.v1.intelligence.services.purchase_gap_service import detect_and_save_gaps
+from app.core.exceptions import BadRequestError
+from app.core.logging import get_logger
+from app.core.rate_limit import limiter
+from app.models.closet import ClosetItem, Outfit
+
+_analyze_cache: dict[str, tuple[dict, float]] = {}
+_ANALYZE_CACHE_TTL = 300  # 5 minutes
 
 
 def _ws_push(user_id: str, data: dict) -> None:
     """Fire-and-forget WebSocket push — never raises."""
     try:
         from app.api.v1.platform.ws import manager as _ws_manager
+
         loop = asyncio.get_event_loop()
         if loop.is_running():
             asyncio.ensure_future(_ws_manager.broadcast_to_user(user_id, data))
@@ -53,12 +54,11 @@ logger = get_logger("outfits.routes")
 
 # ── List saved outfits ─────────────────────────────────────────────────────────
 
+
 @router.get("/")
 async def list_outfits(user_id: CurrentUser, session: DbSession):
     result = await session.execute(
-        select(Outfit)
-        .where(Outfit.user_id == UUID(user_id))
-        .order_by(desc(Outfit.created_at))
+        select(Outfit).where(Outfit.user_id == UUID(user_id)).order_by(desc(Outfit.created_at))
     )
     outfits = result.scalars().all()
     return [
@@ -77,6 +77,7 @@ async def list_outfits(user_id: CurrentUser, session: DbSession):
 
 
 # ── Save outfit ────────────────────────────────────────────────────────────────
+
 
 class OutfitCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
@@ -105,9 +106,7 @@ async def create_outfit(body: OutfitCreate, user_id: CurrentUser, session: DbSes
     )
     found = {row[0] for row in owned.all()}
     if found != unique_ids:
-        raise BadRequestError(
-            "One or more items were not found, are archived, or do not belong to your closet."
-        )
+        raise BadRequestError("One or more items were not found, are archived, or do not belong to your closet.")
 
     outfit = Outfit(
         user_id=uid,
@@ -132,9 +131,16 @@ async def create_outfit(body: OutfitCreate, user_id: CurrentUser, session: DbSes
 
 # ── AI outfit analysis ─────────────────────────────────────────────────────────
 
+
 @router.post("/analyze", response_model=AnalyzeOutfitResponse)
 @limiter.limit("20/minute")
-async def analyze_outfit(request: Request, body: AnalyzeOutfitRequest, user_id: CurrentUser, session: DbSession, background_tasks: BackgroundTasks):
+async def analyze_outfit(
+    request: Request,
+    body: AnalyzeOutfitRequest,
+    user_id: CurrentUser,
+    session: DbSession,
+    background_tasks: BackgroundTasks,
+):
     """
     Analyse a specific outfit combination the user built in the Outfit Builder.
 
@@ -172,17 +178,17 @@ async def analyze_outfit(request: Request, body: AnalyzeOutfitRequest, user_id: 
 
     items_for_ai = [
         {
-            "id":         str(item.id),
-            "name":       item.name,
-            "category":   item.category,
-            "color":      item.color or "",
-            "fabric":     item.fabric or "",
-            "pattern":    item.pattern or "",
-            "season":     item.season or "",
-            "occasion":   item.occasion or [],
-            "size":       item.size or "",
-            "brand":      item.brand or "",
-            "tags":       item.tags or [],
+            "id": str(item.id),
+            "name": item.name,
+            "category": item.category,
+            "color": item.color or "",
+            "fabric": item.fabric or "",
+            "pattern": item.pattern or "",
+            "season": item.season or "",
+            "occasion": item.occasion or [],
+            "size": item.size or "",
+            "brand": item.brand or "",
+            "tags": item.tags or [],
             "wear_count": item.wear_count,
         }
         for item in db_items
@@ -226,13 +232,17 @@ async def analyze_outfit(request: Request, body: AnalyzeOutfitRequest, user_id: 
     # Build RAG context: fashion knowledge + past outfit history (best-effort)
     rag_parts: list[str] = []
     try:
-        fashion_ctx = await get_fashion_context_for_prompt(session, f"{body.occasion} outfit {effective_weather}", limit=2)
+        fashion_ctx = await get_fashion_context_for_prompt(
+            session, f"{body.occasion} outfit {effective_weather}", limit=2
+        )
         if fashion_ctx:
             rag_parts.append(fashion_ctx)
     except Exception:
         pass
     try:
-        history_ctx = await get_outfit_history_for_prompt(session, user_id, body.occasion, effective_weather or "", limit=2)
+        history_ctx = await get_outfit_history_for_prompt(
+            session, user_id, body.occasion, effective_weather or "", limit=2
+        )
         if history_ctx:
             rag_parts.append(history_ctx)
     except Exception:
@@ -266,25 +276,27 @@ async def analyze_outfit(request: Request, body: AnalyzeOutfitRequest, user_id: 
     # the canvas, capped at 50 rows so the AI prompt stays compact.
     try:
         remaining_result = await session.execute(
-            select(ClosetItem).where(
+            select(ClosetItem)
+            .where(
                 ClosetItem.user_id == uid,
                 ClosetItem.id.not_in(set(item_uuids)),
                 ClosetItem.is_archived == False,  # noqa: E712
-            ).limit(50)
+            )
+            .limit(50)
         )
         remaining_db_items = remaining_result.scalars().all()
 
         remaining_for_ai = [
             {
-                "id":       str(it.id),
-                "name":     it.name,
+                "id": str(it.id),
+                "name": it.name,
                 "category": it.category,
-                "color":    it.color or "",
-                "fabric":   it.fabric or "",
-                "pattern":  it.pattern or "",
-                "season":   it.season or "",
+                "color": it.color or "",
+                "fabric": it.fabric or "",
+                "pattern": it.pattern or "",
+                "season": it.season or "",
                 "occasion": it.occasion or [],
-                "brand":    it.brand or "",
+                "brand": it.brand or "",
             }
             for it in remaining_db_items
         ]
@@ -302,15 +314,17 @@ async def analyze_outfit(request: Request, body: AnalyzeOutfitRequest, user_id: 
             item_id = str(s.get("id", ""))
             db_item = remaining_map.get(item_id)
             if db_item:
-                hydrated.append({
-                    "id":        item_id,
-                    "name":      db_item.name,
-                    "category":  db_item.category,
-                    "color":     db_item.color,
-                    "image_url": db_item.image_url,
-                    "brand":     db_item.brand,
-                    "reason":    s.get("reason", ""),
-                })
+                hydrated.append(
+                    {
+                        "id": item_id,
+                        "name": db_item.name,
+                        "category": db_item.category,
+                        "color": db_item.color,
+                        "image_url": db_item.image_url,
+                        "brand": db_item.brand,
+                        "reason": s.get("reason", ""),
+                    }
+                )
         data["suggested_pairings"] = hydrated
     except Exception as exc:
         logger.warning("outfit_suggest_pairings_route_failed", error=str(exc))
@@ -341,11 +355,15 @@ async def analyze_outfit(request: Request, body: AnalyzeOutfitRequest, user_id: 
 
     # Real-time push: notify open browser tabs that analysis finished
     outfit_score = (data.get("outfit") or {}).get("matching_score")
-    background_tasks.add_task(_ws_push, user_id, {
-        "type": "notification",
-        "channel": "ai",
-        "data": {"event": "analysis_complete", "score": outfit_score, "occasion": body.occasion},
-    })
+    background_tasks.add_task(
+        _ws_push,
+        user_id,
+        {
+            "type": "notification",
+            "channel": "ai",
+            "data": {"event": "analysis_complete", "score": outfit_score, "occasion": body.occasion},
+        },
+    )
 
     return data
 
@@ -353,7 +371,9 @@ async def analyze_outfit(request: Request, body: AnalyzeOutfitRequest, user_id: 
 class ShuffleOutfitRequest(BaseModel):
     item_ids: list[str] = Field(..., min_items=1, description="Current outfit item IDs")
     occasion: str = "casual"
-    seed_category: str | None = Field(None, description="Optional category to anchor first alternative (e.g. 'tops', 'bottoms')")
+    seed_category: str | None = Field(
+        None, description="Optional category to anchor first alternative (e.g. 'tops', 'bottoms')"
+    )
     location: str | None = None
 
 
@@ -385,10 +405,15 @@ async def shuffle_outfit(
     )
     current_items = [
         {
-            "id": str(r.id), "name": r.name, "category": r.category,
-            "color": r.color or "", "fabric": r.fabric or "",
-            "pattern": r.pattern or "", "occasion": r.occasion or [],
-            "season": r.season or [], "tags": r.tags or [],
+            "id": str(r.id),
+            "name": r.name,
+            "category": r.category,
+            "color": r.color or "",
+            "fabric": r.fabric or "",
+            "pattern": r.pattern or "",
+            "occasion": r.occasion or [],
+            "season": r.season or [],
+            "tags": r.tags or [],
             "image_url": r.processed_image_url or r.image_url or r.original_image_url,
         }
         for r in current_rows.scalars().all()
@@ -422,10 +447,14 @@ async def shuffle_outfit(
         )
         available = [
             {
-                "id": str(r["id"]), "name": r.get("name") or "",
-                "category": r.get("category") or "", "color": r.get("color") or "",
-                "fabric": r.get("fabric") or "", "pattern": r.get("pattern") or "",
-                "occasion": r.get("occasion") or [], "season": r.get("season") or [],
+                "id": str(r["id"]),
+                "name": r.get("name") or "",
+                "category": r.get("category") or "",
+                "color": r.get("color") or "",
+                "fabric": r.get("fabric") or "",
+                "pattern": r.get("pattern") or "",
+                "occasion": r.get("occasion") or [],
+                "season": r.get("season") or [],
                 "tags": r.get("tags") or [],
                 "image_url": r.get("processed_image_url") or r.get("image_url") or r.get("original_image_url"),
             }
@@ -443,10 +472,15 @@ async def shuffle_outfit(
         )
         available = [
             {
-                "id": str(r.id), "name": r.name, "category": r.category,
-                "color": r.color or "", "fabric": r.fabric or "",
-                "pattern": r.pattern or "", "occasion": r.occasion or [],
-                "season": r.season or [], "tags": r.tags or [],
+                "id": str(r.id),
+                "name": r.name,
+                "category": r.category,
+                "color": r.color or "",
+                "fabric": r.fabric or "",
+                "pattern": r.pattern or "",
+                "occasion": r.occasion or [],
+                "season": r.season or [],
+                "tags": r.tags or [],
                 "image_url": r.processed_image_url or r.image_url or r.original_image_url,
             }
             for r in all_rows.scalars().all()
@@ -504,6 +538,7 @@ async def _save_outfit_history_and_gaps(
 ) -> None:
     """Background task: save outfit history and detect purchase gaps."""
     from app.db.session import AsyncSessionLocal
+
     async with AsyncSessionLocal() as bg_session:
         try:
             await save_outfit_history(

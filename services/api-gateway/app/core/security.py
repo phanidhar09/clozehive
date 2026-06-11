@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
 
@@ -26,6 +26,7 @@ REFRESH_TOKEN_TYPE = "refresh"
 
 # ── Password hashing ──────────────────────────────────────────────────────────
 
+
 def hash_password(plain: str) -> str:
     """Hash a plain-text password with bcrypt (cost=12)."""
     return bcrypt.hashpw(plain.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("utf-8")
@@ -41,18 +42,19 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 # ── JWT tokens ────────────────────────────────────────────────────────────────
 
+
 def _encode(payload: dict[str, Any]) -> str:
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
 def create_access_token(user_id: str, role: str = "user") -> str:
-    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
+    expire = datetime.now(UTC) + timedelta(minutes=settings.access_token_expire_minutes)
     payload = {
         "sub": user_id,
         "role": role,
         "type": ACCESS_TOKEN_TYPE,
         "exp": expire,
-        "iat": datetime.now(timezone.utc),
+        "iat": datetime.now(UTC),
         "jti": secrets.token_urlsafe(16),
     }
     return _encode(payload)
@@ -80,6 +82,7 @@ def hash_token(raw_token: str) -> str:
 
 
 # ── OAuth ─────────────────────────────────────────────────────────────────────
+
 
 def build_google_auth_url(state: str) -> str:
     params = {

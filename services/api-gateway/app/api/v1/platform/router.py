@@ -3,8 +3,8 @@ analytics (migrated to closet-service)."""
 
 from fastapi import APIRouter
 
-from app.core.config import get_settings
 from app.api.v1.platform import admin, analytics, health, rum, ws
+from app.core.config import get_settings
 
 router = APIRouter()
 # Gateway-owned platform routers (nginx routes these here).

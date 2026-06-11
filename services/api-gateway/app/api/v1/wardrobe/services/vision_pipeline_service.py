@@ -33,38 +33,39 @@ import io
 import json
 import math
 import time
-from uuid import uuid4
 from typing import Any, cast
+from uuid import uuid4
 
 from PIL import Image
 
-from app.core.logging import get_logger
-from app.core.redis import get_redis
 from app.api.v1.wardrobe.schemas.closet import NormalizedBoundingBox, VisionAnalysisItem, VisionAnalyzeResponse
 from app.api.v1.wardrobe.services import fashion_analysis_service
 from app.api.v1.wardrobe.services.background_removal_service import remove_background_async
 from app.api.v1.wardrobe.services.fashion_analysis_service import _bbox_to_xywh_dict
 from app.api.v1.wardrobe.services.item_vision_enrichment import enrich_detection_with_crop_analysis
+from app.core.logging import get_logger
+from app.core.redis import get_redis
 
 logger = get_logger("vision_pipeline")
 
 # ── Tuning constants ───────────────────────────────────────────────────────────
 
-_MAX_DIMENSION  = 1500      # px — resize larger images before sending to AI
+_MAX_DIMENSION = 1500  # px — resize larger images before sending to AI
 _MAX_DIMENSION_PREVIEW_FAST = 1120  # smaller image → faster detection for closet preview-only path
-_JPEG_QUALITY   = 85        # JPEG quality for compressed version sent to AI
-_JPEG_QUALITY_FAST = 82    # preview_fast per-item thumbnails
-_CACHE_TTL      = 3_600     # 1 hour (Redis seconds)
-_VISION_TIMEOUT = 45.0      # seconds — OpenAI Vision call
-_BG_TIMEOUT     = 30.0      # seconds — per-item BG removal
-_CACHE_KEY_PFX  = "vision_pipeline:v3:"
+_JPEG_QUALITY = 85  # JPEG quality for compressed version sent to AI
+_JPEG_QUALITY_FAST = 82  # preview_fast per-item thumbnails
+_CACHE_TTL = 3_600  # 1 hour (Redis seconds)
+_VISION_TIMEOUT = 45.0  # seconds — OpenAI Vision call
+_BG_TIMEOUT = 30.0  # seconds — per-item BG removal
+_CACHE_KEY_PFX = "vision_pipeline:v3:"
 
 # Multi-item deduplication thresholds
-_IOU_DEDUP_THRESHOLD  = 0.70   # merge/drop bbox if IOU exceeds this
-_MIN_BBOX_AREA        = 0.003  # drop items whose bbox covers < 0.3% of image
-_MIN_CONFIDENCE       = 0.35   # drop items below this detection confidence
+_IOU_DEDUP_THRESHOLD = 0.70  # merge/drop bbox if IOU exceeds this
+_MIN_BBOX_AREA = 0.003  # drop items whose bbox covers < 0.3% of image
+_MIN_CONFIDENCE = 0.35  # drop items below this detection confidence
 
 # ── Image compression ──────────────────────────────────────────────────────────
+
 
 def _compress_image(
     image_bytes: bytes,
@@ -116,6 +117,7 @@ def _image_hash(image_bytes: bytes) -> str:
 
 
 # ── Multi-item deduplication ───────────────────────────────────────────────────
+
 
 def _bbox_area(b: dict[str, float]) -> float:
     """Fractional area of a bbox dict with x_min/y_min/x_max/y_max keys."""
@@ -191,6 +193,7 @@ def _filter_and_dedup(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 # ── Cache helpers ──────────────────────────────────────────────────────────────
 
+
 async def _cache_get(key: str) -> dict[str, Any] | None:
     try:
         redis = await get_redis()
@@ -210,6 +213,7 @@ async def _cache_set(key: str, data: dict[str, Any]) -> None:
 
 # ── BG removal per item ────────────────────────────────────────────────────────
 
+
 async def _remove_bg_timed(crop_bytes: bytes) -> tuple[bytes, str]:
     """
     Run BG removal with a per-item timeout.
@@ -221,7 +225,7 @@ async def _remove_bg_timed(crop_bytes: bytes) -> tuple[bytes, str]:
             timeout=_BG_TIMEOUT,
         )
         return result
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning("bg_removal_timeout")
         return crop_bytes, "failed"
     except Exception as exc:
@@ -232,12 +236,18 @@ async def _remove_bg_timed(crop_bytes: bytes) -> tuple[bytes, str]:
 # ── Category normalisation ─────────────────────────────────────────────────────
 
 _CAT_MAP: dict[str, str] = {
-    "top": "tops", "tops": "tops",
-    "bottom": "bottoms", "bottoms": "bottoms",
-    "footwear": "shoes", "shoe": "shoes", "shoes": "shoes",
-    "accessory": "accessories", "accessories": "accessories",
+    "top": "tops",
+    "tops": "tops",
+    "bottom": "bottoms",
+    "bottoms": "bottoms",
+    "footwear": "shoes",
+    "shoe": "shoes",
+    "shoes": "shoes",
+    "accessory": "accessories",
+    "accessories": "accessories",
     "outerwear": "outerwear",
-    "dress": "dresses", "dresses": "dresses",
+    "dress": "dresses",
+    "dresses": "dresses",
     "other": "other",
 }
 
@@ -269,6 +279,7 @@ def _bbox_to_normalized_model(raw: dict[str, Any]) -> NormalizedBoundingBox | No
 
 
 # ── Main pipeline ──────────────────────────────────────────────────────────────
+
 
 async def run_pipeline(
     image_bytes: bytes,
@@ -312,7 +323,7 @@ async def run_pipeline(
     # 3. Vision AI — Gemini primary, OpenAI fallback
     try:
         raw_result = await _run_detection(compressed, compressed_type)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         ms = round((time.monotonic() - t0) * 1000)
         logger.error("vision_pipeline_timeout", scan_id=scan_id, ms=ms)
         return VisionAnalyzeResponse(
@@ -408,9 +419,7 @@ async def run_pipeline(
                     detected_item_id=detected_item_id,
                     error=str(crop_exc),
                 )
-                raise RuntimeError(
-                    f"crop failed for detected_item_id={detected_item_id}: {crop_exc}"
-                ) from crop_exc
+                raise RuntimeError(f"crop failed for detected_item_id={detected_item_id}: {crop_exc}") from crop_exc
             logger.warning("item_crop_failed_single_item", detected_item_id=detected_item_id, error=str(crop_exc))
             crop_bytes = image_bytes
 
@@ -480,11 +489,13 @@ async def run_pipeline(
     for i, result in enumerate(gather_results):
         raw = raw_items[i]
         if isinstance(result, BaseException):
-            failed_items.append({
-                "detected_item_id": raw.get("detected_item_id", "unknown"),
-                "category": raw.get("category"),
-                "error": str(result),
-            })
+            failed_items.append(
+                {
+                    "detected_item_id": raw.get("detected_item_id", "unknown"),
+                    "category": raw.get("category"),
+                    "error": str(result),
+                }
+            )
             logger.warning(
                 "item_processing_failed",
                 detected_item_id=raw.get("detected_item_id"),
@@ -495,6 +506,7 @@ async def run_pipeline(
 
     ms = round((time.monotonic() - t0) * 1000)
     from app.core.metrics import record_vision_stage
+
     record_vision_stage("total", (time.monotonic() - t0))
     logger.info(
         "vision_pipeline_complete",
@@ -526,6 +538,7 @@ async def run_pipeline(
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
+
 def _build_name(raw: dict[str, Any]) -> str:
     """Build a human-friendly item name from vision metadata."""
     # Prefer the AI-generated name if present and meaningful
@@ -542,6 +555,7 @@ def _build_name(raw: dict[str, Any]) -> str:
 
 
 # ── Detection router (Gemini → OpenAI fallback) ───────────────────────────────
+
 
 async def _run_detection(image_bytes: bytes, media_type: str) -> dict[str, Any]:
     """
@@ -567,6 +581,7 @@ async def _run_detection(image_bytes: bytes, media_type: str) -> dict[str, Any]:
 
 
 # ── Streaming pipeline ────────────────────────────────────────────────────────
+
 
 async def run_pipeline_streaming(
     image_bytes: bytes,
@@ -608,20 +623,21 @@ async def run_pipeline_streaming(
 
     if cached_data:
         raw_items: list[dict[str, Any]] = cached_data.get("items", [])
-        yield _sse({
-            "type": "items_detected",
-            "count": len(raw_items),
-            "cached": True,
-            "items": raw_items,
-        })
+        yield _sse(
+            {
+                "type": "items_detected",
+                "count": len(raw_items),
+                "cached": True,
+                "items": raw_items,
+            }
+        )
     else:
         # ── Stage 3: Detection ───────────────────────────────────────────────
-        yield _sse({"type": "stage", "stage": "detecting",
-                    "message": "Detecting clothing items with AI..."})
+        yield _sse({"type": "stage", "stage": "detecting", "message": "Detecting clothing items with AI..."})
 
         try:
             raw_result = await _run_detection(compressed, compressed_type)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             yield _sse({"type": "error", "message": "Detection timed out. Please try again."})
             return
         except Exception as exc:
@@ -638,26 +654,25 @@ async def run_pipeline_streaming(
         # Stream metadata immediately — frontend renders cards before images arrive.
         # Include detected_item_id so frontend can correlate item_ready events by id,
         # not by arrival order (which is non-deterministic for parallel BG tasks).
-        items_meta = [
-            {k: v for k, v in item.items() if k not in ("image_base64",)}
-            for item in raw_items
-        ]
-        yield _sse({
-            "type": "items_detected",
-            "count": len(raw_items),
-            "cached": False,
-            "items": items_meta,
-        })
+        items_meta = [{k: v for k, v in item.items() if k not in ("image_base64",)} for item in raw_items]
+        yield _sse(
+            {
+                "type": "items_detected",
+                "count": len(raw_items),
+                "cached": False,
+                "items": items_meta,
+            }
+        )
 
         if not raw_items:
             ms = round((time.monotonic() - t0) * 1000)
-            yield _sse({"type": "complete", "scan_id": scan_id,
-                        "total_items": 0, "processing_time_ms": ms})
+            yield _sse({"type": "complete", "scan_id": scan_id, "total_items": 0, "processing_time_ms": ms})
             return
 
     # ── Stage 4: Parallel BG removal — stream items as each finishes ─────────
-    yield _sse({"type": "stage", "stage": "backgrounds",
-                "message": f"Removing backgrounds from {len(raw_items)} item(s)..."})
+    yield _sse(
+        {"type": "stage", "stage": "backgrounds", "message": f"Removing backgrounds from {len(raw_items)} item(s)..."}
+    )
 
     from app.api.v1.wardrobe.services.fashion_analysis_service import _crop_item  # type: ignore[attr-defined]
 
@@ -698,39 +713,41 @@ async def run_pipeline_streaming(
             description=(str(raw.get("description") or ""))[:120],
         )
 
-        await queue.put({
-            "type": "item_ready",
-            # detected_item_id is the stable key — frontend must use this, not array index.
-            "detected_item_id": detected_item_id,
-            "item_id": item_id,
-            # ── image ─────────────────────────────────────────────────────────
-            "image_base64": img_b64,
-            "background_removed": bg_removed,
-            "background_removal_status": bg_status,
-            # ── spatial ───────────────────────────────────────────────────────
-            "bounding_box": bounding_box,
-            # ── classification ────────────────────────────────────────────────
-            "category": _norm_cat(raw.get("category")),
-            "subcategory": raw.get("subcategory") or None,
-            "name": _build_name(raw),
-            "description": raw.get("description") or None,
-            "gender": str(raw.get("gender") or "unisex"),
-            "fit": raw.get("fit") or None,
-            "sleeve_type": raw.get("sleeve_type") or None,
-            # ── attributes ────────────────────────────────────────────────────
-            "primary_color": raw.get("primary_color") or None,
-            "secondary_color": raw.get("secondary_color") or None,
-            "pattern": raw.get("pattern") or None,
-            "material": raw.get("material") or None,
-            "brand": raw.get("brand") or None,
-            # ── taxonomy ──────────────────────────────────────────────────────
-            "occasions": list(raw.get("occasions") or []),
-            "season": list(raw.get("season") or []),
-            "style_tags": list(raw.get("style_tags") or []),
-            # ── quality ───────────────────────────────────────────────────────
-            "confidence_score": conf,
-            "segmentation_quality": str(raw.get("segmentation_quality") or "medium"),
-        })
+        await queue.put(
+            {
+                "type": "item_ready",
+                # detected_item_id is the stable key — frontend must use this, not array index.
+                "detected_item_id": detected_item_id,
+                "item_id": item_id,
+                # ── image ─────────────────────────────────────────────────────────
+                "image_base64": img_b64,
+                "background_removed": bg_removed,
+                "background_removal_status": bg_status,
+                # ── spatial ───────────────────────────────────────────────────────
+                "bounding_box": bounding_box,
+                # ── classification ────────────────────────────────────────────────
+                "category": _norm_cat(raw.get("category")),
+                "subcategory": raw.get("subcategory") or None,
+                "name": _build_name(raw),
+                "description": raw.get("description") or None,
+                "gender": str(raw.get("gender") or "unisex"),
+                "fit": raw.get("fit") or None,
+                "sleeve_type": raw.get("sleeve_type") or None,
+                # ── attributes ────────────────────────────────────────────────────
+                "primary_color": raw.get("primary_color") or None,
+                "secondary_color": raw.get("secondary_color") or None,
+                "pattern": raw.get("pattern") or None,
+                "material": raw.get("material") or None,
+                "brand": raw.get("brand") or None,
+                # ── taxonomy ──────────────────────────────────────────────────────
+                "occasions": list(raw.get("occasions") or []),
+                "season": list(raw.get("season") or []),
+                "style_tags": list(raw.get("style_tags") or []),
+                # ── quality ───────────────────────────────────────────────────────
+                "confidence_score": conf,
+                "segmentation_quality": str(raw.get("segmentation_quality") or "medium"),
+            }
+        )
 
     # Kick off all BG tasks concurrently
     tasks = [asyncio.create_task(_process_and_queue(raw)) for raw in raw_items]
@@ -742,7 +759,7 @@ async def run_pipeline_streaming(
             event = await asyncio.wait_for(queue.get(), timeout=60.0)
             yield _sse(event)
             completed += 1
-    except asyncio.TimeoutError:
+    except TimeoutError:
         for t in tasks:
             t.cancel()
         yield _sse({"type": "error", "message": "Background removal timed out."})
@@ -755,11 +772,9 @@ async def run_pipeline_streaming(
 
     # ── Stage 5: Cache metadata + emit complete ───────────────────────────────
     if not cached_data:
-        cacheable = {"items": [{k: v for k, v in i.items() if k != "image_base64"}
-                               for i in raw_items]}
+        cacheable = {"items": [{k: v for k, v in i.items() if k != "image_base64"} for i in raw_items]}
         await _cache_set(cache_key, cacheable)
 
     ms = round((time.monotonic() - t0) * 1000)
     logger.info("stream_pipeline_complete", scan_id=scan_id, items=total, ms=ms)
-    yield _sse({"type": "complete", "scan_id": scan_id,
-                "total_items": total, "processing_time_ms": ms})
+    yield _sse({"type": "complete", "scan_id": scan_id, "total_items": total, "processing_time_ms": ms})

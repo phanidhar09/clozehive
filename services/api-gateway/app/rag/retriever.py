@@ -26,33 +26,32 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.logging import get_logger
-from app.rag.vector_store import (
-    FAISSVectorStore,
-    PGVectorStore,
-    SOURCE_CLOSET_ITEM,
-    SOURCE_FASHION_KNOWLEDGE,
-    SOURCE_OUTFIT_HISTORY,
-    SOURCE_PACKING_MEMORY,
-    get_vector_store,
-)
 from app.api.v1.intelligence.services import fashion_rag_service, purchase_gap_service
 from app.api.v1.travel.services import packing_memory_service
 from app.api.v1.wardrobe.services import closet_similarity_service, outfit_history_service
 from app.core.embedding_service import generate_text_embedding
+from app.core.logging import get_logger
 from app.rag.query_builder import (
     build_fashion_knowledge_query,
     build_outfit_history_query,
     build_packing_memory_query,
 )
 from app.rag.rerank import rerank_outfit_history, rerank_packing_memories
+from app.rag.vector_store import (
+    SOURCE_CLOSET_ITEM,
+    SOURCE_OUTFIT_HISTORY,
+    SOURCE_PACKING_MEMORY,
+    FAISSVectorStore,
+    PGVectorStore,
+    get_vector_store,
+)
 
 logger = get_logger("rag.retriever")
 
 # ── Similarity thresholds ─────────────────────────────────────────────────────
 # These are quality gates; lower = more results but noisier matches.
 
-_THRESHOLD_FASHION = 0.60     # fashion documents are broadly relevant at 0.60
+_THRESHOLD_FASHION = 0.60  # fashion documents are broadly relevant at 0.60
 _THRESHOLD_OUTFIT_HISTORY = 0.65
 _THRESHOLD_PACKING = 0.60
 _THRESHOLD_CLOSET_TEXT = 0.60
@@ -106,9 +105,7 @@ async def retrieve_outfit_context(
     else:
         fashion_docs, outfit_history = await asyncio.gather(
             fashion_task,
-            _faiss_outfit_history_search(
-                _store, user_id=user_id, occasion=occasion, weather=weather, limit=limit
-            ),
+            _faiss_outfit_history_search(_store, user_id=user_id, occasion=occasion, weather=weather, limit=limit),
         )
 
     has_context = bool(fashion_docs or outfit_history)
@@ -120,8 +117,7 @@ async def retrieve_outfit_context(
         "outfit_history": outfit_history,
         "has_context": has_context,
         "fallback_message": (
-            None if has_context
-            else "No matching fashion context found. Using general styling principles."
+            None if has_context else "No matching fashion context found. Using general styling principles."
         ),
     }
 
@@ -222,8 +218,7 @@ async def retrieve_packing_context(
         "packing_history": packing_history,
         "has_context": has_context,
         "fallback_message": (
-            None if has_context
-            else "No previous packing data for this type of trip. Starting fresh."
+            None if has_context else "No previous packing data for this type of trip. Starting fresh."
         ),
     }
 
@@ -240,9 +235,7 @@ async def _faiss_packing_search(
     limit: int,
 ) -> list[dict[str, Any]]:
     """Packing memory search via FAISS backend."""
-    query = build_packing_memory_query(
-        destination, purpose, weather_summary, start_date, end_date
-    )
+    query = build_packing_memory_query(destination, purpose, weather_summary, start_date, end_date)
 
     embedding = await generate_text_embedding(query)
     if not embedding:
@@ -271,9 +264,7 @@ async def _faiss_packing_search(
         }
         for r in results
     ]
-    return rerank_packing_memories(
-        records, purpose=purpose, destination=destination
-    )[:limit]
+    return rerank_packing_memories(records, purpose=purpose, destination=destination)[:limit]
 
 
 # ── Similar items ─────────────────────────────────────────────────────────────
@@ -313,9 +304,7 @@ async def retrieve_similar_items(
             )
             query_type, query_ref = "closet_item", closet_item_id
         elif query:
-            results = await closet_similarity_service.find_similar_by_text(
-                session, query, user_id, limit=limit
-            )
+            results = await closet_similarity_service.find_similar_by_text(session, query, user_id, limit=limit)
             query_type, query_ref = "text_query", query
         elif image_url:
             results = await closet_similarity_service.find_similar_by_image_url(
@@ -361,18 +350,27 @@ async def _faiss_similar_items(
 
     if closet_item_id:
         # Load the closet item from DB to build embedding text
-        from app.models.closet import ClosetItem
         import uuid as _uuid
+
+        from app.models.closet import ClosetItem
+
         try:
             item = await session.get(ClosetItem, _uuid.UUID(closet_item_id))
         except Exception:
             item = None
         if item and str(item.user_id) == user_id and not item.is_archived:
-            text = item_to_embedding_text({
-                "name": item.name, "category": item.category, "color": item.color,
-                "fabric": item.fabric, "pattern": item.pattern, "season": item.season,
-                "occasion": item.occasion, "tags": item.tags,
-            })
+            text = item_to_embedding_text(
+                {
+                    "name": item.name,
+                    "category": item.category,
+                    "color": item.color,
+                    "fabric": item.fabric,
+                    "pattern": item.pattern,
+                    "season": item.season,
+                    "occasion": item.occasion,
+                    "tags": item.tags,
+                }
+            )
             query_type, query_ref = "closet_item", closet_item_id
     elif query:
         text = query
@@ -440,9 +438,7 @@ async def retrieve_purchase_gaps(
 
     Returns a dict matching PurchaseGapsResponse schema.
     """
-    gaps = await purchase_gap_service.get_purchase_gaps(
-        session, user_id, resolved=resolved, limit=limit
-    )
+    gaps = await purchase_gap_service.get_purchase_gaps(session, user_id, resolved=resolved, limit=limit)
 
     if gaps:
         top_cats = [g["missing_category"] for g in gaps[:3]]
