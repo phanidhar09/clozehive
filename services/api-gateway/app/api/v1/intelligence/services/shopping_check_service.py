@@ -15,78 +15,77 @@ Flow:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.logging import get_logger
+from app.api.v1.intelligence.services import ai_service
+from app.api.v1.intelligence.services.fashion_rag_service import get_fashion_context_for_prompt
+from app.api.v1.wardrobe.services.vision_service import analyze_for_bulk
 from app.core.embedding_service import (
     generate_text_embedding,
     item_to_embedding_text,
     pgvector_cosine_search,
     vector_literal,
 )
-from app.api.v1.wardrobe.services.vision_service import analyze_for_bulk
-from app.core.upload_service import persist_upload
-from app.api.v1.intelligence.services import ai_service
-from app.api.v1.intelligence.services.fashion_rag_service import get_fashion_context_for_prompt
+from app.core.logging import get_logger
 
 logger = get_logger("shopping_check_service")
 
 # ── Scoring weights ──────────────────────────────────────────────────────────
-_DUPLICATE_THRESHOLD = 0.88   # cosine sim — item is "essentially the same"
-_MATCH_THRESHOLD = 0.65       # cosine sim — item pairs well
+_DUPLICATE_THRESHOLD = 0.88  # cosine sim — item is "essentially the same"
+_MATCH_THRESHOLD = 0.65  # cosine sim — item pairs well
 
 # Percentage-weighted scoring: each factor weight is the % it can contribute, and
 # the weights SUM TO 100. buy_score = Σ(weight × factor_subscore) where each
 # subscore is 0–1, so the result is a true 0–100% with no clamping needed.
 _WEIGHTS: dict[str, float] = {
-    "uniqueness":    30.0,   # not a near-duplicate of something already owned
-    "compatibility": 25.0,   # pairs with items already in the closet
-    "gap_fill":      20.0,   # fills a detected category gap
-    "occasion_new":  15.0,   # adds new occasion coverage
-    "season_new":    10.0,   # adds new season coverage
+    "uniqueness": 30.0,  # not a near-duplicate of something already owned
+    "compatibility": 25.0,  # pairs with items already in the closet
+    "gap_fill": 20.0,  # fills a detected category gap
+    "occasion_new": 15.0,  # adds new occasion coverage
+    "season_new": 10.0,  # adds new season coverage
 }
 assert round(sum(_WEIGHTS.values())) == 100, "buy_score weights must sum to 100%"
-_COMPAT_SATURATION = 5       # this many compatible items = full compatibility credit
+_COMPAT_SATURATION = 5  # this many compatible items = full compatibility credit
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
 
 def _build_item_text(analysis: dict[str, Any]) -> str:
     """
     Convert vision analysis payload into embedding text.
     Pass both alias variants so item_to_embedding_text resolves whichever is populated.
     """
-    return item_to_embedding_text({
-        # Both naming conventions kept — _resolve() picks the first non-empty one
-        "name":         analysis.get("name", ""),
-        "category":     analysis.get("category", ""),
-        "subcategory":  analysis.get("subcategory", ""),
-        "color":        analysis.get("color", ""),
-        "primary_color": analysis.get("primary_color", ""),
-        "fabric":       analysis.get("fabric", ""),
-        "material":     analysis.get("material", ""),
-        "pattern":      analysis.get("pattern", ""),
-        "fit":          analysis.get("fit", ""),
-        "season":       analysis.get("season") or [],
-        "season_tags":  analysis.get("season_tags") or [],
-        "occasion":     analysis.get("occasion") or [],
-        "occasion_tags": analysis.get("occasion_tags") or [],
-        "tags":         analysis.get("tags") or [],
-        "style_tags":   analysis.get("style_tags") or [],
-        "notes":        analysis.get("notes", ""),
-        "description":  analysis.get("description", ""),
-        "brand":        analysis.get("brand", ""),
-        "secondary_colors": analysis.get("secondary_colors") or [],
-    })
+    return item_to_embedding_text(
+        {
+            # Both naming conventions kept — _resolve() picks the first non-empty one
+            "name": analysis.get("name", ""),
+            "category": analysis.get("category", ""),
+            "subcategory": analysis.get("subcategory", ""),
+            "color": analysis.get("color", ""),
+            "primary_color": analysis.get("primary_color", ""),
+            "fabric": analysis.get("fabric", ""),
+            "material": analysis.get("material", ""),
+            "pattern": analysis.get("pattern", ""),
+            "fit": analysis.get("fit", ""),
+            "season": analysis.get("season") or [],
+            "season_tags": analysis.get("season_tags") or [],
+            "occasion": analysis.get("occasion") or [],
+            "occasion_tags": analysis.get("occasion_tags") or [],
+            "tags": analysis.get("tags") or [],
+            "style_tags": analysis.get("style_tags") or [],
+            "notes": analysis.get("notes", ""),
+            "description": analysis.get("description", ""),
+            "brand": analysis.get("brand", ""),
+            "secondary_colors": analysis.get("secondary_colors") or [],
+        }
+    )
 
 
-async def _fetch_existing_occasions_seasons(
-    session: AsyncSession, user_id: str
-) -> tuple[set[str], set[str]]:
+async def _fetch_existing_occasions_seasons(session: AsyncSession, user_id: str) -> tuple[set[str], set[str]]:
     """Return sets of occasions and seasons already covered by the user's closet."""
     sql = text("""
         SELECT occasion, season FROM closet_items
@@ -97,16 +96,14 @@ async def _fetch_existing_occasions_seasons(
     occasions: set[str] = set()
     seasons: set[str] = set()
     for row in rows:
-        for occ in (row["occasion"] or []):
+        for occ in row["occasion"] or []:
             occasions.add(occ.lower())
-        for s in (row["season"] or []):
+        for s in row["season"] or []:
             seasons.add(s.lower())
     return occasions, seasons
 
 
-async def _has_open_gap_for_category(
-    session: AsyncSession, user_id: str, category: str
-) -> bool:
+async def _has_open_gap_for_category(session: AsyncSession, user_id: str, category: str) -> bool:
     """Return True if there's an unresolved purchase gap for this category."""
     sql = text("""
         SELECT 1 FROM purchase_gaps
@@ -120,6 +117,7 @@ async def _has_open_gap_for_category(
 
 
 # ── Core analysis ─────────────────────────────────────────────────────────────
+
 
 async def analyze_shopping_item(
     image_bytes: bytes,
@@ -148,7 +146,7 @@ async def analyze_shopping_item(
             table="closet_items",
             embedding=embedding,
             user_id=user_id,
-            limit=20,                  # fetch more, trim after scoring
+            limit=20,  # fetch more, trim after scoring
             threshold=_MATCH_THRESHOLD,
             filter_archived=True,
         )
@@ -160,14 +158,8 @@ async def analyze_shopping_item(
     #    contributes (weight × subscore) %, and all weights sum to 100.
     reasons: list[str] = []
 
-    has_duplicate = any(
-        float(it.get("similarity_score", 0)) >= _DUPLICATE_THRESHOLD
-        for it in similar_items
-    )
-    compatible_items = [
-        it for it in similar_items
-        if float(it.get("similarity_score", 0)) < _DUPLICATE_THRESHOLD
-    ]
+    has_duplicate = any(float(it.get("similarity_score", 0)) >= _DUPLICATE_THRESHOLD for it in similar_items)
+    compatible_items = [it for it in similar_items if float(it.get("similarity_score", 0)) < _DUPLICATE_THRESHOLD]
     item_occasions = {o.lower() for o in (analysis.get("occasion_tags") or [])}
     new_occasions = item_occasions - owned_occasions
     item_seasons = {s.lower() for s in (analysis.get("season_tags") or [])}
@@ -176,12 +168,12 @@ async def analyze_shopping_item(
 
     # Factor subscores (0–1)
     subscores: dict[str, float] = {
-        "uniqueness":    0.0 if has_duplicate else 1.0,
+        "uniqueness": 0.0 if has_duplicate else 1.0,
         "compatibility": min(len(compatible_items) / _COMPAT_SATURATION, 1.0),
-        "gap_fill":      1.0 if fills_gap else 0.0,
+        "gap_fill": 1.0 if fills_gap else 0.0,
         # Novelty only counts when the item isn't a duplicate.
-        "occasion_new":  1.0 if (new_occasions and not has_duplicate) else 0.0,
-        "season_new":    1.0 if (new_seasons and not has_duplicate) else 0.0,
+        "occasion_new": 1.0 if (new_occasions and not has_duplicate) else 0.0,
+        "season_new": 1.0 if (new_seasons and not has_duplicate) else 0.0,
     }
 
     # Weighted percentage contributions (sum to ≤ 100).
@@ -226,15 +218,17 @@ async def analyze_shopping_item(
         if iid in seen_ids:
             continue
         seen_ids.add(iid)
-        matched_summary.append({
-            "id": iid,
-            "name": it.get("name", ""),
-            "category": it.get("category", ""),
-            "color": it.get("color", ""),
-            "image_url": it.get("processed_image_url") or it.get("image_url"),
-            "similarity_score": round(float(it.get("similarity_score", 0)), 3),
-            "is_duplicate": float(it.get("similarity_score", 0)) >= _DUPLICATE_THRESHOLD,
-        })
+        matched_summary.append(
+            {
+                "id": iid,
+                "name": it.get("name", ""),
+                "category": it.get("category", ""),
+                "color": it.get("color", ""),
+                "image_url": it.get("processed_image_url") or it.get("image_url"),
+                "similarity_score": round(float(it.get("similarity_score", 0)), 3),
+                "is_duplicate": float(it.get("similarity_score", 0)) >= _DUPLICATE_THRESHOLD,
+            }
+        )
 
     # 9. Persist to DB
     record_id = str(uuid.uuid4())
@@ -250,17 +244,21 @@ async def analyze_shopping_item(
              :score, :rec, :boost, :reason, NOW())
     """)
     import json
-    await session.execute(sql, {
-        "id": record_id,
-        "uid": user_id,
-        "image_url": image_url,
-        "analysis": json.dumps(analysis),
-        "matched": json.dumps(matched_summary),
-        "score": round(score, 1),
-        "rec": recommendation,
-        "boost": round(boost_pct, 1),
-        "reason": reasoning_text,
-    })
+
+    await session.execute(
+        sql,
+        {
+            "id": record_id,
+            "uid": user_id,
+            "image_url": image_url,
+            "analysis": json.dumps(analysis),
+            "matched": json.dumps(matched_summary),
+            "score": round(score, 1),
+            "rec": recommendation,
+            "boost": round(boost_pct, 1),
+            "reason": reasoning_text,
+        },
+    )
     await session.commit()
 
     return {
@@ -290,11 +288,14 @@ async def record_purchase_decision(
           AND user_id = CAST(:uid AS uuid)
         RETURNING id, buy_score, buy_recommendation, purchase_decision
     """)
-    result = await session.execute(sql, {
-        "bought": bought,
-        "cid": check_id,
-        "uid": user_id,
-    })
+    result = await session.execute(
+        sql,
+        {
+            "bought": bought,
+            "cid": check_id,
+            "uid": user_id,
+        },
+    )
     row = result.mappings().first()
     if not row:
         return None
@@ -455,16 +456,16 @@ async def get_closet_match_suggestions(
 
     # 3. Build AI prompt — number each owned item so the AI can reference it reliably
     item_desc = (
-        f"{item.get('name','Item')}: {item.get('category','')}, {item.get('color','')} "
-        f"{item.get('fabric','')} {item.get('pattern','')}. "
+        f"{item.get('name', 'Item')}: {item.get('category', '')}, {item.get('color', '')} "
+        f"{item.get('fabric', '')} {item.get('pattern', '')}. "
         f"Occasions: {', '.join(item.get('occasion') or [])}. "
         f"Seasons: {', '.join(item.get('season') or [])}."
     )
     if inventory:
         inv_lines = "\n".join(
-            f"[{i + 1}] {r.get('name','')} — {r.get('category','')}"
-            f"{', ' + r.get('color') if r.get('color') else ''}"
-            f"{' (' + ', '.join(r.get('occasion')) + ')' if r.get('occasion') else ''}"
+            f"[{i + 1}] {r.get('name', '')} — {r.get('category', '')}"
+            f"{', ' + str(r['color']) if r.get('color') else ''}"
+            f"{' (' + ', '.join(r.get('occasion') or []) + ')' if r.get('occasion') else ''}"
             for i, r in enumerate(inventory)
         )
     else:
@@ -475,8 +476,8 @@ async def get_closet_match_suggestions(
     knowledge_text = ""
     try:
         rag_query = (
-            f"How to complete an outfit around a {item.get('color','')} "
-            f"{item.get('category','')}; what pieces pair well for "
+            f"How to complete an outfit around a {item.get('color', '')} "
+            f"{item.get('category', '')}; what pieces pair well for "
             f"{', '.join(item.get('occasion') or ['everyday'])}"
         )
         knowledge_text = await get_fashion_context_for_prompt(session, rag_query, limit=3)
@@ -528,14 +529,16 @@ async def get_closet_match_suggestions(
         if not row_id or row_id in seen_ids:
             continue
         seen_ids.add(row_id)
-        closet_pairings.append({
-            "id": row_id,
-            "name": row.get("name", ""),
-            "category": row.get("category", ""),
-            "image_url": row.get("processed_image_url") or row.get("image_url"),
-            "role": str(p.get("role", "")),
-            "reason": str(p.get("reason", "")),
-        })
+        closet_pairings.append(
+            {
+                "id": row_id,
+                "name": row.get("name", ""),
+                "category": row.get("category", ""),
+                "image_url": row.get("processed_image_url") or row.get("image_url"),
+                "role": str(p.get("role", "")),
+                "reason": str(p.get("reason", "")),
+            }
+        )
 
     # 7. Build response
     image_url = item.get("processed_image_url") or item.get("image_url")
@@ -584,23 +587,26 @@ async def add_shopping_item_to_closet(
         analysis = _json.loads(analysis)
 
     # Build embedding text
-    item_text = item_to_embedding_text({
-        "name":     analysis.get("name", ""),
-        "category": analysis.get("category", ""),
-        "color":    analysis.get("primary_color") or analysis.get("color", ""),
-        "fabric":   analysis.get("material", ""),
-        "pattern":  analysis.get("pattern", ""),
-        "season":   analysis.get("season_tags") or [],
-        "occasion": analysis.get("occasion_tags") or [],
-        "tags":     analysis.get("style_tags") or [],
-        "notes":    analysis.get("description", ""),
-        "brand":    analysis.get("brand", ""),
-    })
+    item_text = item_to_embedding_text(
+        {
+            "name": analysis.get("name", ""),
+            "category": analysis.get("category", ""),
+            "color": analysis.get("primary_color") or analysis.get("color", ""),
+            "fabric": analysis.get("material", ""),
+            "pattern": analysis.get("pattern", ""),
+            "season": analysis.get("season_tags") or [],
+            "occasion": analysis.get("occasion_tags") or [],
+            "tags": analysis.get("style_tags") or [],
+            "notes": analysis.get("description", ""),
+            "brand": analysis.get("brand", ""),
+        }
+    )
     embedding = await generate_text_embedding(item_text)
     emb_literal = vector_literal(embedding) if embedding else None
 
     new_id = str(uuid.uuid4())
-    insert_sql = text("""
+    insert_sql = text(
+        """
         INSERT INTO closet_items
             (id, user_id, name, category, color, fabric, pattern, brand,
              season, occasion, tags, notes, image_url,
@@ -615,26 +621,31 @@ async def add_shopping_item_to_closet(
              {emb_val})
         RETURNING id, name, category, color, image_url, created_at
     """.format(
-        emb_col=", embedding" if emb_literal else "",
-        emb_val=f", {emb_literal}" if emb_literal else "",
-    ))
+            emb_col=", embedding" if emb_literal else "",
+            emb_val=f", {emb_literal}" if emb_literal else "",
+        )
+    )
 
     import json
-    result = await session.execute(insert_sql, {
-        "id":       new_id,
-        "uid":      user_id,
-        "name":     analysis.get("name") or analysis.get("category") or "Shopping Item",
-        "category": analysis.get("category", ""),
-        "color":    analysis.get("primary_color") or analysis.get("color", ""),
-        "fabric":   analysis.get("material", ""),
-        "pattern":  analysis.get("pattern", ""),
-        "brand":    analysis.get("brand", ""),
-        "season":   json.dumps(analysis.get("season_tags") or []),
-        "occasion": json.dumps(analysis.get("occasion_tags") or []),
-        "tags":     json.dumps(analysis.get("style_tags") or []),
-        "notes":    analysis.get("description", ""),
-        "image_url": row.get("image_url"),
-    })
+
+    result = await session.execute(
+        insert_sql,
+        {
+            "id": new_id,
+            "uid": user_id,
+            "name": analysis.get("name") or analysis.get("category") or "Shopping Item",
+            "category": analysis.get("category", ""),
+            "color": analysis.get("primary_color") or analysis.get("color", ""),
+            "fabric": analysis.get("material", ""),
+            "pattern": analysis.get("pattern", ""),
+            "brand": analysis.get("brand", ""),
+            "season": json.dumps(analysis.get("season_tags") or []),
+            "occasion": json.dumps(analysis.get("occasion_tags") or []),
+            "tags": json.dumps(analysis.get("style_tags") or []),
+            "notes": analysis.get("description", ""),
+            "image_url": row.get("image_url"),
+        },
+    )
     await session.commit()
     created = result.mappings().first()
     return dict(created) if created else {"id": new_id}

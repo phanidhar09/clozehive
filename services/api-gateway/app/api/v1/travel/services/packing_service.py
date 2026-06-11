@@ -15,17 +15,17 @@ from typing import Any
 from langsmith import traceable
 from openai import AsyncOpenAI
 
-from app.core.config import get_settings
-from app.core.llm_safety import sanitize_user_text
-from app.core.logging import get_logger
-from app.core.openai_tracing import make_openai_client, wrap_openai_client
-from app.core.constraint_priority import build_constraint_priority_block
 from app.api.v1.intelligence.services import festival_discovery
 from app.api.v1.travel.services import venue_rules_service
 from app.api.v1.travel.services.location_intel_service import (
     build_location_context_block_async,
 )
 from app.api.v1.travel.services.weather_service import fetch_weather_async, summarise_weather
+from app.core.config import get_settings
+from app.core.constraint_priority import build_constraint_priority_block
+from app.core.llm_safety import sanitize_user_text
+from app.core.logging import get_logger
+from app.core.openai_tracing import make_openai_client, wrap_openai_client
 
 logger = get_logger("packing_service")
 settings = get_settings()
@@ -51,23 +51,23 @@ def _packing_chat_model() -> str:
 # ── Category aliases ──────────────────────────────────────────────────────────
 
 _CATEGORY_ALIASES: dict[str, list[str]] = {
-    "tops":        ["shirt", "top", "tee", "blouse", "sweater", "hoodie", "knitwear", "polo"],
-    "bottoms":     ["pant", "jean", "bottom", "short", "skirt", "trouser", "chino", "legging"],
-    "shoes":       ["shoe", "sneaker", "boot", "sandal", "loafer", "heel", "trainer", "mule", "slipper"],
-    "outerwear":   ["jacket", "coat", "blazer", "cardigan", "trench", "parka", "vest", "overshirt"],
-    "dresses":     ["dress", "jumpsuit", "romper", "co-ord"],
+    "tops": ["shirt", "top", "tee", "blouse", "sweater", "hoodie", "knitwear", "polo"],
+    "bottoms": ["pant", "jean", "bottom", "short", "skirt", "trouser", "chino", "legging"],
+    "shoes": ["shoe", "sneaker", "boot", "sandal", "loafer", "heel", "trainer", "mule", "slipper"],
+    "outerwear": ["jacket", "coat", "blazer", "cardigan", "trench", "parka", "vest", "overshirt"],
+    "dresses": ["dress", "jumpsuit", "romper", "co-ord"],
     "accessories": ["bag", "hat", "scarf", "belt", "watch", "jewellery", "sunglasses", "cap", "tote"],
-    "innerwear":   ["underwear", "bra", "brief", "boxers", "socks", "lingerie"],
+    "innerwear": ["underwear", "bra", "brief", "boxers", "socks", "lingerie"],
 }
 
 _PURPOSE_CATEGORIES: dict[str, list[str]] = {
-    "business":  ["tops", "bottoms", "shoes", "outerwear", "accessories"],
-    "leisure":   ["tops", "bottoms", "shoes", "outerwear"],
-    "beach":     ["tops", "bottoms", "shoes", "accessories"],
-    "formal":    ["tops", "bottoms", "shoes", "outerwear", "accessories"],
+    "business": ["tops", "bottoms", "shoes", "outerwear", "accessories"],
+    "leisure": ["tops", "bottoms", "shoes", "outerwear"],
+    "beach": ["tops", "bottoms", "shoes", "accessories"],
+    "formal": ["tops", "bottoms", "shoes", "outerwear", "accessories"],
     "adventure": ["tops", "bottoms", "shoes", "outerwear"],
     # Default when no activity/purpose is given — versatile everyday coverage.
-    "general":   ["tops", "bottoms", "shoes", "outerwear", "accessories"],
+    "general": ["tops", "bottoms", "shoes", "outerwear", "accessories"],
 }
 
 # ── Bag size constraints ──────────────────────────────────────────────────────
@@ -145,6 +145,7 @@ def _get_bag_constraints(bag_size: str | None) -> dict[str, Any]:
 
 # ── Formatters ────────────────────────────────────────────────────────────────
 
+
 def _normalise_category(category: str) -> str:
     cat = category.lower().strip()
     for canonical, aliases in _CATEGORY_ALIASES.items():
@@ -211,6 +212,7 @@ def _per_day_weather_table(weather_days: list[dict[str, Any]]) -> str:
 
 # ── AI packing prompt (activity-aware) ────────────────────────────────────────
 
+
 async def _ai_activity_aware_packing(
     destination: str,
     start_date: str,
@@ -266,16 +268,16 @@ TRIP DETAILS:
 - Destination: {destination}
 - Dates: {start_date} to {end_date} ({trip_days} days)
 - Purpose: {purpose}
-- Trip style: {trip_style or 'not specified'}
-- Bag size: {bag['label']}
+- Trip style: {trip_style or "not specified"}
+- Bag size: {bag["label"]}
 - Weather: {weather_text}
 {per_day_block}
-- Notes: {notes or 'None'}
+- Notes: {notes or "None"}
 {location_block}{style_block}
 PLANNED ACTIVITIES:
 {activities_block}
 
-BAG SIZE CONSTRAINT: {bag['hint']}
+BAG SIZE CONSTRAINT: {bag["hint"]}
 
 USER'S CLOSET (ONLY use items from this list — never invent closet items):
 {closet_text}
@@ -380,6 +382,7 @@ Return ONLY valid JSON with this structure:
 
 # ── Legacy AI call (kept for fallback) ───────────────────────────────────────
 
+
 async def _ai_packing_recommendations(
     destination: str,
     start_date: str,
@@ -414,8 +417,8 @@ async def _ai_packing_recommendations(
 
     # Sanitise user-supplied trip fields before embedding in the prompt.
     safe_destination = sanitize_user_text(destination, field="notes", max_len=120)
-    safe_purpose     = sanitize_user_text(purpose, field="notes", max_len=80)
-    safe_notes       = sanitize_user_text(notes or "", field="trip_notes") or "None"
+    safe_purpose = sanitize_user_text(purpose, field="notes", max_len=80)
+    safe_notes = sanitize_user_text(notes or "", field="trip_notes") or "None"
 
     prompt = (
         "You are a professional travel stylist. Help pack for this trip.\n\n"
@@ -446,24 +449,29 @@ async def _ai_packing_recommendations(
 
 # ── Normalisation helpers ─────────────────────────────────────────────────────
 
+
 def _normalise_packing_output(
     ai_data: dict[str, Any],
     closet_items: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     _CLOSET_KEYS = [
-        "take_from_your_closet", "takeFromCloset", "take_from_closet",
-        "closet_items_to_pack", "from_closet", "wardrobe_items",
+        "take_from_your_closet",
+        "takeFromCloset",
+        "take_from_closet",
+        "closet_items_to_pack",
+        "from_closet",
+        "wardrobe_items",
     ]
     _NEED_KEYS = [
-        "you_might_still_need", "youMightStillNeed", "still_need",
-        "missing_items", "items_to_buy", "shopping_list",
+        "you_might_still_need",
+        "youMightStillNeed",
+        "still_need",
+        "missing_items",
+        "items_to_buy",
+        "shopping_list",
     ]
-    raw_closet: list[dict] = next(
-        (ai_data[k] for k in _CLOSET_KEYS if isinstance(ai_data.get(k), list)), []
-    )
-    raw_need: list[dict] = next(
-        (ai_data[k] for k in _NEED_KEYS if isinstance(ai_data.get(k), list)), []
-    )
+    raw_closet: list[dict] = next((ai_data[k] for k in _CLOSET_KEYS if isinstance(ai_data.get(k), list)), [])
+    raw_need: list[dict] = next((ai_data[k] for k in _NEED_KEYS if isinstance(ai_data.get(k), list)), [])
     valid_ids = {str(item["id"]) for item in closet_items if item.get("id")}
     valid_names_lower = {str(item.get("name", "")).lower() for item in closet_items if item.get("name")}
 
@@ -499,16 +507,19 @@ def _normalise_packing_output(
         name = str(entry.get("name") or "").strip()
         if not name or name.lower() in seen_need:
             continue
-        still_need.append({
-            "name": name,
-            "category": str(entry.get("category") or "").lower() or "general",
-            "reason": str(entry.get("reason") or "Consider bringing this."),
-        })
+        still_need.append(
+            {
+                "name": name,
+                "category": str(entry.get("category") or "").lower() or "general",
+                "reason": str(entry.get("reason") or "Consider bringing this."),
+            }
+        )
         seen_need.add(name.lower())
     return take_from_closet, still_need
 
 
 # ── Enrich day_plans with closet images ──────────────────────────────────────
+
 
 def _enrich_day_plans_with_images(
     day_plans: list[dict[str, Any]],
@@ -516,9 +527,7 @@ def _enrich_day_plans_with_images(
 ) -> list[dict[str, Any]]:
     """Inject image_url into outfit items where the closet_item_id matches."""
     image_map: dict[str, str] = {
-        str(item["id"]): item.get("image_url", "")
-        for item in closet_items
-        if item.get("id") and item.get("image_url")
+        str(item["id"]): item.get("image_url", "") for item in closet_items if item.get("id") and item.get("image_url")
     }
     for day in day_plans:
         for outfit in day.get("outfits", []):
@@ -530,6 +539,7 @@ def _enrich_day_plans_with_images(
 
 
 # ── Packing checklist builder ─────────────────────────────────────────────────
+
 
 def _build_packing_checklist(
     day_plans: list[dict[str, Any]],
@@ -595,7 +605,7 @@ def _build_packing_checklist(
             }
 
     # Add standard essentials
-    essentials = [
+    essentials: list[dict[str, Any]] = [
         {"item_name": "Underwear", "category": "innerwear", "quantity": trip_days, "source": "essential"},
         {"item_name": "Socks", "category": "innerwear", "quantity": trip_days, "source": "essential"},
         {"item_name": "Sleepwear", "category": "sleepwear", "quantity": 1, "source": "essential"},
@@ -621,6 +631,7 @@ def _build_packing_checklist(
 
 # ── Rule-based fallback structures ───────────────────────────────────────────
 
+
 def _rule_based_packing_sections(
     closet_items: list[dict[str, Any]],
     purpose: str,
@@ -643,19 +654,23 @@ def _rule_based_packing_sections(
         needed = max(1, min(trip_days // 2, 4))
         if available:
             for item in available[:needed]:
-                take_from_closet.append({
-                    "item_id": item.get("id"),
-                    "name": item.get("name", category.title()),
-                    "category": category,
-                    "reason": f"Suitable for a {purpose} trip.",
-                    "recommended_days": [],
-                })
+                take_from_closet.append(
+                    {
+                        "item_id": item.get("id"),
+                        "name": item.get("name", category.title()),
+                        "category": category,
+                        "reason": f"Suitable for a {purpose} trip.",
+                        "recommended_days": [],
+                    }
+                )
         else:
-            still_need.append({
-                "name": f"{category.title()} (not in wardrobe)",
-                "category": category,
-                "reason": f"You have no {category} in your closet — consider purchasing.",
-            })
+            still_need.append(
+                {
+                    "name": f"{category.title()} (not in wardrobe)",
+                    "category": category,
+                    "reason": f"You have no {category} in your closet — consider purchasing.",
+                }
+            )
     return take_from_closet, still_need
 
 
@@ -702,30 +717,62 @@ def _rule_based_day_plans(
             shoes = _pick_item("shoes", 0)
             items = []
             if top:
-                items.append({"closet_item_id": str(top.get("id", "")), "item_name": top.get("name", "Top"), "category": "tops", "source": "from_closet"})
+                items.append(
+                    {
+                        "closet_item_id": str(top.get("id", "")),
+                        "item_name": top.get("name", "Top"),
+                        "category": "tops",
+                        "source": "from_closet",
+                    }
+                )
             if bottom:
-                items.append({"closet_item_id": str(bottom.get("id", "")), "item_name": bottom.get("name", "Bottom"), "category": "bottoms", "source": "from_closet"})
+                items.append(
+                    {
+                        "closet_item_id": str(bottom.get("id", "")),
+                        "item_name": bottom.get("name", "Bottom"),
+                        "category": "bottoms",
+                        "source": "from_closet",
+                    }
+                )
             if shoes:
-                items.append({"closet_item_id": str(shoes.get("id", "")), "item_name": shoes.get("name", "Shoes"), "category": "shoes", "source": "from_closet"})
+                items.append(
+                    {
+                        "closet_item_id": str(shoes.get("id", "")),
+                        "item_name": shoes.get("name", "Shoes"),
+                        "category": "shoes",
+                        "source": "from_closet",
+                    }
+                )
             if not items:
-                items.append({"closet_item_id": None, "item_name": "Casual outfit", "category": "general", "source": "missing_recommended"})
-            outfits.append({
-                "slot": act.get("time_of_day", "morning") if j == 0 else ("afternoon" if j == 1 else "evening"),
-                "activity": act.get("name", "General"),
-                "outfit_name": f"Day {day_num} — {act.get('name', 'Outfit')}",
-                "items": items,
-                "styling_notes": "Mix and match with your closet items.",
-                "comfort_notes": "",
-                "rewear_notes": "",
-            })
+                items.append(
+                    {
+                        "closet_item_id": None,
+                        "item_name": "Casual outfit",
+                        "category": "general",
+                        "source": "missing_recommended",
+                    }
+                )
+            outfits.append(
+                {
+                    "slot": act.get("time_of_day", "morning") if j == 0 else ("afternoon" if j == 1 else "evening"),
+                    "activity": act.get("name", "General"),
+                    "outfit_name": f"Day {day_num} — {act.get('name', 'Outfit')}",
+                    "items": items,
+                    "styling_notes": "Mix and match with your closet items.",
+                    "comfort_notes": "",
+                    "rewear_notes": "",
+                }
+            )
 
-        plans.append({
-            "day_number": day_num,
-            "date": day_date,
-            "weather_note": _weather_outfit_note(weather) if weather else "",
-            "activities": [a.get("name", "General") for a in day_activities],
-            "outfits": outfits,
-        })
+        plans.append(
+            {
+                "day_number": day_num,
+                "date": day_date,
+                "weather_note": _weather_outfit_note(weather) if weather else "",
+                "activities": [a.get("name", "General") for a in day_activities],
+                "outfits": outfits,
+            }
+        )
     return plans
 
 
@@ -746,6 +793,7 @@ def _weather_outfit_note(weather_day: dict[str, Any]) -> str:
 
 
 # ── Weather alerts ───────────────────────────────────────────────────────────
+
 
 def _weather_alerts(weather_summary: dict[str, Any], trip_days: int) -> list[str]:
     alerts: list[str] = []
@@ -772,12 +820,12 @@ def _weather_alerts(weather_summary: dict[str, Any], trip_days: int) -> list[str
 
 # ── Build legacy daily_plan from rich day_plans ──────────────────────────────
 
+
 def _build_legacy_daily_plan(
     day_plans_rich: list[dict[str, Any]],
     closet_items: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Convert rich day_plans to legacy daily_plan format for backward compat."""
-    id_to_name = {str(item["id"]): item.get("name", "") for item in closet_items if item.get("id")}
     plan = []
     for day in day_plans_rich:
         all_items: list[str] = []
@@ -792,19 +840,22 @@ def _build_legacy_daily_plan(
                     all_items.append(name)
                 if cid and cid not in all_ids:
                     all_ids.append(cid)
-        plan.append({
-            "date": day.get("date", ""),
-            "day_label": f"Day {day.get('day_number', '?')}",
-            "outfit_name": " + ".join(filter(None, outfit_names[:2])) or f"Day {day.get('day_number')} outfit",
-            "items": all_items,
-            "item_ids": all_ids,
-            "activities": day.get("activities", []),
-            "weather_note": day.get("weather_note", ""),
-        })
+        plan.append(
+            {
+                "date": day.get("date", ""),
+                "day_label": f"Day {day.get('day_number', '?')}",
+                "outfit_name": " + ".join(filter(None, outfit_names[:2])) or f"Day {day.get('day_number')} outfit",
+                "items": all_items,
+                "item_ids": all_ids,
+                "activities": day.get("activities", []),
+                "weather_note": day.get("weather_note", ""),
+            }
+        )
     return plan
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
 
 @traceable(name="gateway_packing_generate_list", run_type="chain")
 async def generate_packing_list(
@@ -831,8 +882,9 @@ async def generate_packing_list(
         weather_days = await fetch_weather_async(destination, start_date, end_date)
         weather_summary = summarise_weather(weather_days)
         if weather_summary.get("data_source") != "live":
-            logger.warning("packing_weather_fallback", destination=destination,
-                           data_source=weather_summary.get("data_source"))
+            logger.warning(
+                "packing_weather_fallback", destination=destination, data_source=weather_summary.get("data_source")
+            )
 
         merged_ctx = style_profile_context_text
         if merged_ctx is None and user_style_profile:
@@ -873,8 +925,18 @@ async def generate_packing_list(
 
         # ── New activity-aware AI call ────────────────────────────────────────
         ai_rich = await _ai_activity_aware_packing(
-            destination, start_date, end_date, purpose, trip_style, bag_size,
-            trip_days, closet_items, weather_summary, weather_days, activities, notes,
+            destination,
+            start_date,
+            end_date,
+            purpose,
+            trip_style,
+            bag_size,
+            trip_days,
+            closet_items,
+            weather_summary,
+            weather_days,
+            activities,
+            notes,
             style_profile_context_text=merged_ctx,
             rag_context=rag_context,
             location_context=location_context,
@@ -882,8 +944,14 @@ async def generate_packing_list(
 
         # ── Legacy AI call for backward-compat take_from / you_might_need ────
         ai_legacy = await _ai_packing_recommendations(
-            destination, start_date, end_date, purpose, trip_days,
-            closet_items, weather_summary, notes,
+            destination,
+            start_date,
+            end_date,
+            purpose,
+            trip_days,
+            closet_items,
+            weather_summary,
+            notes,
             style_profile_context_text=merged_ctx,
             weather_days=weather_days,
             rag_context=rag_context,
@@ -912,16 +980,17 @@ async def generate_packing_list(
             day_plans_rich = _enrich_day_plans_with_images(day_plans_rich, closet_items)
         else:
             # Fallback rule-based rich plans
-            day_plans_rich = _rule_based_day_plans(
-                closet_items, activities, start_date, trip_days, weather_days
-            )
+            day_plans_rich = _rule_based_day_plans(closet_items, activities, start_date, trip_days, weather_days)
 
         # ── Process legacy AI output ──────────────────────────────────────────
         if ai_legacy:
             take_from_closet, still_need = _normalise_packing_output(ai_legacy, closet_items)
         else:
             take_from_closet, still_need = _rule_based_packing_sections(
-                closet_items, purpose, trip_days, weather_summary,
+                closet_items,
+                purpose,
+                trip_days,
+                weather_summary,
             )
 
         # ── Build checklist ───────────────────────────────────────────────────
@@ -933,46 +1002,116 @@ async def generate_packing_list(
             by_category[_normalise_category(str(item.get("category", "")))].append(item)
 
         packing_list: list[dict[str, Any]] = [
-            {"name": "Underwear",     "category": "essentials", "quantity": trip_days, "reason": "Daily essential", "available_in_closet": False},
-            {"name": "Socks",         "category": "essentials", "quantity": trip_days, "reason": "Daily essential", "available_in_closet": False},
-            {"name": "Phone charger", "category": "essentials", "quantity": 1,         "reason": "Electronics",     "available_in_closet": False},
+            {
+                "name": "Underwear",
+                "category": "essentials",
+                "quantity": trip_days,
+                "reason": "Daily essential",
+                "available_in_closet": False,
+            },
+            {
+                "name": "Socks",
+                "category": "essentials",
+                "quantity": trip_days,
+                "reason": "Daily essential",
+                "available_in_closet": False,
+            },
+            {
+                "name": "Phone charger",
+                "category": "essentials",
+                "quantity": 1,
+                "reason": "Electronics",
+                "available_in_closet": False,
+            },
         ]
         missing_legacy: list[dict[str, Any]] = []
         for category in _PURPOSE_CATEGORIES.get(purpose.lower(), ["tops", "bottoms", "shoes"]):
             available = by_category.get(category, [])
             if available:
                 for item in available[: max(1, min(trip_days // 2, 4))]:
-                    packing_list.append({
-                        "name": item.get("name", category.title()),
+                    packing_list.append(
+                        {
+                            "name": item.get("name", category.title()),
+                            "category": category,
+                            "quantity": 1,
+                            "reason": "From your wardrobe",
+                            "available_in_closet": True,
+                            "closet_item_id": item.get("id"),
+                        }
+                    )
+            else:
+                missing_legacy.append(
+                    {
+                        "name": f"{category.title()} (not in wardrobe)",
                         "category": category,
                         "quantity": 1,
-                        "reason": "From your wardrobe",
-                        "available_in_closet": True,
-                        "closet_item_id": item.get("id"),
-                    })
-            else:
-                missing_legacy.append({
-                    "name": f"{category.title()} (not in wardrobe)",
-                    "category": category,
-                    "quantity": 1,
-                    "reason": f"No {category} found",
-                    "available_in_closet": False,
-                })
+                        "reason": f"No {category} found",
+                        "available_in_closet": False,
+                    }
+                )
 
         avg_high = weather_summary.get("avg_high", 20)
         avg_low = weather_summary.get("avg_low", 10)
         dominant = (weather_summary.get("dominant_condition") or "").lower()
         if weather_summary.get("rainy_days"):
-            packing_list.append({"name": "Compact umbrella", "category": "accessories", "quantity": 1, "reason": "Rain protection", "available_in_closet": False})
+            packing_list.append(
+                {
+                    "name": "Compact umbrella",
+                    "category": "accessories",
+                    "quantity": 1,
+                    "reason": "Rain protection",
+                    "available_in_closet": False,
+                }
+            )
         if avg_high >= 28 or purpose == "beach":
-            packing_list.append({"name": "Sunscreen SPF 50+", "category": "essentials", "quantity": 1, "reason": "Sun protection", "available_in_closet": False})
-            packing_list.append({"name": "Sunglasses", "category": "accessories", "quantity": 1, "reason": "Eye protection", "available_in_closet": False})
+            packing_list.append(
+                {
+                    "name": "Sunscreen SPF 50+",
+                    "category": "essentials",
+                    "quantity": 1,
+                    "reason": "Sun protection",
+                    "available_in_closet": False,
+                }
+            )
+            packing_list.append(
+                {
+                    "name": "Sunglasses",
+                    "category": "accessories",
+                    "quantity": 1,
+                    "reason": "Eye protection",
+                    "available_in_closet": False,
+                }
+            )
         if avg_high <= 12 or any(w in dominant for w in ("cold", "snow", "freez")):
-            packing_list.append({"name": "Thermal base layer", "category": "essentials", "quantity": 2, "reason": f"Cold weather ({avg_high:.0f}°C)", "available_in_closet": False})
+            packing_list.append(
+                {
+                    "name": "Thermal base layer",
+                    "category": "essentials",
+                    "quantity": 2,
+                    "reason": f"Cold weather ({avg_high:.0f}°C)",
+                    "available_in_closet": False,
+                }
+            )
         if avg_low < 0 or "snow" in dominant:
-            packing_list.append({"name": "Heavy insulated coat", "category": "outerwear", "quantity": 1, "reason": f"Sub-zero/snowy ({avg_low:.0f}°C)", "available_in_closet": False})
+            packing_list.append(
+                {
+                    "name": "Heavy insulated coat",
+                    "category": "outerwear",
+                    "quantity": 1,
+                    "reason": f"Sub-zero/snowy ({avg_low:.0f}°C)",
+                    "available_in_closet": False,
+                }
+            )
         if purpose == "beach":
-            packing_list.append({"name": "Swimwear", "category": "essentials", "quantity": 2, "reason": "Beach trip essential", "available_in_closet": False})
+            packing_list.append(
+                {
+                    "name": "Swimwear",
+                    "category": "essentials",
+                    "quantity": 2,
+                    "reason": "Beach trip essential",
+                    "available_in_closet": False,
+                }
+            )
 
         # ── Build legacy daily_plan from rich plans ────────────────────────────
         daily_plan = _build_legacy_daily_plan(day_plans_rich, closet_items)
@@ -1019,7 +1158,9 @@ async def generate_packing_list(
             "notes": notes,
             "take_from_your_closet": take_from_closet,
             "you_might_still_need": still_need,
-            "closet_hint": "Add closet items to get personalized packing recommendations." if not closet_items else None,
+            "closet_hint": "Add closet items to get personalized packing recommendations."
+            if not closet_items
+            else None,
         }
     except Exception as exc:
         logger.warning("packing_generation_fallback", error=str(exc), destination=destination)
@@ -1046,11 +1187,24 @@ def _minimal_packing_fallback(
         for item in closet_items[:12]
     ]
     if not items_out:
-        items_out = [{"name": "Travel essentials", "category": "essentials", "quantity": 1, "reason": "Add wardrobe items", "available_in_closet": False}]
+        items_out = [
+            {
+                "name": "Travel essentials",
+                "category": "essentials",
+                "quantity": 1,
+                "reason": "Add wardrobe items",
+                "available_in_closet": False,
+            }
+        ]
 
-    take_from_closet = [
-        {"item_id": item.get("id"), "name": item.get("name") or "Wardrobe item",
-         "category": item.get("category") or "general", "reason": "From your wardrobe.", "recommended_days": []}
+    take_from_closet: list[dict[str, Any]] = [
+        {
+            "item_id": item.get("id"),
+            "name": item.get("name") or "Wardrobe item",
+            "category": item.get("category") or "general",
+            "reason": "From your wardrobe.",
+            "recommended_days": [],
+        }
         for item in closet_items[:12]
     ]
 

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.core.logging import get_logger
 from app.api.v1.wardrobe.services import vision_service
+from app.core.logging import get_logger
 
 logger = get_logger("item_vision_enrichment")
 
@@ -13,9 +13,7 @@ logger = get_logger("item_vision_enrichment")
 def _bulk_is_fallback(bulk: dict[str, Any]) -> bool:
     w = bulk.get("warnings")
     if isinstance(w, list) and w:
-        return any(
-            "unavailable" in str(x).lower() or "not configured" in str(x).lower() for x in w
-        )
+        return any("unavailable" in str(x).lower() or "not configured" in str(x).lower() for x in w)
     desc = str(bulk.get("description") or "")
     if "unavailable" in desc.lower() and not bulk.get("primary_color"):
         return True

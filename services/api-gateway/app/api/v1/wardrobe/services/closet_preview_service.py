@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 import base64
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID, uuid4
 
-from app.core.config import get_settings
-from app.core.exceptions import BadRequestError, NotFoundError, ServiceUnavailableError
-from app.core.logging import get_logger
 from app.api.v1.wardrobe.schemas.closet import (
     ClosetAnalyzePreviewResponse,
     ClosetConfirmItemPayload,
@@ -22,10 +19,13 @@ from app.api.v1.wardrobe.schemas.vision_canonical import (
     vision_analysis_item_to_normalized,
 )
 from app.api.v1.wardrobe.services import vision_service
-from app.core import cache_service
 from app.api.v1.wardrobe.services.background_removal_service import remove_background_async
-from app.core.upload_service import persist_upload, signed_url_for_stored
 from app.api.v1.wardrobe.services.vision_pipeline_service import run_pipeline
+from app.core import cache_service
+from app.core.config import get_settings
+from app.core.exceptions import BadRequestError, NotFoundError, ServiceUnavailableError
+from app.core.logging import get_logger
+from app.core.upload_service import persist_upload, signed_url_for_stored
 
 logger = get_logger("closet_preview")
 settings = get_settings()
@@ -62,7 +62,7 @@ def _preview_from_normalized(
     processed_image_url: str | None,
     background_removed: bool,
     background_removal_status: str | None,
-    detected_item_id: Optional[str] = None,
+    detected_item_id: str | None = None,
 ) -> ClosetPreviewItem:
     return ClosetPreviewItem(
         slot_index=slot_index,
@@ -207,7 +207,7 @@ async def _recrop_from_source(
     Used when image_base64 is absent (cache hit) — returns (proc_url, success).
     Falls back to original_url if bounding_box is missing or crop fails.
     """
-    from app.api.v1.wardrobe.services.fashion_analysis_service import _crop_item  # type: ignore[attr-defined]
+    from app.api.v1.wardrobe.services.fashion_analysis_service import _crop_item
 
     bb = getattr(vitem, "bounding_box", None)
     if bb is None:
@@ -261,9 +261,7 @@ async def analyze_preview(
     if pipeline.items:
         for idx, vitem in enumerate(pipeline.items):
             # Use the stable detected_item_id generated at detection time; fall back to item_id.
-            detected_item_id: str = (
-                getattr(vitem, "detected_item_id", None) or vitem.item_id
-            )
+            detected_item_id: str = getattr(vitem, "detected_item_id", None) or vitem.item_id
 
             n = vision_analysis_item_to_normalized(vitem)
             bg_removed = bool(vitem.background_removed)
@@ -297,9 +295,7 @@ async def analyze_preview(
                 # Cache hit: image_base64 is intentionally absent in cached payload.
                 # Re-crop from source bytes using the stored bounding_box so every
                 # item still gets its own image rather than the full original.
-                proc_url, _recrop_ok = await _recrop_from_source(
-                    image_bytes, vitem, detected_item_id, original_url
-                )
+                proc_url, _recrop_ok = await _recrop_from_source(image_bytes, vitem, detected_item_id, original_url)
                 if not _recrop_ok:
                     bg_removed = False
                     bg_status = "cache_hit_no_bbox"
@@ -380,8 +376,7 @@ async def analyze_preview(
             slot_index=next_idx,
             temp_id=f"minimal-{uuid4().hex[:10]}",
             message=(
-                "Vision preview produced no rows (check OPENAI_API_KEY / gateway logs). "
-                "Edit details below, then save."
+                "Vision preview produced no rows (check OPENAI_API_KEY / gateway logs). Edit details below, then save."
             ),
         )
 

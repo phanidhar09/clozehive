@@ -9,10 +9,10 @@ import base64
 import json
 from collections.abc import AsyncIterator
 from datetime import date
-from typing import Optional, Any
+from typing import Any
 
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from app.core.circuit_breaker import CircuitOpenError, ai_agent_breaker
 from app.core.config import get_settings
@@ -34,13 +34,15 @@ def _enrich_agent_packing_for_trips(data: dict[str, Any]) -> dict[str, Any]:
         for it in data.get("packing_list") or []:
             if not isinstance(it, dict) or not it.get("available_in_closet"):
                 continue
-            take.append({
-                "item_id": it.get("closet_item_id"),
-                "name": str(it.get("name") or ""),
-                "category": str(it.get("category") or "general"),
-                "reason": str(it.get("reason") or "Recommended for this trip."),
-                "recommended_days": [],
-            })
+            take.append(
+                {
+                    "item_id": it.get("closet_item_id"),
+                    "name": str(it.get("name") or ""),
+                    "category": str(it.get("category") or "general"),
+                    "reason": str(it.get("reason") or "Recommended for this trip."),
+                    "recommended_days": [],
+                }
+            )
         data["take_from_your_closet"] = take
 
     if not data.get("you_might_still_need"):
@@ -48,11 +50,13 @@ def _enrich_agent_packing_for_trips(data: dict[str, Any]) -> dict[str, Any]:
         for it in data.get("missing_items") or []:
             if not isinstance(it, dict):
                 continue
-            need.append({
-                "name": str(it.get("name") or ""),
-                "category": str(it.get("category") or "general"),
-                "reason": str(it.get("reason") or "Consider bringing this."),
-            })
+            need.append(
+                {
+                    "name": str(it.get("name") or ""),
+                    "category": str(it.get("category") or "general"),
+                    "reason": str(it.get("reason") or "Consider bringing this."),
+                }
+            )
         data["you_might_still_need"] = need
 
     if data.get("packing_list") is not None and data.get("items") is None:
@@ -96,6 +100,7 @@ async def close_client() -> None:
 
 # ── Retry decorator ───────────────────────────────────────────────────────────
 
+
 def _retryable(func):
     # Retry only on NetworkError (connection refused / reset) — NOT on TimeoutException.
     # TimeoutException means the server IS reachable but slow; retrying wastes budget.
@@ -110,6 +115,7 @@ def _retryable(func):
 
 # ── Circuit-breaker-wrapped request ───────────────────────────────────────────
 
+
 async def _agent_request(request_factory):
     """Run an ai-agent HTTP call through the circuit breaker.
 
@@ -118,6 +124,7 @@ async def _agent_request(request_factory):
     through the breaker and are raised by the caller's ``raise_for_status``, so a
     burst of client errors never trips the breaker.
     """
+
     async def _do():
         resp = await request_factory()
         if resp.status_code >= 500:
@@ -129,12 +136,13 @@ async def _agent_request(request_factory):
 
 # ── API calls ─────────────────────────────────────────────────────────────────
 
+
 @_retryable
 async def chat(
     message: str,
     history: list[dict[str, str]] | None = None,
     closet_items: list[dict[str, Any]] | None = None,
-    user_id: Optional[str] = None,
+    user_id: str | None = None,
 ) -> str:
     """Send a chat message to the wardrobe agent and return reply text."""
     payload = {
@@ -162,7 +170,7 @@ async def stream_chat(
     message: str,
     history: list[dict[str, str]] | None = None,
     closet_items: list[dict[str, Any]] | None = None,
-    user_id: Optional[str] = None,
+    user_id: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Proxy true SSE events from ai-agent without buffering the full answer."""
     payload = {
@@ -210,7 +218,7 @@ async def generate_outfits(
     occasion: str,
     weather: str,
     temperature: float,
-    user_profile: Optional[dict[str, Any]] = None,
+    user_profile: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload = {
         "closet_items": closet_items,
@@ -240,7 +248,7 @@ async def generate_packing_list(
     purpose: str,
     closet_items: list[dict[str, Any]],
     notes: str | None = None,
-    user_style_profile: Optional[dict[str, Any]] = None,
+    user_style_profile: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     payload = {
         "destination": destination,

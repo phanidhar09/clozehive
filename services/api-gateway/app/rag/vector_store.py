@@ -46,8 +46,8 @@ from typing import Any, Protocol, runtime_checkable
 import numpy as np
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.logging import get_logger
 from app.core.embedding_service import pgvector_cosine_search
+from app.core.logging import get_logger
 
 logger = get_logger("rag.vector_store")
 
@@ -80,7 +80,7 @@ class EmbeddingMeta:
 
     record_id: str
     source_type: str
-    user_id: str | None = None          # None for global knowledge (fashion docs)
+    user_id: str | None = None  # None for global knowledge (fashion docs)
     category: str | None = None
     color: str | None = None
     season: list[str] | None = None
@@ -177,8 +177,7 @@ class FAISSVectorStore:
             import faiss  # noqa: PLC0415
         except ImportError as exc:
             raise RuntimeError(
-                "faiss-cpu is required for FAISSVectorStore. "
-                "Install it with: pip install faiss-cpu"
+                "faiss-cpu is required for FAISSVectorStore. Install it with: pip install faiss-cpu"
             ) from exc
         self._indexes[source_type] = faiss.IndexFlatIP(_EMBEDDING_DIM)
         self._meta[source_type] = []
@@ -195,12 +194,11 @@ class FAISSVectorStore:
             return False
         try:
             import faiss  # noqa: PLC0415
+
             self._indexes[source_type] = faiss.read_index(str(idx_path))
             with meta_path.open("rb") as fh:
                 self._meta[source_type] = pickle.load(fh)  # noqa: S301
-            self._id_map[source_type] = {
-                m.record_id: i for i, m in enumerate(self._meta[source_type])
-            }
+            self._id_map[source_type] = {m.record_id: i for i, m in enumerate(self._meta[source_type])}
             logger.info(
                 "faiss_index_loaded",
                 source_type=source_type,
@@ -220,6 +218,7 @@ class FAISSVectorStore:
         meta_path = self._index_dir / f"{source_type}.pkl"
         try:
             import faiss  # noqa: PLC0415
+
             faiss.write_index(self._indexes[source_type], str(idx_path))
             tmp = meta_path.with_suffix(".tmp.pkl")
             with tmp.open("wb") as fh:
@@ -274,24 +273,22 @@ class FAISSVectorStore:
                     continue
                 meta = meta_list[idx]
                 # User isolation: never return another user's data
-                if (
-                    user_id is not None
-                    and meta.user_id is not None
-                    and meta.user_id != user_id
-                ):
+                if user_id is not None and meta.user_id is not None and meta.user_id != user_id:
                     continue
-                out.append(SearchResult(
-                    record_id=meta.record_id,
-                    source_type=meta.source_type,
-                    similarity_score=round(sim, 4),
-                    user_id=meta.user_id,
-                    category=meta.category,
-                    color=meta.color,
-                    season=meta.season,
-                    occasion=meta.occasion,
-                    style_tags=meta.style_tags,
-                    payload=meta.payload,
-                ))
+                out.append(
+                    SearchResult(
+                        record_id=meta.record_id,
+                        source_type=meta.source_type,
+                        similarity_score=round(sim, 4),
+                        user_id=meta.user_id,
+                        category=meta.category,
+                        color=meta.color,
+                        season=meta.season,
+                        occasion=meta.occasion,
+                        style_tags=meta.style_tags,
+                        payload=meta.payload,
+                    )
+                )
                 if len(out) >= limit:
                     break
             return out
@@ -447,7 +444,9 @@ def _row_to_search_result(row: dict[str, Any], source_type: str) -> SearchResult
 # ── Factory & singleton ───────────────────────────────────────────────────────
 
 
-def make_vector_store(backend: str = "pgvector", index_dir: str = "./faiss_indexes") -> FAISSVectorStore | PGVectorStore:
+def make_vector_store(
+    backend: str = "pgvector", index_dir: str = "./faiss_indexes"
+) -> FAISSVectorStore | PGVectorStore:
     """Construct a vector store from explicit parameters (testable without config)."""
     if backend == "faiss":
         return FAISSVectorStore(index_dir=index_dir)
@@ -463,6 +462,7 @@ def get_vector_store() -> FAISSVectorStore | PGVectorStore:
     global _singleton
     if _singleton is None:
         from app.core.config import get_settings  # lazy to avoid circular import
+
         s = get_settings()
         backend = getattr(s, "rag_vector_store", "pgvector")
         index_dir = getattr(s, "faiss_index_dir", "./faiss_indexes")

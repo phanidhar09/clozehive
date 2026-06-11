@@ -1,4 +1,5 @@
 """Username generation and normalisation utilities."""
+
 from __future__ import annotations
 
 import re
@@ -19,7 +20,7 @@ def normalize_username(value: str) -> str:
     - Never return empty string — fallback is "user"
     """
     value = value.lower().strip()
-    value = value.replace(" ", "")          # remove spaces (not → underscore)
+    value = value.replace(" ", "")  # remove spaces (not → underscore)
     value = re.sub(r"[^a-z0-9_]", "", value)
     value = re.sub(r"_+", "_", value).strip("_")
     return value[:30] or "user"
@@ -29,9 +30,7 @@ async def username_exists(session: AsyncSession, username: str) -> bool:
     """Return True if *username* is already taken in the users table."""
     from app.models.user import User  # local import to avoid circular dependency
 
-    result = await session.execute(
-        select(func.count()).select_from(User).where(User.username == username)
-    )
+    result = await session.execute(select(func.count()).select_from(User).where(User.username == username))
     return result.scalar_one() > 0
 
 

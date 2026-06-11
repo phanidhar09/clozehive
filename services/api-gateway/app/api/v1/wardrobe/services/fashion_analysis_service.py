@@ -37,14 +37,14 @@ import math
 import uuid
 from typing import Any
 
-from PIL import Image
 from langsmith import traceable
 from openai import APIError, AsyncOpenAI
+from PIL import Image
 
+from app.api.v1.wardrobe.services.background_removal_service import remove_background
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.core.openai_tracing import make_openai_client, wrap_openai_client
-from app.api.v1.wardrobe.services.background_removal_service import remove_background
 
 settings = get_settings()
 logger = get_logger("fashion_analysis_service")
@@ -55,9 +55,7 @@ _client: AsyncOpenAI | None = None
 def _get_client() -> AsyncOpenAI:
     global _client
     if _client is None:
-        _client = wrap_openai_client(
-            make_openai_client(settings.openai_api_key, base_url=settings.openai_api_base_url)
-        )
+        _client = wrap_openai_client(make_openai_client(settings.openai_api_key, base_url=settings.openai_api_base_url))
     return _client
 
 
@@ -204,7 +202,7 @@ bbox, the most specific color name, and a material that matches the visible text
 
 # ── Image processing helpers ────────────────────────────────────────────────────
 
-_BBOX_MARGIN = 0.03   # 3 % context margin around each detected item
+_BBOX_MARGIN = 0.03  # 3 % context margin around each detected item
 
 
 def _crop_item(image_bytes: bytes, bbox: dict[str, float]) -> bytes:
@@ -221,9 +219,9 @@ def _crop_item(image_bytes: bytes, bbox: dict[str, float]) -> bytes:
         x1 = min(1.0, bbox.get("x_max", 1.0) + _BBOX_MARGIN)
         y1 = min(1.0, bbox.get("y_max", 1.0) + _BBOX_MARGIN)
 
-        left   = math.floor(x0 * w)
-        top    = math.floor(y0 * h)
-        right  = math.ceil(x1 * w)
+        left = math.floor(x0 * w)
+        top = math.floor(y0 * h)
+        right = math.ceil(x1 * w)
         bottom = math.ceil(y1 * h)
 
         cropped = img.crop((left, top, right, bottom))
@@ -243,15 +241,25 @@ def _to_base64_png(image_bytes: bytes) -> str:
 # ── Normalisation helpers ───────────────────────────────────────────────────────
 
 _CATEGORY_ALIASES: dict[str, str] = {
-    "top": "top", "tops": "top",
-    "bottom": "bottom", "bottoms": "bottom",
-    "shoe": "footwear", "shoes": "footwear",
-    "sneakers": "footwear", "boots": "footwear",
-    "accessory": "accessory", "accessories": "accessory",
-    "bag": "accessory", "bags": "accessory",
-    "hat": "accessory", "cap": "accessory",
-    "outerwear": "outerwear", "jacket": "outerwear", "coat": "outerwear",
-    "dress": "dress", "dresses": "dress",
+    "top": "top",
+    "tops": "top",
+    "bottom": "bottom",
+    "bottoms": "bottom",
+    "shoe": "footwear",
+    "shoes": "footwear",
+    "sneakers": "footwear",
+    "boots": "footwear",
+    "accessory": "accessory",
+    "accessories": "accessory",
+    "bag": "accessory",
+    "bags": "accessory",
+    "hat": "accessory",
+    "cap": "accessory",
+    "outerwear": "outerwear",
+    "jacket": "outerwear",
+    "coat": "outerwear",
+    "dress": "dress",
+    "dresses": "dress",
     "other": "other",
 }
 
@@ -308,6 +316,7 @@ def _safe_float(val: Any, lo: float = 0.0, hi: float = 1.0) -> float:
 
 # ── Fallback ────────────────────────────────────────────────────────────────────
 
+
 def _fallback_item(reason: str) -> dict[str, Any]:
     full = {"x_min": 0.0, "y_min": 0.0, "x_max": 1.0, "y_max": 1.0}
     return {
@@ -335,6 +344,7 @@ def _fallback_item(reason: str) -> dict[str, Any]:
 
 
 # ── Detection-only (used by vision pipeline — avoids duplicate OpenAI + enrich) ─
+
 
 @traceable(name="gateway_fashion_detect_items", run_type="chain")
 async def detect_fashion_items(
@@ -391,6 +401,7 @@ async def detect_fashion_items(
 
 
 # ── Main public function ────────────────────────────────────────────────────────
+
 
 @traceable(name="gateway_fashion_analyze_image", run_type="chain")
 async def analyze_fashion_image(
@@ -471,12 +482,16 @@ async def analyze_fashion_image(
             "brand": enriched.get("brand") or raw.get("brand") or None,
             "occasions": enriched.get("occasions") if enriched.get("occasions") else _norm_list(raw.get("occasions")),
             "season": enriched.get("season") if enriched.get("season") else _norm_list(raw.get("season")),
-            "style_tags": enriched.get("style_tags") if enriched.get("style_tags") else _norm_list(raw.get("style_tags")),
+            "style_tags": enriched.get("style_tags")
+            if enriched.get("style_tags")
+            else _norm_list(raw.get("style_tags")),
             "description": enriched.get("description") or raw.get("description") or None,
             "bbox": bbox,
             "bounding_box": _bbox_to_xywh_dict(bbox),
             "image_base64": image_b64_str,
-            "detection_confidence": float(enriched.get("detection_confidence") or _safe_float(raw.get("detection_confidence"))),
+            "detection_confidence": float(
+                enriched.get("detection_confidence") or _safe_float(raw.get("detection_confidence"))
+            ),
             "segmentation_quality": raw.get("segmentation_quality") or "medium",
         }
         item_out["name"] = _build_name({**enriched, "name": enriched.get("name") or raw.get("name")})

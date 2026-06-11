@@ -9,17 +9,17 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from sqlalchemy import select, desc, update
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.logging import get_logger
-from app.db.session import AsyncSessionLocal
-from app.models.rag import OutfitHistory
 from app.core.embedding_service import (
     _DEFAULT_LIMIT,
     generate_text_embedding,
     pgvector_cosine_search,
 )
+from app.core.logging import get_logger
+from app.db.session import AsyncSessionLocal
+from app.models.rag import OutfitHistory
 from app.rag.query_builder import build_outfit_history_query
 from app.rag.rerank import rerank_outfit_history
 
@@ -114,9 +114,7 @@ async def search_similar_outfit_history(
     message: str = "",
 ) -> list[dict[str, Any]]:
     """Retrieve past outfit history similar to the requested occasion/weather."""
-    query_text = build_outfit_history_query(
-        occasion=occasion, weather=weather, message=message
-    )
+    query_text = build_outfit_history_query(occasion=occasion, weather=weather, message=message)
     embedding = await generate_text_embedding(query_text)
     if not embedding:
         return []
@@ -178,8 +176,7 @@ async def get_outfit_history_for_prompt(
         flags = ", ".join(f for f in [saved, worn] if f)
         tip = h.get("user_feedback") or ""
         lines.append(
-            f"• Occasion: {h.get('occasion')} | Score: {score} | {flags}"
-            + (f" | Feedback: {tip[:100]}" if tip else "")
+            f"• Occasion: {h.get('occasion')} | Score: {score} | {flags}" + (f" | Feedback: {tip[:100]}" if tip else "")
         )
     return "\n".join(lines)
 

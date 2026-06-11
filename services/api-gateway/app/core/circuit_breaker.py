@@ -18,7 +18,8 @@ breaker, which is fine — a down dependency trips them all quickly).
 from __future__ import annotations
 
 import time
-from typing import Awaitable, Callable, TypeVar
+from collections.abc import Awaitable, Callable
+from typing import TypeVar
 
 from app.core.logging import get_logger
 

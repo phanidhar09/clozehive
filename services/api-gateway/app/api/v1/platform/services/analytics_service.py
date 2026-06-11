@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Sequence
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.closet import ClosetItem
+from app.api.v1.intelligence.services.purchase_gap_service import detect_and_save_gaps
 from app.api.v1.platform.schemas.analytics import (
     CategoryCoverageItem,
     CategoryStats,
@@ -18,7 +19,7 @@ from app.api.v1.platform.schemas.analytics import (
     OutfitReadiness,
     PurchaseGapInsight,
 )
-from app.api.v1.intelligence.services.purchase_gap_service import detect_and_save_gaps
+from app.models.closet import ClosetItem
 
 
 class AnalyticsService:
@@ -77,7 +78,7 @@ class AnalyticsService:
             purchase_gap_insights=purchase_gap_insights,
         )
 
-    def _compute_summary(self, items: list[ClosetItem]) -> ClosetSummary:
+    def _compute_summary(self, items: Sequence[ClosetItem]) -> ClosetSummary:
         if not items:
             return ClosetSummary(
                 total_items=0,
@@ -109,7 +110,7 @@ class AnalyticsService:
             best_covered_occasion=best_covered_occasion,
         )
 
-    def _compute_category_coverage(self, items: list[ClosetItem]) -> list[CategoryCoverageItem]:
+    def _compute_category_coverage(self, items: Sequence[ClosetItem]) -> list[CategoryCoverageItem]:
         category_counts = Counter(i.category for i in items)
         recommendations = {
             "tops": 6,
@@ -143,7 +144,7 @@ class AnalyticsService:
 
         return sorted(result, key=lambda x: x.count, reverse=True)
 
-    def _compute_color_stats(self, items: list[ClosetItem]) -> list[ColorStats]:
+    def _compute_color_stats(self, items: Sequence[ClosetItem]) -> list[ColorStats]:
         if not items:
             return []
 
@@ -171,7 +172,7 @@ class AnalyticsService:
 
         return result
 
-    def _compute_category_stats(self, items: list[ClosetItem]) -> list[CategoryStats]:
+    def _compute_category_stats(self, items: Sequence[ClosetItem]) -> list[CategoryStats]:
         if not items:
             return []
 
@@ -190,7 +191,7 @@ class AnalyticsService:
 
         return result
 
-    def _compute_outfit_readiness(self, items: list[ClosetItem]) -> OutfitReadiness:
+    def _compute_outfit_readiness(self, items: Sequence[ClosetItem]) -> OutfitReadiness:
         if not items:
             return OutfitReadiness(
                 estimated_outfits=0,

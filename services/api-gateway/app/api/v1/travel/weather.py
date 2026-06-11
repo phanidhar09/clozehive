@@ -6,12 +6,12 @@ from uuid import UUID
 
 from fastapi import APIRouter
 
+from app.api.v1.identity.repositories.user_repo import UserRepository
+from app.api.v1.travel.services import weather_service
 from app.core import cache_service
 from app.core.config import get_settings
 from app.core.deps import CurrentUser, DbSession
 from app.core.exceptions import ForbiddenError, NotFoundError
-from app.api.v1.identity.repositories.user_repo import UserRepository
-from app.api.v1.travel.services import weather_service
 
 router = APIRouter(prefix="/weather", tags=["Weather"])
 settings = get_settings()
@@ -34,6 +34,7 @@ async def current_weather(user_id: CurrentUser, session: DbSession):
     # single-flight so a burst doesn't fan out to OpenWeather, SWR so an expired
     # entry is served while refreshing, and negative caching to absorb failures.
     if has_coords:
+        assert isinstance(coords, dict)
         key = cache_service.namespaced_key("weather", "coords", f"{coords['lat']:.3f},{coords['lon']:.3f}")
 
         async def _compute():
@@ -45,7 +46,11 @@ async def current_weather(user_id: CurrentUser, session: DbSession):
             return await weather_service.get_weather_by_city(str(label))
 
     result = await cache_service.get_or_compute(
-        key, settings.cache_ttl_weather, _compute, swr_seconds=600, negative_ttl=60,
+        key,
+        settings.cache_ttl_weather,
+        _compute,
+        swr_seconds=600,
+        negative_ttl=60,
     )
     if result is None:
         raise NotFoundError("Weather is temporarily unavailable for this location.")

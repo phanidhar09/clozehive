@@ -13,27 +13,14 @@ Endpoints:
 from __future__ import annotations
 
 import json
-import uuid
-from datetime import date, datetime
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select, desc
+from sqlalchemy import desc, select
 
-from app.core.deps import CurrentUser, DbSession
-from app.core.rate_limit import limiter
-from app.core.logging import get_logger
-from app.db.session import AsyncSessionLocal
-from app.models.ai_chat import (
-    AIChatMessage,
-    AIChatSession,
-    DailyNudge,
-    OutfitFeedback,
-)
-from app.models.closet import ClosetItem, Outfit
 from app.api.v1.intelligence.services.ai_stylist_chat_service import process_chat_message
 from app.api.v1.intelligence.services.ai_stylist_streaming import stream_chat_message
 from app.api.v1.intelligence.services.daily_nudges_service import (
@@ -44,6 +31,17 @@ from app.api.v1.wardrobe.services.outfit_history_service import (
     save_outfit_history,
     save_outfit_history_background,
 )
+from app.core.deps import CurrentUser, DbSession
+from app.core.logging import get_logger
+from app.core.rate_limit import limiter
+from app.db.session import AsyncSessionLocal
+from app.models.ai_chat import (
+    AIChatMessage,
+    AIChatSession,
+    DailyNudge,
+    OutfitFeedback,
+)
+from app.models.closet import ClosetItem, Outfit
 
 router = APIRouter(prefix="/ai-chat", tags=["AI Chat"])
 logger = get_logger("ai_chat.routes")
@@ -52,40 +50,41 @@ logger = get_logger("ai_chat.routes")
 
 
 class ChatContext(BaseModel):
-    occasion: Optional[str] = None
-    mood: Optional[str] = None
-    location: Optional[str] = None
+    occasion: str | None = None
+    mood: str | None = None
+    location: str | None = None
     weather_required: bool = False
 
 
 class SendMessageRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
-    session_id: Optional[str] = None  # if None, creates a new session
-    context: Optional[ChatContext] = None
+    session_id: str | None = None  # if None, creates a new session
+    context: ChatContext | None = None
     history: list[dict[str, str]] = Field(default_factory=list)
     images: list[str] = Field(default_factory=list, max_length=3)  # base64 data-URLs
 
 
 class FeedbackRequest(BaseModel):
     closet_item_ids: list[str] = Field(default_factory=list)
-    outfit_id: Optional[str] = None
-    rating: Optional[int] = Field(None, ge=1, le=5)
-    feedback_text: Optional[str] = Field(None, max_length=1000)
-    occasion: Optional[str] = None
-    mood: Optional[str] = None
+    outfit_id: str | None = None
+    rating: int | None = Field(None, ge=1, le=5)
+    feedback_text: str | None = Field(None, max_length=1000)
+    occasion: str | None = None
+    mood: str | None = None
     was_worn: bool = False
 
 
 class SaveOutfitRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
-    item_ids: list[str] = Field(..., min_items=1)
+    item_ids: list[str] = Field(..., min_length=1)
     occasion: str = "casual"
-    explanation: Optional[str] = None
-    style_score: Optional[int] = Field(None, ge=0, le=100)
-    session_id: Optional[str] = None
+    explanation: str | None = None
+    style_score: int | None = Field(None, ge=0, le=100)
+    session_id: str | None = None
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _session_title_from_message(message: str) -> str:
     """Derive a short session title from the first user message."""
@@ -130,10 +129,7 @@ async def list_sessions(user_id: CurrentUser, session: DbSession) -> dict[str, A
     """List all chat sessions for the authenticated user."""
     uid = UUID(user_id)
     result = await session.execute(
-        select(AIChatSession)
-        .where(AIChatSession.user_id == uid)
-        .order_by(desc(AIChatSession.updated_at))
-        .limit(50)
+        select(AIChatSession).where(AIChatSession.user_id == uid).order_by(desc(AIChatSession.updated_at)).limit(50)
     )
     rows = result.scalars().all()
     return {
@@ -150,9 +146,7 @@ async def list_sessions(user_id: CurrentUser, session: DbSession) -> dict[str, A
 
 
 @router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_session(
-    session_id: str, user_id: CurrentUser, session: DbSession
-) -> None:
+async def delete_session(session_id: str, user_id: CurrentUser, session: DbSession) -> None:
     """Delete a chat session and all its messages. Validates ownership."""
     uid = UUID(user_id)
     try:
@@ -167,9 +161,7 @@ async def delete_session(
 
 
 @router.get("/sessions/{session_id}/messages")
-async def get_messages(
-    session_id: str, user_id: CurrentUser, session: DbSession
-) -> dict[str, Any]:
+async def get_messages(session_id: str, user_id: CurrentUser, session: DbSession) -> dict[str, Any]:
     """Return all messages in a session. Validates ownership."""
     uid = UUID(user_id)
     try:
@@ -180,9 +172,7 @@ async def get_messages(
     await _assert_session_owner(session, sid, uid)
 
     result = await session.execute(
-        select(AIChatMessage)
-        .where(AIChatMessage.session_id == sid)
-        .order_by(AIChatMessage.created_at)
+        select(AIChatMessage).where(AIChatMessage.session_id == sid).order_by(AIChatMessage.created_at)
     )
     msgs = result.scalars().all()
     return {
@@ -308,7 +298,7 @@ async def send_message(
 
 def _sse(payload: dict[str, Any]) -> bytes:
     """Encode a JSON payload as one Server-Sent Events frame."""
-    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode("utf-8")
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode()
 
 
 @router.post("/stream")
@@ -391,9 +381,7 @@ async def stream_message(
                         user_id=uid,
                         role="assistant",
                         message=str(final_payload.get("reply") or ""),
-                        structured_response={
-                            k: v for k, v in final_payload.items() if k != "type"
-                        },
+                        structured_response={k: v for k, v in final_payload.items() if k != "type"},
                     )
                     session.add(assistant_msg)
                     if not body.session_id:
@@ -405,16 +393,8 @@ async def stream_message(
                     occasion = ctx.get("occasion") or "casual"
                     weather = ctx.get("location") or ""
                     for outfit in outfits[:2]:
-                        item_ids = [
-                            it.get("id")
-                            for it in (outfit.get("items") or [])
-                            if it.get("id")
-                        ]
-                        item_names = [
-                            it.get("name")
-                            for it in (outfit.get("items") or [])
-                            if it.get("name")
-                        ]
+                        item_ids = [it.get("id") for it in (outfit.get("items") or []) if it.get("id")]
+                        item_names = [it.get("name") for it in (outfit.get("items") or []) if it.get("name")]
                         if item_ids:
                             try:
                                 await save_outfit_history(
@@ -425,9 +405,7 @@ async def stream_message(
                                     selected_item_ids=item_ids,
                                     item_names=item_names,
                                     matching_score=outfit.get("matching_score"),
-                                    recommendation_text=outfit.get("reasoning")
-                                    or final_payload.get("reply")
-                                    or "",
+                                    recommendation_text=outfit.get("reasoning") or final_payload.get("reply") or "",
                                     improvement_tips=outfit.get("improvement_tips") or [],
                                 )
                             except Exception as exc:  # noqa: BLE001
@@ -464,9 +442,7 @@ async def stream_message(
 
 
 @router.get("/nudges/today")
-async def get_today_nudge(
-    user_id: CurrentUser, session: DbSession
-) -> dict[str, Any]:
+async def get_today_nudge(user_id: CurrentUser, session: DbSession) -> dict[str, Any]:
     """Return today's proactive FANI nudge.
 
     Generates the nudge on first call of the day; subsequent calls return the
@@ -479,9 +455,7 @@ async def get_today_nudge(
 
 
 @router.post("/nudges/{nudge_id}/dismiss", status_code=status.HTTP_200_OK)
-async def dismiss_nudge(
-    nudge_id: str, user_id: CurrentUser, session: DbSession
-) -> dict[str, Any]:
+async def dismiss_nudge(nudge_id: str, user_id: CurrentUser, session: DbSession) -> dict[str, Any]:
     """Mark a nudge as dismissed so the UI hides it until tomorrow."""
     uid = UUID(user_id)
     try:
@@ -489,9 +463,7 @@ async def dismiss_nudge(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid nudge id")
 
-    result = await session.execute(
-        select(DailyNudge).where(DailyNudge.id == nid, DailyNudge.user_id == uid)
-    )
+    result = await session.execute(select(DailyNudge).where(DailyNudge.id == nid, DailyNudge.user_id == uid))
     nudge = result.scalar_one_or_none()
     if not nudge:
         raise HTTPException(status_code=404, detail="Nudge not found")
@@ -543,14 +515,12 @@ async def submit_feedback(
     """Record feedback on a recommended outfit. Improves future recommendations."""
     uid = UUID(user_id)
 
-    outfit_uuid: Optional[UUID] = None
+    outfit_uuid: UUID | None = None
     if body.outfit_id:
         try:
             outfit_uuid = UUID(body.outfit_id)
             # Validate this outfit belongs to the user
-            res = await session.execute(
-                select(Outfit).where(Outfit.id == outfit_uuid, Outfit.user_id == uid)
-            )
+            res = await session.execute(select(Outfit).where(Outfit.id == outfit_uuid, Outfit.user_id == uid))
             if not res.scalar_one_or_none():
                 outfit_uuid = None
         except ValueError:

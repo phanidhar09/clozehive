@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from app.core.logging import get_logger
 from app.api.v1.intelligence.services import ai_service
+from app.core.logging import get_logger
 
 logger = get_logger("outfit_service")
 
@@ -14,14 +14,16 @@ logger = get_logger("outfit_service")
 def _mock_result(closet_items: list[dict[str, Any]], occasion: str, *, degraded: bool = False) -> dict[str, Any]:
     items = closet_items[:3]
     return {
-        "outfits": [{
-            "name": f"Simple {occasion.title()} Look",
-            "items": items,
-            "style_notes": "A clean combination from your wardrobe.",
-            "occasion_fit": occasion,
-            "weather_suitability": "Suitable for moderate conditions.",
-            "style_score": 6.0,
-        }],
+        "outfits": [
+            {
+                "name": f"Simple {occasion.title()} Look",
+                "items": items,
+                "style_notes": "A clean combination from your wardrobe.",
+                "occasion_fit": occasion,
+                "weather_suitability": "Suitable for moderate conditions.",
+                "style_score": 6.0,
+            }
+        ],
         "style_tips": ["Use layers to adapt the outfit.", "Keep accessories intentional."],
         # When true, this is a rules-based fallback because the AI stylist was
         # unavailable — the UI can show a "smart picks (stylist offline)" badge.
@@ -61,13 +63,16 @@ Use positive, supportive language. Never criticise the user's body. Honour avoid
 Return ONLY valid JSON with shape:
 {{"outfits":[{{"name":"","items":[{{"id":"","name":"","category":""}}],"style_notes":"","occasion_fit":"","weather_suitability":"","style_score":8.5}}],"style_tips":[]}}
 Hard rules: only use items from the provided wardrobe, refer to exact item names, and do not invent missing items.{style_block}{rag_block}"""
-    user_prompt = json.dumps({
-        "occasion": occasion,
-        "weather": weather,
-        "temperature_c": temperature,
-        "user_profile": user_profile,
-        "wardrobe": closet_items,
-    }, default=str)
+    user_prompt = json.dumps(
+        {
+            "occasion": occasion,
+            "weather": weather,
+            "temperature_c": temperature,
+            "user_profile": user_profile,
+            "wardrobe": closet_items,
+        },
+        default=str,
+    )
     try:
         response = await ai_service.chat([{"role": "user", "content": user_prompt}], system_prompt)
         text = response.strip()

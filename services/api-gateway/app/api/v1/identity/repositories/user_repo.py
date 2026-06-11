@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
-from datetime import timezone, datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import and_, select
@@ -16,22 +14,16 @@ from app.repositories.base import BaseRepository
 class UserRepository(BaseRepository[User]):
     model = User
 
-    async def get_by_email(self, email: str) -> Optional[User]:
-        result = await self.session.execute(
-            select(User).where(User.email == email.lower())
-        )
+    async def get_by_email(self, email: str) -> User | None:
+        result = await self.session.execute(select(User).where(User.email == email.lower()))
         return result.scalar_one_or_none()
 
-    async def get_by_username(self, username: str) -> Optional[User]:
-        result = await self.session.execute(
-            select(User).where(User.username == username.lower())
-        )
+    async def get_by_username(self, username: str) -> User | None:
+        result = await self.session.execute(select(User).where(User.username == username.lower()))
         return result.scalar_one_or_none()
 
-    async def get_by_google_id(self, google_id: str) -> Optional[User]:
-        result = await self.session.execute(
-            select(User).where(User.google_id == google_id)
-        )
+    async def get_by_google_id(self, google_id: str) -> User | None:
+        result = await self.session.execute(select(User).where(User.google_id == google_id))
         return result.scalar_one_or_none()
 
     async def email_exists(self, email: str) -> bool:
@@ -59,23 +51,21 @@ class UserRepository(BaseRepository[User]):
 class CredentialRepository(BaseRepository[UserCredential]):
     model = UserCredential
 
-    async def get_by_user_id(self, user_id: UUID) -> Optional[UserCredential]:
-        result = await self.session.execute(
-            select(UserCredential).where(UserCredential.user_id == user_id)
-        )
+    async def get_by_user_id(self, user_id: UUID) -> UserCredential | None:
+        result = await self.session.execute(select(UserCredential).where(UserCredential.user_id == user_id))
         return result.scalar_one_or_none()
 
 
 class RefreshTokenRepository(BaseRepository[RefreshToken]):
     model = RefreshToken
 
-    async def get_valid(self, token_hash: str) -> Optional[RefreshToken]:
+    async def get_valid(self, token_hash: str) -> RefreshToken | None:
         result = await self.session.execute(
             select(RefreshToken).where(
                 and_(
                     RefreshToken.token_hash == token_hash,
                     RefreshToken.revoked == False,
-                    RefreshToken.expires_at > datetime.now(timezone.utc),
+                    RefreshToken.expires_at > datetime.now(UTC),
                 )
             )
         )
@@ -83,11 +73,10 @@ class RefreshTokenRepository(BaseRepository[RefreshToken]):
 
     async def revoke_all_for_user(self, user_id: UUID) -> None:
         from sqlalchemy import update
+
         await self.session.execute(
             update(RefreshToken)
-            .where(
-                and_(RefreshToken.user_id == user_id, RefreshToken.revoked == False)
-            )
+            .where(and_(RefreshToken.user_id == user_id, RefreshToken.revoked == False))
             .values(revoked=True)
         )
 
@@ -95,14 +84,14 @@ class RefreshTokenRepository(BaseRepository[RefreshToken]):
 class PasswordResetTokenRepository(BaseRepository[PasswordResetToken]):
     model = PasswordResetToken
 
-    async def get_valid(self, token_hash: str) -> Optional[PasswordResetToken]:
+    async def get_valid(self, token_hash: str) -> PasswordResetToken | None:
         """Return a valid (unused, unexpired) reset token by hash."""
         result = await self.session.execute(
             select(PasswordResetToken).where(
                 and_(
                     PasswordResetToken.token_hash == token_hash,
                     PasswordResetToken.used_at == None,  # noqa: E711
-                    PasswordResetToken.expires_at > datetime.now(timezone.utc),
+                    PasswordResetToken.expires_at > datetime.now(UTC),
                 )
             )
         )
@@ -111,6 +100,7 @@ class PasswordResetTokenRepository(BaseRepository[PasswordResetToken]):
     async def invalidate_all_for_user(self, user_id: UUID) -> None:
         """Mark all pending reset tokens for a user as used (prevents replay)."""
         from sqlalchemy import update
+
         await self.session.execute(
             update(PasswordResetToken)
             .where(
@@ -119,5 +109,5 @@ class PasswordResetTokenRepository(BaseRepository[PasswordResetToken]):
                     PasswordResetToken.used_at == None,  # noqa: E711
                 )
             )
-            .values(used_at=datetime.now(timezone.utc))
+            .values(used_at=datetime.now(UTC))
         )

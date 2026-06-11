@@ -63,14 +63,16 @@ def fetch_weather(destination: str, start_date: str, end_date: str) -> list[dict
         variation = math.sin(i * 0.7) * 2.0
         high = round(base_high + variation, 1)
         low = round(base_low + variation * 0.6, 1)
-        days.append({
-            "date": current.isoformat(),
-            "condition": condition,
-            "temp_high": high,
-            "temp_low": low,
-            "description": _description(condition, high, low),
-            "data_source": "static_profile",
-        })
+        days.append(
+            {
+                "date": current.isoformat(),
+                "condition": condition,
+                "temp_high": high,
+                "temp_low": low,
+                "description": _description(condition, high, low),
+                "data_source": "static_profile",
+            }
+        )
     return days
 
 
@@ -167,14 +169,16 @@ async def fetch_weather_async(destination: str, start_date: str, end_date: str) 
                 high = round(base_high + variation, 1)
                 low = round(base_low + variation * 0.6, 1)
                 source = "static_profile"
-            result.append({
-                "date": day_key,
-                "condition": condition,
-                "temp_high": high,
-                "temp_low": low,
-                "description": _description(condition, high, low),
-                "data_source": source,
-            })
+            result.append(
+                {
+                    "date": day_key,
+                    "condition": condition,
+                    "temp_high": high,
+                    "temp_low": low,
+                    "description": _description(condition, high, low),
+                    "data_source": source,
+                }
+            )
             current += timedelta(days=1)
 
         return result

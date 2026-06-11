@@ -27,13 +27,8 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.llm_safety import sanitize_user_text
-from app.core.logging import get_logger
-from app.models.ai_chat import AIChatSession
-from app.models.closet import ClosetItem
-from app.api.v1.intelligence.services import ai_service
-from app.api.v1.travel.services import weather_service
-from app.core.ai_output_validator import score_response_quality, validate_chat_response
+from app.api.v1.identity.services.style_profile_context import load_merged_user_profile_for_ai
+from app.api.v1.intelligence.services import ai_service, trend_grounding
 from app.api.v1.intelligence.services.ai_stylist_chat_service import (
     _CHAT_MAX_TOKENS,
     _SYSTEM_PROMPT_TEMPLATE,
@@ -50,13 +45,16 @@ from app.api.v1.intelligence.services.ai_stylist_chat_service import (
     _rag_load_closet,
     _resolve_weather,
 )
-from app.core.embedding_service import generate_text_embedding
 from app.api.v1.intelligence.services.fashion_rag_service import get_fashion_context_for_prompt
-from app.api.v1.intelligence.services import trend_grounding
 from app.api.v1.intelligence.services.fashion_rules import build_fashion_rules_prompt_block
 from app.api.v1.wardrobe.services.outfit_history_service import get_outfit_history_for_prompt
+from app.core.ai_output_validator import score_response_quality, validate_chat_response
+from app.core.embedding_service import generate_text_embedding
+from app.core.llm_safety import sanitize_user_text
+from app.core.logging import get_logger
+from app.models.ai_chat import AIChatSession
+from app.models.closet import ClosetItem
 from app.rag.query_builder import build_closet_rag_query
-from app.api.v1.identity.services.style_profile_context import load_merged_user_profile_for_ai
 
 logger = get_logger("ai_stylist_streaming")
 
@@ -286,13 +284,9 @@ async def stream_chat_message(
         if query_embedding
         else _fallback_closet(session, user_id)
     )
-    profile_task = asyncio.create_task(
-        load_merged_user_profile_for_ai(session, user_id, None)
-    )
+    profile_task = asyncio.create_task(load_merged_user_profile_for_ai(session, user_id, None))
     weather_task = asyncio.create_task(
-        _resolve_weather(session, user_id, location)
-        if (weather_required or location)
-        else _no_weather()
+        _resolve_weather(session, user_id, location) if (weather_required or location) else _no_weather()
     )
     feedback_task = asyncio.create_task(
         get_outfit_history_for_prompt(
@@ -304,16 +298,19 @@ async def stream_chat_message(
         )
     )
     knowledge_task = asyncio.create_task(
-        get_fashion_context_for_prompt(
-            session, rag_query, limit=5, occasion=occasion, weather=weather_str
-        )
+        get_fashion_context_for_prompt(session, rag_query, limit=5, occasion=occasion, weather=weather_str)
     )
     # Live trend grounding — short-circuits to None unless the message has
     # trend intent (Phase 7; kept at parity with process_chat_message).
     trend_task = asyncio.create_task(trend_grounding.get_trend_context(message))
 
     closet_items, user_profile, weather, feedback_text, knowledge_text, trend_context = await asyncio.gather(
-        closet_task, profile_task, weather_task, feedback_task, knowledge_task, trend_task,
+        closet_task,
+        profile_task,
+        weather_task,
+        feedback_task,
+        knowledge_task,
+        trend_task,
         return_exceptions=True,
     )
 
@@ -342,14 +339,12 @@ async def stream_chat_message(
 
     weather_cond = (weather.get("condition") or "mild") if weather else "mild"
     fashion_rules_block = build_fashion_rules_prompt_block(
-        closet_items, occasion, weather_cond, user_profile
+        closet_items, occasion or "casual", weather_cond, user_profile
     )
 
     # Conversation summarization — fold older turns once history gets long.
     full_history = list(chat_history or [])
-    summary_text, recent_history = await summarize_history(
-        session, chat_session, full_history
-    )
+    summary_text, recent_history = await summarize_history(session, chat_session, full_history)
 
     user_images = [img for img in (images or []) if img.startswith("data:image/")][:3]
     image_instruction = (
@@ -360,18 +355,22 @@ async def stream_chat_message(
         else ""
     )
 
-    system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(
-        wardrobe_block=_build_wardrobe_block(closet_items),
-        profile_block=_build_profile_block(user_profile),
-        weather_block=_build_weather_block(weather),
-        feedback_block=_build_feedback_block(feedback_text),
-        fashion_rules_block=f"\n{fashion_rules_block}",
-        knowledge_block=_build_knowledge_block(knowledge_text)
-        + trend_grounding.build_trend_block(trend_context),
-    ) + _build_summary_block(summary_text) + image_instruction + (
-        "\n\nSTREAMING DIRECTIVE: emit the JSON object with the `reply` field "
-        "FIRST so the user sees the conversational answer immediately while "
-        "the rest of the structured payload is still being generated."
+    system_prompt = (
+        _SYSTEM_PROMPT_TEMPLATE.format(
+            wardrobe_block=_build_wardrobe_block(closet_items),
+            profile_block=_build_profile_block(user_profile),
+            weather_block=_build_weather_block(weather),
+            feedback_block=_build_feedback_block(feedback_text),
+            fashion_rules_block=f"\n{fashion_rules_block}",
+            knowledge_block=_build_knowledge_block(knowledge_text) + trend_grounding.build_trend_block(trend_context),
+        )
+        + _build_summary_block(summary_text)
+        + image_instruction
+        + (
+            "\n\nSTREAMING DIRECTIVE: emit the JSON object with the `reply` field "
+            "FIRST so the user sees the conversational answer immediately while "
+            "the rest of the structured payload is still being generated."
+        )
     )
 
     messages: list[dict[str, Any]] = []
@@ -379,9 +378,7 @@ async def stream_chat_message(
         role = h.get("role")
         content = h.get("content")
         if role in ("user", "assistant") and content:
-            messages.append(
-                {"role": role, "content": sanitize_user_text(str(content), field="message")}
-            )
+            messages.append({"role": role, "content": sanitize_user_text(str(content), field="message")})
 
     safe_message = sanitize_user_text(message, field="message")
     augmented = safe_message
@@ -399,9 +396,7 @@ async def stream_chat_message(
     if user_images:
         content_arr: list[dict[str, Any]] = [{"type": "text", "text": augmented}]
         for img_b64 in user_images:
-            content_arr.append(
-                {"type": "image_url", "image_url": {"url": img_b64, "detail": "high"}}
-            )
+            content_arr.append({"type": "image_url", "image_url": {"url": img_b64, "detail": "high"}})
         messages.append({"role": "user", "content": content_arr})
     else:
         messages.append({"role": "user", "content": augmented})
@@ -456,12 +451,7 @@ async def stream_chat_message(
         outfits=len(outfits),
     )
 
-    suggested_ids = {
-        it.get("id") or ""
-        for outfit in outfits
-        for it in outfit.get("items") or []
-        if it.get("id")
-    }
+    suggested_ids = {it.get("id") or "" for outfit in outfits for it in outfit.get("items") or [] if it.get("id")}
     image_lookup = await _fetch_image_lookup(session, suggested_ids)
     outfits = _enrich_items_with_images(outfits, image_lookup, closet_map)
 

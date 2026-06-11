@@ -22,13 +22,11 @@ from __future__ import annotations
 _TIER_LINES: tuple[tuple[str, str], ...] = (
     (
         "mandatory",
-        "MANDATORY rules — venue/event dress rules and local modesty or dress norms. "
-        "Never violate these.",
+        "MANDATORY rules — venue/event dress rules and local modesty or dress norms. Never violate these.",
     ),
     (
         "weather",
-        "Weather safety — adequate protection from heat, cold, rain, or wind. "
-        "Never sacrifice this.",
+        "Weather safety — adequate protection from heat, cold, rain, or wind. Never sacrifice this.",
     ),
     (
         "occasion",

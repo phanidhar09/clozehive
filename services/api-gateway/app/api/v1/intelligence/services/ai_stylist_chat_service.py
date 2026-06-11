@@ -22,33 +22,28 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.identity.repositories.user_repo import UserRepository
+from app.api.v1.identity.services.style_profile_context import load_merged_user_profile_for_ai
+from app.api.v1.intelligence.services import ai_service, trend_grounding
+from app.api.v1.intelligence.services.fashion_rag_service import get_fashion_context_for_prompt
+from app.api.v1.intelligence.services.fashion_rules import build_fashion_rules_prompt_block
+from app.api.v1.travel.services import weather_service
+from app.api.v1.wardrobe.services.outfit_history_service import get_outfit_history_for_prompt
 from app.core.ai_output_validator import (
     check_context_sufficiency,
-    format_rag_citations,
     score_response_quality,
     validate_chat_response,
 )
-from app.core.logging import get_logger
-from app.core.llm_safety import (
-    build_closet_item_summary,
-    sanitize_user_text,
-    wrap_untrusted,
-)
-from app.models.ai_chat import AIChatSession
-from app.models.closet import ClosetItem
-from app.api.v1.identity.repositories.user_repo import UserRepository
-from app.api.v1.intelligence.services import ai_service
-from app.api.v1.travel.services import weather_service
 from app.core.embedding_service import (
     generate_text_embedding,
-    item_to_embedding_text,
     pgvector_cosine_search,
 )
-from app.api.v1.intelligence.services.fashion_rag_service import get_fashion_context_for_prompt
-from app.api.v1.intelligence.services import trend_grounding
-from app.api.v1.intelligence.services.fashion_rules import build_fashion_rules_prompt_block
-from app.api.v1.wardrobe.services.outfit_history_service import get_outfit_history_for_prompt
-from app.api.v1.identity.services.style_profile_context import load_merged_user_profile_for_ai
+from app.core.llm_safety import (
+    sanitize_user_text,
+)
+from app.core.logging import get_logger
+from app.models.ai_chat import AIChatSession
+from app.models.closet import ClosetItem
 from app.rag.query_builder import build_closet_rag_query
 
 logger = get_logger("ai_stylist_chat_service")
@@ -161,6 +156,7 @@ _CHAT_MAX_TOKENS = 4096
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+
 def _clean_json(text: str) -> str:
     text = text.strip()
     if text.startswith("```"):
@@ -182,11 +178,7 @@ def _row_to_item(row: dict[str, Any]) -> dict[str, Any]:
         "season": row.get("season") or [],
         "occasion": row.get("occasion") or [],
         "wear_count": row.get("wear_count") or 0,
-        "image_url": (
-            row.get("processed_image_url")
-            or row.get("image_url")
-            or row.get("original_image_url")
-        ),
+        "image_url": (row.get("processed_image_url") or row.get("image_url") or row.get("original_image_url")),
         "tags": row.get("tags") or [],
     }
 
@@ -202,12 +194,7 @@ def _orm_to_item(item: ClosetItem) -> dict[str, Any]:
         "season": item.season or [],
         "occasion": item.occasion or [],
         "wear_count": item.wear_count,
-        "image_url": (
-            item.processed_image_url
-            or item.image_url
-            or item.original_image_url
-            or None
-        ),
+        "image_url": (item.processed_image_url or item.image_url or item.original_image_url or None),
         "tags": item.tags or [],
     }
 
@@ -279,11 +266,13 @@ async def _rag_load_closet(
 def _rerank_by_occasion(items: list[dict[str, Any]], occasion: str) -> list[dict[str, Any]]:
     """Stable-sort: items whose occasion tags match float to the top."""
     occ_lower = occasion.lower()
+
     def _score(it: dict[str, Any]) -> int:
         tags = it.get("occasion") or []
         if isinstance(tags, list):
             return -int(any(occ_lower in str(t).lower() for t in tags))
         return 0
+
     return sorted(items, key=_score)
 
 
@@ -303,9 +292,7 @@ async def _resolve_weather(session: AsyncSession, user_id: UUID, location: str |
             coords = permissions.get("location_coords")
             label = permissions.get("location_label")
             if isinstance(coords, dict) and coords.get("lat") is not None:
-                return await weather_service.get_current_weather(
-                    float(coords["lat"]), float(coords["lon"]), label
-                )
+                return await weather_service.get_current_weather(float(coords["lat"]), float(coords["lon"]), label)
             if label:
                 return await weather_service.get_weather_by_city(str(label))
     except Exception as exc:
@@ -326,15 +313,23 @@ def _build_wardrobe_block(items: list[dict[str, Any]]) -> str:
     lines = [f"[WARDROBE CONTEXT] ({len(items)} items)"]
     for it in items:
         occ_raw = it.get("occasion") or []
-        occ = sanitize_user_text(
-            ", ".join(occ_raw) if isinstance(occ_raw, list) else str(occ_raw),
-            field="notes", max_len=80,
-        ) or "any"
+        occ = (
+            sanitize_user_text(
+                ", ".join(occ_raw) if isinstance(occ_raw, list) else str(occ_raw),
+                field="notes",
+                max_len=80,
+            )
+            or "any"
+        )
         season_raw = it.get("season") or []
-        season = sanitize_user_text(
-            ", ".join(season_raw) if isinstance(season_raw, list) else str(season_raw),
-            field="notes", max_len=60,
-        ) or "all"
+        season = (
+            sanitize_user_text(
+                ", ".join(season_raw) if isinstance(season_raw, list) else str(season_raw),
+                field="notes",
+                max_len=60,
+            )
+            or "all"
+        )
         lines.append(
             f"  id={it['id']} | {sanitize_user_text(it.get('name', ''), field='name')} | "
             f"{sanitize_user_text(it.get('category', ''), field='category')} | "
@@ -380,9 +375,7 @@ def _build_knowledge_block(knowledge_text: str) -> str:
     return f"\n[FASHION KNOWLEDGE — cite [SOURCE-N] when referencing these rules]\n{knowledge_text}\n[END FASHION KNOWLEDGE]"
 
 
-async def _fetch_image_lookup(
-    session: AsyncSession, item_ids: set[str]
-) -> dict[str, str | None]:
+async def _fetch_image_lookup(session: AsyncSession, item_ids: set[str]) -> dict[str, str | None]:
     """Query image URLs for a specific set of item IDs in one round-trip.
 
     This is intentionally separate from the RAG closet load: the RAG window is
@@ -408,14 +401,7 @@ async def _fetch_image_lookup(
             ClosetItem.original_image_url,
         ).where(ClosetItem.id.in_(uuids))
     )
-    return {
-        str(row.id): (
-            row.processed_image_url
-            or row.image_url
-            or row.original_image_url
-        )
-        for row in rows
-    }
+    return {str(row.id): (row.processed_image_url or row.image_url or row.original_image_url) for row in rows}
 
 
 def _enrich_items_with_images(
@@ -456,6 +442,7 @@ async def _fallback_closet(session: AsyncSession, user_id: UUID) -> list[dict[st
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
 
 async def process_chat_message(
     session: AsyncSession,
@@ -522,9 +509,7 @@ async def process_chat_message(
     )
     # RAG: fashion knowledge base
     knowledge_task = asyncio.create_task(
-        get_fashion_context_for_prompt(
-            session, rag_query, limit=5, occasion=occasion, weather=weather_str
-        )
+        get_fashion_context_for_prompt(session, rag_query, limit=5, occasion=occasion, weather=weather_str)
     )
 
     # Live trend grounding — short-circuits to None unless the message has
@@ -532,7 +517,12 @@ async def process_chat_message(
     trend_task = asyncio.create_task(trend_grounding.get_trend_context(message))
 
     closet_items, user_profile, weather, feedback_text, knowledge_text, trend_context = await asyncio.gather(
-        closet_task, profile_task, weather_task, feedback_task, knowledge_task, trend_task,
+        closet_task,
+        profile_task,
+        weather_task,
+        feedback_task,
+        knowledge_task,
+        trend_task,
         return_exceptions=True,
     )
 
@@ -560,8 +550,7 @@ async def process_chat_message(
     # RAG returns top-K — we also need full closet IDs to validate recommendations
     # Load all IDs (no embeddings needed) for the validation set
     all_id_rows = await session.execute(
-        select(ClosetItem.id)
-        .where(ClosetItem.user_id == user_id, ClosetItem.is_archived == False)  # noqa: E712
+        select(ClosetItem.id).where(ClosetItem.user_id == user_id, ClosetItem.is_archived == False)  # noqa: E712
     )
     valid_ids = {str(r[0]) for r in all_id_rows.all()}
 
@@ -578,9 +567,7 @@ async def process_chat_message(
 
     # ── Context-sufficiency gate ──────────────────────────────────────────────
     # Check before spending tokens on the LLM call
-    is_sufficient, insufficiency_reason = check_context_sufficiency(
-        closet_items, [], message
-    )
+    is_sufficient, insufficiency_reason = check_context_sufficiency(closet_items, [], message)
     if not is_sufficient:
         logger.info("context_insufficient", reason=insufficiency_reason, user_id=str(user_id))
         if not closet_items:
@@ -589,7 +576,7 @@ async def process_chat_message(
     # ── Step 3: Build fashion rules hint ─────────────────────────────────────
     weather_cond = (weather.get("condition") or "mild") if weather else "mild"
     fashion_rules_block = build_fashion_rules_prompt_block(
-        closet_items, occasion, weather_cond, user_profile
+        closet_items, occasion or "casual", weather_cond, user_profile
     )
 
     # ── Step 3b: Conversation summarization (long-chat memory) ───────────────
@@ -601,9 +588,8 @@ async def process_chat_message(
             _build_summary_block,
             summarize_history,
         )
-        summary_text, history_for_prompt = await summarize_history(
-            session, chat_session, history_for_prompt
-        )
+
+        summary_text, history_for_prompt = await summarize_history(session, chat_session, history_for_prompt)
         summary_block = _build_summary_block(summary_text)
 
     # ── Step 4: Assemble system prompt ────────────────────────────────────────
@@ -613,21 +599,25 @@ async def process_chat_message(
         "Carefully analyse the visible items — colours, fit, silhouette, style, and occasion-appropriateness. "
         "Reference specific details you observe in the image when giving feedback. "
         "Cross-reference with their wardrobe to suggest complementary pieces they already own.\n"
-        if user_images else ""
+        if user_images
+        else ""
     )
-    system_prompt = _SYSTEM_PROMPT_TEMPLATE.format(
-        wardrobe_block=_build_wardrobe_block(closet_items),
-        profile_block=_build_profile_block(user_profile),
-        weather_block=_build_weather_block(weather),
-        feedback_block=_build_feedback_block(feedback_text),
-        fashion_rules_block=f"\n{fashion_rules_block}",
-        knowledge_block=_build_knowledge_block(knowledge_text)
-        + trend_grounding.build_trend_block(trend_context),
-    ) + summary_block + image_instruction
+    system_prompt = (
+        _SYSTEM_PROMPT_TEMPLATE.format(
+            wardrobe_block=_build_wardrobe_block(closet_items),
+            profile_block=_build_profile_block(user_profile),
+            weather_block=_build_weather_block(weather),
+            feedback_block=_build_feedback_block(feedback_text),
+            fashion_rules_block=f"\n{fashion_rules_block}",
+            knowledge_block=_build_knowledge_block(knowledge_text) + trend_grounding.build_trend_block(trend_context),
+        )
+        + summary_block
+        + image_instruction
+    )
 
     # ── Step 5: Build conversation messages ───────────────────────────────────
     # Sanitise every user-supplied string before it enters the conversation.
-    messages: list[dict[str, str]] = []
+    messages: list[dict[str, Any]] = []
     for h in history_for_prompt[-10:]:
         role = h.get("role")
         content = h.get("content")
@@ -650,13 +640,15 @@ async def process_chat_message(
     # Build vision message when images are attached
     user_images = [img for img in (images or []) if img.startswith("data:image/")][:3]
     if user_images:
-        content: list[dict[str, Any]] = [{"type": "text", "text": augmented_message}]
+        vision_content: list[dict[str, Any]] = [{"type": "text", "text": augmented_message}]
         for img_b64 in user_images:
-            content.append({
-                "type": "image_url",
-                "image_url": {"url": img_b64, "detail": "high"},
-            })
-        messages.append({"role": "user", "content": content})
+            vision_content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": img_b64, "detail": "high"},
+                }
+            )
+        messages.append({"role": "user", "content": vision_content})
         logger.info("vision_message_built", user_id=str(user_id), image_count=len(user_images))
     else:
         messages.append({"role": "user", "content": augmented_message})
@@ -677,7 +669,7 @@ async def process_chat_message(
         )
         data = json.loads(_clean_json(raw))
     except json.JSONDecodeError:
-        logger.warning("ai_chat_bad_json", user_id=str(user_id), raw_preview=raw[:200] if 'raw' in dir() else "")
+        logger.warning("ai_chat_bad_json", user_id=str(user_id), raw_preview=raw[:200] if "raw" in dir() else "")
         data = _fallback_response(message, closet_items)
     except Exception as exc:
         logger.error("ai_chat_failed", error=str(exc), user_id=str(user_id))
@@ -716,12 +708,7 @@ async def process_chat_message(
 
     # Collect the exact item IDs FANI chose and fetch their images in one query.
     # This covers items from prior chat turns that fall outside the RAG window.
-    suggested_ids = {
-        it.get("id") or ""
-        for outfit in outfits
-        for it in outfit.get("items") or []
-        if it.get("id")
-    }
+    suggested_ids = {it.get("id") or "" for outfit in outfits for it in outfit.get("items") or [] if it.get("id")}
     image_lookup = await _fetch_image_lookup(session, suggested_ids)
     outfits = _enrich_items_with_images(outfits, image_lookup, closet_map)
 

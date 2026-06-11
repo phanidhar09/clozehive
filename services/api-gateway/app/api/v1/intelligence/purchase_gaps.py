@@ -6,9 +6,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Query, status
 
+from app.api.v1.intelligence.services import purchase_gap_service
 from app.core.deps import CurrentUser, DbSession
 from app.core.exceptions import NotFoundError
-from app.api.v1.intelligence.services import purchase_gap_service
 
 router = APIRouter(prefix="/purchase-gaps", tags=["Purchase Gaps"])
 
@@ -28,9 +28,7 @@ async def get_purchase_gaps(
     - Items missing from packing plans (trip gaps)
     - Missing pieces from outfit analysis (outfit gaps)
     """
-    gaps = await purchase_gap_service.get_purchase_gaps(
-        session, user_id, resolved=resolved, limit=limit
-    )
+    gaps = await purchase_gap_service.get_purchase_gaps(session, user_id, resolved=resolved, limit=limit)
     return {
         "count": len(gaps),
         "gaps": gaps,
@@ -44,9 +42,7 @@ async def resolve_purchase_gap(
     session: DbSession,
 ):
     """Mark a purchase gap as resolved (e.g. item purchased or no longer needed)."""
-    result = await purchase_gap_service.resolve_purchase_gap(
-        session, str(gap_id), user_id
-    )
+    result = await purchase_gap_service.resolve_purchase_gap(session, str(gap_id), user_id)
     if not result:
         raise NotFoundError("Purchase gap not found")
     return result
@@ -59,8 +55,6 @@ async def delete_purchase_gap(
     session: DbSession,
 ):
     """Permanently delete a purchase gap from the user's list."""
-    ok = await purchase_gap_service.delete_purchase_gap(
-        session, str(gap_id), user_id
-    )
+    ok = await purchase_gap_service.delete_purchase_gap(session, str(gap_id), user_id)
     if not ok:
         raise NotFoundError("Purchase gap not found")

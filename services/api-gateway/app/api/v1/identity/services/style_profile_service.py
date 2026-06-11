@@ -8,11 +8,6 @@ from uuid import UUID, uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import get_settings
-from app.core.exceptions import ConflictError
-from app.core.logging import get_logger
-from app.core.openai_tracing import make_openai_client
-from app.models.user_style_profile import UserStyleProfile
 from app.api.v1.identity.repositories.style_profile_repo import UserStyleProfileRepository
 from app.api.v1.identity.schemas.style_profile import (
     CompleteOnboardingBody,
@@ -22,6 +17,11 @@ from app.api.v1.identity.schemas.style_profile import (
     StyleProfileResponse,
     StyleProfileUpdate,
 )
+from app.core.config import get_settings
+from app.core.exceptions import ConflictError
+from app.core.logging import get_logger
+from app.core.openai_tracing import make_openai_client
+from app.models.user_style_profile import UserStyleProfile
 
 logger = get_logger("style_profile_service")
 settings = get_settings()
@@ -49,12 +49,12 @@ def compose_style_summary(row: UserStyleProfile) -> str:
     a summary immediately on submit, and gives outfit generation a stable, canonical
     description to ground every recommendation.
     """
-    styles    = _join_human(getattr(row, "style_preferences", None))
+    styles = _join_human(getattr(row, "style_preferences", None))
     occasions = _join_human(getattr(row, "occasion_preferences", None))
-    fav       = _join_human(getattr(row, "favorite_colors", None))
-    avoid     = _join_human(getattr(row, "avoided_colors", None))
-    fits      = _join_human(getattr(row, "fit_preferences", None))
-    goals     = _join_human(getattr(row, "styling_goals", None), max_n=2)
+    fav = _join_human(getattr(row, "favorite_colors", None))
+    avoid = _join_human(getattr(row, "avoided_colors", None))
+    fits = _join_human(getattr(row, "fit_preferences", None))
+    goals = _join_human(getattr(row, "styling_goals", None), max_n=2)
 
     sentences: list[str] = []
     if styles:
@@ -73,10 +73,7 @@ def compose_style_summary(row: UserStyleProfile) -> str:
         sentences.append(f"Your styling goal is to {goals}.")
 
     text = " ".join(sentences).strip()
-    return text or (
-        "Tell us a bit more about your style preferences to personalise your "
-        "recommendations."
-    )
+    return text or ("Tell us a bit more about your style preferences to personalise your recommendations.")
 
 
 def _extract_profile_data(row: UserStyleProfile) -> dict:
@@ -136,9 +133,11 @@ Mention dominant categories, colour palette from real items, occasions covered, 
 async def _load_wardrobe_stats(user_id: UUID) -> dict:
     """Load a statistical snapshot of the user's closet for AI context."""
     try:
+        from sqlalchemy import select
+
         from app.db.session import AsyncSessionLocal
         from app.models.closet import ClosetItem
-        from sqlalchemy import select, func as sa_func
+
         async with AsyncSessionLocal() as session:
             result = await session.execute(
                 select(ClosetItem)
@@ -152,13 +151,13 @@ async def _load_wardrobe_stats(user_id: UUID) -> dict:
 
             # Aggregate statistics
             from collections import Counter
+
             categories = Counter(i.category for i in items)
             colors = Counter(i.color for i in items if i.color)
             occasions_flat = [o for i in items for o in (i.occasion or [])]
             occasions = Counter(occasions_flat)
             top_worn = [
-                {"name": i.name, "category": i.category, "wear_count": i.wear_count}
-                for i in items if i.wear_count > 1
+                {"name": i.name, "category": i.category, "wear_count": i.wear_count} for i in items if i.wear_count > 1
             ][:5]
 
             return {
@@ -181,8 +180,9 @@ async def _background_generate_style_summary(user_id: UUID, profile_data: dict) 
     """
     if not settings.openai_api_key:
         return
-    from app.db.session import AsyncSessionLocal
     from app.api.v1.identity.repositories.style_profile_repo import UserStyleProfileRepository
+    from app.db.session import AsyncSessionLocal
+
     non_empty = {k: v for k, v in profile_data.items() if k != "user_id" and v not in (None, [], {}, "")}
 
     # Load wardrobe data in parallel with the non-empty check
@@ -193,7 +193,9 @@ async def _background_generate_style_summary(user_id: UUID, profile_data: dict) 
 
     parts = [f"User style profile:\n{json.dumps(non_empty, indent=2)}"]
     if wardrobe_stats:
-        parts.append(f"\nActual wardrobe data (from {wardrobe_stats.get('total_items', 0)} uploaded items):\n{json.dumps(wardrobe_stats, indent=2)}")
+        parts.append(
+            f"\nActual wardrobe data (from {wardrobe_stats.get('total_items', 0)} uploaded items):\n{json.dumps(wardrobe_stats, indent=2)}"
+        )
     user_prompt = "\n".join(parts)
     try:
         client = make_openai_client(settings.openai_api_key, base_url=settings.openai_api_base_url)
@@ -310,7 +312,9 @@ def _apply_update(row: UserStyleProfile, data: StyleProfileUpdate) -> None:
         setattr(row, k, v)
 
 
-async def create_style_profile(session: AsyncSession, user_id: UUID, payload: StyleProfileCreate) -> StyleProfileResponse:
+async def create_style_profile(
+    session: AsyncSession, user_id: UUID, payload: StyleProfileCreate
+) -> StyleProfileResponse:
     repo = UserStyleProfileRepository(session)
     if await repo.get_by_user_id(user_id):
         raise ConflictError("Style profile already exists — use PATCH to update")
@@ -346,7 +350,9 @@ async def create_default_profile_row(session: AsyncSession, user_id: UUID) -> Us
     return row
 
 
-async def update_style_profile(session: AsyncSession, user_id: UUID, payload: StyleProfileUpdate) -> StyleProfileResponse:
+async def update_style_profile(
+    session: AsyncSession, user_id: UUID, payload: StyleProfileUpdate
+) -> StyleProfileResponse:
     repo = UserStyleProfileRepository(session)
     row = await repo.get_by_user_id(user_id)
     if not row:
@@ -380,9 +386,7 @@ async def refresh_style_summary(session: AsyncSession, user_id: UUID) -> StylePr
     return _row_to_response(row)
 
 
-async def submit_onboarding(
-    session: AsyncSession, user_id: UUID, body: OnboardingSubmitBody
-) -> StyleProfileResponse:
+async def submit_onboarding(session: AsyncSession, user_id: UUID, body: OnboardingSubmitBody) -> StyleProfileResponse:
     """
     Single-call endpoint for the v2 onboarding wizard.
     Saves all answers, marks onboarding complete, then fires background AI generation.

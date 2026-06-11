@@ -16,6 +16,7 @@ purge durable:
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 from uuid import UUID
 
 import httpx
@@ -93,15 +94,17 @@ async def run_purge_for_user(user_id: str) -> bool:
 async def reconcile_pending() -> None:
     """One reconciliation pass: retry every pending outbox row, mark terminal."""
     async with AsyncSessionLocal() as session:
-        rows = (await session.execute(
-            select(PurgeOutbox).where(PurgeOutbox.status == "pending").limit(100)
-        )).scalars().all()
+        rows = (
+            (await session.execute(select(PurgeOutbox).where(PurgeOutbox.status == "pending").limit(100)))
+            .scalars()
+            .all()
+        )
 
     for row in rows:
         ok, detail = await _attempt_closet_purge(str(row.user_id))
         async with AsyncSessionLocal() as session:
             if ok:
-                values = {"status": "done", "last_error": None}
+                values: dict[str, Any] = {"status": "done", "last_error": None}
             else:
                 attempts = row.attempts + 1
                 status = "failed" if attempts >= MAX_ATTEMPTS else "pending"
@@ -109,9 +112,7 @@ async def reconcile_pending() -> None:
                 if status == "failed":
                     logger.error("closet_purge_giving_up", user_id=str(row.user_id), attempts=attempts)
                     _alert_failed(str(row.user_id))
-            await session.execute(
-                update(PurgeOutbox).where(PurgeOutbox.id == row.id).values(**values)
-            )
+            await session.execute(update(PurgeOutbox).where(PurgeOutbox.id == row.id).values(**values))
             await session.commit()
 
 

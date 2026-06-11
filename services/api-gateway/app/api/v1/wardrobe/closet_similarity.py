@@ -5,19 +5,21 @@ from __future__ import annotations
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 
-from app.core.deps import CurrentUser, DbSession
 from app.api.v1.wardrobe.services import closet_similarity_service
+from app.core.deps import CurrentUser, DbSession
 
 router = APIRouter(prefix="/closet", tags=["Closet Similarity"])
 
 
 # ── Request / Response models ─────────────────────────────────────────────────
 
+
 class CheckSimilarRequest(BaseModel):
     """
     Metadata of a NEW (not-yet-saved) item to check against the user's closet.
     All fields are optional; the more provided, the better the match quality.
     """
+
     name: str | None = None
     category: str = ""
     subcategory: str | None = None
@@ -40,10 +42,10 @@ class SimilarItemOut(BaseModel):
     colors: list[str]
     brand: str
     image_url: str
-    similarity_score: int              # 0–100
-    similarity_label: str              # "Possible duplicate" | "Very similar" | "Related item"
-    similarity_reason: str             # Why they are similar
-    difference_summary: str            # Key differences
+    similarity_score: int  # 0–100
+    similarity_label: str  # "Possible duplicate" | "Very similar" | "Related item"
+    similarity_reason: str  # Why they are similar
+    difference_summary: str  # Key differences
 
 
 class CheckSimilarResponse(BaseModel):
@@ -51,6 +53,7 @@ class CheckSimilarResponse(BaseModel):
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
+
 
 @router.post("/check-similar", response_model=CheckSimilarResponse)
 async def check_similar_before_save(
@@ -95,9 +98,8 @@ async def check_similar_before_save(
     except Exception as exc:
         # Safety: never block user from saving if similarity check fails
         import logging
-        logging.getLogger("closet_similarity").warning(
-            "check_similar_failed: %s", exc, exc_info=True
-        )
+
+        logging.getLogger("closet_similarity").warning("check_similar_failed: %s", exc, exc_info=True)
         return {"similar_items": []}
 
 
@@ -113,15 +115,14 @@ async def get_similar_items_for_closet_item(
     Returns items scored ≥55 with similarity_label and difference_summary.
     """
     try:
-        results = await closet_similarity_service.find_similar_by_item_id(
-            session, item_id, user_id, limit=limit
-        )
+        results = await closet_similarity_service.find_similar_by_item_id(session, item_id, user_id, limit=limit)
         return {"similar_items": results}
     except Exception:
         return {"similar_items": []}
 
 
 # ── Legacy endpoints (kept for backward compat) ───────────────────────────────
+
 
 @router.post("/similar")
 async def find_similar_closet_items(
@@ -134,25 +135,15 @@ async def find_similar_closet_items(
 ):
     """Legacy endpoint — find similar items by item ID, text, or image URL."""
     if closet_item_id:
-        results = await closet_similarity_service.find_similar_by_item_id(
-            session, closet_item_id, user_id, limit=limit
-        )
-        return {"query_type": "closet_item", "query_ref": closet_item_id,
-                "count": len(results), "results": results}
+        results = await closet_similarity_service.find_similar_by_item_id(session, closet_item_id, user_id, limit=limit)
+        return {"query_type": "closet_item", "query_ref": closet_item_id, "count": len(results), "results": results}
     if query:
-        results = await closet_similarity_service.find_similar_by_text(
-            session, query, user_id, limit=limit
-        )
-        return {"query_type": "text_query", "query_ref": query,
-                "count": len(results), "results": results}
+        results = await closet_similarity_service.find_similar_by_text(session, query, user_id, limit=limit)
+        return {"query_type": "text_query", "query_ref": query, "count": len(results), "results": results}
     if image_url:
-        results = await closet_similarity_service.find_similar_by_image_url(
-            session, image_url, user_id, limit=limit
-        )
-        return {"query_type": "image_url", "query_ref": image_url,
-                "count": len(results), "results": results}
-    return {"query_type": "none", "message": "Provide one of: closet_item_id, query, or image_url",
-            "results": []}
+        results = await closet_similarity_service.find_similar_by_image_url(session, image_url, user_id, limit=limit)
+        return {"query_type": "image_url", "query_ref": image_url, "count": len(results), "results": results}
+    return {"query_type": "none", "message": "Provide one of: closet_item_id, query, or image_url", "results": []}
 
 
 @router.get("/similar/{item_id}")
@@ -163,8 +154,5 @@ async def get_similar_to_item(
     limit: int = Query(5, ge=1, le=20),
 ):
     """Legacy GET endpoint — find items similar to a closet item."""
-    results = await closet_similarity_service.find_similar_by_item_id(
-        session, item_id, user_id, limit=limit
-    )
-    return {"query_type": "closet_item", "item_id": item_id,
-            "count": len(results), "results": results}
+    results = await closet_similarity_service.find_similar_by_item_id(session, item_id, user_id, limit=limit)
+    return {"query_type": "closet_item", "item_id": item_id, "count": len(results), "results": results}

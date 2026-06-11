@@ -13,11 +13,10 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import CurrentUser
-from app.core.exceptions import BadRequestError, NotFoundError
-from app.core.logging import get_logger
-from app.db.session import get_session
-from app.models.closet import ClosetItem
+from app.api.v1.identity.services.style_profile_context import load_merged_user_profile_for_ai
+from app.api.v1.intelligence.services import ai_client
+from app.api.v1.intelligence.services.fashion_rag_service import get_fashion_context_for_prompt
+from app.api.v1.intelligence.services.purchase_gap_service import detect_and_save_gaps
 from app.api.v1.travel.schemas.trips import (
     AddActivitiesRequest,
     ChecklistUpdateRequest,
@@ -28,19 +27,21 @@ from app.api.v1.travel.schemas.trips import (
     TripListResponse,
     TripResponse,
 )
-from app.api.v1.intelligence.services import ai_client
 from app.api.v1.travel.services import packing_service
-from app.api.v1.identity.services.style_profile_context import load_merged_user_profile_for_ai
-from app.api.v1.travel.services.trips_service import TripsService
 from app.api.v1.travel.services.packing_memory_service import get_packing_memory_for_prompt, save_packing_memory
-from app.api.v1.intelligence.services.fashion_rag_service import get_fashion_context_for_prompt
-from app.api.v1.intelligence.services.purchase_gap_service import detect_and_save_gaps
+from app.api.v1.travel.services.trips_service import TripsService
+from app.core.deps import CurrentUser
+from app.core.exceptions import BadRequestError, NotFoundError
+from app.core.logging import get_logger
+from app.db.session import get_session
+from app.models.closet import ClosetItem
 
 router = APIRouter(prefix="/trips", tags=["Trips"])
 logger = get_logger("trips")
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _get_svc(session: AsyncSession) -> TripsService:
     return TripsService(session)
@@ -127,13 +128,22 @@ async def _generate_trip_packing(
         try:
             # ai_client doesn't yet support activities — fall through to packing_service
             return await ai_client.generate_packing_list(
-                destination, start_date, end_date, purpose, closet_items,
-                notes=notes, user_style_profile=prof,
+                destination,
+                start_date,
+                end_date,
+                purpose,
+                closet_items,
+                notes=notes,
+                user_style_profile=prof,
             )
         except Exception as exc:
             logger.warning("trip_packing_ai_agent_fallback", error=str(exc), destination=destination)
             return await packing_service.generate_packing_list(
-                destination, start_date, end_date, purpose, closet_items,
+                destination,
+                start_date,
+                end_date,
+                purpose,
+                closet_items,
                 notes=notes,
                 activities=activities,
                 trip_style=trip_style,
@@ -144,10 +154,14 @@ async def _generate_trip_packing(
 
     try:
         return await asyncio.wait_for(_run(), timeout=50.0)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning("trip_packing_total_timeout", destination=destination)
         return await packing_service.generate_packing_list(
-            destination, start_date, end_date, purpose, closet_items,
+            destination,
+            start_date,
+            end_date,
+            purpose,
+            closet_items,
             notes=notes,
             activities=activities,
             trip_style=trip_style,
@@ -158,6 +172,7 @@ async def _generate_trip_packing(
 
 
 # ── List / Get ────────────────────────────────────────────────────────────────
+
 
 @router.get("/", response_model=TripListResponse)
 async def list_trips(
@@ -194,18 +209,27 @@ async def get_packing_list(
     trip_resp = await svc.get_trip(trip_id, UUID(user_id))
     # Fetch raw trip for activities/bag_size
     from sqlalchemy import select as sa_select
+
     from app.models.trips import Trip as TripModel
+
     stmt = sa_select(TripModel).where(TripModel.id == trip_id, TripModel.user_id == UUID(user_id))
     raw = await session.execute(stmt)
     trip_orm = raw.scalar_one_or_none()
 
     closet_items = await _fetch_closet_items(session, UUID(user_id))
     acts = (trip_orm.activities or []) if trip_orm else []
-    rag_context = await _build_packing_rag_context(session, UUID(user_id), trip_resp.destination, trip_resp.purpose, acts)
+    rag_context = await _build_packing_rag_context(
+        session, UUID(user_id), trip_resp.destination, trip_resp.purpose, acts
+    )
     return await _generate_trip_packing(
-        session, UUID(user_id),
-        trip_resp.destination, str(trip_resp.start_date), str(trip_resp.end_date),
-        trip_resp.purpose, closet_items, notes=trip_resp.notes,
+        session,
+        UUID(user_id),
+        trip_resp.destination,
+        str(trip_resp.start_date),
+        str(trip_resp.end_date),
+        trip_resp.purpose,
+        closet_items,
+        notes=trip_resp.notes,
         activities=acts,
         trip_style=trip_resp.trip_style,
         bag_size=trip_resp.bag_size,
@@ -214,6 +238,7 @@ async def get_packing_list(
 
 
 # ── Create ────────────────────────────────────────────────────────────────────
+
 
 @router.post("/", response_model=CreateTripResponse, status_code=status.HTTP_201_CREATED)
 async def create_trip(
@@ -238,7 +263,8 @@ async def create_trip(
     packing_result: dict[str, Any] | None = None
     try:
         packing_result = await _generate_trip_packing(
-            session, UUID(user_id),
+            session,
+            UUID(user_id),
             trip.destination,
             trip.start_date.isoformat(),
             trip.end_date.isoformat(),
@@ -265,7 +291,7 @@ async def create_trip(
             missing = packing_result.get("you_might_still_need", [])
             await save_packing_memory(
                 session,
-                user_id=UUID(user_id),
+                user_id=user_id,
                 trip_id=str(trip.id),
                 destination=trip.destination,
                 start_date=trip.start_date.isoformat(),
@@ -278,10 +304,14 @@ async def create_trip(
             )
             await detect_and_save_gaps(
                 session,
-                user_id=UUID(user_id),
+                user_id=user_id,
                 closet_items=closet_items,
                 missing_packing_items=missing,
-                trip_context={"destination": trip.destination, "purpose": trip.purpose, "start_date": trip.start_date.isoformat()},
+                trip_context={
+                    "destination": trip.destination,
+                    "purpose": trip.purpose,
+                    "start_date": trip.start_date.isoformat(),
+                },
             )
         except Exception as exc:
             logger.warning("packing_memory_save_failed", error=str(exc))
@@ -294,6 +324,7 @@ async def create_trip(
 
 
 # ── Activities ────────────────────────────────────────────────────────────────
+
 
 @router.post("/{trip_id}/activities", response_model=TripResponse)
 async def add_trip_activities(
@@ -308,6 +339,7 @@ async def add_trip_activities(
 
 # ── Regenerate packing plan ───────────────────────────────────────────────────
 
+
 @router.post("/{trip_id}/regenerate-packing", response_model=PackingPlanResponse)
 async def regenerate_packing_plan(
     user_id: CurrentUser,
@@ -316,6 +348,7 @@ async def regenerate_packing_plan(
 ):
     """Regenerate the packing plan for a trip (e.g. after updating activities)."""
     from sqlalchemy import select as sa_select
+
     from app.models.trips import Trip as TripModel
 
     stmt = sa_select(TripModel).where(TripModel.id == trip_id, TripModel.user_id == UUID(user_id))
@@ -329,9 +362,13 @@ async def regenerate_packing_plan(
     acts = trip.activities or []
     rag_context = await _build_packing_rag_context(session, UUID(user_id), trip.destination, trip.purpose, acts)
     packing_result = await _generate_trip_packing(
-        session, UUID(user_id),
-        trip.destination, trip.start_date.isoformat(), trip.end_date.isoformat(),
-        trip.purpose, closet_items,
+        session,
+        UUID(user_id),
+        trip.destination,
+        trip.start_date.isoformat(),
+        trip.end_date.isoformat(),
+        trip.purpose,
+        closet_items,
         notes=trip.notes,
         activities=acts,
         trip_style=trip.trip_style,
@@ -342,6 +379,7 @@ async def regenerate_packing_plan(
 
 
 # ── Packing plan ─────────────────────────────────────────────────────────────
+
 
 @router.get("/{trip_id}/packing-plan", response_model=PackingPlanResponse)
 async def get_packing_plan(
@@ -358,6 +396,7 @@ async def get_packing_plan(
 
 # ── Checklist state ────────────────────────────────────────────────────────────
 
+
 @router.patch("/{trip_id}/planner/checklist", status_code=status.HTTP_200_OK)
 async def update_checklist_item(
     user_id: CurrentUser,
@@ -366,12 +405,11 @@ async def update_checklist_item(
     session: AsyncSession = Depends(get_session),
 ):
     """Toggle a single checklist item's packed status (persisted)."""
-    return await _get_svc(session).update_checklist_state(
-        trip_id, UUID(user_id), body.item_key, body.is_packed
-    )
+    return await _get_svc(session).update_checklist_state(trip_id, UUID(user_id), body.item_key, body.is_packed)
 
 
 # ── Save planner ─────────────────────────────────────────────────────────────
+
 
 @router.post("/{trip_id}/save-planner", response_model=SavePlannerResponse)
 async def save_planner(
@@ -384,6 +422,7 @@ async def save_planner(
 
 # ── Update ────────────────────────────────────────────────────────────────────
 
+
 @router.patch("/{trip_id}", response_model=TripResponse)
 async def update_trip(
     user_id: CurrentUser,
@@ -395,6 +434,7 @@ async def update_trip(
 
 
 # ── Delete ────────────────────────────────────────────────────────────────────
+
 
 @router.delete("/{trip_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_trip(

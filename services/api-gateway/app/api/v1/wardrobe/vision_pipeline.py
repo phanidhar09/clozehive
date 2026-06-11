@@ -36,12 +36,6 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, UploadFile, statu
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import CurrentUser
-from app.core.exceptions import BadRequestError, NotFoundError
-from app.core.logging import get_logger
-from app.core.redis import get_redis
-from app.db.session import get_session
-from app.models.closet import ClosetItem
 from app.api.v1.wardrobe.repositories.closet_repo import ClosetRepository
 from app.api.v1.wardrobe.schemas.closet import (
     ClosetItemResponse,
@@ -50,9 +44,15 @@ from app.api.v1.wardrobe.schemas.closet import (
     VisionAnalyzeResponse,
 )
 from app.api.v1.wardrobe.services import similarity_service, vision_pipeline_service
-from app.core import cache_service
 from app.api.v1.wardrobe.services.background_removal_service import remove_background_async
+from app.core import cache_service
+from app.core.deps import CurrentUser
+from app.core.exceptions import BadRequestError, NotFoundError
+from app.core.logging import get_logger
+from app.core.redis import get_redis
 from app.core.upload_service import persist_upload, read_upload_bytes, read_validated_image
+from app.db.session import get_session
+from app.models.closet import ClosetItem
 
 router = APIRouter(tags=["Vision Pipeline"])
 logger = get_logger("vision_pipeline_api")
@@ -60,12 +60,18 @@ logger = get_logger("vision_pipeline_api")
 # ── Category normalisation (matches DB Literal constraint) ────────────────────
 
 _CAT_MAP: dict[str, str] = {
-    "top": "tops", "tops": "tops",
-    "bottom": "bottoms", "bottoms": "bottoms",
-    "footwear": "shoes", "shoe": "shoes", "shoes": "shoes",
-    "accessory": "accessories", "accessories": "accessories",
+    "top": "tops",
+    "tops": "tops",
+    "bottom": "bottoms",
+    "bottoms": "bottoms",
+    "footwear": "shoes",
+    "shoe": "shoes",
+    "shoes": "shoes",
+    "accessory": "accessories",
+    "accessories": "accessories",
     "outerwear": "outerwear",
-    "dress": "dresses", "dresses": "dresses",
+    "dress": "dresses",
+    "dresses": "dresses",
     "other": "other",
 }
 
@@ -82,7 +88,7 @@ def _pick_season(season_list: list[str] | None) -> list[str]:
     valid = {"spring", "summer", "fall", "winter"}
     result: list[str] = []
     seen: set[str] = set()
-    for s in (season_list or []):
+    for s in season_list or []:
         mapped = "fall" if s.strip().lower() == "autumn" else s.strip().lower()
         if mapped in valid and mapped not in seen:
             result.append(mapped)
@@ -98,6 +104,7 @@ def _safe_float(v: Any) -> float | None:
 
 
 # ── POST /analyze-vision/stream ──────────────────────────────────────────────
+
 
 @router.post(
     "/analyze-vision/stream",
@@ -138,12 +145,13 @@ async def analyze_vision_stream(
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",   # disable nginx proxy buffering
+            "X-Accel-Buffering": "no",  # disable nginx proxy buffering
         },
     )
 
 
 # ── POST /analyze-vision ───────────────────────────────────────────────────────
+
 
 @router.post(
     "/analyze-vision",
@@ -194,6 +202,7 @@ async def analyze_vision(
 
 # ── POST /save-analyzed-items ─────────────────────────────────────────────────
 
+
 @router.post(
     "/save-analyzed-items",
     response_model=SaveAnalyzedItemsResponse,
@@ -219,15 +228,13 @@ async def save_analyzed_items(
     """
     if not body.save_permission:
         raise BadRequestError(
-            "save_permission must be true. "
-            "The user must explicitly confirm before items are saved to the closet."
+            "save_permission must be true. The user must explicitly confirm before items are saved to the closet."
         )
     if not body.items:
         raise BadRequestError("No items provided to save.")
     if len(body.items) > 30:
         raise BadRequestError("Maximum 30 items per save request.")
 
-    repo = ClosetRepository(session)
     user_uuid = UUID(user_id)
     batch_id = body.scan_batch_id or str(uuid.uuid4())
 
@@ -317,6 +324,7 @@ async def save_analyzed_items(
 
 # ── POST /{item_id}/remove-background ─────────────────────────────────────────
 
+
 @router.post(
     "/{item_id}/remove-background",
     response_model=ClosetItemResponse,
@@ -361,7 +369,7 @@ async def retry_remove_background(
             remove_background_async(img_bytes),
             timeout=30.0,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         raise BadRequestError("Background removal timed out. Please try again.")
 
     bg_removed = bg_status in ("success_rembg", "success_pil")

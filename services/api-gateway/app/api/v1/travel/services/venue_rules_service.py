@@ -35,22 +35,55 @@ MAX_LOOKUPS_PER_TRIP = 2
 # Activity names that match one of these fragments name a context with an
 # enforced/published dress code worth researching.
 _RULE_WORTHY_KEYWORDS = (
-    "conference", "congress", "summit", "expo", "convention", "symposium",
-    "gala", "opera", "ballet", "theatre", "theater",
-    "embassy", "consulate", "visa", "interview",
-    "michelin", "fine dining", "tasting menu",
-    "business class", "first class", "lounge",
-    "casino", "yacht", "country club", "golf club", "members club",
-    "graduation", "ceremony", "award",
+    "conference",
+    "congress",
+    "summit",
+    "expo",
+    "convention",
+    "symposium",
+    "gala",
+    "opera",
+    "ballet",
+    "theatre",
+    "theater",
+    "embassy",
+    "consulate",
+    "visa",
+    "interview",
+    "michelin",
+    "fine dining",
+    "tasting menu",
+    "business class",
+    "first class",
+    "lounge",
+    "casino",
+    "yacht",
+    "country club",
+    "golf club",
+    "members club",
+    "graduation",
+    "ceremony",
+    "award",
 )
 
 # Generic preset activity names (frontend ACTIVITY_PRESETS) — no venue to
 # research, the activity's formality field already covers them.
 _GENERIC_PRESET_NAMES = {
-    "beach / pool", "brunch / café", "dinner / date night", "nightlife / club",
-    "sightseeing / walking", "business meeting", "wedding / formal",
-    "hiking / outdoor", "gym / fitness", "shopping", "boat / cruise",
-    "photoshoot", "cultural / museum", "theme park", "airport travel",
+    "beach / pool",
+    "brunch / café",
+    "dinner / date night",
+    "nightlife / club",
+    "sightseeing / walking",
+    "business meeting",
+    "wedding / formal",
+    "hiking / outdoor",
+    "gym / fitness",
+    "shopping",
+    "boat / cruise",
+    "photoshoot",
+    "cultural / museum",
+    "theme park",
+    "airport travel",
     "spa / pool day",
 }
 
@@ -101,11 +134,13 @@ async def get_venue_rules(
             ttl_seconds=VENUE_RULES_TTL_S,
         )
         if result:
-            rules.append({
-                "context": context,
-                "answer": result["answer"],
-                "sources": result.get("sources") or [],
-            })
+            rules.append(
+                {
+                    "context": context,
+                    "answer": result["answer"],
+                    "sources": result.get("sources") or [],
+                }
+            )
             logger.info("venue_rule_fetched", context=context[:60])
     return rules
 

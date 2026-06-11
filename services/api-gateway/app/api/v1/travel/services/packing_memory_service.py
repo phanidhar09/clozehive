@@ -9,16 +9,16 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from sqlalchemy import select, desc
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.logging import get_logger
-from app.models.rag import PackingMemory
 from app.core.embedding_service import (
     _DEFAULT_LIMIT,
     generate_text_embedding,
     pgvector_cosine_search,
 )
+from app.core.logging import get_logger
+from app.models.rag import PackingMemory
 from app.rag.query_builder import build_packing_memory_query
 from app.rag.rerank import rerank_packing_memories
 
@@ -39,7 +39,6 @@ def _packing_context_text(
     if weather_summary:
         cond = weather_summary.get("dominant_condition", "")
         avg_high = weather_summary.get("avg_high")
-        avg_low = weather_summary.get("avg_low")
         rainy = weather_summary.get("rainy_days", 0)
         if cond:
             parts.append(f"Weather: {cond}")
@@ -65,9 +64,7 @@ async def save_packing_memory(
 ) -> PackingMemory | None:
     """Persist a packing plan as a memory record."""
     try:
-        context_text = _packing_context_text(
-            destination, purpose, weather_summary, start_date, end_date
-        )
+        context_text = _packing_context_text(destination, purpose, weather_summary, start_date, end_date)
         embedding = await generate_text_embedding(context_text)
 
         record = PackingMemory(
@@ -109,9 +106,7 @@ async def search_similar_packing_memories(
     limit: int = _DEFAULT_LIMIT,
 ) -> list[dict[str, Any]]:
     """Retrieve past packing memories similar to the current trip context."""
-    query_text = build_packing_memory_query(
-        destination, purpose, weather_summary, start_date, end_date
-    )
+    query_text = build_packing_memory_query(destination, purpose, weather_summary, start_date, end_date)
     embedding = await generate_text_embedding(query_text)
     if not embedding:
         return []
@@ -141,9 +136,7 @@ async def search_similar_packing_memories(
         }
         for r in rows
     ]
-    reranked = rerank_packing_memories(
-        records, purpose=purpose, destination=destination
-    )
+    reranked = rerank_packing_memories(records, purpose=purpose, destination=destination)
     return reranked[:limit]
 
 

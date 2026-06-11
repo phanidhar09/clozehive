@@ -14,8 +14,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from app.core.logging import get_logger
 from app.api.v1.intelligence.services import ai_service
+from app.core.logging import get_logger
 
 logger = get_logger("outfit_ai_service")
 
@@ -169,6 +169,7 @@ EXACT RESPONSE SCHEMA:
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
+
 def _location_prompt_suffix(location_context: str) -> str:
     """Append the local-climate / dress-norm context to a system prompt (empty if none)."""
     if not location_context or not location_context.strip():
@@ -274,22 +275,23 @@ def _categorize_items(items: list[dict[str, Any]]) -> dict[str, Any]:
 
 def _item_for_ai(item: dict[str, Any]) -> dict[str, Any]:
     return {
-        "id":         str(item.get("id", "")),
-        "name":       item.get("name", ""),
-        "category":   item.get("category", ""),
-        "color":      item.get("color", "") or "",
-        "fabric":     item.get("fabric", "") or "",
-        "pattern":    item.get("pattern", "") or "",
-        "season":     item.get("season", "") or "",
-        "occasion":   item.get("occasion", []) or [],
-        "size":       item.get("size", "") or "",
-        "brand":      item.get("brand", "") or "",
-        "tags":       item.get("tags", []) or [],
+        "id": str(item.get("id", "")),
+        "name": item.get("name", ""),
+        "category": item.get("category", ""),
+        "color": item.get("color", "") or "",
+        "fabric": item.get("fabric", "") or "",
+        "pattern": item.get("pattern", "") or "",
+        "season": item.get("season", "") or "",
+        "occasion": item.get("occasion", []) or [],
+        "size": item.get("size", "") or "",
+        "brand": item.get("brand", "") or "",
+        "tags": item.get("tags", []) or [],
         "wear_count": item.get("wear_count", 0),
     }
 
 
 # ── Fallback mock results ──────────────────────────────────────────────────────
+
 
 def _mock_generate(closet_items: list[dict[str, Any]], occasion: str) -> dict[str, Any]:
     items = closet_items[:5]
@@ -300,7 +302,12 @@ def _mock_generate(closet_items: list[dict[str, Any]], occasion: str) -> dict[st
                 "matching_score": 65,
                 "confidence": 0.5,
                 "score_breakdown": {
-                    "color": 16, "occasion": 16, "fit": 13, "style": 10, "weather": 6, "preference": 4,
+                    "color": 16,
+                    "occasion": 16,
+                    "fit": 13,
+                    "style": 10,
+                    "weather": 6,
+                    "preference": 4,
                 },
                 "recommendations": {
                     "improvements": ["Add more closet items for richer outfit generation."],
@@ -316,32 +323,39 @@ def _mock_generate(closet_items: list[dict[str, Any]], occasion: str) -> dict[st
 
 
 def _mock_analyze(selected_items: list[dict[str, Any]], occasion: str) -> dict[str, Any]:
-    return _normalize_analyze_output({
-        "outfit": {
-            "items": _categorize_items(selected_items),
-            "matching_score": 70,
-            "confidence": 0.5,
-            "fit_confidence": 50,
-            "score_breakdown": {
-                "color": 18, "occasion": 17, "fit": 14, "style": 10, "weather": 7, "preference": 4,
+    return _normalize_analyze_output(
+        {
+            "outfit": {
+                "items": _categorize_items(selected_items),
+                "matching_score": 70,
+                "confidence": 0.5,
+                "fit_confidence": 50,
+                "score_breakdown": {
+                    "color": 18,
+                    "occasion": 17,
+                    "fit": 14,
+                    "style": 10,
+                    "weather": 7,
+                    "preference": 4,
+                },
+                "occasion_match": "Medium",
+                "style_match": "Medium",
+                "size_profile_match": "Unknown",
+                "recommendations": {
+                    "improvements": ["Review the color palette for better tonal harmony."],
+                    "issues": [],
+                    "styling_tips": ["Ensure the outfit matches the occasion you have in mind."],
+                },
+                "fit_notes": "We could not reach the AI scorer; this is a neutral placeholder.",
+                "body_profile_notes": "We could not reach the AI scorer; this is a neutral placeholder.",
+                "reasoning": "AI scoring is temporarily unavailable. This is a placeholder analysis — try again shortly.",
+                "why_it_works": "Balanced basics — refine when AI is available.",
+                "what_to_improve": ["Try again shortly for a personalised score."],
             },
-            "occasion_match": "Medium",
-            "style_match": "Medium",
-            "size_profile_match": "Unknown",
-            "recommendations": {
-                "improvements": ["Review the color palette for better tonal harmony."],
-                "issues": [],
-                "styling_tips": ["Ensure the outfit matches the occasion you have in mind."],
-            },
-            "fit_notes": "We could not reach the AI scorer; this is a neutral placeholder.",
-            "body_profile_notes": "We could not reach the AI scorer; this is a neutral placeholder.",
-            "reasoning": "AI scoring is temporarily unavailable. This is a placeholder analysis — try again shortly.",
-            "why_it_works": "Balanced basics — refine when AI is available.",
-            "what_to_improve": ["Try again shortly for a personalised score."],
-        },
-        "missing_pieces": [],
-        "style_tips": ["Complete your Style Profile for more personalised tips."],
-    })
+            "missing_pieces": [],
+            "style_tips": ["Complete your Style Profile for more personalised tips."],
+        }
+    )
 
 
 # ── Pairing suggestion prompt ──────────────────────────────────────────────────
@@ -374,6 +388,7 @@ EXACT RESPONSE SCHEMA:
 
 
 # ── Public API ─────────────────────────────────────────────────────────────────
+
 
 async def generate_outfits(
     closet_items: list[dict[str, Any]],
@@ -534,14 +549,17 @@ async def shuffle_outfit(
 
     system_prompt = _SHUFFLE_OUTFIT_PROMPT + rag_block
 
-    payload = json.dumps({
-        "occasion": occasion,
-        "weather": weather or "mild",
-        "seed_category": seed_category or None,
-        "current_outfit": [_item_for_ai(i) for i in current_items],
-        "available_closet": [_item_for_ai(i) for i in available_closet[:50]],
-        "user_profile": user_profile or {},
-    }, default=str)
+    payload = json.dumps(
+        {
+            "occasion": occasion,
+            "weather": weather or "mild",
+            "seed_category": seed_category or None,
+            "current_outfit": [_item_for_ai(i) for i in current_items],
+            "available_closet": [_item_for_ai(i) for i in available_closet[:50]],
+            "user_profile": user_profile or {},
+        },
+        default=str,
+    )
 
     try:
         raw = await ai_service.chat(
@@ -577,12 +595,15 @@ async def suggest_pairings_from_closet(
     # Cap remaining items to keep the prompt size reasonable
     capped = remaining_items[:40]
 
-    payload = json.dumps({
-        "occasion": occasion,
-        "weather": weather or "mild",
-        "selected_outfit": [_item_for_ai(i) for i in selected_items],
-        "remaining_closet": [_item_for_ai(i) for i in capped],
-    }, default=str)
+    payload = json.dumps(
+        {
+            "occasion": occasion,
+            "weather": weather or "mild",
+            "selected_outfit": [_item_for_ai(i) for i in selected_items],
+            "remaining_closet": [_item_for_ai(i) for i in capped],
+        },
+        default=str,
+    )
 
     try:
         raw = await ai_service.chat(

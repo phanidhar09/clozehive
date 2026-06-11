@@ -12,12 +12,8 @@ from datetime import UTC, date, datetime
 from typing import Any
 from uuid import UUID
 
-from google.cloud import firestore
-from google.cloud.firestore_v1 import AsyncClient
 from google.cloud.firestore_v1.base_query import FieldFilter
 
-from app.core.exceptions import ForbiddenError, NotFoundError
-from app.core.logging import get_logger
 from app.api.v1.wardrobe.schemas.closet import (
     ClosetItemCreate,
     ClosetItemResponse,
@@ -25,6 +21,8 @@ from app.api.v1.wardrobe.schemas.closet import (
     ClosetListResponse,
 )
 from app.core import cache_service
+from app.core.exceptions import ForbiddenError, NotFoundError
+from app.core.logging import get_logger
 from app.services.firestore.firestore_client import get_db
 
 logger = get_logger("firestore.closet")
@@ -119,7 +117,7 @@ class FirestoreClosetService:
         # Firestore doesn't support SQL-style OFFSET, so we fetch all and slice
         all_docs: list[dict[str, Any]] = []
         async for doc in query.stream():
-            all_docs.append(doc.to_dict())
+            all_docs.append(doc.to_dict() or {})
 
         total = len(all_docs)
         offset = (page - 1) * per_page
@@ -129,6 +127,7 @@ class FirestoreClosetService:
         response = ClosetListResponse(items=items, total=total, page=page, per_page=per_page)
 
         from app.core.config import get_settings
+
         ttl = get_settings().cache_ttl_closet
         await cache_service.set(cache_key, response.model_dump(mode="json"), ttl)
 
@@ -155,7 +154,7 @@ class FirestoreClosetService:
         doc = await db.collection(_COLLECTION).document(str(item_id)).get()
         if not doc.exists:
             raise NotFoundError(f"Item {item_id} not found")
-        data = doc.to_dict()
+        data = doc.to_dict() or {}
         if data.get("user_id") != str(user_id):
             raise ForbiddenError("Item does not belong to you")
         return _to_response(data)
@@ -187,15 +186,13 @@ class FirestoreClosetService:
 
     # ── Update ────────────────────────────────────────────────────────────────
 
-    async def update_item(
-        self, item_id: UUID, user_id: UUID, data: ClosetItemUpdate
-    ) -> ClosetItemResponse:
+    async def update_item(self, item_id: UUID, user_id: UUID, data: ClosetItemUpdate) -> ClosetItemResponse:
         db = get_db()
         ref = db.collection(_COLLECTION).document(str(item_id))
         doc = await ref.get()
         if not doc.exists:
             raise NotFoundError(f"Item {item_id} not found")
-        stored = doc.to_dict()
+        stored = doc.to_dict() or {}
         if stored.get("user_id") != str(user_id):
             raise ForbiddenError("Item does not belong to you")
 
@@ -214,7 +211,7 @@ class FirestoreClosetService:
         doc = await ref.get()
         if not doc.exists:
             raise NotFoundError(f"Item {item_id} not found")
-        if doc.to_dict().get("user_id") != str(user_id):
+        if (doc.to_dict() or {}).get("user_id") != str(user_id):
             raise ForbiddenError("Item does not belong to you")
         await ref.delete()
         await cache_service.invalidate_closet_list_cache(str(user_id))
@@ -222,15 +219,13 @@ class FirestoreClosetService:
 
     # ── Wear log ──────────────────────────────────────────────────────────────
 
-    async def log_wear(
-        self, item_id: UUID, user_id: UUID, worn_date: date | None = None
-    ) -> ClosetItemResponse:
+    async def log_wear(self, item_id: UUID, user_id: UUID, worn_date: date | None = None) -> ClosetItemResponse:
         db = get_db()
         ref = db.collection(_COLLECTION).document(str(item_id))
         doc = await ref.get()
         if not doc.exists:
             raise NotFoundError(f"Item {item_id} not found")
-        stored = doc.to_dict()
+        stored = doc.to_dict() or {}
         if stored.get("user_id") != str(user_id):
             raise ForbiddenError("Item does not belong to you")
 
@@ -259,15 +254,17 @@ class FirestoreClosetService:
         )
         result = []
         async for doc in query.stream():
-            d = doc.to_dict()
-            result.append({
-                "id": d.get("id", ""),
-                "name": d.get("name", ""),
-                "category": d.get("category", ""),
-                "color": d.get("color") or "",
-                "fabric": d.get("fabric") or "",
-                "season": d.get("season") or "",
-                "occasion": d.get("occasion") or [],
-                "tags": d.get("tags") or [],
-            })
+            d = doc.to_dict() or {}
+            result.append(
+                {
+                    "id": d.get("id", ""),
+                    "name": d.get("name", ""),
+                    "category": d.get("category", ""),
+                    "color": d.get("color") or "",
+                    "fabric": d.get("fabric") or "",
+                    "season": d.get("season") or "",
+                    "occasion": d.get("occasion") or [],
+                    "tags": d.get("tags") or [],
+                }
+            )
         return result

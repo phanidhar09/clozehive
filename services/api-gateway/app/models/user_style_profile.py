@@ -15,9 +15,7 @@ from app.db.base import Base
 class UserStyleProfile(Base):
     __tablename__ = "user_style_profiles"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
@@ -70,24 +68,16 @@ class UserStyleProfile(Base):
     style_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # ── Onboarding v2 fields ──────────────────────────────────────────────────
-    styling_goals: Mapped[list] = mapped_column(
-        JSONB, nullable=True, server_default=text("'[]'::jsonb")
-    )
-    avoidances: Mapped[list] = mapped_column(
-        JSONB, nullable=True, server_default=text("'[]'::jsonb")
-    )
-    pattern_preferences: Mapped[list] = mapped_column(
-        JSONB, nullable=True, server_default=text("'[]'::jsonb")
-    )
+    styling_goals: Mapped[list] = mapped_column(JSONB, nullable=True, server_default=text("'[]'::jsonb"))
+    avoidances: Mapped[list] = mapped_column(JSONB, nullable=True, server_default=text("'[]'::jsonb"))
+    pattern_preferences: Mapped[list] = mapped_column(JSONB, nullable=True, server_default=text("'[]'::jsonb"))
 
     # AI-derived personality / recommendation data
     style_archetype: Mapped[str | None] = mapped_column(String(100), nullable=True)
     recommendation_rules: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     ai_stylist_context: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )

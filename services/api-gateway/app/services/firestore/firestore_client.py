@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 logger = get_logger("firestore_client")
 
 _app: firebase_admin.App | None = None
-_db: "AsyncClient | None" = None
+_db: AsyncClient | None = None
 
 
 def init_firestore() -> None:
@@ -35,6 +35,7 @@ def init_firestore() -> None:
         return
 
     from app.core.config import get_settings
+
     settings = get_settings()
 
     cred: credentials.Base | None = None
@@ -80,7 +81,7 @@ def init_firestore() -> None:
     )
 
 
-def get_db() -> "AsyncClient":
+def get_db() -> AsyncClient:
     """Return the async Firestore client, initialising on first call."""
     global _db
     if _db is None:

@@ -7,9 +7,9 @@ from uuid import UUID
 from fastapi import APIRouter, status
 from pydantic import BaseModel
 
+from app.api.v1.travel.services import packing_memory_service
 from app.core.deps import CurrentUser, DbSession
 from app.core.exceptions import NotFoundError
-from app.api.v1.travel.services import packing_memory_service
 
 router = APIRouter(prefix="/trips", tags=["Packing Memory"])
 
@@ -29,9 +29,7 @@ async def get_trip_packing_memory(
 
     Returns the items packed, missing items, and any user feedback.
     """
-    record = await packing_memory_service.get_trip_packing_memory(
-        session, str(trip_id), user_id
-    )
+    record = await packing_memory_service.get_trip_packing_memory(session, str(trip_id), user_id)
     if not record:
         raise NotFoundError("No packing memory found for this trip")
     return record
@@ -45,9 +43,7 @@ async def submit_packing_memory_feedback(
     session: DbSession,
 ):
     """Submit feedback on what worked or was missing from a past packing plan."""
-    record = await packing_memory_service.get_trip_packing_memory(
-        session, str(trip_id), user_id
-    )
+    record = await packing_memory_service.get_trip_packing_memory(session, str(trip_id), user_id)
     if not record:
         raise NotFoundError("No packing memory found for this trip")
 

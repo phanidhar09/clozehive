@@ -7,7 +7,7 @@ No raw stack traces ever reach the client.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any
 
 from fastapi import HTTPException, Request, status
 from fastapi.responses import JSONResponse
@@ -21,7 +21,7 @@ class AppError(Exception):
     status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR
     code: str = "INTERNAL_ERROR"
 
-    def __init__(self, message: str, *, detail: Optional[str] = None) -> None:
+    def __init__(self, message: str, *, detail: str | None = None) -> None:
         self.message = message
         self.detail = detail
         super().__init__(message)
@@ -35,6 +35,7 @@ class AppError(Exception):
 
 
 # ── 4xx ──────────────────────────────────────────────────────────────────────
+
 
 class BadRequestError(AppError):
     status_code = status.HTTP_400_BAD_REQUEST
@@ -68,6 +69,7 @@ class RateLimitError(AppError):
 
 # ── 5xx ──────────────────────────────────────────────────────────────────────
 
+
 class ServiceUnavailableError(AppError):
     status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     code = "SERVICE_UNAVAILABLE"
@@ -80,8 +82,11 @@ class AIServiceError(AppError):
 
 # ── FastAPI exception handlers ────────────────────────────────────────────────
 
-async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
+
+async def app_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    assert isinstance(exc, AppError)
     from app.core.logging import get_logger
+
     logger = get_logger("exceptions")
     logger.warning(
         "app_error",
@@ -102,6 +107,7 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
 async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
     from app.core.config import get_settings
     from app.core.logging import get_logger
+
     logger = get_logger("exceptions")
     logger.error(
         "unhandled_error",
@@ -124,8 +130,10 @@ async def unhandled_error_handler(request: Request, exc: Exception) -> JSONRespo
     )
 
 
-async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+async def http_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    assert isinstance(exc, HTTPException)
     from app.core.logging import get_logger
+
     logger = get_logger("exceptions")
     detail = exc.detail
     if isinstance(detail, list):
@@ -150,7 +158,7 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
         status_code=exc.status_code,
         code=code,
     )
-    extra = {}
+    extra: dict[str, Any] = {}
     if isinstance(detail, dict) and detail:
         extra["errors"] = detail
     return json_error(

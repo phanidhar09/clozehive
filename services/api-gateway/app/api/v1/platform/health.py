@@ -18,9 +18,9 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
+from app.core import cache_service
 from app.core.config import get_settings
 from app.db.session import engine
-from app.core import cache_service
 
 router = APIRouter()
 settings = get_settings()
@@ -40,6 +40,7 @@ def _startup_db_ok() -> bool:
     """Return the startup DB flag set by main.py lifespan."""
     try:
         import app.main as _main
+
         return _main._startup_db_ok
     except Exception:
         return False
@@ -49,6 +50,7 @@ def _startup_migrations_status() -> tuple[bool, str]:
     """Return startup migration success flag and optional error text."""
     try:
         import app.main as _main
+
         ok = bool(getattr(_main, "_startup_migrations_ok", True))
         err = str(getattr(_main, "_startup_migrations_error", "")) if not ok else ""
         return ok, err

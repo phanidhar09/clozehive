@@ -5,10 +5,10 @@ All config is driven by environment variables. Never hardcode secrets.
 
 from __future__ import annotations
 
+import logging
 from functools import lru_cache
 from pathlib import Path
 
-import logging
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -24,9 +24,9 @@ def normalise_db_url(v: str) -> str:
     if not isinstance(v, str):
         return v
     if v.startswith("postgres://"):
-        return "postgresql+asyncpg://" + v[len("postgres://"):]
+        return "postgresql+asyncpg://" + v[len("postgres://") :]
     if v.startswith("postgresql://") and "+asyncpg" not in v:
-        return "postgresql+asyncpg://" + v[len("postgresql://"):]
+        return "postgresql+asyncpg://" + v[len("postgresql://") :]
     return v
 
 
@@ -115,10 +115,10 @@ class Settings(BaseSettings):
     # ARQ task queue (async AI jobs handled by the ai-worker service). Must point
     # at the SAME Redis DB index the worker consumes (…/3 by default).
     arq_redis_url: str = "redis://localhost:6379/3"
-    cache_ttl_profile: int = 300      # 5 min
-    cache_ttl_closet: int = 120       # 2 min
-    cache_ttl_weather: int = 3600     # 1 hour
-    cache_ttl_social: int = 60        # 1 min
+    cache_ttl_profile: int = 300  # 5 min
+    cache_ttl_closet: int = 120  # 2 min
+    cache_ttl_weather: int = 3600  # 1 hour
+    cache_ttl_social: int = 60  # 1 min
     # Staged closet upload preview (analyze → confirm); Redis-backed session TTL.
     closet_preview_ttl_seconds: int = 3600
 
@@ -144,9 +144,9 @@ class Settings(BaseSettings):
     # The refresh token is stored in an HttpOnly cookie, invisible to JavaScript.
     # In production, set COOKIE_SECURE=true and COOKIE_SAMESITE=Lax (or Strict
     # if your API and frontend share the same eTLD+1).
-    cookie_secure: bool = False           # override to True in production
-    cookie_samesite: str = "Lax"          # Lax | Strict | None
-    cookie_domain: str = ""              # leave blank for same-origin (recommended)
+    cookie_secure: bool = False  # override to True in production
+    cookie_samesite: str = "Lax"  # Lax | Strict | None
+    cookie_domain: str = ""  # leave blank for same-origin (recommended)
 
     # ── AI Agent Service ──────────────────────────────────────────────────────
     ai_agent_url: str = "http://ai-agent:8001"
@@ -184,7 +184,7 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     gemini_model: str = "gemini-1.5-flash-latest"
 
-# Closet POST /closet/analyze-preview: skip per-item BG removal + second OpenAI pass on each crop.
+    # Closet POST /closet/analyze-preview: skip per-item BG removal + second OpenAI pass on each crop.
     # Much faster; detection metadata still comes from the first vision call. Set false for max quality.
     vision_preview_fast: bool = True
 
@@ -257,8 +257,8 @@ class Settings(BaseSettings):
     smtp_port: int = 1025
     smtp_username: str = ""
     smtp_password: str = ""
-    smtp_use_tls: bool = False     # implicit TLS (port 465)
-    smtp_starttls: bool = False    # STARTTLS upgrade (port 587)
+    smtp_use_tls: bool = False  # implicit TLS (port 465)
+    smtp_starttls: bool = False  # STARTTLS upgrade (port 587)
     resend_api_key: str = ""
 
     # ── Firebase / Firestore ──────────────────────────────────────────────────
@@ -370,7 +370,7 @@ class Settings(BaseSettings):
             if not self.internal_service_token:
                 raise ValueError(
                     "INTERNAL_SERVICE_TOKEN must be set in production. "
-                    "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
+                    'Generate one with: python -c "import secrets; print(secrets.token_urlsafe(32))"'
                 )
             # Email: "console" silently breaks password reset for real users; a
             # misconfigured resend key fails every send. Warn loudly rather than
@@ -381,16 +381,12 @@ class Settings(BaseSettings):
                     "will NOT be delivered. Set EMAIL_PROVIDER=resend + RESEND_API_KEY."
                 )
             elif self.email_provider == "resend" and not self.resend_api_key:
-                _CFG_LOG.warning(
-                    "EMAIL_PROVIDER=resend but RESEND_API_KEY is empty — all email "
-                    "sends will fail."
-                )
+                _CFG_LOG.warning("EMAIL_PROVIDER=resend but RESEND_API_KEY is empty — all email sends will fail.")
             # The refresh-token cookie must be HTTPS-only in production, otherwise
             # a network attacker on an http:// page can intercept it.
             if not self.cookie_secure:
                 raise ValueError(
-                    "COOKIE_SECURE must be true in production so the refresh-token "
-                    "cookie is only sent over HTTPS."
+                    "COOKIE_SECURE must be true in production so the refresh-token cookie is only sent over HTTPS."
                 )
         return self
 

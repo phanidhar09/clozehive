@@ -88,6 +88,7 @@ if _PROM_AVAILABLE:
 
 # ── Always-safe wrappers ──────────────────────────────────────────────────────
 
+
 def record_ai_request(operation: str, model: str, outcome: str, seconds: float) -> None:
     if _PROM_AVAILABLE:
         AI_REQUEST_DURATION.labels(operation=operation, model=model, outcome=outcome).observe(seconds)
@@ -161,7 +162,8 @@ def record_web_vital(metric: str, value: float, rating: str) -> bool:
 
 # ── App wiring ────────────────────────────────────────────────────────────────
 
-def setup_metrics(app: "FastAPI") -> None:
+
+def setup_metrics(app: FastAPI) -> None:
     """Instrument the app and expose /metrics. No-op when disabled/unavailable."""
     if not settings.enable_metrics:
         logger.info("metrics_disabled", reason="ENABLE_METRICS is false")
@@ -194,7 +196,7 @@ def _wire_db_pool_gauges() -> None:
 
         def _in_use(eng) -> float:
             try:
-                return float(eng.pool.checkedout())  # type: ignore[attr-defined]
+                return float(eng.pool.checkedout())
             except Exception:
                 return 0.0
 

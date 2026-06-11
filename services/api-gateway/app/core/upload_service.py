@@ -28,7 +28,6 @@ import json
 from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
 from uuid import uuid4
 
 from fastapi import UploadFile
@@ -58,7 +57,8 @@ _GCS_UPLOADS_PREFIX = "uploads"
 
 # ── Image validation ──────────────────────────────────────────────────────────
 
-def _detect_image_type(header: bytes) -> Optional[str]:
+
+def _detect_image_type(header: bytes) -> str | None:
     if len(header) < 12:
         return None
     if header.startswith(ALLOWED_MIME_SIGNATURES["image/jpeg"][0]):
@@ -81,7 +81,7 @@ def strip_metadata(image_bytes: bytes, content_type: str) -> bytes:
         return image_bytes
 
     try:
-        img = Image.open(io.BytesIO(image_bytes))
+        img: Image.Image = Image.open(io.BytesIO(image_bytes))
         img = ImageOps.exif_transpose(img)
         buf = io.BytesIO()
         if content_type == "image/jpeg":
@@ -113,9 +113,7 @@ async def read_validated_image(file: UploadFile) -> tuple[bytes, str]:
     await file.seek(0)
     content_type = _detect_image_type(header)
     if not content_type:
-        raise BadRequestError(
-            "Invalid file type. Only JPEG, PNG, and WebP images are accepted."
-        )
+        raise BadRequestError("Invalid file type. Only JPEG, PNG, and WebP images are accepted.")
 
     image_bytes = await file.read()
     if len(image_bytes) > MAX_UPLOAD_SIZE_BYTES:
@@ -180,11 +178,10 @@ def _service_account_dict_from_settings():
 def _gcs_client():
     """Build a GCS Storage client from settings credentials or ADC."""
     try:
-        from google.cloud import storage  # type: ignore[import-untyped]
+        from google.cloud import storage
     except ImportError:
         raise RuntimeError(
-            "google-cloud-storage is not installed. "
-            "Add it to requirements.txt: google-cloud-storage>=2.16.0"
+            "google-cloud-storage is not installed. Add it to requirements.txt: google-cloud-storage>=2.16.0"
         )
 
     settings = get_settings()
@@ -192,12 +189,10 @@ def _gcs_client():
 
     if creds_dict:
         try:
-            from google.oauth2 import service_account  # type: ignore[import-untyped]
+            from google.oauth2 import service_account
 
             pk = creds_dict.get("private_key")
-            if not isinstance(pk, str) or (
-                "BEGIN PRIVATE KEY" not in pk and "BEGIN RSA PRIVATE KEY" not in pk
-            ):
+            if not isinstance(pk, str) or ("BEGIN PRIVATE KEY" not in pk and "BEGIN RSA PRIVATE KEY" not in pk):
                 raise ServiceUnavailableError(
                     "Service account JSON is missing a valid private_key PEM.",
                     detail=(
@@ -259,7 +254,7 @@ def _gcs_delete(blob_name: str) -> None:
         pass
 
 
-def _blob_name_from_gcs_url(url: str) -> Optional[str]:
+def _blob_name_from_gcs_url(url: str) -> str | None:
     """Extract the GCS blob name from a public storage or CDN URL, or None.
 
     Handles both the direct origin form ``https://storage.googleapis.com/{bucket}/{blob}``
@@ -270,12 +265,12 @@ def _blob_name_from_gcs_url(url: str) -> Optional[str]:
     cdn = (settings.cdn_base_url or "").strip().rstrip("/")
     if cdn and url.startswith(cdn + "/"):
         # CDN URLs already point at the blob (no bucket segment).
-        return url[len(cdn) + 1:]
+        return url[len(cdn) + 1 :]
 
     prefix = "https://storage.googleapis.com/"
     if not url.startswith(prefix):
         return None
-    without_prefix = url[len(prefix):]
+    without_prefix = url[len(prefix) :]
     # Strip the bucket name from the front: "{bucket}/{blob_name}"
     parts = without_prefix.split("/", 1)
     return parts[1] if len(parts) == 2 else None
@@ -295,7 +290,7 @@ def _signing_bucket():
     return _gcs_client().bucket(settings.gcs_bucket_name)
 
 
-def _blob_name_from_stored(stored: str) -> Optional[str]:
+def _blob_name_from_stored(stored: str) -> str | None:
     """Resolve a stored image value to a GCS blob name, or None if not GCS-backed.
 
     Accepts either a full ``https://storage.googleapis.com/{bucket}/{blob}`` URL
@@ -320,7 +315,7 @@ def generate_signed_url(blob_name: str, ttl_seconds: int) -> str:
     )
 
 
-def signed_url_for_stored(stored: Optional[str]) -> Optional[str]:
+def signed_url_for_stored(stored: str | None) -> str | None:
     """Convert a stored image URL/path to a short-lived signed URL.
 
     Returns the input unchanged when signing is off, the value isn't GCS-backed
@@ -342,9 +337,8 @@ def signed_url_for_stored(stored: Optional[str]) -> Optional[str]:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-async def persist_upload(
-    image_bytes: bytes, content_type: str, original_filename: Optional[str]
-) -> str:
+
+async def persist_upload(image_bytes: bytes, content_type: str, original_filename: str | None) -> str:
     """Persist image bytes and return a stable public URL.
 
     Runs blocking I/O (GCS or local disk) in a thread pool so the async

@@ -23,9 +23,9 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
+from app.api.v1.intelligence.services import festival_calendar
 from app.core import web_intelligence
 from app.core.logging import get_logger
-from app.api.v1.intelligence.services import festival_calendar
 
 logger = get_logger("festival_discovery")
 
@@ -33,9 +33,7 @@ logger = get_logger("festival_discovery")
 FESTIVAL_DISCOVERY_TTL_S = 24 * 3600
 
 
-async def get_trip_festivals(
-    destination: str, start_date: date, end_date: date
-) -> dict[str, Any]:
+async def get_trip_festivals(destination: str, start_date: date, end_date: date) -> dict[str, Any]:
     """Festivals at ``destination`` during [start_date, end_date].
 
     Returns::

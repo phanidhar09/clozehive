@@ -38,6 +38,7 @@ _UUID_RE = re.compile(
 
 # ── Result types ──────────────────────────────────────────────────────────────
 
+
 @dataclass
 class ValidationResult:
     """Outcome of validating a single AI chat response."""
@@ -57,14 +58,15 @@ class ValidationResult:
 class ResponseQualityScore:
     """Numeric quality signal for an AI chat response."""
 
-    overall: float           # 0.0 – 1.0
+    overall: float  # 0.0 – 1.0
     has_outfits: bool
     has_reply: bool
-    outfit_completeness: float   # avg fraction of score_breakdown components present
-    hallucination_risk: float    # 0.0 = clean, 1.0 = all items unverified
+    outfit_completeness: float  # avg fraction of score_breakdown components present
+    hallucination_risk: float  # 0.0 = clean, 1.0 = all items unverified
 
 
 # ── Core validator ────────────────────────────────────────────────────────────
+
 
 def validate_chat_response(
     data: dict[str, Any],
@@ -136,8 +138,7 @@ def validate_chat_response(
         breakdown = outfit.get("score_breakdown") or {}
         if isinstance(breakdown, dict):
             component_sum = sum(
-                int(v) for k, v in breakdown.items()
-                if k in _SCORE_COMPONENT_KEYS and isinstance(v, (int, float))
+                int(v) for k, v in breakdown.items() if k in _SCORE_COMPONENT_KEYS and isinstance(v, (int, float))
             )
             declared_score = outfit.get("matching_score")
             if declared_score is not None:
@@ -190,9 +191,9 @@ def score_response_quality(result: ValidationResult, total_valid_items: int) -> 
     outfit_completeness = sum(completeness_scores) / len(completeness_scores) if completeness_scores else 0.0
 
     # Hallucination risk: ratio of removed items to total items seen
-    total_seen = sum(
-        len(o.get("items") or []) for o in (result.cleaned.get("recommended_outfits") or [])
-    ) + result.items_removed
+    total_seen = (
+        sum(len(o.get("items") or []) for o in (result.cleaned.get("recommended_outfits") or [])) + result.items_removed
+    )
     hallucination_risk = result.items_removed / total_seen if total_seen > 0 else 0.0
 
     # Overall: weighted combination
@@ -213,6 +214,7 @@ def score_response_quality(result: ValidationResult, total_valid_items: int) -> 
 
 
 # ── RAG source citation helpers ───────────────────────────────────────────────
+
 
 def format_rag_citations(
     fashion_docs: list[dict[str, Any]],
@@ -278,6 +280,7 @@ def check_context_sufficiency(
         # Accept if message contains "to <word>", "visit(ing) <word>", "going to",
         # or an explicit destination keyword
         import re as _re
+
         _destination_re = _re.compile(
             r"\b(to\s+\w|visit\w*\s+\w|going\s+to|destination\s*:|trip\s+to)\b",
             _re.IGNORECASE,
@@ -289,6 +292,7 @@ def check_context_sufficiency(
 
 
 # ── Private helpers ───────────────────────────────────────────────────────────
+
 
 def _empty_response() -> dict[str, Any]:
     return {

@@ -2,8 +2,8 @@
 
 from fastapi import APIRouter
 
-from app.core.config import get_settings
 from app.api.v1.travel import packing_memory, trips, weather
+from app.core.config import get_settings
 
 router = APIRouter()
 # weather stays on the gateway (nginx routes /weather here).

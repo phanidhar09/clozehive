@@ -20,15 +20,15 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from typing import Optional, Any
+from typing import Any
 
 import structlog
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from jose import JWTError
 
-from app.core.security import decode_access_token
-from app.core import cache_service
 from app.api.v1.intelligence.services.ai_client import stream_chat as ai_stream_chat
+from app.core import cache_service
+from app.core.security import decode_access_token
 
 logger = structlog.get_logger("ws")
 router = APIRouter(prefix="/ws", tags=["websocket"])
@@ -36,6 +36,7 @@ router = APIRouter(prefix="/ws", tags=["websocket"])
 # ─────────────────────────────────────────────────────────────────────────────
 #  Connection manager
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 class ConnectionManager:
     """Track local sockets and bridge cross-instance broadcasts through Redis."""
@@ -45,7 +46,7 @@ class ConnectionManager:
         self._connections: dict[str, list[WebSocket]] = {}
         self._listener_task: asyncio.Task | None = None
         self._listener_lock = asyncio.Lock()
-        self._pubsub = None
+        self._pubsub: Any = None
 
     async def connect(self, ws: WebSocket, user_id: str) -> None:
         await ws.accept()
@@ -160,7 +161,8 @@ manager = ConnectionManager()
 #  Token auth helper
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _authenticate(token: Optional[str]) -> str | None:
+
+def _authenticate(token: str | None) -> str | None:
     """Return user_id from JWT token, or None if invalid."""
     if not token:
         return None
@@ -174,6 +176,7 @@ def _authenticate(token: Optional[str]) -> str | None:
 # ─────────────────────────────────────────────────────────────────────────────
 #  Message handlers
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 async def _handle_ping(ws: WebSocket) -> None:
     await manager.send(ws, {"type": "pong", "ts": time.time()})
@@ -215,10 +218,11 @@ async def _handle_chat(ws: WebSocket, user_id: str, message: str) -> None:
 #  Main WebSocket route
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @router.websocket("")
 async def websocket_endpoint(
     ws: WebSocket,
-    token: Optional[str] = None,
+    token: str | None = None,
 ) -> None:
     """
     Main WebSocket endpoint.
@@ -236,11 +240,14 @@ async def websocket_endpoint(
     await manager.connect(ws, user_id)
 
     # Send welcome
-    await manager.send(ws, {
-        "type": "connected",
-        "user_id": user_id,
-        "message": "Welcome to ClozeHive real-time channel",
-    })
+    await manager.send(
+        ws,
+        {
+            "type": "connected",
+            "user_id": user_id,
+            "message": "Welcome to ClozeHive real-time channel",
+        },
+    )
 
     try:
         while True:
@@ -263,14 +270,17 @@ async def websocket_endpoint(
                 case "chat":
                     await _handle_chat(ws, user_id, msg.get("message", ""))
                 case _:
-                    await manager.send(ws, {
-                        "type": "error",
-                        "message": f"Unknown message type: '{msg_type}'",
-                    })
+                    await manager.send(
+                        ws,
+                        {
+                            "type": "error",
+                            "message": f"Unknown message type: '{msg_type}'",
+                        },
+                    )
 
     except WebSocketDisconnect:
         pass
-    except asyncio.TimeoutError:
+    except TimeoutError:
         # No message in 5 min — close cleanly
         await ws.close(code=1000, reason="Idle timeout")
     except Exception as exc:

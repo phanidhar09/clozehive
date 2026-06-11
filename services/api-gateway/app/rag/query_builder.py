@@ -158,9 +158,34 @@ def build_packing_memory_query(
 def extract_keywords(query: str, *, max_keywords: int = 6) -> list[str]:
     """Extract meaningful tokens for keyword fallback search."""
     stop = {
-        "a", "an", "the", "for", "and", "or", "to", "in", "on", "at", "of",
-        "is", "it", "my", "me", "i", "what", "should", "wear", "outfit",
-        "with", "from", "this", "that", "please", "help", "need", "want",
+        "a",
+        "an",
+        "the",
+        "for",
+        "and",
+        "or",
+        "to",
+        "in",
+        "on",
+        "at",
+        "of",
+        "is",
+        "it",
+        "my",
+        "me",
+        "i",
+        "what",
+        "should",
+        "wear",
+        "outfit",
+        "with",
+        "from",
+        "this",
+        "that",
+        "please",
+        "help",
+        "need",
+        "want",
     }
     tokens = re.findall(r"[a-z0-9]+", _normalize(query))
     seen: set[str] = set()

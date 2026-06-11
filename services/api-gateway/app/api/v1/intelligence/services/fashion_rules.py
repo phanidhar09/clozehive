@@ -51,16 +51,33 @@ _OCCASION_FORMALITY: dict[str, int] = {
 
 _CATEGORY_FORMALITY: dict[str, dict[str, int]] = {
     "tops": {
-        "t-shirt": 1, "tank top": 1, "polo": 2, "button-down": 3,
-        "dress shirt": 5, "blazer": 4, "sweater": 2, "hoodie": 0,
+        "t-shirt": 1,
+        "tank top": 1,
+        "polo": 2,
+        "button-down": 3,
+        "dress shirt": 5,
+        "blazer": 4,
+        "sweater": 2,
+        "hoodie": 0,
     },
     "bottoms": {
-        "joggers": 0, "shorts": 1, "jeans": 2, "chinos": 3,
-        "trousers": 4, "dress pants": 5, "slacks": 5,
+        "joggers": 0,
+        "shorts": 1,
+        "jeans": 2,
+        "chinos": 3,
+        "trousers": 4,
+        "dress pants": 5,
+        "slacks": 5,
     },
     "shoes": {
-        "sneakers": 1, "slides": 0, "loafers": 3, "boots": 3,
-        "oxfords": 5, "heels": 5, "stilettos": 6, "dress shoes": 5,
+        "sneakers": 1,
+        "slides": 0,
+        "loafers": 3,
+        "boots": 3,
+        "oxfords": 5,
+        "heels": 5,
+        "stilettos": 6,
+        "dress shoes": 5,
     },
 }
 
@@ -93,6 +110,7 @@ _CLASHING_PATTERNS = [
 
 # ── Data classes ──────────────────────────────────────────────────────────────
 
+
 @dataclass
 class FashionRuleViolation:
     rule: str
@@ -109,6 +127,7 @@ class FashionRuleResult:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _normalise(s: str | None) -> str:
     return (s or "").strip().lower()
@@ -129,6 +148,7 @@ def _colour_family(colour: str) -> str:
 
 # ── Individual rule checks ────────────────────────────────────────────────────
 
+
 def check_color_harmony(items: list[dict[str, Any]]) -> FashionRuleResult:
     result = FashionRuleResult(rules_applied=["color_harmony"])
     colours = [_normalise(i.get("color")) for i in items if i.get("color")]
@@ -140,27 +160,29 @@ def check_color_harmony(items: list[dict[str, Any]]) -> FashionRuleResult:
     neutral_count = families.count("neutral")
 
     if bold_count >= 3:
-        result.violations.append(FashionRuleViolation(
-            rule="color_harmony",
-            severity="warning",
-            message="Three or more bold colours create visual noise — anchor with a neutral.",
-        ))
+        result.violations.append(
+            FashionRuleViolation(
+                rule="color_harmony",
+                severity="warning",
+                message="Three or more bold colours create visual noise — anchor with a neutral.",
+            )
+        )
         result.penalty_score += 5
     elif bold_count == 2 and neutral_count == 0:
-        result.violations.append(FashionRuleViolation(
-            rule="color_harmony",
-            severity="warning",
-            message="Two bold colours compete without a neutral to balance them.",
-        ))
+        result.violations.append(
+            FashionRuleViolation(
+                rule="color_harmony",
+                severity="warning",
+                message="Two bold colours compete without a neutral to balance them.",
+            )
+        )
         result.penalty_score += 3
 
     for i, c1 in enumerate(colours):
         for c2 in colours[i + 1 :]:
             if c1 in _COMPLEMENTARY and c2 not in _COMPLEMENTARY.get(c1, set()):
                 if _colour_family(c1) != "neutral" and _colour_family(c2) != "neutral":
-                    result.tips.append(
-                        f"'{c1.title()}' and '{c2.title()}' may clash — consider a neutral separator."
-                    )
+                    result.tips.append(f"'{c1.title()}' and '{c2.title()}' may clash — consider a neutral separator.")
                     break
 
     if not result.violations:
@@ -168,9 +190,7 @@ def check_color_harmony(items: list[dict[str, Any]]) -> FashionRuleResult:
     return result
 
 
-def check_occasion_formality(
-    items: list[dict[str, Any]], occasion: str
-) -> FashionRuleResult:
+def check_occasion_formality(items: list[dict[str, Any]], occasion: str) -> FashionRuleResult:
     result = FashionRuleResult(rules_applied=["occasion_formality"])
     occ_lvl = _OCCASION_FORMALITY.get(_normalise(occasion), 2)
 
@@ -183,23 +203,23 @@ def check_occasion_formality(
                     if name_key in name:
                         diff = abs(lvl - occ_lvl)
                         if diff >= 3:
-                            result.violations.append(FashionRuleViolation(
-                                rule="occasion_formality",
-                                severity="warning",
-                                message=(
-                                    f"'{item.get('name')}' (formality {lvl}) "
-                                    f"is mismatched for a {occasion} occasion (formality {occ_lvl})."
-                                ),
-                            ))
+                            result.violations.append(
+                                FashionRuleViolation(
+                                    rule="occasion_formality",
+                                    severity="warning",
+                                    message=(
+                                        f"'{item.get('name')}' (formality {lvl}) "
+                                        f"is mismatched for a {occasion} occasion (formality {occ_lvl})."
+                                    ),
+                                )
+                            )
                             result.penalty_score += 4
     if not result.violations:
         result.tips.append(f"All items are appropriate for a {occasion} setting.")
     return result
 
 
-def check_weather_suitability(
-    items: list[dict[str, Any]], weather_condition: str
-) -> FashionRuleResult:
+def check_weather_suitability(items: list[dict[str, Any]], weather_condition: str) -> FashionRuleResult:
     result = FashionRuleResult(rules_applied=["weather_suitability"])
     cond = _normalise(weather_condition)
     suitable_fabrics = _WEATHER_FABRIC_MAP.get(cond, [])
@@ -210,16 +230,16 @@ def check_weather_suitability(
         cat = _normalise(item.get("category"))
 
         if fabric and suitable_fabrics and not any(f in fabric for f in suitable_fabrics):
-            result.tips.append(
-                f"'{item.get('name')}' ({fabric}) may not be ideal for {cond} weather."
-            )
+            result.tips.append(f"'{item.get('name')}' ({fabric}) may not be ideal for {cond} weather.")
 
         if avoid_categories and any(a in cat for a in avoid_categories):
-            result.violations.append(FashionRuleViolation(
-                rule="weather_suitability",
-                severity="warning",
-                message=f"'{item.get('name')}' is not ideal for {cond} conditions.",
-            ))
+            result.violations.append(
+                FashionRuleViolation(
+                    rule="weather_suitability",
+                    severity="warning",
+                    message=f"'{item.get('name')}' is not ideal for {cond} conditions.",
+                )
+            )
             result.penalty_score += 3
 
     if not result.violations and not result.tips:
@@ -232,21 +252,25 @@ def check_pattern_balance(items: list[dict[str, Any]]) -> FashionRuleResult:
     patterns = [_normalise(i.get("pattern")) for i in items if i.get("pattern") and i.get("pattern") != "solid"]
 
     if len(patterns) >= 3:
-        result.violations.append(FashionRuleViolation(
-            rule="pattern_balance",
-            severity="warning",
-            message="Three or more patterns create visual clutter — simplify to one or two.",
-        ))
+        result.violations.append(
+            FashionRuleViolation(
+                rule="pattern_balance",
+                severity="warning",
+                message="Three or more patterns create visual clutter — simplify to one or two.",
+            )
+        )
         result.penalty_score += 4
 
     pattern_set = set(patterns)
     for clash_pair in _CLASHING_PATTERNS:
         if clash_pair.issubset(pattern_set):
-            result.violations.append(FashionRuleViolation(
-                rule="pattern_balance",
-                severity="error",
-                message=f"{' and '.join(clash_pair).title()} patterns clash — avoid mixing them.",
-            ))
+            result.violations.append(
+                FashionRuleViolation(
+                    rule="pattern_balance",
+                    severity="error",
+                    message=f"{' and '.join(clash_pair).title()} patterns clash — avoid mixing them.",
+                )
+            )
             result.penalty_score += 6
 
     if not result.violations:
@@ -263,17 +287,20 @@ def check_layering_logic(items: list[dict[str, Any]]) -> FashionRuleResult:
     has_top = any(_normalise(i.get("category")) in ("tops", "shirts") for i in items)
 
     if has_outerwear and not has_top:
-        result.violations.append(FashionRuleViolation(
-            rule="layering_logic",
-            severity="warning",
-            message="Outerwear without a base top — add an inner layer for a complete look.",
-        ))
+        result.violations.append(
+            FashionRuleViolation(
+                rule="layering_logic",
+                severity="warning",
+                message="Outerwear without a base top — add an inner layer for a complete look.",
+            )
+        )
         result.penalty_score += 3
 
     return result
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
 
 def evaluate_outfit(
     items: list[dict[str, Any]],
@@ -303,11 +330,13 @@ def evaluate_outfit(
         for item in items:
             colour = _normalise(item.get("color"))
             if colour and colour in avoided:
-                aggregated.violations.append(FashionRuleViolation(
-                    rule="user_preference",
-                    severity="warning",
-                    message=f"'{item.get('name')}' is {colour} — a colour in your avoid list.",
-                ))
+                aggregated.violations.append(
+                    FashionRuleViolation(
+                        rule="user_preference",
+                        severity="warning",
+                        message=f"'{item.get('name')}' is {colour} — a colour in your avoid list.",
+                    )
+                )
                 aggregated.penalty_score += 2
 
     return aggregated
@@ -346,10 +375,7 @@ def build_fashion_rules_prompt_block(
     # Weather-aware fabric guidance derived from the actual forecast
     suitable = _WEATHER_FABRIC_MAP.get(cond)
     if suitable:
-        lines.append(
-            f"• Weather ({cond}): favour {', '.join(suitable)}; "
-            "mention each outfit's weather suitability."
-        )
+        lines.append(f"• Weather ({cond}): favour {', '.join(suitable)}; mention each outfit's weather suitability.")
         avoid = _WEATHER_CATEGORY_AVOID.get(cond)
         if avoid:
             lines.append(f"  Avoid for {cond}: {', '.join(avoid)}.")
@@ -371,18 +397,14 @@ def build_fashion_rules_prompt_block(
     )
 
     # Layering guidance
-    lines.append(
-        "• Layering: every outerwear piece needs a base top under it; build complete, "
-        "wearable looks."
-    )
+    lines.append("• Layering: every outerwear piece needs a base top under it; build complete, wearable looks.")
 
     # Honour the user's avoided colours explicitly (hard rule, not analysis)
     if user_profile:
         avoided = [str(c).strip() for c in (user_profile.get("avoided_colors") or []) if str(c).strip()]
         if avoided:
             lines.append(
-                f"• User avoids these colours — do NOT include them unless explicitly "
-                f"requested: {', '.join(avoided)}."
+                f"• User avoids these colours — do NOT include them unless explicitly requested: {', '.join(avoided)}."
             )
 
     lines.append("[END FASHION RULES]")

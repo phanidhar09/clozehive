@@ -21,14 +21,13 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.identity.repositories.user_repo import UserRepository
+from app.api.v1.intelligence.services import ai_service, festival_calendar, festival_discovery
+from app.api.v1.travel.services import weather_service
 from app.core.logging import get_logger
 from app.models.ai_chat import DailyNudge
 from app.models.closet import ClosetItem
 from app.models.trips import Trip
-from app.api.v1.identity.repositories.user_repo import UserRepository
-from app.api.v1.intelligence.services import ai_service
-from app.api.v1.intelligence.services import festival_calendar, festival_discovery
-from app.api.v1.travel.services import weather_service
 
 logger = get_logger("daily_nudges")
 
@@ -70,9 +69,7 @@ async def _upcoming_trip(session: AsyncSession, user_id: UUID, today: date) -> T
     return result.scalar_one_or_none()
 
 
-async def _recent_new_arrival(
-    session: AsyncSession, user_id: UUID, today: date
-) -> ClosetItem | None:
+async def _recent_new_arrival(session: AsyncSession, user_id: UUID, today: date) -> ClosetItem | None:
     cutoff = datetime.combine(today - timedelta(days=NEW_ARRIVAL_WINDOW_DAYS), datetime.min.time())
     result = await session.execute(
         select(ClosetItem)
@@ -114,9 +111,7 @@ async def _unworn_pick(session: AsyncSession, user_id: UUID) -> ClosetItem | Non
     return result.scalar_one_or_none()
 
 
-async def _resolve_user_weather(
-    session: AsyncSession, user_id: UUID
-) -> dict[str, Any] | None:
+async def _resolve_user_weather(session: AsyncSession, user_id: UUID) -> dict[str, Any] | None:
     try:
         user = await UserRepository(session).get(user_id)
     except Exception as exc:  # noqa: BLE001
@@ -131,9 +126,7 @@ async def _resolve_user_weather(
     label = permissions.get("location_label")
     try:
         if isinstance(coords, dict) and coords.get("lat") is not None:
-            return await weather_service.get_current_weather(
-                float(coords["lat"]), float(coords["lon"]), label
-            )
+            return await weather_service.get_current_weather(float(coords["lat"]), float(coords["lon"]), label)
         if label:
             return await weather_service.get_weather_by_city(str(label))
     except Exception as exc:  # noqa: BLE001
@@ -141,9 +134,7 @@ async def _resolve_user_weather(
     return None
 
 
-async def _resolve_home_location_label(
-    session: AsyncSession, user_id: UUID
-) -> str | None:
+async def _resolve_home_location_label(session: AsyncSession, user_id: UUID) -> str | None:
     """Return the user's saved location label (e.g. 'Mumbai, India'), if any.
 
     Mirrors ``_resolve_user_weather``'s permission read but only needs the label
@@ -195,9 +186,7 @@ async def _llm_nudge(context_text: str) -> str:
         return ""
 
 
-async def _compose_nudge(
-    session: AsyncSession, user_id: UUID, today: date
-) -> tuple[str, str, dict[str, Any]] | None:
+async def _compose_nudge(session: AsyncSession, user_id: UUID, today: date) -> tuple[str, str, dict[str, Any]] | None:
     """Pick a nudge type, gather context, and ask the LLM to phrase it.
 
     Returns ``(message, nudge_type, payload)`` or ``None`` when nothing
@@ -220,19 +209,14 @@ async def _compose_nudge(
         )
         fest_ctx = ""
         try:
-            fest_result = await festival_discovery.get_trip_festivals(
-                trip.destination, trip.start_date, trip.end_date
-            )
+            fest_result = await festival_discovery.get_trip_festivals(trip.destination, trip.start_date, trip.end_date)
             fest_ctx = festival_discovery.nudge_festival_context(fest_result)
             if fest_result["source"] == "static":
                 f = fest_result["festivals"][0]
                 payload["festival"] = {"name": f["name"], "date": f["date"]}
         except Exception as exc:  # noqa: BLE001 — festival layer is best-effort
             logger.warning("nudge_festival_failed", error=str(exc))
-        ctx = base_ctx + (
-            fest_ctx
-            or "Suggest opening the trip packing plan today so nothing is rushed."
-        )
+        ctx = base_ctx + (fest_ctx or "Suggest opening the trip packing plan today so nothing is rushed.")
         message = await _llm_nudge(ctx)
         if message:
             return (message, "calendar_prep", payload)
@@ -343,9 +327,7 @@ async def fetch_or_generate_today_nudge(
 
     # Already generated? Return it (even if dismissed — UI decides).
     existing = await session.execute(
-        select(DailyNudge).where(
-            and_(DailyNudge.user_id == user_id, DailyNudge.nudge_date == today)
-        )
+        select(DailyNudge).where(and_(DailyNudge.user_id == user_id, DailyNudge.nudge_date == today))
     )
     nudge = existing.scalar_one_or_none()
     if nudge:
@@ -370,9 +352,7 @@ async def fetch_or_generate_today_nudge(
         # Race with a concurrent request — re-read the row that won.
         await session.rollback()
         existing = await session.execute(
-            select(DailyNudge).where(
-                and_(DailyNudge.user_id == user_id, DailyNudge.nudge_date == today)
-            )
+            select(DailyNudge).where(and_(DailyNudge.user_id == user_id, DailyNudge.nudge_date == today))
         )
         return existing.scalar_one_or_none()
     await session.refresh(nudge)

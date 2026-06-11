@@ -37,8 +37,9 @@ _ALEMBIC_DIR = _API_ROOT / "alembic"
 
 def _run_upgrade_sync() -> None:
     """Blocking Alembic upgrade — must run in a worker thread (see module docstring)."""
-    from alembic import command
     from alembic.config import Config
+
+    from alembic import command
 
     cfg = Config(str(_ALEMBIC_INI))
     # Resolve script_location absolutely so it works regardless of the process CWD.
