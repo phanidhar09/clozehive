@@ -122,7 +122,7 @@ async def test_save_planner_requires_packing_plan(
     async def _fail_packing(*_a, **_kw):
         raise RuntimeError("forced packing failure for test")
 
-    monkeypatch.setattr("app.api.v1.trips._generate_trip_packing", _fail_packing)
+    monkeypatch.setattr("app.api.v1.travel.trips._generate_trip_packing", _fail_packing)
 
     response = await async_client.post("/api/v1/trips/", headers=auth_headers, json=trip_payload())
     assert response.status_code == 201

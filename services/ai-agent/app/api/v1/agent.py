@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -17,7 +18,7 @@ from app.services.style_memory import (
     format_memories_block,
     retrieve_style_memories,
 )
-from app.services.vector_store import search_closet_context
+from app.services.vector_store import embed_query, search_closet_context
 
 router = APIRouter(prefix="/agent", tags=["Agent"])
 settings = get_settings()
@@ -78,9 +79,15 @@ def _normalize_vision_response(data: Any) -> Any:
     return normalized
 
 
+# Hard cap on wardrobe lines injected into the prompt — a 300-item closet must
+# not inflate every chat turn's token count.  Vector search supplies the most
+# relevant items separately, so truncation here loses little.
+_MAX_WARDROBE_PROMPT_ITEMS = 80
+
+
 def _format_wardrobe(items: list[dict[str, Any]]) -> str:
     lines = ["MY WARDROBE:"]
-    for item in items:
+    for item in items[:_MAX_WARDROBE_PROMPT_ITEMS]:
         occasions = item.get("occasion") or []
         if isinstance(occasions, list):
             occasion_text = ", ".join(str(o) for o in occasions)
@@ -89,6 +96,12 @@ def _format_wardrobe(items: list[dict[str, Any]]) -> str:
         lines.append(
             f"- {item.get('name', 'Unnamed item')} | {item.get('category', 'uncategorized')} | "
             f"{item.get('color') or 'unknown color'} | occasions: {occasion_text or 'none listed'}"
+        )
+    hidden = len(items) - _MAX_WARDROBE_PROMPT_ITEMS
+    if hidden > 0:
+        lines.append(
+            f"(+{hidden} more items not listed — semantically relevant ones appear "
+            "in the wardrobe memory section below)"
         )
     return "\n".join(lines)
 
@@ -164,11 +177,22 @@ async def _build_chat_message(body: ChatRequest) -> str:
             f"{_format_wardrobe(body.closet_items)}"
         )
     if body.user_id:
-        vector_matches = await search_closet_context(body.user_id, body.message)
+        # Embed the message once and share it: closet search and style-memory
+        # retrieval both need the same vector, and they hit independent
+        # connections, so they run concurrently.
+        embedding: list[float] | None = None
+        if settings.openai_api_key:
+            try:
+                embedding = await embed_query(body.message)
+            except Exception:
+                embedding = None  # both retrievals degrade gracefully without it
+        vector_matches, memories = await asyncio.gather(
+            search_closet_context(body.user_id, body.message, embedding=embedding),
+            retrieve_style_memories(body.user_id, body.message, embedding=embedding),
+        )
         if vector_matches:
             message += f"\n\n[Relevant wardrobe memory]:\n{json.dumps(vector_matches, default=str)}"
         # Cross-session style memory — durable preferences from past conversations.
-        memories = await retrieve_style_memories(body.user_id, body.message)
         message += format_memories_block(memories)
     return message
 
@@ -236,7 +260,7 @@ async def outfit(body: OutfitRequest):
     """Generate outfit suggestions via the outfit MCP tool."""
     _require_tool_routes()
     agent = _require_agent()
-    outfit_tool = next((t for t in agent._tools if "generate_outfit" in t.name), None)
+    outfit_tool = next((t for t in agent.tools if "generate_outfit" in t.name), None)
     if not outfit_tool:
         raise HTTPException(
             status_code=503,
@@ -267,8 +291,8 @@ async def packing(body: PackingRequest):
     """Call weather MCP then packing MCP for a structured PackingResult JSON."""
     _require_tool_routes()
     agent = _require_agent()
-    weather_tool = next((t for t in agent._tools if "get_weather_summary" in t.name), None)
-    packing_tool = next((t for t in agent._tools if "generate_trip_packing_list" in t.name), None)
+    weather_tool = next((t for t in agent.tools if "get_weather_summary" in t.name), None)
+    packing_tool = next((t for t in agent.tools if "generate_trip_packing_list" in t.name), None)
     if not weather_tool or not packing_tool:
         raise HTTPException(
             status_code=503,
@@ -323,7 +347,7 @@ async def vision_analyze(body: VisionRequest):
     _require_tool_routes()
     agent = _require_agent()
     vision_tool = next(
-        (t for t in agent._tools if "analyze_clothing" in t.name and "from_bytes" not in t.name),
+        (t for t in agent.tools if "analyze_clothing" in t.name and "from_bytes" not in t.name),
         None,
     )
     if not vision_tool:

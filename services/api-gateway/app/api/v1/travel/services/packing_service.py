@@ -19,7 +19,12 @@ from app.core.config import get_settings
 from app.core.llm_safety import sanitize_user_text
 from app.core.logging import get_logger
 from app.core.openai_tracing import make_openai_client, wrap_openai_client
-from app.api.v1.travel.services.location_intel_service import build_location_context_block
+from app.core.constraint_priority import build_constraint_priority_block
+from app.api.v1.intelligence.services import festival_discovery
+from app.api.v1.travel.services import venue_rules_service
+from app.api.v1.travel.services.location_intel_service import (
+    build_location_context_block_async,
+)
 from app.api.v1.travel.services.weather_service import fetch_weather_async, summarise_weather
 
 logger = get_logger("packing_service")
@@ -833,8 +838,38 @@ async def generate_packing_list(
         if merged_ctx is None and user_style_profile:
             merged_ctx = user_style_profile.get("style_profile_context_text")
 
-        # ── Destination location preferences (curated profile or LLM fallback) ─
-        location_context = build_location_context_block(destination, mode="travel")
+        # ── Destination location preferences (curated > live web > LLM fallback) ─
+        location_context = await build_location_context_block_async(destination, mode="travel")
+
+        # ── Festivals at the destination during the trip (static > live web) ──
+        festival_block = ""
+        try:
+            fest_result = await festival_discovery.get_trip_festivals(destination, start, end)
+            festival_block = festival_discovery.build_trip_festival_block(fest_result)
+            if festival_block:
+                location_context = f"{location_context}\n\n{festival_block}" if location_context else festival_block
+        except Exception as exc:  # noqa: BLE001 — festival layer is best-effort
+            logger.warning("packing_festival_failed", error=str(exc))
+
+        # ── Venue/event dress rules for declared activities (live web) ────────
+        venue_block = ""
+        try:
+            venue_rules = await venue_rules_service.get_venue_rules(activities, destination, start)
+            venue_block = venue_rules_service.build_venue_rules_block(venue_rules)
+            if venue_block:
+                location_context = f"{location_context}\n\n{venue_block}" if location_context else venue_block
+        except Exception as exc:  # noqa: BLE001 — venue-rules layer is best-effort
+            logger.warning("packing_venue_rules_failed", error=str(exc))
+
+        # ── Constraint priority — one arbitration preamble for the stacked layers ─
+        priority_block = build_constraint_priority_block(
+            mandatory=bool(venue_block) or bool(location_context),
+            weather=True,  # packing is always weather-driven
+            occasion=bool(festival_block),
+            style=bool(merged_ctx and merged_ctx.strip()),
+        )
+        if priority_block:
+            location_context = f"{priority_block}\n\n{location_context}" if location_context else priority_block
 
         # ── New activity-aware AI call ────────────────────────────────────────
         ai_rich = await _ai_activity_aware_packing(

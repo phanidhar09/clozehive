@@ -112,7 +112,7 @@ describe('Dashboard', () => {
     expect(router.state.location.pathname).toBe('/dashboard')
   })
 
-  it('surfaces the onboarding checklist (account-setup step) when onboarding is incomplete', async () => {
+  it('surfaces the onboarding checklist (style-profile step) when onboarding is incomplete', async () => {
     vi.mocked(Api.profileApi.getOnboardingStatus).mockResolvedValue({
       onboarding_completed: false,
       onboarding_skipped: false,
@@ -122,7 +122,7 @@ describe('Dashboard', () => {
     const router = renderDashboard({ items: [wardrobeItem()] })
 
     // The style-profile reminder now lives in the OnboardingChecklist.
-    expect(await screen.findByText(/Account setup/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Set up your style profile/i)).toBeInTheDocument()
     // Stays on the dashboard — no redirect from here.
     expect(router.state.location.pathname).toBe('/dashboard')
   })

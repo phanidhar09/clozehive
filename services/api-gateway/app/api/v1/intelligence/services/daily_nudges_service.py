@@ -4,7 +4,7 @@ Generated lazily on the first request to ``/ai-chat/nudges/today`` per
 calendar date. The nudge type is chosen from a small priority hierarchy based
 on what's actionable for *this* user *today*:
 
-  calendar_prep  > weather_outfit  > new_arrival  > unworn_pick  > generic
+  calendar_prep  > festival  > weather_outfit  > new_arrival  > unworn_pick  > generic
 
 A short LLM call turns the chosen context into a one-sentence FANI message.
 If the LLM call fails or the user has no actionable context, we return
@@ -27,6 +27,7 @@ from app.models.closet import ClosetItem
 from app.models.trips import Trip
 from app.api.v1.identity.repositories.user_repo import UserRepository
 from app.api.v1.intelligence.services import ai_service
+from app.api.v1.intelligence.services import festival_calendar, festival_discovery
 from app.api.v1.travel.services import weather_service
 
 logger = get_logger("daily_nudges")
@@ -140,6 +141,28 @@ async def _resolve_user_weather(
     return None
 
 
+async def _resolve_home_location_label(
+    session: AsyncSession, user_id: UUID
+) -> str | None:
+    """Return the user's saved location label (e.g. 'Mumbai, India'), if any.
+
+    Mirrors ``_resolve_user_weather``'s permission read but only needs the label
+    so we can infer a country for festival lookups.
+    """
+    try:
+        user = await UserRepository(session).get(user_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("nudge_home_location_failed", error=str(exc))
+        return None
+    if not user:
+        return None
+    permissions = getattr(user, "permissions", None)
+    if not isinstance(permissions, dict):
+        return None
+    label = permissions.get("location_label")
+    return str(label) if label else None
+
+
 def _weather_is_noteworthy(weather: dict[str, Any]) -> bool:
     """Only weather nudges when conditions actually warrant outfit attention."""
     try:
@@ -180,28 +203,68 @@ async def _compose_nudge(
     Returns ``(message, nudge_type, payload)`` or ``None`` when nothing
     actionable is available.
     """
-    # 1. Trip prep — highest priority, packing is time-sensitive.
+    # 1. Trip prep — highest priority, packing is time-sensitive. If a festival
+    #    falls at the destination during the trip (static calendar, or live web
+    #    discovery for the long tail), fold it into the prep nudge.
     trip = await _upcoming_trip(session, user_id, today)
     if trip:
         days_until = (trip.start_date - today).days
-        ctx = (
+        payload: dict[str, Any] = {
+            "trip_id": str(trip.id),
+            "destination": trip.destination,
+            "days_until": days_until,
+        }
+        base_ctx = (
             f"The user is leaving for {trip.destination} in {days_until} day(s) "
             f"({trip.start_date.isoformat()} → {trip.end_date.isoformat()}). "
-            "Suggest opening the trip packing plan today so nothing is rushed."
+        )
+        fest_ctx = ""
+        try:
+            fest_result = await festival_discovery.get_trip_festivals(
+                trip.destination, trip.start_date, trip.end_date
+            )
+            fest_ctx = festival_discovery.nudge_festival_context(fest_result)
+            if fest_result["source"] == "static":
+                f = fest_result["festivals"][0]
+                payload["festival"] = {"name": f["name"], "date": f["date"]}
+        except Exception as exc:  # noqa: BLE001 — festival layer is best-effort
+            logger.warning("nudge_festival_failed", error=str(exc))
+        ctx = base_ctx + (
+            fest_ctx
+            or "Suggest opening the trip packing plan today so nothing is rushed."
+        )
+        message = await _llm_nudge(ctx)
+        if message:
+            return (message, "calendar_prep", payload)
+
+    # 2. Festival at home — a festival today or within the lookahead window at the
+    #    user's saved location. Time-sensitive and delightful, so it ranks high.
+    home_label = await _resolve_home_location_label(session, user_id)
+    home_country = festival_calendar.infer_country(home_label)
+    upcoming_fest = festival_calendar.next_festival(home_country, today)
+    if upcoming_fest:
+        occ_date, fest = upcoming_fest
+        days_away = (occ_date - today).days
+        when = "today" if days_away == 0 else f"in {days_away} day(s)"
+        ctx = (
+            f"{fest['name']} {fest['emoji']} is {when} ({occ_date.isoformat()}). "
+            f"Dress guidance: {fest['dress']} "
+            "Suggest the user let FANI build a festive outfit from their closet for it."
         )
         message = await _llm_nudge(ctx)
         if message:
             return (
                 message,
-                "calendar_prep",
+                "festival",
                 {
-                    "trip_id": str(trip.id),
-                    "destination": trip.destination,
-                    "days_until": days_until,
+                    "festival": fest["name"],
+                    "emoji": fest["emoji"],
+                    "date": occ_date.isoformat(),
+                    "days_away": days_away,
                 },
             )
 
-    # 2. Weather — only when conditions actually require an outfit decision.
+    # 3. Weather — only when conditions actually require an outfit decision.
     weather = await _resolve_user_weather(session, user_id)
     if weather and _weather_is_noteworthy(weather):
         ctx = (
@@ -222,7 +285,7 @@ async def _compose_nudge(
                 },
             )
 
-    # 3. New arrival — encourage styling a freshly-added item.
+    # 4. New arrival — encourage styling a freshly-added item.
     new_item = await _recent_new_arrival(session, user_id, today)
     if new_item:
         ctx = (
@@ -242,7 +305,7 @@ async def _compose_nudge(
                 },
             )
 
-    # 4. Unworn pick — gentle "you have things you haven't worn" nudge.
+    # 5. Unworn pick — gentle "you have things you haven't worn" nudge.
     unworn = await _unworn_pick(session, user_id)
     if unworn:
         ctx = (
@@ -263,7 +326,7 @@ async def _compose_nudge(
                 },
             )
 
-    # 5. Nothing actionable — skip; don't bug the user with filler.
+    # 6. Nothing actionable — skip; don't bug the user with filler.
     return None
 
 

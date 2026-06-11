@@ -19,11 +19,12 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import JSON
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import StaticPool
 
 from app.db.base import Base
-from app.db.session import get_session
+from app.db.session import get_read_session, get_session
 from app.main import app
-from app.core.rate_limit import limiter
+from app.core.rate_limit import auth_limiter, limiter
 from app.api.v1.identity.services import auth_service
 from app.api.v1.intelligence.services import ai_client
 from app.core import cache_service
@@ -33,7 +34,15 @@ import app.api.v1.wardrobe.closet as closet_mod
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
-test_engine = create_async_engine(TEST_DATABASE_URL, echo=False)
+# StaticPool: every connection must share the single in-memory database —
+# otherwise requests served from another pooled connection (or a worker
+# thread) see a fresh, empty DB and reads 404 right after a successful write.
+test_engine = create_async_engine(
+    TEST_DATABASE_URL,
+    echo=False,
+    poolclass=StaticPool,
+    connect_args={"check_same_thread": False},
+)
 TestSessionLocal = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
 
 
@@ -163,6 +172,9 @@ def fake_services(monkeypatch):
     monkeypatch.setattr(cache_service, "delete", mem_cache_delete)
     monkeypatch.setattr(cache_service, "ping", ok)
     limiter.enabled = False
+    # auth_limiter is a separate Redis-backed Limiter guarding /auth/* routes
+    # (3/minute on register) — fixtures register users far faster than that.
+    auth_limiter.enabled = False
 
     monkeypatch.setattr(ai_client, "generate_packing_list", _deterministic_packing_list)
 
@@ -199,6 +211,9 @@ async def test_app(db_session: AsyncSession):
         yield db_session
 
     app.dependency_overrides[get_session] = override_get_session
+    # Read endpoints use the read-replica dependency — route it to the same
+    # test session, or reads silently hit the real database and 404.
+    app.dependency_overrides[get_read_session] = override_get_session
     yield app
     app.dependency_overrides.clear()
 

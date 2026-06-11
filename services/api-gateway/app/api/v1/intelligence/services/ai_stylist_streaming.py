@@ -52,8 +52,10 @@ from app.api.v1.intelligence.services.ai_stylist_chat_service import (
 )
 from app.core.embedding_service import generate_text_embedding
 from app.api.v1.intelligence.services.fashion_rag_service import get_fashion_context_for_prompt
+from app.api.v1.intelligence.services import trend_grounding
 from app.api.v1.intelligence.services.fashion_rules import build_fashion_rules_prompt_block
 from app.api.v1.wardrobe.services.outfit_history_service import get_outfit_history_for_prompt
+from app.rag.query_builder import build_closet_rag_query
 from app.api.v1.identity.services.style_profile_context import load_merged_user_profile_for_ai
 
 logger = get_logger("ai_stylist_streaming")
@@ -271,11 +273,8 @@ async def stream_chat_message(
     weather_required = ctx.get("weather_required", False)
     mood = ctx.get("mood") or ""
 
-    rag_query = message
-    if occasion:
-        rag_query += f" occasion:{occasion}"
-    if mood:
-        rag_query += f" mood:{mood}"
+    rag_query = build_closet_rag_query(message, occasion=occasion, mood=mood)
+    weather_str = location or ""
 
     query_embedding = await generate_text_embedding(rag_query)
 
@@ -296,14 +295,25 @@ async def stream_chat_message(
         else _no_weather()
     )
     feedback_task = asyncio.create_task(
-        get_outfit_history_for_prompt(session, str(user_id), occasion, limit=5)
+        get_outfit_history_for_prompt(
+            session,
+            str(user_id),
+            occasion=occasion,
+            limit=5,
+            message=message,
+        )
     )
     knowledge_task = asyncio.create_task(
-        get_fashion_context_for_prompt(session, rag_query, limit=5)
+        get_fashion_context_for_prompt(
+            session, rag_query, limit=5, occasion=occasion, weather=weather_str
+        )
     )
+    # Live trend grounding — short-circuits to None unless the message has
+    # trend intent (Phase 7; kept at parity with process_chat_message).
+    trend_task = asyncio.create_task(trend_grounding.get_trend_context(message))
 
-    closet_items, user_profile, weather, feedback_text, knowledge_text = await asyncio.gather(
-        closet_task, profile_task, weather_task, feedback_task, knowledge_task,
+    closet_items, user_profile, weather, feedback_text, knowledge_text, trend_context = await asyncio.gather(
+        closet_task, profile_task, weather_task, feedback_task, knowledge_task, trend_task,
         return_exceptions=True,
     )
 
@@ -318,6 +328,8 @@ async def stream_chat_message(
         feedback_text = ""
     if isinstance(knowledge_text, Exception):
         knowledge_text = ""
+    if isinstance(trend_context, Exception):
+        trend_context = None
 
     all_id_rows = await session.execute(
         select(ClosetItem.id).where(
@@ -354,7 +366,8 @@ async def stream_chat_message(
         weather_block=_build_weather_block(weather),
         feedback_block=_build_feedback_block(feedback_text),
         fashion_rules_block=f"\n{fashion_rules_block}",
-        knowledge_block=_build_knowledge_block(knowledge_text),
+        knowledge_block=_build_knowledge_block(knowledge_text)
+        + trend_grounding.build_trend_block(trend_context),
     ) + _build_summary_block(summary_text) + image_instruction + (
         "\n\nSTREAMING DIRECTIVE: emit the JSON object with the `reply` field "
         "FIRST so the user sees the conversational answer immediately while "

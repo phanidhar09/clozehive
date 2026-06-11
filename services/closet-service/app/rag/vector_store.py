@@ -157,6 +157,8 @@ class FAISSVectorStore:
         self._indexes: dict[str, Any] = {}
         # source_type → list[EmbeddingMeta] parallel to FAISS index rows
         self._meta: dict[str, list[EmbeddingMeta]] = {}
+        # source_type → record_id → row index, for O(1) upsert dedup
+        self._id_map: dict[str, dict[str, int]] = {}
         # Per source_type write locks — created lazily
         self._locks: dict[str, asyncio.Lock] = {}
 
@@ -180,6 +182,7 @@ class FAISSVectorStore:
             ) from exc
         self._indexes[source_type] = faiss.IndexFlatIP(_EMBEDDING_DIM)
         self._meta[source_type] = []
+        self._id_map[source_type] = {}
         logger.info("faiss_index_created", source_type=source_type, dim=_EMBEDDING_DIM)
 
     def _load_from_disk(self, source_type: str) -> bool:
@@ -195,6 +198,9 @@ class FAISSVectorStore:
             self._indexes[source_type] = faiss.read_index(str(idx_path))
             with meta_path.open("rb") as fh:
                 self._meta[source_type] = pickle.load(fh)  # noqa: S301
+            self._id_map[source_type] = {
+                m.record_id: i for i, m in enumerate(self._meta[source_type])
+            }
             logger.info(
                 "faiss_index_loaded",
                 source_type=source_type,
@@ -307,19 +313,21 @@ class FAISSVectorStore:
 
             index = self._indexes[source_type]
             meta_list = self._meta[source_type]
+            id_map = self._id_map.setdefault(source_type, {})
 
             # If record already exists, update only the metadata (can't remove/update
             # a vector in IndexFlatIP without rebuilding the entire index).
-            for i, existing in enumerate(meta_list):
-                if existing.record_id == meta.record_id:
-                    meta_list[i] = meta
-                    logger.debug("faiss_meta_updated", record_id=meta.record_id)
-                    return
+            existing_row = id_map.get(meta.record_id)
+            if existing_row is not None:
+                meta_list[existing_row] = meta
+                logger.debug("faiss_meta_updated", record_id=meta.record_id)
+                return
 
             def _add() -> None:
                 vec = self._normalise(embedding)
                 index.add(vec)
                 meta_list.append(meta)
+                id_map[meta.record_id] = len(meta_list) - 1
 
             await asyncio.to_thread(_add)
             self._persist_to_disk(source_type)

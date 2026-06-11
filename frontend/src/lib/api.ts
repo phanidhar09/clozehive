@@ -371,6 +371,8 @@ export interface OutfitOfDayResponse {
   outfit: OutfitSuggestion | null
   weather: { condition?: string; temp_c?: number; location_label?: string } | null
   occasion: string
+  /** Present when today is a festival at the user's location. */
+  festival: { name: string; emoji: string; dress: string } | null
   style_tips: string[]
 }
 

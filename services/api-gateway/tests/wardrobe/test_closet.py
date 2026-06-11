@@ -124,7 +124,10 @@ async def test_upload_persists_image_url(client: AsyncClient, monkeypatch, tmp_p
     async def fake_analyze_image(_image_bytes: bytes, _media_type: str) -> dict:
         return {"name": "Uploaded Shirt", "category": "tops", "color": "white"}
 
-    monkeypatch.setattr("app.core.upload_service.get_settings", lambda: SimpleNamespace(upload_path=tmp_path))
+    monkeypatch.setattr(
+        "app.core.upload_service.get_settings",
+        lambda: SimpleNamespace(upload_path=tmp_path, gcs_enabled=False, gcs_signed_urls=False),
+    )
     monkeypatch.setattr(closet_routes.vision_service, "analyze_image", fake_analyze_image)
 
     resp = await client.post(

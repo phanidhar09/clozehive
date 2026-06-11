@@ -69,13 +69,34 @@ async def embed_query(text: str) -> list[float]:
     return response.data[0].embedding
 
 
-async def search_closet_context(user_id: str, query: str) -> list[dict[str, Any]]:
-    """Return semantically relevant closet items for prompt grounding."""
+@traceable(name="ai_agent_embed_queries", run_type="embedding")
+async def embed_queries(texts: list[str]) -> list[list[float]]:
+    """Embed several texts in a single API call (order preserved)."""
+    if not texts:
+        return []
+    response = await get_openai().embeddings.create(
+        model=settings.openai_embedding_model,
+        input=texts,
+    )
+    return [d.embedding for d in sorted(response.data, key=lambda d: d.index)]
+
+
+async def search_closet_context(
+    user_id: str,
+    query: str,
+    embedding: list[float] | None = None,
+) -> list[dict[str, Any]]:
+    """Return semantically relevant closet items for prompt grounding.
+
+    Pass ``embedding`` when the query was already embedded elsewhere in the
+    request to avoid a duplicate OpenAI call.
+    """
     if settings.vector_store != "pgvector" or not settings.openai_api_key:
         return []
 
     try:
-        embedding = await embed_query(query)
+        if embedding is None:
+            embedding = await embed_query(query)
         vector_literal = "[" + ",".join(str(x) for x in embedding) + "]"
         pool = await get_pool()
         async with pool.acquire() as conn:

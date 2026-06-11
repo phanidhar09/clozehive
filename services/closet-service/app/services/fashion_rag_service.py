@@ -9,17 +9,22 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
 from app.models.rag import FashionKnowledgeDocument
 from app.services.embedding_service import (
     _DEFAULT_LIMIT,
-    _DEFAULT_THRESHOLD,
     generate_text_embedding,
     pgvector_cosine_search,
 )
+from app.rag.query_builder import (
+    build_fashion_knowledge_query,
+    extract_keywords,
+    infer_query_signals,
+)
+from app.rag.rerank import rerank_fashion_documents
 
 logger = get_logger("fashion_rag_service")
 
@@ -471,54 +476,120 @@ async def search_fashion_knowledge(
     query: str,
     limit: int = _DEFAULT_LIMIT,
     category: str | None = None,
+    occasion: str | None = None,
+    weather: str = "",
 ) -> list[dict[str, Any]]:
     """Retrieve relevant fashion knowledge documents for a query."""
     await ensure_seeded(session)
 
-    embedding = await generate_text_embedding(query)
-    if not embedding:
-        return _keyword_fallback(session, query, category, limit)
+    inferred = infer_query_signals(query)
+    effective_occasion = occasion or inferred.get("occasion")
+    effective_season = inferred.get("season")
+    effective_weather = weather or inferred.get("weather") or ""
 
-    rows = await pgvector_cosine_search(
-        session,
-        table="fashion_knowledge_documents",
-        embedding=embedding,
-        user_id=None,
-        limit=limit,
-        threshold=0.60,
-        filter_category=category,
+    enriched_query = build_fashion_knowledge_query(
+        query,
+        occasion=effective_occasion,
+        weather=effective_weather,
+        category=category,
     )
-    return [
-        {
-            "id": str(r["id"]),
-            "title": r["title"],
-            "content": r["content"],
-            "category": r["category"],
-            "season": r.get("season"),
-            "occasion": r.get("occasion"),
-            "relevance_score": round(float(r.get("similarity_score", 0)), 3),
-        }
-        for r in rows
-    ]
+
+    docs: list[dict[str, Any]] = []
+    embedding = await generate_text_embedding(enriched_query)
+    if embedding:
+        fetch_limit = min(max(limit * 3, limit), 15)
+        rows = await pgvector_cosine_search(
+            session,
+            table="fashion_knowledge_documents",
+            embedding=embedding,
+            user_id=None,
+            limit=fetch_limit,
+            threshold=0.55,
+            filter_category=category,
+        )
+        docs = [
+            {
+                "id": str(r["id"]),
+                "title": r["title"],
+                "content": r["content"],
+                "category": r["category"],
+                "season": r.get("season"),
+                "occasion": r.get("occasion"),
+                "relevance_score": round(float(r.get("similarity_score", 0)), 3),
+            }
+            for r in rows
+        ]
+
+    if not docs:
+        docs = await _keyword_fallback(session, enriched_query, category, limit)
+
+    reranked = rerank_fashion_documents(
+        docs,
+        occasion=effective_occasion,
+        season=effective_season,
+        weather=effective_weather or None,
+    )
+    return reranked[:limit]
 
 
-def _keyword_fallback(
+async def _keyword_fallback(
     session: AsyncSession,
     query: str,
     category: str | None,
     limit: int,
 ) -> list[dict[str, Any]]:
-    """Return empty list when embedding is unavailable — caller handles gracefully."""
-    return []
+    """Keyword search when embeddings are unavailable or vector search is empty."""
+    keywords = extract_keywords(query)
+    if not keywords:
+        return []
+
+    conditions = []
+    for kw in keywords:
+        pattern = f"%{kw}%"
+        conditions.extend([
+            FashionKnowledgeDocument.title.ilike(pattern),
+            FashionKnowledgeDocument.content.ilike(pattern),
+            FashionKnowledgeDocument.occasion.ilike(pattern),
+            FashionKnowledgeDocument.season.ilike(pattern),
+        ])
+
+    stmt = select(FashionKnowledgeDocument).where(or_(*conditions))
+    if category:
+        stmt = stmt.where(FashionKnowledgeDocument.category == category)
+    stmt = stmt.limit(limit)
+
+    try:
+        result = await session.execute(stmt)
+        rows = result.scalars().all()
+    except Exception as exc:
+        logger.warning("fashion_kb_keyword_fallback_failed", error=str(exc))
+        return []
+
+    return [
+        {
+            "id": str(doc.id),
+            "title": doc.title,
+            "content": doc.content,
+            "category": doc.category,
+            "season": doc.season,
+            "occasion": doc.occasion,
+            "relevance_score": 0.50,
+        }
+        for doc in rows
+    ]
 
 
 async def get_fashion_context_for_prompt(
     session: AsyncSession,
     query: str,
     limit: int = 5,
+    occasion: str | None = None,
+    weather: str = "",
 ) -> str:
     """Return a formatted string of relevant fashion knowledge for LLM prompt injection."""
-    docs = await search_fashion_knowledge(session, query, limit=limit)
+    docs = await search_fashion_knowledge(
+        session, query, limit=limit, occasion=occasion, weather=weather
+    )
     if not docs:
         return ""
     lines = ["[Fashion Knowledge Context]"]

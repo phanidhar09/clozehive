@@ -25,7 +25,9 @@ async def test_signup_success(client: AsyncClient):
     assert data["user"]["email"] == "test@example.com"
     assert data["user"]["username"] == "testuser"
     assert "access_token" in data
-    assert "refresh_token" in data
+    # Refresh token is delivered as an HttpOnly cookie, never in the body.
+    assert resp.cookies.get("ch_refresh_token")
+    assert "refresh_token" not in data
 
 
 @pytest.mark.asyncio
@@ -127,13 +129,14 @@ async def test_token_refresh(client: AsyncClient):
         "password": "Password1",
         "gdpr_consent": True,
     })
-    refresh_token = signup.json()["refresh_token"]
+    refresh_token = signup.cookies.get("ch_refresh_token")
+    assert refresh_token
 
     resp = await client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token})
     assert resp.status_code == 200
     data = resp.json()
     assert "access_token" in data
-    assert data["refresh_token"] != refresh_token  # token rotated
+    assert resp.cookies.get("ch_refresh_token") != refresh_token  # token rotated
 
 
 # ── Task 12: new profile-name tests ───────────────────────────────────────────
@@ -366,3 +369,53 @@ async def test_generate_unique_username_collision(client: AsyncClient, db_sessio
     })
     u = await generate_unique_username(db_session, "Phani", "other@example.com")
     assert u == "phani1"
+
+
+# ── Password-reset email delivery ─────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_forgot_password_sends_email(client: AsyncClient, monkeypatch):
+    """A known email gets a reset email containing the tokenised reset URL."""
+    await client.post("/api/v1/auth/signup", json={
+        "name": "Reset Me",
+        "email": "resetme@example.com",
+        "password": "Password1",
+        "gdpr_consent": True,
+    })
+
+    sent: list[dict] = []
+
+    async def fake_send(email: str, reset_url: str) -> bool:
+        sent.append({"email": email, "reset_url": reset_url})
+        return True
+
+    monkeypatch.setattr(
+        "app.api.v1.identity.auth.email_service.send_password_reset", fake_send
+    )
+
+    resp = await client.post("/api/v1/auth/forgot-password", json={"email": "resetme@example.com"})
+    assert resp.status_code == 202
+    # The raw token must never appear in the response body.
+    assert "token" not in resp.text.lower() or "reset link" in resp.json()["message"]
+
+    assert len(sent) == 1
+    assert sent[0]["email"] == "resetme@example.com"
+    assert "/reset-password?token=" in sent[0]["reset_url"]
+
+
+@pytest.mark.asyncio
+async def test_forgot_password_unknown_email_no_send(client: AsyncClient, monkeypatch):
+    """Unknown emails return the same 202 and trigger no email (no enumeration)."""
+    sent: list[str] = []
+
+    async def fake_send(email: str, reset_url: str) -> bool:
+        sent.append(email)
+        return True
+
+    monkeypatch.setattr(
+        "app.api.v1.identity.auth.email_service.send_password_reset", fake_send
+    )
+
+    resp = await client.post("/api/v1/auth/forgot-password", json={"email": "ghost@example.com"})
+    assert resp.status_code == 202
+    assert sent == []

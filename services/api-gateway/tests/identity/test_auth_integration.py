@@ -18,7 +18,8 @@ async def test_register_new_user_returns_201(async_client: AsyncClient):
 
     assert response.status_code == 201
     assert "access_token" in response.json()
-    assert "refresh_token" in response.json()
+    # Refresh token is delivered as an HttpOnly cookie, never in the body.
+    assert response.cookies.get("ch_refresh_token")
 
 
 @pytest.mark.asyncio
@@ -45,7 +46,7 @@ async def test_login_valid_credentials_returns_tokens(async_client: AsyncClient)
     assert response.status_code == 200
     data = response.json()
     assert "access_token" in data
-    assert "refresh_token" in data
+    assert response.cookies.get("ch_refresh_token")
     assert "user" in data
 
 
@@ -66,7 +67,8 @@ async def test_refresh_token_returns_new_access_token(async_client: AsyncClient)
     payload = user_payload("refreshvalid")
     register = await async_client.post("/api/v1/auth/register", json=payload)
     original_access = register.json()["access_token"]
-    refresh_token = register.json()["refresh_token"]
+    refresh_token = register.cookies.get("ch_refresh_token")
+    assert refresh_token
 
     response = await async_client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token})
 
@@ -78,7 +80,8 @@ async def test_refresh_token_returns_new_access_token(async_client: AsyncClient)
 async def test_logout_invalidates_refresh_token(async_client: AsyncClient):
     payload = user_payload("logoutvalid")
     register = await async_client.post("/api/v1/auth/register", json=payload)
-    refresh_token = register.json()["refresh_token"]
+    refresh_token = register.cookies.get("ch_refresh_token")
+    assert refresh_token
 
     logout = await async_client.post("/api/v1/auth/logout", json={"refresh_token": refresh_token})
     response = await async_client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token})

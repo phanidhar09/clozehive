@@ -20,6 +20,8 @@ from app.services.embedding_service import (
     generate_text_embedding,
     pgvector_cosine_search,
 )
+from app.rag.query_builder import build_outfit_history_query
+from app.rag.rerank import rerank_outfit_history
 
 logger = get_logger("outfit_history_service")
 
@@ -106,25 +108,29 @@ async def save_outfit_history_background(
 async def search_similar_outfit_history(
     session: AsyncSession,
     user_id: str,
-    occasion: str,
+    occasion: str | None = None,
     weather: str = "",
     limit: int = _DEFAULT_LIMIT,
+    message: str = "",
 ) -> list[dict[str, Any]]:
     """Retrieve past outfit history similar to the requested occasion/weather."""
-    query_text = _outfit_context_text(occasion, weather, [], None)
+    query_text = build_outfit_history_query(
+        occasion=occasion, weather=weather, message=message
+    )
     embedding = await generate_text_embedding(query_text)
     if not embedding:
         return []
 
+    fetch_limit = min(max(limit * 3, limit), 15)
     rows = await pgvector_cosine_search(
         session,
         table="outfit_history",
         embedding=embedding,
         user_id=user_id,
-        limit=limit,
-        threshold=0.65,
+        limit=fetch_limit,
+        threshold=0.60,
     )
-    return [
+    records = [
         {
             "id": str(r["id"]),
             "occasion": r.get("occasion"),
@@ -141,17 +147,27 @@ async def search_similar_outfit_history(
         }
         for r in rows
     ]
+    reranked = rerank_outfit_history(records, occasion=occasion)
+    return reranked[:limit]
 
 
 async def get_outfit_history_for_prompt(
     session: AsyncSession,
     user_id: str,
-    occasion: str,
+    occasion: str | None = None,
     weather: str = "",
     limit: int = 3,
+    message: str = "",
 ) -> str:
     """Return a formatted prompt string with relevant past outfit history."""
-    history = await search_similar_outfit_history(session, user_id, occasion, weather, limit)
+    history = await search_similar_outfit_history(
+        session,
+        user_id,
+        occasion=occasion,
+        weather=weather,
+        limit=limit,
+        message=message,
+    )
     if not history:
         return ""
     lines = ["[Past Outfit History — similar occasions]"]

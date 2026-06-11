@@ -18,13 +18,24 @@ router = APIRouter(prefix="/rum", tags=["RUM"])
 
 
 class WebVital(BaseModel):
-    metric: str = Field(..., max_length=8)   # LCP | INP | CLS | FCP | TTFB
+    metric: str = Field(..., max_length=8)  # LCP | INP | CLS | FCP | TTFB
     value: float = Field(..., ge=0, le=600000)
     rating: str = Field(..., max_length=20)  # good | needs-improvement | poor
 
 
 @router.post("/vitals", status_code=status.HTTP_204_NO_CONTENT)
 @limiter.limit("60/minute")
-async def report_vital(request: Request, body: WebVital) -> None:
-    """Record one Web Vital sample. Silently ignores invalid metric/rating."""
+async def report_vital(request: Request) -> None:
+    """Record one Web Vital sample. Silently ignores invalid metric/rating.
+
+    The body is parsed manually because navigator.sendBeacon must use a
+    CORS-safelisted content type (text/plain) to avoid a preflight it cannot
+    perform; FastAPI's typed-body handling would reject anything but JSON.
+    Malformed beacons are dropped without a 4xx — the sender never reads the
+    response, so error responses only add log noise.
+    """
+    try:
+        body = WebVital.model_validate_json(await request.body())
+    except Exception:  # noqa: BLE001 — fire-and-forget beacon, drop bad input
+        return
     record_web_vital(body.metric, body.value, body.rating)

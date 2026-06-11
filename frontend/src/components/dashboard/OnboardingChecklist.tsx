@@ -12,9 +12,8 @@ function checklistDismissedKey(userId: string) {
 
 interface Stage {
   id: string
-  stage: string
-  screens: string
-  outcome: string
+  title: string
+  description: string
   done: boolean
   href: string
 }
@@ -62,41 +61,36 @@ export default function OnboardingChecklist() {
   const stages: Stage[] = [
     {
       id: 'account_setup',
-      stage: 'Account setup',
-      screens: 'Signup/Login + style profile',
-      outcome: 'Activation and personalization',
+      title: 'Set up your style profile',
+      description: 'Tell FANI your taste — takes about 2 minutes',
       done: profileDone,
       href: '/onboarding/style-profile',
     },
     {
       id: 'closet_bootstrapping',
-      stage: 'Closet bootstrapping',
-      screens: 'Upload and confirm first 5 items',
-      outcome: 'Unlock outfit generation',
+      title: 'Add your first 5 items',
+      description: 'Snap photos and FANI detects and tags them for you',
       done: closetItems.length >= 5,
       href: '/upload',
     },
     {
       id: 'outfit_creation',
-      stage: 'Outfit creation',
-      screens: 'OOTD + Outfit Builder',
-      outcome: 'Daily habit formation',
+      title: 'Build your first outfit',
+      description: 'Mix and match pieces from your own closet',
       done: outfitDone,
       href: '/outfit-builder',
     },
     {
       id: 'ai_assistance',
-      stage: 'AI assistance',
-      screens: 'FANI prompt and response loop',
-      outcome: 'Retention and confidence',
+      title: 'Ask FANI anything',
+      description: 'Get styling advice from your AI stylist',
       done: aiChatDone,
       href: '/ai-stylist',
     },
     {
       id: 'planning_extensions',
-      stage: 'Planning extensions',
-      screens: 'Travel and saved outfits',
-      outcome: 'Long-term value and repeat use',
+      title: 'Plan a trip or save a look',
+      description: 'Packing plans and saved outfits for later',
       done: planningDone,
       href: '/travel',
     },
@@ -130,15 +124,15 @@ export default function OnboardingChecklist() {
           <div className="flex items-center gap-2">
             <PartyPopper size={18} className="text-brand-500" />
             <div>
-              <h3 className="font-display font-bold text-slate-800 dark:text-white">Workflow complete</h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">You have activated every stage end-to-end.</p>
+              <h3 className="font-display font-bold text-slate-800 dark:text-white">You're all set!</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">You've explored everything ClozéHive can do.</p>
             </div>
           </div>
         ) : (
           <div>
-            <h3 className="font-display font-bold text-slate-800 dark:text-white">Target user workflow</h3>
+            <h3 className="font-display font-bold text-slate-800 dark:text-white">Get started with ClozéHive</h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              {completedCount} of {stages.length} stages complete
+              {completedCount} of {stages.length} done
             </p>
           </div>
         )}
@@ -154,11 +148,11 @@ export default function OnboardingChecklist() {
       <div className="space-y-1">
         {stages.map(step => (
           step.done ? (
-            <div key={step.id} className="flex items-center gap-3 rounded-2xl px-3 py-2.5 opacity-50">
+            <div key={step.id} className="flex items-center gap-3 rounded-2xl px-3 py-2.5">
               <CheckCircle2 size={17} className="flex-shrink-0 text-emerald-500" />
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-slate-400 line-through dark:text-white/30">{step.stage}</p>
-                <p className="text-[11px] text-slate-400 dark:text-white/30">{step.screens}</p>
+                <p className="text-sm font-semibold text-slate-500 line-through dark:text-white/50">{step.title}</p>
+                <p className="text-[11px] text-slate-400 dark:text-white/35">{step.description}</p>
               </div>
             </div>
           ) : (
@@ -169,9 +163,8 @@ export default function OnboardingChecklist() {
             >
               <Circle size={17} className="flex-shrink-0 text-brand-300 dark:text-brand-600" />
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-slate-700 dark:text-white">{step.stage}</p>
-                <p className="text-xs text-slate-400 dark:text-white/40">{step.screens}</p>
-                <p className="text-xs text-slate-400 dark:text-white/40">{step.outcome}</p>
+                <p className="text-sm font-semibold text-slate-700 dark:text-white">{step.title}</p>
+                <p className="text-xs text-slate-400 dark:text-white/40">{step.description}</p>
               </div>
               <ChevronRight
                 size={14}

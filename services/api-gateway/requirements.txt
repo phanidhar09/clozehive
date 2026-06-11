@@ -25,6 +25,9 @@ python-jose[cryptography]==3.5.0
 bcrypt==5.0.0
 passlib==1.7.4
 
+# ── Email delivery (SMTP backend — Mailpit in dev; Resend in prod uses httpx) ─
+aiosmtplib==4.0.2
+
 # ── HTTP client ───────────────────────────────────────────────────────────────
 httpx==0.28.1
 tenacity==9.1.4

@@ -45,9 +45,11 @@ from app.core.embedding_service import (
     pgvector_cosine_search,
 )
 from app.api.v1.intelligence.services.fashion_rag_service import get_fashion_context_for_prompt
+from app.api.v1.intelligence.services import trend_grounding
 from app.api.v1.intelligence.services.fashion_rules import build_fashion_rules_prompt_block
 from app.api.v1.wardrobe.services.outfit_history_service import get_outfit_history_for_prompt
 from app.api.v1.identity.services.style_profile_context import load_merged_user_profile_for_ai
+from app.rag.query_builder import build_closet_rag_query
 
 logger = get_logger("ai_stylist_chat_service")
 
@@ -488,11 +490,10 @@ async def process_chat_message(
     # ── Step 1: Embed the user message (used for all vector searches) ─────────
     # Do NOT bias the RAG query with "casual" when no occasion was provided —
     # that skews vector search away from formal/workwear items the user may need.
-    rag_query = message
-    if occasion:
-        rag_query += f" occasion:{occasion}"
-    if mood:
-        rag_query += f" mood:{mood}"
+    rag_query = build_closet_rag_query(message, occasion=occasion, mood=mood)
+    weather_str = ""
+    if location:
+        weather_str = location
 
     query_embedding = await generate_text_embedding(rag_query)
 
@@ -511,15 +512,27 @@ async def process_chat_message(
     )
     # RAG: similar past outfits via pgvector (uses its own embedding internally)
     feedback_task = asyncio.create_task(
-        get_outfit_history_for_prompt(session, str(user_id), occasion, limit=5)
+        get_outfit_history_for_prompt(
+            session,
+            str(user_id),
+            occasion=occasion,
+            limit=5,
+            message=message,
+        )
     )
     # RAG: fashion knowledge base
     knowledge_task = asyncio.create_task(
-        get_fashion_context_for_prompt(session, rag_query, limit=5)
+        get_fashion_context_for_prompt(
+            session, rag_query, limit=5, occasion=occasion, weather=weather_str
+        )
     )
 
-    closet_items, user_profile, weather, feedback_text, knowledge_text = await asyncio.gather(
-        closet_task, profile_task, weather_task, feedback_task, knowledge_task,
+    # Live trend grounding — short-circuits to None unless the message has
+    # trend intent, so it adds no work to ordinary chat turns (Phase 7).
+    trend_task = asyncio.create_task(trend_grounding.get_trend_context(message))
+
+    closet_items, user_profile, weather, feedback_text, knowledge_text, trend_context = await asyncio.gather(
+        closet_task, profile_task, weather_task, feedback_task, knowledge_task, trend_task,
         return_exceptions=True,
     )
 
@@ -539,6 +552,9 @@ async def process_chat_message(
     if isinstance(knowledge_text, Exception):
         logger.warning("knowledge_rag_failed", error=str(knowledge_text))
         knowledge_text = ""
+    if isinstance(trend_context, Exception):
+        logger.warning("trend_grounding_failed", error=str(trend_context))
+        trend_context = None
 
     # Build a fast lookup map for post-validation
     # RAG returns top-K — we also need full closet IDs to validate recommendations
@@ -605,7 +621,8 @@ async def process_chat_message(
         weather_block=_build_weather_block(weather),
         feedback_block=_build_feedback_block(feedback_text),
         fashion_rules_block=f"\n{fashion_rules_block}",
-        knowledge_block=_build_knowledge_block(knowledge_text),
+        knowledge_block=_build_knowledge_block(knowledge_text)
+        + trend_grounding.build_trend_block(trend_context),
     ) + summary_block + image_instruction
 
     # ── Step 5: Build conversation messages ───────────────────────────────────

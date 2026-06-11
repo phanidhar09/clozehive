@@ -21,6 +21,7 @@ Design
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,6 +40,12 @@ from app.api.v1.intelligence.services import fashion_rag_service, purchase_gap_s
 from app.api.v1.travel.services import packing_memory_service
 from app.api.v1.wardrobe.services import closet_similarity_service, outfit_history_service
 from app.core.embedding_service import generate_text_embedding
+from app.rag.query_builder import (
+    build_fashion_knowledge_query,
+    build_outfit_history_query,
+    build_packing_memory_query,
+)
+from app.rag.rerank import rerank_outfit_history, rerank_packing_memories
 
 logger = get_logger("rag.retriever")
 
@@ -73,17 +80,22 @@ async def retrieve_outfit_context(
     Returns a dict matching OutfitContextResponse schema.
     """
     _store = store or get_vector_store()
-    query = f"Occasion: {occasion}. Weather: {weather}".strip(". ")
-
-    # 1. Fashion knowledge (global, no user_id filter)
-    fashion_docs = await fashion_rag_service.search_fashion_knowledge(
-        session, query, limit=3, category=None
+    query = build_fashion_knowledge_query(
+        f"Occasion: {occasion}. Weather: {weather}".strip(". "),
+        occasion=occasion,
+        weather=weather,
     )
 
-    # 2. Outfit history (user-scoped) — use existing service which handles
-    #    embedding + pgvector search internally.  When using FAISS backend we
-    #    fall through to a direct store search instead.
+    # Fashion knowledge (global) and outfit history (user-scoped) are
+    # independent retrievals.  On the FAISS backend the history search never
+    # touches the DB session, so the two can run concurrently.  On pgvector
+    # both share one AsyncSession (which cannot execute two queries at once),
+    # so they stay sequential there.
+    fashion_task = fashion_rag_service.search_fashion_knowledge(
+        session, query, limit=3, category=None, occasion=occasion, weather=weather
+    )
     if isinstance(_store, PGVectorStore):
+        fashion_docs = await fashion_task
         outfit_history = await outfit_history_service.search_similar_outfit_history(
             session,
             user_id=user_id,
@@ -92,8 +104,11 @@ async def retrieve_outfit_context(
             limit=limit,
         )
     else:
-        outfit_history = await _faiss_outfit_history_search(
-            _store, user_id=user_id, occasion=occasion, weather=weather, limit=limit
+        fashion_docs, outfit_history = await asyncio.gather(
+            fashion_task,
+            _faiss_outfit_history_search(
+                _store, user_id=user_id, occasion=occasion, weather=weather, limit=limit
+            ),
         )
 
     has_context = bool(fashion_docs or outfit_history)
@@ -120,18 +135,19 @@ async def _faiss_outfit_history_search(
     limit: int,
 ) -> list[dict[str, Any]]:
     """Outfit history search via FAISS backend (used in tests/local dev)."""
-    query = f"Occasion: {occasion}. Weather: {weather}".strip(". ")
+    query = build_outfit_history_query(occasion=occasion, weather=weather)
     embedding = await generate_text_embedding(query)
     if not embedding:
         return []
+    fetch_limit = min(max(limit * 3, limit), 15)
     results = await store.search(
         source_type=SOURCE_OUTFIT_HISTORY,
         embedding=embedding,
         user_id=user_id,
-        limit=limit,
+        limit=fetch_limit,
         threshold=_THRESHOLD_OUTFIT_HISTORY,
     )
-    return [
+    records = [
         {
             "id": r.record_id,
             "occasion": r.payload.get("occasion"),
@@ -148,6 +164,7 @@ async def _faiss_outfit_history_search(
         }
         for r in results
     ]
+    return rerank_outfit_history(records, occasion=occasion)[:limit]
 
 
 # ── Packing context ───────────────────────────────────────────────────────────
@@ -223,26 +240,22 @@ async def _faiss_packing_search(
     limit: int,
 ) -> list[dict[str, Any]]:
     """Packing memory search via FAISS backend."""
-    parts = [f"Destination: {destination}", f"Purpose: {purpose}"]
-    if start_date and end_date:
-        parts.append(f"Dates: {start_date} to {end_date}")
-    if weather_summary:
-        cond = weather_summary.get("dominant_condition", "")
-        if cond:
-            parts.append(f"Weather: {cond}")
-    query = ". ".join(parts)
+    query = build_packing_memory_query(
+        destination, purpose, weather_summary, start_date, end_date
+    )
 
     embedding = await generate_text_embedding(query)
     if not embedding:
         return []
+    fetch_limit = min(max(limit * 3, limit), 15)
     results = await store.search(
         source_type=SOURCE_PACKING_MEMORY,
         embedding=embedding,
         user_id=user_id,
-        limit=limit,
+        limit=fetch_limit,
         threshold=_THRESHOLD_PACKING,
     )
-    return [
+    records = [
         {
             "id": r.record_id,
             "destination": r.payload.get("destination", destination),
@@ -258,6 +271,9 @@ async def _faiss_packing_search(
         }
         for r in results
     ]
+    return rerank_packing_memories(
+        records, purpose=purpose, destination=destination
+    )[:limit]
 
 
 # ── Similar items ─────────────────────────────────────────────────────────────
