@@ -605,7 +605,7 @@ def _build_packing_checklist(
             }
 
     # Add standard essentials
-    essentials = [
+    essentials: list[dict[str, Any]] = [
         {"item_name": "Underwear", "category": "innerwear", "quantity": trip_days, "source": "essential"},
         {"item_name": "Socks", "category": "innerwear", "quantity": trip_days, "source": "essential"},
         {"item_name": "Sleepwear", "category": "sleepwear", "quantity": 1, "source": "essential"},
@@ -1197,7 +1197,7 @@ def _minimal_packing_fallback(
             }
         ]
 
-    take_from_closet = [
+    take_from_closet: list[dict[str, Any]] = [
         {
             "item_id": item.get("id"),
             "name": item.get("name") or "Wardrobe item",

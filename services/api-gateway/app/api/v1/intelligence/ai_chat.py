@@ -76,7 +76,7 @@ class FeedbackRequest(BaseModel):
 
 class SaveOutfitRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
-    item_ids: list[str] = Field(..., min_items=1)
+    item_ids: list[str] = Field(..., min_length=1)
     occasion: str = "casual"
     explanation: str | None = None
     style_score: int | None = Field(None, ge=0, le=100)

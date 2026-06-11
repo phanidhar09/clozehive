@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from decimal import Decimal
-from typing import Annotated, Any, Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -61,9 +61,9 @@ def _sanitize_size_profile(v: dict[str, Any] | None) -> dict[str, str]:
 class StyleProfileCreate(BaseModel):
     gender: GenderValue | None = None
     custom_gender: str | None = Field(None, max_length=120)
-    height_value: Annotated[Decimal | None, Field(None)]
+    height_value: Decimal | None = None
     height_unit: HeightUnit | None = None
-    weight_value: Annotated[Decimal | None, Field(None)]
+    weight_value: Decimal | None = None
     weight_unit: WeightUnit | None = None
     age_range: str | None = Field(None, max_length=40)
     skin_tone: str | None = Field(None, max_length=32)
@@ -161,9 +161,9 @@ class StyleProfileCreate(BaseModel):
 class StyleProfileUpdate(BaseModel):
     gender: GenderValue | None = None
     custom_gender: str | None = Field(None, max_length=120)
-    height_value: Annotated[Decimal | None, Field(None)]
+    height_value: Decimal | None = None
     height_unit: HeightUnit | None = None
-    weight_value: Annotated[Decimal | None, Field(None)]
+    weight_value: Decimal | None = None
     weight_unit: WeightUnit | None = None
     age_range: str | None = Field(None, max_length=40)
     skin_tone: str | None = Field(None, max_length=32)

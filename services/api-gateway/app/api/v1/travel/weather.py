@@ -34,6 +34,7 @@ async def current_weather(user_id: CurrentUser, session: DbSession):
     # single-flight so a burst doesn't fan out to OpenWeather, SWR so an expired
     # entry is served while refreshing, and negative caching to absorb failures.
     if has_coords:
+        assert isinstance(coords, dict)
         key = cache_service.namespaced_key("weather", "coords", f"{coords['lat']:.3f},{coords['lon']:.3f}")
 
         async def _compute():

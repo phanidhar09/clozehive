@@ -5,7 +5,9 @@ This is the entry-point for uvicorn.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -46,7 +48,7 @@ except ImportError:
     def _close_firestore() -> None:  # type: ignore
         return None
 
-    def _init_firestore() -> None:  # type: ignore
+    def _init_firestore() -> None:
         return None
 
 
@@ -63,7 +65,7 @@ _startup_migrations_error: str = ""
 # ── Lifespan ──────────────────────────────────────────────────────────────────
 
 
-async def rate_limit_handler(request: Request, _exc: RateLimitExceeded) -> JSONResponse:
+async def rate_limit_handler(request: Request, _exc: Exception) -> JSONResponse:
     return json_error(
         request,
         detail="Too many requests. Please wait before trying again.",
@@ -72,7 +74,7 @@ async def rate_limit_handler(request: Request, _exc: RateLimitExceeded) -> JSONR
     )
 
 
-def _validation_errors(errors: list[dict]) -> list[dict[str, str]]:
+def _validation_errors(errors: Sequence[Any]) -> list[dict[str, str]]:
     clean_errors = []
     for error in errors:
         loc = [str(part) for part in error.get("loc", []) if part not in {"body", "query", "path"}]
@@ -85,7 +87,8 @@ def _validation_errors(errors: list[dict]) -> list[dict[str, str]]:
     return clean_errors
 
 
-async def validation_exception_handler(request: Request, exc: RequestValidationError | ValidationError) -> JSONResponse:
+async def validation_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    assert isinstance(exc, RequestValidationError | ValidationError)
     return json_error(
         request,
         detail="Validation failed",

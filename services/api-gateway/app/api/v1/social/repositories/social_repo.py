@@ -107,7 +107,7 @@ class GroupMemberRepository(BaseRepository[GroupMember]):
             .where(GroupMember.group_id == group_id)
             .order_by(GroupMember.joined_at.asc())
         )
-        return list(result.all())
+        return list(result.tuples().all())
 
     async def member_count(self, group_id: UUID) -> int:
         return await self.count(GroupMember.group_id == group_id)

@@ -464,8 +464,8 @@ async def get_closet_match_suggestions(
     if inventory:
         inv_lines = "\n".join(
             f"[{i + 1}] {r.get('name', '')} — {r.get('category', '')}"
-            f"{', ' + r.get('color') if r.get('color') else ''}"
-            f"{' (' + ', '.join(r.get('occasion')) + ')' if r.get('occasion') else ''}"
+            f"{', ' + str(r['color']) if r.get('color') else ''}"
+            f"{' (' + ', '.join(r.get('occasion') or []) + ')' if r.get('occasion') else ''}"
             for i, r in enumerate(inventory)
         )
     else:

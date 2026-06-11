@@ -7,6 +7,8 @@ No raw stack traces ever reach the client.
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import HTTPException, Request, status
 from fastapi.responses import JSONResponse
 
@@ -81,7 +83,8 @@ class AIServiceError(AppError):
 # ── FastAPI exception handlers ────────────────────────────────────────────────
 
 
-async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
+async def app_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    assert isinstance(exc, AppError)
     from app.core.logging import get_logger
 
     logger = get_logger("exceptions")
@@ -127,7 +130,8 @@ async def unhandled_error_handler(request: Request, exc: Exception) -> JSONRespo
     )
 
 
-async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+async def http_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    assert isinstance(exc, HTTPException)
     from app.core.logging import get_logger
 
     logger = get_logger("exceptions")
@@ -154,7 +158,7 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
         status_code=exc.status_code,
         code=code,
     )
-    extra = {}
+    extra: dict[str, Any] = {}
     if isinstance(detail, dict) and detail:
         extra["errors"] = detail
     return json_error(

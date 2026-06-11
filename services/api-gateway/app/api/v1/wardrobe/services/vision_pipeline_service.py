@@ -81,13 +81,13 @@ def _compress_image(
     """
     cap = _MAX_DIMENSION if max_side is None else max_side
     try:
-        img = Image.open(io.BytesIO(image_bytes))
+        img: Image.Image = Image.open(io.BytesIO(image_bytes))
         w, h = img.size
         if max(w, h) > cap:
             scale = cap / max(w, h)
             new_w = math.floor(w * scale)
             new_h = math.floor(h * scale)
-            img = img.resize((new_w, new_h), Image.LANCZOS)
+            img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
         buf = io.BytesIO()
         if media_type == "image/png":
@@ -384,7 +384,7 @@ async def run_pipeline(
         raw["detected_item_id"] = str(uuid4())
 
     # 4. Per item: full BG + OpenAI enrich, OR (preview_fast) JPEG crop only
-    from app.api.v1.wardrobe.services.fashion_analysis_service import _crop_item  # type: ignore[attr-defined]
+    from app.api.v1.wardrobe.services.fashion_analysis_service import _crop_item
 
     async def _process_item(raw: dict[str, Any]) -> VisionAnalysisItem:
         detected_item_id: str = raw["detected_item_id"]
@@ -674,7 +674,7 @@ async def run_pipeline_streaming(
         {"type": "stage", "stage": "backgrounds", "message": f"Removing backgrounds from {len(raw_items)} item(s)..."}
     )
 
-    from app.api.v1.wardrobe.services.fashion_analysis_service import _crop_item  # type: ignore[attr-defined]
+    from app.api.v1.wardrobe.services.fashion_analysis_service import _crop_item
 
     queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
 

@@ -61,7 +61,7 @@ def _try_rembg(image_bytes: bytes) -> bytes | None:
     Returns RGBA PNG bytes on success, None if rembg is unavailable or fails.
     """
     try:
-        import rembg  # type: ignore[import]
+        import rembg
 
         result = rembg.remove(image_bytes)
         if result:
@@ -149,7 +149,7 @@ def _pil_remove(image_bytes: bytes, base_tolerance: int = _DEFAULT_TOLERANCE) ->
                 new_pixels.append((r, g, b, raw_alpha))
             else:
                 new_pixels.append((r, g, b, 255))
-        img.putdata(new_pixels)  # type: ignore[arg-type]
+        img.putdata(new_pixels)
 
         r_ch, g_ch, b_ch, a_ch = img.split()
         a_ch = a_ch.filter(ImageFilter.GaussianBlur(radius=1.5))

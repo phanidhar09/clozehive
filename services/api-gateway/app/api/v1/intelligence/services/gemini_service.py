@@ -58,7 +58,7 @@ _client: Any = None
 def _get_client() -> Any:
     global _client
     if _client is None:
-        from google import genai  # type: ignore[import]
+        from google import genai
 
         _client = genai.Client(api_key=settings.gemini_api_key)
         logger.info("gemini_client_initialized", model=settings.gemini_model)
@@ -219,7 +219,7 @@ async def detect_and_classify(image_bytes: bytes, media_type: str) -> dict[str, 
     Returns the standard detection dict (same shape as fashion_analysis_service).
     Raises on API error or JSON parse failure — callers should catch and fall back.
     """
-    from google.genai import types  # type: ignore[import]
+    from google.genai import types
 
     client = _get_client()
 

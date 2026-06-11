@@ -27,7 +27,7 @@ try:
 except ModuleNotFoundError:  # Allows local syntax/import checks before requirements are installed.
     from sqlalchemy import JSON as _JSON
 
-    def Vector(_: int) -> _JSON:  # type: ignore
+    def Vector(_: int) -> _JSON:
         return _JSON()
 
 

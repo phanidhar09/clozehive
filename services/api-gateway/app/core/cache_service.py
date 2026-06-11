@@ -13,7 +13,7 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import date, datetime
 from enum import Enum
-from typing import Any
+from typing import Any, cast
 
 import redis.asyncio as aioredis
 
@@ -125,7 +125,7 @@ local v = redis.call('GET', KEYS[1])
 if v then redis.call('DEL', KEYS[1]) end
 return v
 """
-            raw = await client.eval(lua, 1, key)  # type: ignore[arg-type]
+            raw = await cast("Awaitable[str]", client.eval(lua, 1, key))
 
         if raw is None:
             return None
@@ -298,7 +298,7 @@ local v = redis.call('GET', KEYS[1])
 if v then redis.call('DEL', KEYS[1]) end
 return v
 """
-            raw = await client.eval(lua, 1, key)  # type: ignore[arg-type]
+            raw = await cast("Awaitable[str]", client.eval(lua, 1, key))
         return json.loads(raw) if raw is not None else None
     except Exception as exc:
         logger.warning("state_getdel_error", key=key, error=str(exc))

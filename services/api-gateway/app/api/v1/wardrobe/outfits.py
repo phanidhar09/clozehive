@@ -337,7 +337,7 @@ async def analyze_outfit(
     score = outfit_data.get("matching_score")
     reasoning = outfit_data.get("reasoning") or outfit_data.get("why_it_works")
     improvements = (outfit_data.get("recommendations") or {}).get("improvements", [])
-    item_names = [i.get("name", "") for i in items_for_ai]
+    item_names = [str(i.get("name", "")) for i in items_for_ai]
 
     background_tasks.add_task(
         _save_outfit_history_and_gaps,
@@ -369,7 +369,7 @@ async def analyze_outfit(
 
 
 class ShuffleOutfitRequest(BaseModel):
-    item_ids: list[str] = Field(..., min_items=1, description="Current outfit item IDs")
+    item_ids: list[str] = Field(..., min_length=1, description="Current outfit item IDs")
     occasion: str = "casual"
     seed_category: str | None = Field(
         None, description="Optional category to anchor first alternative (e.g. 'tops', 'bottoms')"

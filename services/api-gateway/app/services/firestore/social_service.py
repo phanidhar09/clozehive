@@ -91,7 +91,7 @@ class FirestoreFollowService:
         query = db.collection(_FOLLOWS).where(filter=FieldFilter("following_id", "==", str(user_id)))
         ids = []
         async for doc in query.stream():
-            d = doc.to_dict()
+            d = doc.to_dict() or {}
             ids.append(UUID(d["follower_id"]))
         return ids
 
@@ -101,7 +101,7 @@ class FirestoreFollowService:
         query = db.collection(_FOLLOWS).where(filter=FieldFilter("follower_id", "==", str(user_id)))
         ids = []
         async for doc in query.stream():
-            d = doc.to_dict()
+            d = doc.to_dict() or {}
             ids.append(UUID(d["following_id"]))
         return ids
 
@@ -139,13 +139,13 @@ class FirestoreGroupService:
         doc = await db.collection(_GROUPS).document(str(group_id)).get()
         if not doc.exists:
             raise NotFoundError(f"Group {group_id} not found")
-        return doc.to_dict()
+        return doc.to_dict() or {}
 
     async def get_by_invite_code(self, invite_code: str) -> dict[str, Any] | None:
         db = get_db()
         query = db.collection(_GROUPS).where(filter=FieldFilter("invite_code", "==", invite_code)).limit(1)
         async for doc in query.stream():
-            return doc.to_dict()
+            return doc.to_dict() or {}
         return None
 
     async def get_user_groups(self, user_id: UUID) -> list[dict[str, Any]]:
@@ -154,7 +154,7 @@ class FirestoreGroupService:
         member_query = db.collection(_GROUP_MEMBERS).where(filter=FieldFilter("user_id", "==", str(user_id)))
         group_ids = []
         async for doc in member_query.stream():
-            group_ids.append(doc.to_dict()["group_id"])
+            group_ids.append((doc.to_dict() or {})["group_id"])
 
         groups = []
         for gid in group_ids:
@@ -176,11 +176,11 @@ class FirestoreGroupService:
         )
         my_group_ids: set[str] = set()
         async for doc in user_member_query.stream():
-            my_group_ids.add(doc.to_dict()["group_id"])
+            my_group_ids.add((doc.to_dict() or {})["group_id"])
 
         groups = []
         async for doc in query.stream():
-            d = doc.to_dict()
+            d = doc.to_dict() or {}
             if d["id"] not in my_group_ids:
                 groups.append(d)
         return groups
@@ -211,7 +211,7 @@ class FirestoreGroupMemberService:
     async def get_membership(self, group_id: UUID, user_id: UUID) -> dict[str, Any] | None:
         db = get_db()
         doc = await db.collection(_GROUP_MEMBERS).document(_member_doc_id(group_id, user_id)).get()
-        return doc.to_dict() if doc.exists else None
+        return (doc.to_dict() or {}) if doc.exists else None
 
     async def update_role(self, group_id: UUID, user_id: UUID, role: str) -> None:
         db = get_db()
@@ -228,5 +228,5 @@ class FirestoreGroupMemberService:
         query = db.collection(_GROUP_MEMBERS).where(filter=FieldFilter("group_id", "==", str(group_id)))
         members = []
         async for doc in query.stream():
-            members.append(doc.to_dict())
+            members.append(doc.to_dict() or {})
         return members

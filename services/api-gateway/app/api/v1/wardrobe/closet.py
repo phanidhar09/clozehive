@@ -486,9 +486,7 @@ async def re_embed_closet(
                     succeeded += 1
                 except Exception as exc:
                     failed += 1
-                    import logging
-
-                    logging.getLogger("re_embed").warning("re_embed_item_failed", item_id=str(item.id), error=str(exc))
+                    _log.warning("re_embed_item_failed", item_id=str(item.id), error=str(exc))
                 # Commit in batches of 20
                 if (i + 1) % 20 == 0:
                     await bg_session.commit()

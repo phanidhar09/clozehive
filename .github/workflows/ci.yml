@@ -15,18 +15,20 @@ jobs:
       - name: Install lint dependencies
         # Pinned — unpinned ruff/mypy caused CI breakage whenever a new release
         # added rules. Bump deliberately, fixing new findings in the same PR.
-        run: pip install ruff==0.15.16 mypy==2.1.0
+        # App requirements are needed because mypy loads the pydantic plugin
+        # (see [tool.mypy] in services/api-gateway/pyproject.toml) and resolves
+        # SQLAlchemy/FastAPI types from the installed packages.
+        run: |
+          pip install -r services/api-gateway/requirements.txt
+          pip install ruff==0.15.16 mypy==2.1.0
       - name: Ruff lint (style + import boundaries)
         working-directory: services/api-gateway
         run: ruff check app
       - name: Ruff format check
         working-directory: services/api-gateway
         run: ruff format --check app
-      - name: Run mypy (advisory)
+      - name: Run mypy
         working-directory: services/api-gateway
-        # Non-blocking: ~117 pre-existing type errors accumulated while the lint
-        # job was red. Remove continue-on-error once the mypy debt is paid down.
-        continue-on-error: true
         run: mypy app --ignore-missing-imports
 
   frontend-ci:

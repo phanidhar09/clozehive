@@ -291,7 +291,7 @@ async def create_trip(
             missing = packing_result.get("you_might_still_need", [])
             await save_packing_memory(
                 session,
-                user_id=UUID(user_id),
+                user_id=user_id,
                 trip_id=str(trip.id),
                 destination=trip.destination,
                 start_date=trip.start_date.isoformat(),
@@ -304,7 +304,7 @@ async def create_trip(
             )
             await detect_and_save_gaps(
                 session,
-                user_id=UUID(user_id),
+                user_id=user_id,
                 closet_items=closet_items,
                 missing_packing_items=missing,
                 trip_context={

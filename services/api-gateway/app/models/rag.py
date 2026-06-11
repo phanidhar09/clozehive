@@ -20,7 +20,7 @@ try:
 except ModuleNotFoundError:
     from sqlalchemy import JSON as _JSON
 
-    def Vector(_: int) -> _JSON:  # type: ignore
+    def Vector(_: int) -> _JSON:
         return _JSON()
 
 

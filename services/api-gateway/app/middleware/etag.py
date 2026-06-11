@@ -48,7 +48,7 @@ class ETagMiddleware(BaseHTTPMiddleware):
 
         # Buffer the JSON body (safe: these endpoints return bounded collections).
         body = b""
-        async for chunk in response.body_iterator:  # type: ignore[attr-defined]
+        async for chunk in response.body_iterator:
             body += chunk
 
         etag = _strong_etag(body)

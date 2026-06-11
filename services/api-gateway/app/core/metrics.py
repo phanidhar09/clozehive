@@ -196,7 +196,7 @@ def _wire_db_pool_gauges() -> None:
 
         def _in_use(eng) -> float:
             try:
-                return float(eng.pool.checkedout())  # type: ignore[attr-defined]
+                return float(eng.pool.checkedout())
             except Exception:
                 return 0.0
 

@@ -46,7 +46,7 @@ class ConnectionManager:
         self._connections: dict[str, list[WebSocket]] = {}
         self._listener_task: asyncio.Task | None = None
         self._listener_lock = asyncio.Lock()
-        self._pubsub = None
+        self._pubsub: Any = None
 
     async def connect(self, ws: WebSocket, user_id: str) -> None:
         await ws.accept()

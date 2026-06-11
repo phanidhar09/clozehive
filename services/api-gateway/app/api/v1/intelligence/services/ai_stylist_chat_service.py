@@ -575,7 +575,9 @@ async def process_chat_message(
 
     # ── Step 3: Build fashion rules hint ─────────────────────────────────────
     weather_cond = (weather.get("condition") or "mild") if weather else "mild"
-    fashion_rules_block = build_fashion_rules_prompt_block(closet_items, occasion, weather_cond, user_profile)
+    fashion_rules_block = build_fashion_rules_prompt_block(
+        closet_items, occasion or "casual", weather_cond, user_profile
+    )
 
     # ── Step 3b: Conversation summarization (long-chat memory) ───────────────
     summary_block = ""
@@ -615,7 +617,7 @@ async def process_chat_message(
 
     # ── Step 5: Build conversation messages ───────────────────────────────────
     # Sanitise every user-supplied string before it enters the conversation.
-    messages: list[dict[str, str]] = []
+    messages: list[dict[str, Any]] = []
     for h in history_for_prompt[-10:]:
         role = h.get("role")
         content = h.get("content")
@@ -638,15 +640,15 @@ async def process_chat_message(
     # Build vision message when images are attached
     user_images = [img for img in (images or []) if img.startswith("data:image/")][:3]
     if user_images:
-        content: list[dict[str, Any]] = [{"type": "text", "text": augmented_message}]
+        vision_content: list[dict[str, Any]] = [{"type": "text", "text": augmented_message}]
         for img_b64 in user_images:
-            content.append(
+            vision_content.append(
                 {
                     "type": "image_url",
                     "image_url": {"url": img_b64, "detail": "high"},
                 }
             )
-        messages.append({"role": "user", "content": content})
+        messages.append({"role": "user", "content": vision_content})
         logger.info("vision_message_built", user_id=str(user_id), image_count=len(user_images))
     else:
         messages.append({"role": "user", "content": augmented_message})

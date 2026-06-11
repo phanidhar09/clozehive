@@ -81,7 +81,7 @@ def strip_metadata(image_bytes: bytes, content_type: str) -> bytes:
         return image_bytes
 
     try:
-        img = Image.open(io.BytesIO(image_bytes))
+        img: Image.Image = Image.open(io.BytesIO(image_bytes))
         img = ImageOps.exif_transpose(img)
         buf = io.BytesIO()
         if content_type == "image/jpeg":
@@ -178,7 +178,7 @@ def _service_account_dict_from_settings():
 def _gcs_client():
     """Build a GCS Storage client from settings credentials or ADC."""
     try:
-        from google.cloud import storage  # type: ignore[import-untyped]
+        from google.cloud import storage
     except ImportError:
         raise RuntimeError(
             "google-cloud-storage is not installed. Add it to requirements.txt: google-cloud-storage>=2.16.0"
@@ -189,7 +189,7 @@ def _gcs_client():
 
     if creds_dict:
         try:
-            from google.oauth2 import service_account  # type: ignore[import-untyped]
+            from google.oauth2 import service_account
 
             pk = creds_dict.get("private_key")
             if not isinstance(pk, str) or ("BEGIN PRIVATE KEY" not in pk and "BEGIN RSA PRIVATE KEY" not in pk):

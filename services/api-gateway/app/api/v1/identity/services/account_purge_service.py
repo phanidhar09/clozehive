@@ -16,6 +16,7 @@ purge durable:
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 from uuid import UUID
 
 import httpx
@@ -103,7 +104,7 @@ async def reconcile_pending() -> None:
         ok, detail = await _attempt_closet_purge(str(row.user_id))
         async with AsyncSessionLocal() as session:
             if ok:
-                values = {"status": "done", "last_error": None}
+                values: dict[str, Any] = {"status": "done", "last_error": None}
             else:
                 attempts = row.attempts + 1
                 status = "failed" if attempts >= MAX_ATTEMPTS else "pending"

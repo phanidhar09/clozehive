@@ -338,7 +338,9 @@ async def stream_chat_message(
     closet_map = {it["id"]: it for it in closet_items}
 
     weather_cond = (weather.get("condition") or "mild") if weather else "mild"
-    fashion_rules_block = build_fashion_rules_prompt_block(closet_items, occasion, weather_cond, user_profile)
+    fashion_rules_block = build_fashion_rules_prompt_block(
+        closet_items, occasion or "casual", weather_cond, user_profile
+    )
 
     # Conversation summarization — fold older turns once history gets long.
     full_history = list(chat_history or [])

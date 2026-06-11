@@ -105,7 +105,12 @@ async def stream_chat(
         except APIError as exc:
             if attempt < _MAX_RETRIES and getattr(exc, "status_code", 0) >= 500:
                 delay = _RETRY_BASE_DELAY * (2**attempt)
-                logger.warning("openai_server_error_retry", attempt=attempt + 1, delay=delay, status=exc.status_code)
+                logger.warning(
+                    "openai_server_error_retry",
+                    attempt=attempt + 1,
+                    delay=delay,
+                    status=getattr(exc, "status_code", None),
+                )
                 await asyncio.sleep(delay)
                 continue
             logger.error("openai_chat_error", error=str(exc), status=getattr(exc, "status_code", None))

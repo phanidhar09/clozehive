@@ -117,7 +117,7 @@ class FirestoreClosetService:
         # Firestore doesn't support SQL-style OFFSET, so we fetch all and slice
         all_docs: list[dict[str, Any]] = []
         async for doc in query.stream():
-            all_docs.append(doc.to_dict())
+            all_docs.append(doc.to_dict() or {})
 
         total = len(all_docs)
         offset = (page - 1) * per_page
@@ -154,7 +154,7 @@ class FirestoreClosetService:
         doc = await db.collection(_COLLECTION).document(str(item_id)).get()
         if not doc.exists:
             raise NotFoundError(f"Item {item_id} not found")
-        data = doc.to_dict()
+        data = doc.to_dict() or {}
         if data.get("user_id") != str(user_id):
             raise ForbiddenError("Item does not belong to you")
         return _to_response(data)
@@ -192,7 +192,7 @@ class FirestoreClosetService:
         doc = await ref.get()
         if not doc.exists:
             raise NotFoundError(f"Item {item_id} not found")
-        stored = doc.to_dict()
+        stored = doc.to_dict() or {}
         if stored.get("user_id") != str(user_id):
             raise ForbiddenError("Item does not belong to you")
 
@@ -211,7 +211,7 @@ class FirestoreClosetService:
         doc = await ref.get()
         if not doc.exists:
             raise NotFoundError(f"Item {item_id} not found")
-        if doc.to_dict().get("user_id") != str(user_id):
+        if (doc.to_dict() or {}).get("user_id") != str(user_id):
             raise ForbiddenError("Item does not belong to you")
         await ref.delete()
         await cache_service.invalidate_closet_list_cache(str(user_id))
@@ -225,7 +225,7 @@ class FirestoreClosetService:
         doc = await ref.get()
         if not doc.exists:
             raise NotFoundError(f"Item {item_id} not found")
-        stored = doc.to_dict()
+        stored = doc.to_dict() or {}
         if stored.get("user_id") != str(user_id):
             raise ForbiddenError("Item does not belong to you")
 
@@ -254,7 +254,7 @@ class FirestoreClosetService:
         )
         result = []
         async for doc in query.stream():
-            d = doc.to_dict()
+            d = doc.to_dict() or {}
             result.append(
                 {
                     "id": d.get("id", ""),

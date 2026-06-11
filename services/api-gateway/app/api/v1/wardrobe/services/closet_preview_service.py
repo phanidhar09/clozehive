@@ -207,7 +207,7 @@ async def _recrop_from_source(
     Used when image_base64 is absent (cache hit) — returns (proc_url, success).
     Falls back to original_url if bounding_box is missing or crop fails.
     """
-    from app.api.v1.wardrobe.services.fashion_analysis_service import _crop_item  # type: ignore[attr-defined]
+    from app.api.v1.wardrobe.services.fashion_analysis_service import _crop_item
 
     bb = getattr(vitem, "bounding_box", None)
     if bb is None:

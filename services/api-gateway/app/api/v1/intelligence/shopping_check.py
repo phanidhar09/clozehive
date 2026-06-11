@@ -37,7 +37,7 @@ async def check_shopping_item(
     # Persist image (best-effort — analysis still runs if storage fails)
     image_url: str | None = None
     try:
-        image_url = await persist_upload(image_bytes, media_type)
+        image_url = await persist_upload(image_bytes, media_type, file.filename)
     except Exception:
         pass
 

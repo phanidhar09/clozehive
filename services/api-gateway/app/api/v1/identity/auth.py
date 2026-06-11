@@ -20,6 +20,8 @@ import hashlib
 import secrets
 import ssl
 import uuid as _uuid
+from collections.abc import Sequence
+from typing import Literal, cast
 from urllib.parse import urlencode
 
 import certifi
@@ -111,6 +113,11 @@ def _oauth_login_redirect(
 _REFRESH_COOKIE_NAME = "ch_refresh_token"
 
 
+def _cookie_samesite() -> Literal["lax", "strict", "none"]:
+    """COOKIE_SAMESITE is stored as "Lax"/"Strict"/"None"; starlette wants lowercase."""
+    return cast('Literal["lax", "strict", "none"]', settings.cookie_samesite.lower())
+
+
 def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
     """Set the HttpOnly refresh-token cookie on *response*.
 
@@ -127,7 +134,7 @@ def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
         value=refresh_token,
         httponly=True,
         secure=settings.cookie_secure,  # True in production
-        samesite=settings.cookie_samesite,  # "Lax" default
+        samesite=_cookie_samesite(),  # "Lax" default
         max_age=max_age,
         path="/api/v1/auth",  # Scope cookie to auth paths only
         domain=settings.cookie_domain or None,
@@ -142,7 +149,7 @@ def _clear_refresh_cookie(response: Response) -> None:
         domain=settings.cookie_domain or None,
         httponly=True,
         secure=settings.cookie_secure,
-        samesite=settings.cookie_samesite,
+        samesite=_cookie_samesite(),
     )
 
 
@@ -487,7 +494,7 @@ async def export_my_data(
     # AI chat sessions + messages
     session_rows = (await session.execute(select(AIChatSession).where(AIChatSession.user_id == uid))).scalars().all()
     session_ids = [s.id for s in session_rows]
-    message_rows = []
+    message_rows: Sequence[AIChatMessage] = []
     if session_ids:
         message_rows = (
             (await session.execute(select(AIChatMessage).where(AIChatMessage.session_id.in_(session_ids))))
