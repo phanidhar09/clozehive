@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Optional, Any, Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, EmailStr, Field, computed_field, field_validator
@@ -15,7 +15,7 @@ class SignupRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=60)
     email: EmailStr = Field(..., max_length=254)
     # username is optional — the service auto-generates one from name/email if omitted
-    username: Optional[str] = Field(None, min_length=3, max_length=30)
+    username: str | None = Field(None, min_length=3, max_length=30)
     password: str = Field(..., min_length=8, max_length=128)
     # GDPR Art. 6/7 — explicit consent is required before account creation
     gdpr_consent: bool = Field(..., description="User must explicitly accept the Privacy Policy and Terms of Service")
@@ -39,7 +39,7 @@ class SignupRequest(BaseModel):
 
     @field_validator("username")
     @classmethod
-    def username_alphanumeric(cls, v: Optional[str]) -> Optional[str]:
+    def username_alphanumeric(cls, v: str | None) -> str | None:
         if v is None:
             return v
         if not re.match(r"^[a-zA-Z0-9_]+$", v):
@@ -64,7 +64,7 @@ class LoginRequest(BaseModel):
 
 class RefreshRequest(BaseModel):
     # Kept for backwards compatibility; the cookie path is preferred.
-    refresh_token: Optional[str] = None
+    refresh_token: str | None = None
 
 
 # ── Personalization sub-schemas ──────────────────────────────────────────────
@@ -78,19 +78,19 @@ StyleTag = Literal[
 
 
 class BodyProfile(BaseModel):
-    height_cm: Optional[float] = Field(None, ge=80, le=260)
-    weight_kg: Optional[float] = Field(None, ge=25, le=300)
-    body_type: Optional[BodyType] = None
-    preferred_fit: Optional[PreferredFit] = None
-    shirt_size: Optional[str] = Field(None, max_length=20)
-    pant_size: Optional[str] = Field(None, max_length=20)
-    shoe_size: Optional[str] = Field(None, max_length=20)
+    height_cm: float | None = Field(None, ge=80, le=260)
+    weight_kg: float | None = Field(None, ge=25, le=300)
+    body_type: BodyType | None = None
+    preferred_fit: PreferredFit | None = None
+    shirt_size: str | None = Field(None, max_length=20)
+    pant_size: str | None = Field(None, max_length=20)
+    shoe_size: str | None = Field(None, max_length=20)
 
 
 class StyleProfile(BaseModel):
     selected_styles: list[StyleTag] = Field(default_factory=list, max_length=8)
-    learned_style: Optional[str] = Field(None, max_length=50)
-    learned_at: Optional[str] = None  # ISO timestamp from frontend
+    learned_style: str | None = Field(None, max_length=50)
+    learned_at: str | None = None  # ISO timestamp from frontend
     favorite_colors: list[str] = Field(default_factory=list, max_length=12)
     avoid_colors: list[str] = Field(default_factory=list, max_length=12)
 
@@ -98,23 +98,23 @@ class StyleProfile(BaseModel):
 class UserPreferences(BaseModel):
     occasion_focus: list[str] = Field(default_factory=list, max_length=10)
     avoid_categories: list[str] = Field(default_factory=list, max_length=20)
-    notes: Optional[str] = Field(None, max_length=500)
+    notes: str | None = Field(None, max_length=500)
 
 
 class UserPermissions(BaseModel):
     location: bool = False
     calendar: bool = False
-    location_coords: Optional[dict[str, float]] = None  # { lat, lon }
-    location_label: Optional[str] = Field(None, max_length=120)
-    timezone: Optional[str] = Field(None, max_length=80)
+    location_coords: dict[str, float] | None = None  # { lat, lon }
+    location_label: str | None = Field(None, max_length=120)
+    timezone: str | None = Field(None, max_length=80)
 
 
 class AvatarConfig(BaseModel):
-    skin_tone: Optional[str] = Field(None, max_length=20)
-    hair_color: Optional[str] = Field(None, max_length=20)
-    hair_style: Optional[str] = Field(None, max_length=20)
-    body_type: Optional[str] = Field(None, max_length=20)
-    outfit: Optional[str] = Field(None, max_length=20)
+    skin_tone: str | None = Field(None, max_length=20)
+    hair_color: str | None = Field(None, max_length=20)
+    hair_style: str | None = Field(None, max_length=20)
+    body_type: str | None = Field(None, max_length=20)
+    outfit: str | None = Field(None, max_length=20)
 
 
 class UserResponse(BaseModel):
@@ -122,17 +122,17 @@ class UserResponse(BaseModel):
     email: str
     username: str
     name: str
-    bio: Optional[str]
-    avatar_url: Optional[str]
+    bio: str | None
+    avatar_url: str | None
     role: str
     is_active: bool
     is_verified: bool
     auth_provider: str = "local"
-    body_profile: Optional[dict[str, Any]] = None
-    style_profile: Optional[dict[str, Any]] = None
-    preferences: Optional[dict[str, Any]] = None
-    permissions: Optional[dict[str, Any]] = None
-    avatar_config: Optional[dict[str, Any]] = None
+    body_profile: dict[str, Any] | None = None
+    style_profile: dict[str, Any] | None = None
+    preferences: dict[str, Any] | None = None
+    permissions: dict[str, Any] | None = None
+    avatar_config: dict[str, Any] | None = None
 
     model_config = {"from_attributes": True}
 
@@ -159,16 +159,16 @@ class TokenResponse(BaseModel):
 
 
 class UpdateProfileRequest(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=60)
-    username: Optional[str] = Field(None, min_length=3, max_length=30)
-    bio: Optional[str] = Field(None, max_length=500)
-    avatar_url: Optional[str] = None
+    name: str | None = Field(None, min_length=1, max_length=60)
+    username: str | None = Field(None, min_length=3, max_length=30)
+    bio: str | None = Field(None, max_length=500)
+    avatar_url: str | None = None
     # Personalization sections — clients send only the keys they want to update.
-    body_profile: Optional[BodyProfile] = None
-    style_profile: Optional[StyleProfile] = None
-    preferences: Optional[UserPreferences] = None
-    permissions: Optional[UserPermissions] = None
-    avatar_config: Optional[AvatarConfig] = None
+    body_profile: BodyProfile | None = None
+    style_profile: StyleProfile | None = None
+    preferences: UserPreferences | None = None
+    permissions: UserPermissions | None = None
+    avatar_config: AvatarConfig | None = None
 
     @field_validator("name", "bio", mode="before")
     @classmethod

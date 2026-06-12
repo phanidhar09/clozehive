@@ -6,8 +6,6 @@ from uuid import UUID
 
 from langsmith import traceable
 from openai import AsyncOpenAI
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.logging import get_logger

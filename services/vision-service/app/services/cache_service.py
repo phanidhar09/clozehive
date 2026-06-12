@@ -5,13 +5,9 @@ Gracefully degrades (logs warning, returns None) when Redis is unavailable.
 
 from __future__ import annotations
 
-import builtins
-import hashlib
 import json
 from collections.abc import AsyncIterator
-from datetime import date, datetime
-from enum import Enum
-from typing import Optional, Any
+from typing import Any
 
 import redis.asyncio as aioredis
 

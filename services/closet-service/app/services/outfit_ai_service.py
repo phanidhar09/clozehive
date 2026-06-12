@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from app.core.llm_json import parse_llm_json
 from app.core.logging import get_logger
 from app.services import ai_service
 
@@ -188,16 +189,6 @@ def _location_prompt_suffix(location_context: str) -> str:
     if not location_context or not location_context.strip():
         return ""
     return f"\n\n{location_context.strip()}\n"
-
-
-def _clean_json(text: str) -> str:
-    text = text.strip()
-    if text.startswith("```"):
-        parts = text.split("```")
-        text = parts[1].removeprefix("json").strip()
-        if "```" in text:
-            text = text[: text.index("```")]
-    return text.strip()
 
 
 def _normalize_analyze_output(data: dict[str, Any]) -> dict[str, Any]:
@@ -424,7 +415,7 @@ async def generate_outfits(
             [{"role": "user", "content": payload}],
             system_prompt,
         )
-        data = json.loads(_clean_json(raw))
+        data = parse_llm_json(raw)
         if isinstance(data, dict) and "outfits" in data:
             return data
     except json.JSONDecodeError:
@@ -472,7 +463,7 @@ async def analyze_outfit(
             [{"role": "user", "content": payload}],
             system_prompt,
         )
-        data = json.loads(_clean_json(raw))
+        data = parse_llm_json(raw)
         if isinstance(data, dict) and "outfit" in data:
             return _normalize_analyze_output(data)
     except json.JSONDecodeError:
@@ -562,7 +553,7 @@ async def shuffle_outfit(
             [{"role": "user", "content": payload}],
             system_prompt,
         )
-        data = json.loads(_clean_json(raw))
+        data = parse_llm_json(raw)
         alternatives = data.get("alternatives")
         if isinstance(alternatives, list):
             return [a for a in alternatives if isinstance(a, dict) and a.get("items")]
@@ -603,7 +594,7 @@ async def suggest_pairings_from_closet(
             [{"role": "user", "content": payload}],
             _SUGGEST_PAIRINGS_PROMPT,
         )
-        data = json.loads(_clean_json(raw))
+        data = parse_llm_json(raw)
         pairings = data.get("suggested_pairings")
         if isinstance(pairings, list):
             return [p for p in pairings if isinstance(p, dict) and p.get("id")]

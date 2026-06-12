@@ -16,7 +16,7 @@ closet-service-owned ``user_style_profiles`` data keeps working fully.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 import httpx
@@ -32,14 +32,14 @@ settings = get_settings()
 class RemoteUser:
     """Lightweight stand-in for the gateway's User ORM row (read-only)."""
 
-    id: Optional[str] = None
-    email: Optional[str] = None
-    name: Optional[str] = None
-    role: Optional[str] = None
-    permissions: Optional[dict[str, Any]] = None
-    body_profile: Optional[dict[str, Any]] = None
-    style_profile: Optional[dict[str, Any]] = None
-    preferences: Optional[dict[str, Any]] = None
+    id: str | None = None
+    email: str | None = None
+    name: str | None = None
+    role: str | None = None
+    permissions: dict[str, Any] | None = None
+    body_profile: dict[str, Any] | None = None
+    style_profile: dict[str, Any] | None = None
+    preferences: dict[str, Any] | None = None
 
 
 class UserRepository:
@@ -52,7 +52,7 @@ class UserRepository:
     def __init__(self, session: Any = None) -> None:
         self._session = session
 
-    async def get(self, user_id: UUID | str) -> Optional[RemoteUser]:
+    async def get(self, user_id: UUID | str) -> RemoteUser | None:
         base = (settings.gateway_internal_url or "").rstrip("/")
         if not base:
             return None

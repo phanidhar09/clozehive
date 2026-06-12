@@ -138,7 +138,7 @@ async def _load_wardrobe_stats(user_id: UUID) -> dict:
     try:
         from app.db.session import AsyncSessionLocal
         from app.models.closet import ClosetItem
-        from sqlalchemy import select, func as sa_func
+        from sqlalchemy import select
         async with AsyncSessionLocal() as session:
             result = await session.execute(
                 select(ClosetItem)

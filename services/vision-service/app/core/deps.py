@@ -4,7 +4,7 @@ FastAPI dependency injection for vision-service.
 
 from __future__ import annotations
 
-from typing import Annotated, Optional
+from typing import Annotated
 
 from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -25,7 +25,7 @@ _bearer = HTTPBearer(auto_error=False)
 
 
 async def get_current_user_id(
-    credentials: Annotated[Optional[HTTPAuthorizationCredentials], Depends(_bearer)],
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
 ) -> str:
     """
     Validate the JWT Bearer token and return the user_id (sub claim).

@@ -7,9 +7,8 @@ Data stored in PostgreSQL via ClosetService.
 from __future__ import annotations
 
 import asyncio
-from typing import Optional, Any, cast
+from typing import Any, cast
 
-from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, Request, UploadFile, status
@@ -39,7 +38,6 @@ from app.schemas.closet import (
     coerce_closet_category,
 )
 from app.services import cache_service, closet_preview_service, similarity_service, vision_service
-from app.services.ai_request_service import create_request
 from app.services.closet_service import ClosetService
 from app.services.upload_service import delete_upload, persist_upload, read_validated_image
 from app.repositories.style_profile_repo import UserStyleProfileRepository
@@ -95,8 +93,8 @@ def _notes_from_vision(vision: dict[str, Any]) -> str | None:
 def _item_from_vision(
     vision: dict[str, Any],
     image_url: str,
-    name: Optional[str] = None,
-    category: Optional[str] = None,
+    name: str | None = None,
+    category: str | None = None,
 ) -> ClosetItemCreate:
     garment_notes = _notes_from_vision(vision)
     vision_tags = list(vision["tags"]) if isinstance(vision.get("tags"), list) else []
@@ -140,9 +138,9 @@ def _get_svc(session: AsyncSession) -> ClosetService:
 @router.get("/", response_model=ClosetListResponse)
 async def list_items(
     user_id: CurrentUser,
-    section: Optional[str] = Query(None),
-    category: Optional[str] = Query(None),
-    season: Optional[str] = Query(None),
+    section: str | None = Query(None),
+    category: str | None = Query(None),
+    season: str | None = Query(None),
     page: int = Query(1, ge=1),
     per_page: int = Query(50, ge=1, le=200),
     session: AsyncSession = Depends(get_session),
@@ -301,8 +299,8 @@ async def upload_item(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     session: AsyncSession = Depends(get_session),
-    name: Optional[str] = None,
-    category: Optional[str] = None,
+    name: str | None = None,
+    category: str | None = None,
 ):
     image_bytes, content_type = await read_validated_image(file)
 

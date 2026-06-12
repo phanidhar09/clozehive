@@ -13,6 +13,25 @@ from app.core.config import get_settings
 
 settings = get_settings()
 
+# ── Shared HTTP client (closed via close_client() at service shutdown) ───────
+
+_http: httpx.AsyncClient | None = None
+
+
+def _client() -> httpx.AsyncClient:
+    global _http
+    if _http is None or _http.is_closed:
+        _http = httpx.AsyncClient(timeout=15)
+    return _http
+
+
+async def close_client() -> None:
+    global _http
+    if _http and not _http.is_closed:
+        await _http.aclose()
+    _http = None
+
+
 _PROFILES: dict[str, tuple[str, float, float]] = {
     "dubai": ("Sunny", 38.0, 28.0),
     "bangkok": ("Humid", 34.0, 26.0),
@@ -126,18 +145,17 @@ async def fetch_weather_async(destination: str, start_date: str, end_date: str) 
         return fetch_weather(destination, start_date, end_date)
 
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(
-                "https://api.openweathermap.org/data/2.5/forecast",
-                params={
-                    "q": destination,
-                    "appid": settings.openweather_api_key,
-                    "units": "metric",
-                    "cnt": 40,
-                },
-            )
-            resp.raise_for_status()
-            forecast_data = resp.json()
+        resp = await _client().get(
+            "https://api.openweathermap.org/data/2.5/forecast",
+            params={
+                "q": destination,
+                "appid": settings.openweather_api_key,
+                "units": "metric",
+                "cnt": 40,
+            },
+        )
+        resp.raise_for_status()
+        forecast_data = resp.json()
 
         # Aggregate 3-hourly slots into daily summaries
         daily: dict[str, dict[str, Any]] = defaultdict(lambda: {"highs": [], "lows": [], "conditions": []})
@@ -185,22 +203,22 @@ async def fetch_weather_async(destination: str, start_date: str, end_date: str) 
 
 async def get_weather_by_city(city_name: str) -> dict[str, Any]:
     if settings.openweather_api_key:
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.get(
-                "https://api.openweathermap.org/data/2.5/weather",
-                params={"q": city_name, "appid": settings.openweather_api_key, "units": "metric"},
-            )
-            response.raise_for_status()
-            data = response.json()
-            temp_c = float(data["main"]["temp"])
-            return {
-                "location_label": city_name,
-                "condition": data["weather"][0]["description"].title(),
-                "temp_c": round(temp_c, 1),
-                "temp_f": round(temp_c * 9 / 5 + 32, 1),
-                "feels_like_c": round(float(data["main"]["feels_like"]), 1),
-                "humidity": int(data["main"]["humidity"]),
-            }
+        response = await _client().get(
+            "https://api.openweathermap.org/data/2.5/weather",
+            params={"q": city_name, "appid": settings.openweather_api_key, "units": "metric"},
+            timeout=10,
+        )
+        response.raise_for_status()
+        data = response.json()
+        temp_c = float(data["main"]["temp"])
+        return {
+            "location_label": city_name,
+            "condition": data["weather"][0]["description"].title(),
+            "temp_c": round(temp_c, 1),
+            "temp_f": round(temp_c * 9 / 5 + 32, 1),
+            "feels_like_c": round(float(data["main"]["feels_like"]), 1),
+            "humidity": int(data["main"]["humidity"]),
+        }
     condition, high, low = _profile(city_name)
     temp_c = round((high + low) / 2, 1)
     return {
@@ -215,20 +233,20 @@ async def get_weather_by_city(city_name: str) -> dict[str, Any]:
 
 async def get_current_weather(lat: float, lon: float, location_label: str | None = None) -> dict[str, Any]:
     if settings.openweather_api_key:
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.get(
-                "https://api.openweathermap.org/data/2.5/weather",
-                params={"lat": lat, "lon": lon, "appid": settings.openweather_api_key, "units": "metric"},
-            )
-            response.raise_for_status()
-            data = response.json()
-            temp_c = float(data["main"]["temp"])
-            return {
-                "location_label": location_label or data.get("name") or f"{lat:.2f},{lon:.2f}",
-                "condition": data["weather"][0]["description"].title(),
-                "temp_c": round(temp_c, 1),
-                "temp_f": round(temp_c * 9 / 5 + 32, 1),
-                "feels_like_c": round(float(data["main"]["feels_like"]), 1),
-                "humidity": int(data["main"]["humidity"]),
-            }
+        response = await _client().get(
+            "https://api.openweathermap.org/data/2.5/weather",
+            params={"lat": lat, "lon": lon, "appid": settings.openweather_api_key, "units": "metric"},
+            timeout=10,
+        )
+        response.raise_for_status()
+        data = response.json()
+        temp_c = float(data["main"]["temp"])
+        return {
+            "location_label": location_label or data.get("name") or f"{lat:.2f},{lon:.2f}",
+            "condition": data["weather"][0]["description"].title(),
+            "temp_c": round(temp_c, 1),
+            "temp_f": round(temp_c * 9 / 5 + 32, 1),
+            "feels_like_c": round(float(data["main"]["feels_like"]), 1),
+            "humidity": int(data["main"]["humidity"]),
+        }
     return await get_weather_by_city(location_label or "San Francisco")

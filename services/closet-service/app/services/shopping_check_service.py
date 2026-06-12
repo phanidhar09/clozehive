@@ -15,10 +15,9 @@ Flow:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
@@ -29,7 +28,6 @@ from app.services.embedding_service import (
     vector_literal,
 )
 from app.services.vision_service import analyze_for_bulk
-from app.services.upload_service import persist_upload
 from app.services import ai_service
 from app.services.fashion_rag_service import get_fashion_context_for_prompt
 

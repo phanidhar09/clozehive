@@ -22,6 +22,7 @@ from starlette.responses import Response as StarletteResponse
 from app.api.v1.intelligence.services import ai_client
 from app.api.v1.platform.health import health_payload, live_payload, ready_payload
 from app.api.v1.router import api_router
+from app.api.v1.travel.services import weather_service
 from app.core import cache_service
 from app.core.config import get_settings
 from app.core.error_response import json_error
@@ -205,6 +206,7 @@ async def lifespan(app: FastAPI):
     await db_disconnect()
     await cache_service.close()
     await ai_client.close_client()
+    await weather_service.close_client()
     await _close_firestore()
     from app.core.task_queue import close_arq_pool
 

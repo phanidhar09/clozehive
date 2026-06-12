@@ -28,10 +28,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.llm_safety import sanitize_user_text
+from app.core.llm_json import parse_llm_json
 from app.core.logging import get_logger
 from app.models.ai_chat import AIChatSession
 from app.models.closet import ClosetItem
-from app.services import ai_service, weather_service
+from app.services import ai_service
 from app.core.ai_output_validator import score_response_quality, validate_chat_response
 from app.services.ai_stylist_chat_service import (
     _CHAT_MAX_TOKENS,
@@ -41,7 +42,6 @@ from app.services.ai_stylist_chat_service import (
     _build_profile_block,
     _build_wardrobe_block,
     _build_weather_block,
-    _clean_json,
     _enrich_items_with_images,
     _fallback_closet,
     _fallback_response,
@@ -423,7 +423,7 @@ async def stream_chat_message(
     # ── Parse the full JSON for the structured payload ──────────────────────
     raw = extractor.raw_buffer
     try:
-        data = json.loads(_clean_json(raw))
+        data = parse_llm_json(raw)
     except json.JSONDecodeError:
         logger.warning("stream_chat_bad_json", user_id=str(user_id))
         data = _fallback_response(message, closet_items)

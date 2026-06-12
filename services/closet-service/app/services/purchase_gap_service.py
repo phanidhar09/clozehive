@@ -14,7 +14,7 @@ from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.logging import get_logger
-from app.models.rag import OutfitHistory, PackingMemory, PurchaseGap
+from app.models.rag import PurchaseGap
 
 logger = get_logger("purchase_gap_service")
 

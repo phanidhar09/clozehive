@@ -11,12 +11,11 @@ POST   /smart-ingest/{job_id}/approve            Save approved items to closet
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, File, UploadFile, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
 
 from app.core.deps import CurrentUser, DbSession
 from app.core.exceptions import BadRequestError, NotFoundError
@@ -51,7 +50,7 @@ class IngestStatusResponse(BaseModel):
     failed_images: int
     created_at: str
     updated_at: str
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class IngestResultsResponse(BaseModel):
@@ -63,23 +62,23 @@ class IngestResultsResponse(BaseModel):
 
 
 class ItemUpdateRequest(BaseModel):
-    name: Optional[str] = Field(None, max_length=255)
-    category: Optional[str] = Field(None, max_length=100)
-    subcategory: Optional[str] = Field(None, max_length=100)
-    primary_color: Optional[str] = Field(None, max_length=100)
-    secondary_colors: Optional[list[str]] = None
-    pattern: Optional[str] = Field(None, max_length=100)
-    material: Optional[str] = Field(None, max_length=100)
-    occasion_tags: Optional[list[str]] = None
-    season_tags: Optional[list[str]] = None
-    style_tags: Optional[list[str]] = None
-    fit: Optional[str] = Field(None, max_length=50)
-    brand: Optional[str] = Field(None, max_length=100)
-    description: Optional[str] = Field(None, max_length=1000)
+    name: str | None = Field(None, max_length=255)
+    category: str | None = Field(None, max_length=100)
+    subcategory: str | None = Field(None, max_length=100)
+    primary_color: str | None = Field(None, max_length=100)
+    secondary_colors: list[str] | None = None
+    pattern: str | None = Field(None, max_length=100)
+    material: str | None = Field(None, max_length=100)
+    occasion_tags: list[str] | None = None
+    season_tags: list[str] | None = None
+    style_tags: list[str] | None = None
+    fit: str | None = Field(None, max_length=50)
+    brand: str | None = Field(None, max_length=100)
+    description: str | None = Field(None, max_length=1000)
 
 
 class ApproveRequest(BaseModel):
-    item_ids: Optional[list[str]] = Field(
+    item_ids: list[str] | None = Field(
         None,
         description="IDs to approve. If omitted, all pending_review items are approved.",
     )

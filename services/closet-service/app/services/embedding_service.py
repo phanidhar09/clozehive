@@ -13,11 +13,11 @@ import json
 import re
 import uuid as _uuid
 from collections import OrderedDict
-from typing import Any, Type, TypeVar
+from typing import Any, TypeVar
 
 from langsmith import traceable
 from openai import AsyncOpenAI
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings

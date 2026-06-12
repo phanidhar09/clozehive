@@ -5,7 +5,7 @@ Subclass this for each model — get all the basics for free.
 
 from __future__ import annotations
 
-from typing import Optional, Any, Generic, TypeVar
+from typing import Any, Generic, TypeVar
 from uuid import UUID
 
 from sqlalchemy import func, select

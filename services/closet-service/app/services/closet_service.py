@@ -6,7 +6,6 @@ Handles cache invalidation, access control, wear-log, and file upload.
 from __future__ import annotations
 
 import re
-from typing import Optional
 
 from datetime import date
 from uuid import UUID
@@ -123,9 +122,9 @@ class ClosetService:
         self,
         user_id: UUID,
         *,
-        section: Optional[str] = None,
-        category: Optional[str] = None,
-        season: Optional[str] = None,
+        section: str | None = None,
+        category: str | None = None,
+        season: str | None = None,
         page: int = 1,
         per_page: int = 50,
     ) -> ClosetListResponse:

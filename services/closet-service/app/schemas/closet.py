@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any, Literal, Optional, cast
+from typing import Any, Literal, cast
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
@@ -64,7 +64,7 @@ _CATEGORY_ALIASES: dict[str, ClosetCategory] = {
 }
 
 
-def coerce_closet_category(category: Optional[str]) -> ClosetCategory:
+def coerce_closet_category(category: str | None) -> ClosetCategory:
     """Normalise vision or form input into a valid closet category."""
     if not category or not str(category).strip():
         return "other"
@@ -98,7 +98,7 @@ def _coerce_str_list(v: Any) -> list[str]:
     return [x for x in parts if not (x in seen or seen.add(x))]  # type: ignore[func-returns-value]
 
 
-def _coerce_str_list_optional(v: Any) -> Optional[list[str]]:
+def _coerce_str_list_optional(v: Any) -> list[str] | None:
     """Variant for update payloads: None means 'do not change'; [] means 'clear'."""
     if v is None:
         return None
@@ -114,26 +114,26 @@ def _coerce_str_list_optional(v: Any) -> Optional[list[str]]:
 class ClosetItemCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     category: ClosetCategory
-    color: Optional[str] = Field(None, max_length=50)
-    fabric: Optional[str] = Field(None, max_length=100)
-    pattern: Optional[str] = Field(None, max_length=100)
+    color: str | None = Field(None, max_length=50)
+    fabric: str | None = Field(None, max_length=100)
+    pattern: str | None = Field(None, max_length=100)
     season: list[str] = Field(default_factory=list)
-    occasion: Optional[list[str]] = Field(None, max_length=10)
-    eco_score: Optional[float] = Field(None, ge=0, le=10)
-    tags: Optional[list[str]] = Field(None, max_length=20)
-    image_url: Optional[str] = None
-    notes: Optional[str] = Field(None, max_length=1000)
-    brand: Optional[str] = Field(None, max_length=100)
-    size: Optional[str] = Field(None, max_length=20)
-    price: Optional[float] = Field(None, ge=0, le=99999.99)
+    occasion: list[str] | None = Field(None, max_length=10)
+    eco_score: float | None = Field(None, ge=0, le=10)
+    tags: list[str] | None = Field(None, max_length=20)
+    image_url: str | None = None
+    notes: str | None = Field(None, max_length=1000)
+    brand: str | None = Field(None, max_length=100)
+    size: str | None = Field(None, max_length=20)
+    price: float | None = Field(None, ge=0, le=99999.99)
 
-    original_image_url: Optional[str] = None
-    processed_image_url: Optional[str] = None
+    original_image_url: str | None = None
+    processed_image_url: str | None = None
     background_removed: bool = False
-    background_removal_status: Optional[str] = Field(None, max_length=20)
-    analysis_source: Optional[str] = Field(None, max_length=50)
-    confidence_score: Optional[float] = Field(None, ge=0)
-    scan_batch_id: Optional[str] = Field(None, max_length=36)
+    background_removal_status: str | None = Field(None, max_length=20)
+    analysis_source: str | None = Field(None, max_length=50)
+    confidence_score: float | None = Field(None, ge=0)
+    scan_batch_id: str | None = Field(None, max_length=36)
     confirm_gender_mismatch: bool = Field(
         default=False,
         description="Set true to save an item even if it appears to mismatch the user's gender profile.",
@@ -177,21 +177,21 @@ class ClosetItemCreate(BaseModel):
 
 
 class ClosetItemUpdate(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=200)
-    category: Optional[ClosetCategory] = None
-    color: Optional[str] = Field(None, max_length=50)
-    fabric: Optional[str] = Field(None, max_length=100)
-    pattern: Optional[str] = Field(None, max_length=100)
-    season: Optional[list[str]] = None
-    occasion: Optional[list[str]] = Field(None, max_length=10)
-    eco_score: Optional[float] = Field(None, ge=0, le=10)
-    tags: Optional[list[str]] = Field(None, max_length=20)
-    image_url: Optional[str] = None
-    notes: Optional[str] = Field(None, max_length=1000)
-    brand: Optional[str] = Field(None, max_length=100)
-    size: Optional[str] = Field(None, max_length=20)
-    price: Optional[float] = Field(None, ge=0, le=99999.99)
-    is_archived: Optional[bool] = None
+    name: str | None = Field(None, min_length=1, max_length=200)
+    category: ClosetCategory | None = None
+    color: str | None = Field(None, max_length=50)
+    fabric: str | None = Field(None, max_length=100)
+    pattern: str | None = Field(None, max_length=100)
+    season: list[str] | None = None
+    occasion: list[str] | None = Field(None, max_length=10)
+    eco_score: float | None = Field(None, ge=0, le=10)
+    tags: list[str] | None = Field(None, max_length=20)
+    image_url: str | None = None
+    notes: str | None = Field(None, max_length=1000)
+    brand: str | None = Field(None, max_length=100)
+    size: str | None = Field(None, max_length=20)
+    price: float | None = Field(None, ge=0, le=99999.99)
+    is_archived: bool | None = None
 
     @field_validator("name", "color", "fabric", "pattern", "image_url", "notes", "brand", "size", mode="before")
     @classmethod
@@ -200,7 +200,7 @@ class ClosetItemUpdate(BaseModel):
 
     @field_validator("season", mode="before")
     @classmethod
-    def coerce_season(cls, v: Any) -> Optional[list[str]]:
+    def coerce_season(cls, v: Any) -> list[str] | None:
         return _coerce_str_list_optional(v)
 
     @field_validator("tags", "occasion", mode="before")
@@ -225,31 +225,31 @@ class ClosetItemResponse(BaseModel):
     user_id: UUID
     name: str
     category: str
-    color: Optional[str]
-    fabric: Optional[str]
-    pattern: Optional[str]
+    color: str | None
+    fabric: str | None
+    pattern: str | None
     season: list[str] = Field(default_factory=list)
-    occasion: Optional[list[str]]
-    eco_score: Optional[float]
-    tags: Optional[list[str]]
-    image_url: Optional[str]
-    notes: Optional[str]
-    brand: Optional[str]
-    size: Optional[str]
-    price: Optional[float]
+    occasion: list[str] | None
+    eco_score: float | None
+    tags: list[str] | None
+    image_url: str | None
+    notes: str | None
+    brand: str | None
+    size: str | None
+    price: float | None
     wear_count: int
-    last_worn: Optional[date]
+    last_worn: date | None
     is_archived: bool
     created_at: datetime
     updated_at: datetime
 
-    original_image_url: Optional[str] = None
-    processed_image_url: Optional[str] = None
+    original_image_url: str | None = None
+    processed_image_url: str | None = None
     background_removed: bool = False
-    background_removal_status: Optional[str] = None
-    analysis_source: Optional[str] = None
-    confidence_score: Optional[float] = None
-    scan_batch_id: Optional[str] = None
+    background_removal_status: str | None = None
+    analysis_source: str | None = None
+    confidence_score: float | None = None
+    scan_batch_id: str | None = None
 
     @field_validator("season", mode="before")
     @classmethod
@@ -268,7 +268,7 @@ class ClosetListResponse(BaseModel):
 
 
 class LogWearRequest(BaseModel):
-    worn_date: Optional[date] = None  # defaults to today
+    worn_date: date | None = None  # defaults to today
 
 
 class ClosetUploadResponse(BaseModel):
@@ -285,23 +285,23 @@ class ClosetPreviewItem(BaseModel):
 
     slot_index: int = Field(..., ge=0)
     temp_id: str = Field(..., description="Stable id for this detection within the session (alias of legacy item_id).")
-    detected_item_id: Optional[str] = Field(None, description="UUID assigned immediately after detection; stable across crop/BG/metadata pipeline.")
+    detected_item_id: str | None = Field(None, description="UUID assigned immediately after detection; stable across crop/BG/metadata pipeline.")
     name: str
     category: str
-    subcategory: Optional[str] = None
-    color: Optional[str] = None
-    brand: Optional[str] = None
-    material: Optional[str] = None
-    pattern: Optional[str] = None
+    subcategory: str | None = None
+    color: str | None = None
+    brand: str | None = None
+    material: str | None = None
+    pattern: str | None = None
     season: list[str] = Field(default_factory=list)
     occasions: list[str] = Field(default_factory=list)
-    description: Optional[str] = None
+    description: str | None = None
     confidence: float = Field(0.0, ge=0.0, le=1.0)
     original_image_url: str
     preview_image_url: str
-    processed_image_url: Optional[str] = None
+    processed_image_url: str | None = None
     background_removed: bool = False
-    background_removal_status: Optional[str] = None
+    background_removal_status: str | None = None
     style_tags: list[str] = Field(default_factory=list)
 
     @field_validator("name", "category", "subcategory", "color", "brand", "material", "pattern", "description", mode="before")
@@ -341,31 +341,31 @@ class ClosetPreviewItem(BaseModel):
 class ClosetAnalyzePreviewResponse(BaseModel):
     preview_session_id: UUID
     items: list[ClosetPreviewItem]
-    scan_id: Optional[str] = None
+    scan_id: str | None = None
     pipeline_cached: bool = False
 
 
 class ClosetConfirmItemPayload(BaseModel):
     slot_index: int = Field(..., ge=0)
-    detected_item_id: Optional[str] = Field(
+    detected_item_id: str | None = Field(
         None,
         description="Stable UUID from detection. Backend cross-checks this against the stored slot to catch frontend ordering bugs.",
     )
     selected: bool = True
     name: str = Field(..., min_length=1, max_length=200)
     category: ClosetCategory
-    color: Optional[str] = Field(None, max_length=50)
-    fabric: Optional[str] = Field(None, max_length=100)
-    material: Optional[str] = Field(None, max_length=100)
-    pattern: Optional[str] = Field(None, max_length=100)
+    color: str | None = Field(None, max_length=50)
+    fabric: str | None = Field(None, max_length=100)
+    material: str | None = Field(None, max_length=100)
+    pattern: str | None = Field(None, max_length=100)
     season: list[str] = Field(default_factory=list)
-    occasion: Optional[list[str]] = Field(None, max_length=10)
-    notes: Optional[str] = Field(None, max_length=1000)
-    brand: Optional[str] = Field(None, max_length=100)
-    size: Optional[str] = Field(None, max_length=20)
-    price: Optional[float] = Field(None, ge=0, le=99999.99)
-    tags: Optional[list[str]] = Field(None, max_length=20)
-    eco_score: Optional[float] = Field(None, ge=0, le=10)
+    occasion: list[str] | None = Field(None, max_length=10)
+    notes: str | None = Field(None, max_length=1000)
+    brand: str | None = Field(None, max_length=100)
+    size: str | None = Field(None, max_length=20)
+    price: float | None = Field(None, ge=0, le=99999.99)
+    tags: list[str] | None = Field(None, max_length=20)
+    eco_score: float | None = Field(None, ge=0, le=10)
     confirm_gender_mismatch: bool = Field(
         default=False,
         description="Set true to save this item even if it appears to mismatch the user's gender profile.",
@@ -440,32 +440,32 @@ class VisionAnalysisItem(BaseModel):
     detected_item_id: str = ""
     item_id: str
     category: str
-    subcategory: Optional[str] = None
+    subcategory: str | None = None
     name: str
-    description: Optional[str] = None
+    description: str | None = None
     gender: str = "unisex"
-    fit: Optional[str] = None
-    sleeve_type: Optional[str] = None
-    primary_color: Optional[str] = None
-    secondary_color: Optional[str] = None
-    pattern: Optional[str] = None
-    material: Optional[str] = None
-    brand: Optional[str] = None
+    fit: str | None = None
+    sleeve_type: str | None = None
+    primary_color: str | None = None
+    secondary_color: str | None = None
+    pattern: str | None = None
+    material: str | None = None
+    brand: str | None = None
     occasions: list[str] = Field(default_factory=list)
     season: list[str] = Field(default_factory=list)
     style_tags: list[str] = Field(default_factory=list)
 
-    bounding_box: Optional[NormalizedBoundingBox] = None
+    bounding_box: NormalizedBoundingBox | None = None
 
-    image_base64: Optional[str] = None
-    processed_image: Optional[str] = None
-    original_image_url: Optional[str] = None
+    image_base64: str | None = None
+    processed_image: str | None = None
+    original_image_url: str | None = None
 
     confidence_score: float = 0.0
     background_removed: bool = False
     background_removal_status: str = "not_attempted"
 
-    segmentation_quality: Optional[str] = None
+    segmentation_quality: str | None = None
 
 
 class VisionAnalyzeResponse(BaseModel):
@@ -484,31 +484,31 @@ class SaveItemRequest(BaseModel):
 
     item_id: str
     category: str
-    subcategory: Optional[str] = None
+    subcategory: str | None = None
     name: str = Field(..., min_length=1, max_length=200)
-    description: Optional[str] = Field(None, max_length=1000)
-    primary_color: Optional[str] = Field(None, max_length=50)
-    secondary_color: Optional[str] = Field(None, max_length=50)
-    pattern: Optional[str] = Field(None, max_length=100)
-    material: Optional[str] = Field(None, max_length=100)
-    brand: Optional[str] = Field(None, max_length=100)
-    fit: Optional[str] = Field(None, max_length=50)
+    description: str | None = Field(None, max_length=1000)
+    primary_color: str | None = Field(None, max_length=50)
+    secondary_color: str | None = Field(None, max_length=50)
+    pattern: str | None = Field(None, max_length=100)
+    material: str | None = Field(None, max_length=100)
+    brand: str | None = Field(None, max_length=100)
+    fit: str | None = Field(None, max_length=50)
     season: list[str] = Field(default_factory=list)
     occasions: list[str] = Field(default_factory=list)
     style_tags: list[str] = Field(default_factory=list)
 
-    image_base64: Optional[str] = None
-    original_image_url: Optional[str] = None
+    image_base64: str | None = None
+    original_image_url: str | None = None
 
     confidence_score: float = 0.0
     background_removed: bool = False
     background_removal_status: str = "not_attempted"
-    scan_batch_id: Optional[str] = None
+    scan_batch_id: str | None = None
 
 
 class SaveAnalyzedItemsRequest(BaseModel):
     items: list[SaveItemRequest]
-    scan_batch_id: Optional[str] = None
+    scan_batch_id: str | None = None
     save_permission: bool = False
 
 

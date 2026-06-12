@@ -7,7 +7,6 @@ No raw stack traces ever reach the client.
 
 from __future__ import annotations
 
-from typing import Optional
 
 from fastapi import HTTPException, Request, status
 from fastapi.responses import JSONResponse
@@ -21,7 +20,7 @@ class AppError(Exception):
     status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR
     code: str = "INTERNAL_ERROR"
 
-    def __init__(self, message: str, *, detail: Optional[str] = None) -> None:
+    def __init__(self, message: str, *, detail: str | None = None) -> None:
         self.message = message
         self.detail = detail
         super().__init__(message)

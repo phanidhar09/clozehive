@@ -13,9 +13,7 @@ Endpoints:
 from __future__ import annotations
 
 import json
-import uuid
-from datetime import date, datetime
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, status
@@ -52,27 +50,27 @@ logger = get_logger("ai_chat.routes")
 
 
 class ChatContext(BaseModel):
-    occasion: Optional[str] = None
-    mood: Optional[str] = None
-    location: Optional[str] = None
+    occasion: str | None = None
+    mood: str | None = None
+    location: str | None = None
     weather_required: bool = False
 
 
 class SendMessageRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=4000)
-    session_id: Optional[str] = None  # if None, creates a new session
-    context: Optional[ChatContext] = None
+    session_id: str | None = None  # if None, creates a new session
+    context: ChatContext | None = None
     history: list[dict[str, str]] = Field(default_factory=list)
     images: list[str] = Field(default_factory=list, max_length=3)  # base64 data-URLs
 
 
 class FeedbackRequest(BaseModel):
     closet_item_ids: list[str] = Field(default_factory=list)
-    outfit_id: Optional[str] = None
-    rating: Optional[int] = Field(None, ge=1, le=5)
-    feedback_text: Optional[str] = Field(None, max_length=1000)
-    occasion: Optional[str] = None
-    mood: Optional[str] = None
+    outfit_id: str | None = None
+    rating: int | None = Field(None, ge=1, le=5)
+    feedback_text: str | None = Field(None, max_length=1000)
+    occasion: str | None = None
+    mood: str | None = None
     was_worn: bool = False
 
 
@@ -80,9 +78,9 @@ class SaveOutfitRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
     item_ids: list[str] = Field(..., min_items=1)
     occasion: str = "casual"
-    explanation: Optional[str] = None
-    style_score: Optional[int] = Field(None, ge=0, le=100)
-    session_id: Optional[str] = None
+    explanation: str | None = None
+    style_score: int | None = Field(None, ge=0, le=100)
+    session_id: str | None = None
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -540,7 +538,7 @@ async def submit_feedback(
     """Record feedback on a recommended outfit. Improves future recommendations."""
     uid = UUID(user_id)
 
-    outfit_uuid: Optional[UUID] = None
+    outfit_uuid: UUID | None = None
     if body.outfit_id:
         try:
             outfit_uuid = UUID(body.outfit_id)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import base64
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID, uuid4
 
 from app.core.config import get_settings
@@ -61,7 +61,7 @@ def _preview_from_normalized(
     processed_image_url: str | None,
     background_removed: bool,
     background_removal_status: str | None,
-    detected_item_id: Optional[str] = None,
+    detected_item_id: str | None = None,
 ) -> ClosetPreviewItem:
     return ClosetPreviewItem(
         slot_index=slot_index,

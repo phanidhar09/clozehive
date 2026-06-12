@@ -28,7 +28,6 @@ import json
 from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
 from uuid import uuid4
 
 from fastapi import UploadFile
@@ -58,7 +57,7 @@ _GCS_UPLOADS_PREFIX = "uploads"
 
 # ── Image validation ──────────────────────────────────────────────────────────
 
-def _detect_image_type(header: bytes) -> Optional[str]:
+def _detect_image_type(header: bytes) -> str | None:
     if len(header) < 12:
         return None
     if header.startswith(ALLOWED_MIME_SIGNATURES["image/jpeg"][0]):
@@ -254,7 +253,7 @@ def _gcs_delete(blob_name: str) -> None:
         logger.warning("gcs_delete_failed", error=str(exc), blob=blob_name)
 
 
-def _blob_name_from_gcs_url(url: str) -> Optional[str]:
+def _blob_name_from_gcs_url(url: str) -> str | None:
     """Extract the GCS blob name from a public storage URL, or None if not a GCS URL."""
     prefix = "https://storage.googleapis.com/"
     if not url.startswith(prefix):
@@ -279,7 +278,7 @@ def _signing_bucket():
     return _gcs_client().bucket(settings.gcs_bucket_name)
 
 
-def _blob_name_from_stored(stored: str) -> Optional[str]:
+def _blob_name_from_stored(stored: str) -> str | None:
     """Resolve a stored image value to a GCS blob name, or None if not GCS-backed.
 
     Accepts either a full ``https://storage.googleapis.com/{bucket}/{blob}`` URL
@@ -304,7 +303,7 @@ def generate_signed_url(blob_name: str, ttl_seconds: int) -> str:
     )
 
 
-def signed_url_for_stored(stored: Optional[str]) -> Optional[str]:
+def signed_url_for_stored(stored: str | None) -> str | None:
     """Convert a stored image URL/path to a short-lived signed URL.
 
     Returns the input unchanged when signing is off, the value isn't GCS-backed
@@ -327,7 +326,7 @@ def signed_url_for_stored(stored: Optional[str]) -> Optional[str]:
 # ── Public API ────────────────────────────────────────────────────────────────
 
 async def persist_upload(
-    image_bytes: bytes, content_type: str, original_filename: Optional[str]
+    image_bytes: bytes, content_type: str, original_filename: str | None
 ) -> str:
     """Persist image bytes and return a stable public URL.
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime, timezone
-from typing import Optional
 
 from sqlalchemy import Boolean, Date, DateTime, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -27,11 +26,11 @@ class Trip(Base):
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
     end_date: Mapped[date] = mapped_column(Date, nullable=False)
     purpose: Mapped[str] = mapped_column(String(50), nullable=False)
-    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     # ── New trip stylist fields ────────────────────────────────────────────────
-    trip_style: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    bag_size: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    activities: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True, default=list)
+    trip_style: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    bag_size: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    activities: Mapped[list | None] = mapped_column(JSONB, nullable=True, default=list)
     # ─────────────────────────────────────────────────────────────────────────
     is_saved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(

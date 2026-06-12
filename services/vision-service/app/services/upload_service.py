@@ -5,7 +5,6 @@ from __future__ import annotations
 import io
 import json
 from pathlib import Path
-from typing import Optional
 from uuid import uuid4
 
 from fastapi import UploadFile
@@ -32,7 +31,7 @@ _GCS_UPLOADS_PREFIX = "uploads"
 
 # ── Image validation ──────────────────────────────────────────────────────────
 
-def _detect_image_type(header: bytes) -> Optional[str]:
+def _detect_image_type(header: bytes) -> str | None:
     if len(header) < 12:
         return None
     if header.startswith(ALLOWED_MIME_SIGNATURES["image/jpeg"][0]):
@@ -201,7 +200,7 @@ def _gcs_upload(image_bytes: bytes, blob_name: str, content_type: str) -> str:
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def persist_upload(
-    image_bytes: bytes, content_type: str, original_filename: Optional[str]
+    image_bytes: bytes, content_type: str, original_filename: str | None
 ) -> str:
     """Persist image bytes and return a stable public URL."""
     settings = get_settings()

@@ -11,7 +11,7 @@ import json
 from collections.abc import AsyncIterator
 from datetime import date, datetime
 from enum import Enum
-from typing import Optional, Any
+from typing import Any
 
 import redis.asyncio as aioredis
 

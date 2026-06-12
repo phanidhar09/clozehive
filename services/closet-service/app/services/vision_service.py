@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import base64
-import json
 from typing import Any
 
 from langsmith import traceable
 from openai import AsyncOpenAI
 
 from app.core.config import get_settings
+from app.core.llm_json import parse_llm_json
 from app.core.logging import get_logger
 from app.core.openai_tracing import make_openai_client, wrap_openai_client
 from app.schemas.vision_canonical import (
@@ -32,15 +32,6 @@ def _get_client() -> AsyncOpenAI:
             make_openai_client(settings.openai_api_key, base_url=settings.openai_api_base_url)
         )
     return _client
-
-
-def _clean_json(text: str) -> str:
-    text = text.strip()
-    if text.startswith("```"):
-        text = text.split("```")[1].removeprefix("json").strip()
-        if "```" in text:
-            text = text[: text.index("```")]
-    return text.strip()
 
 
 def _fallback_raw(reason: str) -> dict[str, Any]:
@@ -120,7 +111,7 @@ async def analyze_image(image_bytes: bytes, media_type: str = "image/jpeg") -> d
         )
         msg = response.choices[0].message
         text = (msg.content or "").strip()
-        raw = json.loads(_clean_json(text))
+        raw = parse_llm_json(text)
         if not isinstance(raw, dict):
             raise ValueError("Vision response is not a JSON object")
         n = parse_vision_ai_payload(raw, source="openai")
@@ -216,7 +207,7 @@ async def analyze_for_bulk(
         )
         msg = response.choices[0].message
         text = (msg.content or "").strip()
-        data = json.loads(_clean_json(text))
+        data = parse_llm_json(text)
         if not isinstance(data, dict):
             raise ValueError("Response is not a JSON object")
         n = parse_vision_ai_payload(data, source="bulk")

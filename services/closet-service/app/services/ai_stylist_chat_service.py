@@ -24,15 +24,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.ai_output_validator import (
     check_context_sufficiency,
-    format_rag_citations,
     score_response_quality,
     validate_chat_response,
 )
+from app.core.llm_json import parse_llm_json
 from app.core.logging import get_logger
 from app.core.llm_safety import (
-    build_closet_item_summary,
     sanitize_user_text,
-    wrap_untrusted,
 )
 from app.models.ai_chat import AIChatSession
 from app.models.closet import ClosetItem
@@ -40,7 +38,6 @@ from app.repositories.user_repo import UserRepository
 from app.services import ai_service, weather_service
 from app.services.embedding_service import (
     generate_text_embedding,
-    item_to_embedding_text,
     pgvector_cosine_search,
 )
 from app.services.fashion_rag_service import get_fashion_context_for_prompt
@@ -158,16 +155,6 @@ _CHAT_MAX_TOKENS = 4096
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-
-def _clean_json(text: str) -> str:
-    text = text.strip()
-    if text.startswith("```"):
-        parts = text.split("```")
-        text = parts[1].removeprefix("json").strip()
-        if "```" in text:
-            text = text[: text.index("```")]
-    return text.strip()
-
 
 def _row_to_item(row: dict[str, Any]) -> dict[str, Any]:
     return {
@@ -663,7 +650,7 @@ async def process_chat_message(
             max_tokens=_CHAT_MAX_TOKENS,
             temperature=0.5,
         )
-        data = json.loads(_clean_json(raw))
+        data = parse_llm_json(raw)
     except json.JSONDecodeError:
         logger.warning("ai_chat_bad_json", user_id=str(user_id), raw_preview=raw[:200] if 'raw' in dir() else "")
         data = _fallback_response(message, closet_items)

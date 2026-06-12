@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from app.core.llm_json import parse_llm_json
 from app.core.logging import get_logger
 from app.services import ai_service
 
@@ -67,10 +68,7 @@ Hard rules: only use items from the provided wardrobe, refer to exact item names
     }, default=str)
     try:
         response = await ai_service.chat([{"role": "user", "content": user_prompt}], system_prompt)
-        text = response.strip()
-        if text.startswith("```"):
-            text = text.split("```")[1].removeprefix("json").strip()
-        data = json.loads(text)
+        data = parse_llm_json(response)
         if isinstance(data, dict) and "outfits" in data:
             return data
     except json.JSONDecodeError:

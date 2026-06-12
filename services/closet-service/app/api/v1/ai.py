@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, File, UploadFile
@@ -53,7 +53,7 @@ class OutfitRequest(BaseModel):
     weather: str = "mild"
     temperature: float = Field(20.0, ge=-30, le=55)
     # Optional client-side override; if absent we load profile from DB.
-    user_profile: Optional[dict[str, Any]] = None
+    user_profile: dict[str, Any] | None = None
 
 
 class PackingRequest(BaseModel):
@@ -118,7 +118,7 @@ async def _get_closet_for_occasion(
 
 
 async def _resolve_user_profile(
-    session, user_id: UUID, override: Optional[dict[str, Any]]
+    session, user_id: UUID, override: dict[str, Any] | None
 ) -> dict[str, Any] | None:
     """
     Build personalization context for AI routes (legacy JSONB + dedicated style profile).

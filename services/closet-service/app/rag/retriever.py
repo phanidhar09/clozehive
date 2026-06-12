@@ -31,7 +31,6 @@ from app.rag.vector_store import (
     FAISSVectorStore,
     PGVectorStore,
     SOURCE_CLOSET_ITEM,
-    SOURCE_FASHION_KNOWLEDGE,
     SOURCE_OUTFIT_HISTORY,
     SOURCE_PACKING_MEMORY,
     get_vector_store,

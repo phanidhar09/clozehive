@@ -4,7 +4,7 @@ Canonical vision preview shapes + normalization of messy LLM JSON.
 
 from __future__ import annotations
 
-from typing import Any, Literal, Optional
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -30,7 +30,7 @@ def normalize_confidence_value(value: Any) -> float:
     return f
 
 
-def _first_str(*vals: Any) -> Optional[str]:
+def _first_str(*vals: Any) -> str | None:
     for v in vals:
         if v is None:
             continue
@@ -140,17 +140,17 @@ class NormalizedVisionAIOutput(BaseModel):
 
     name: str = Field(default="Clothing Item", min_length=1, max_length=200)
     category: str = Field(default="other", max_length=100)
-    subcategory: Optional[str] = Field(None, max_length=100)
-    color: Optional[str] = Field(None, max_length=50)
-    brand: Optional[str] = Field(None, max_length=100)
-    material: Optional[str] = Field(None, max_length=100)
-    pattern: Optional[str] = Field(None, max_length=100)
+    subcategory: str | None = Field(None, max_length=100)
+    color: str | None = Field(None, max_length=50)
+    brand: str | None = Field(None, max_length=100)
+    material: str | None = Field(None, max_length=100)
+    pattern: str | None = Field(None, max_length=100)
     season: list[str] = Field(default_factory=list)
     occasions: list[str] = Field(default_factory=list)
-    description: Optional[str] = Field(None, max_length=1000)
+    description: str | None = Field(None, max_length=1000)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     style_tags: list[str] = Field(default_factory=list)
-    eco_score: Optional[float] = Field(None, ge=0, le=10)
+    eco_score: float | None = Field(None, ge=0, le=10)
 
     @field_validator("name", "subcategory", "color", "brand", "material", "pattern", "description", mode="before")
     @classmethod
@@ -241,7 +241,7 @@ def normalized_to_legacy_upload_dict(n: NormalizedVisionAIOutput) -> dict[str, A
 def normalized_to_bulk_api_dict(
     n: NormalizedVisionAIOutput,
     *,
-    raw: Optional[dict[str, Any]] = None,
+    raw: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     season_tags = [t[:1].upper() + t[1:].lower() if t else t for t in n.season] if n.season else []
     out: dict[str, Any] = {

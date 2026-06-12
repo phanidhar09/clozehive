@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
 
 from uuid import UUID
 
@@ -19,9 +18,9 @@ class ClosetRepository(BaseRepository[ClosetItem]):
         self,
         user_id: UUID,
         *,
-        section: Optional[str] = None,
-        category: Optional[str] = None,
-        season: Optional[str] = None,
+        section: str | None = None,
+        category: str | None = None,
+        season: str | None = None,
         include_archived: bool = False,
         limit: int = 100,
         offset: int = 0,

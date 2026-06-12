@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Literal
 from pydantic import BaseModel, Field
 
 
@@ -12,14 +12,14 @@ class OutfitItemRef(BaseModel):
     id: str
     name: str
     category: str
-    color: Optional[str] = None
+    color: str | None = None
 
 
 class OutfitItemSlots(BaseModel):
-    top: Optional[OutfitItemRef] = None
-    bottom: Optional[OutfitItemRef] = None
-    footwear: Optional[OutfitItemRef] = None
-    outerwear: Optional[OutfitItemRef] = None
+    top: OutfitItemRef | None = None
+    bottom: OutfitItemRef | None = None
+    footwear: OutfitItemRef | None = None
+    outerwear: OutfitItemRef | None = None
     accessories: list[OutfitItemRef] = Field(default_factory=list)
 
 
@@ -51,12 +51,12 @@ class ScoredOutfit(BaseModel):
         default="",
         description="How this outfit suits the user's body profile and preferred fit.",
     )
-    fit_confidence: Optional[int] = Field(
+    fit_confidence: int | None = Field(
         None, ge=0, le=100, description="0–100 fit/size confidence distinct from overall confidence."
     )
-    occasion_match: Optional[OccasionStyleMatch] = None
-    style_match: Optional[OccasionStyleMatch] = None
-    size_profile_match: Optional[SizeProfileMatch] = None
+    occasion_match: OccasionStyleMatch | None = None
+    style_match: OccasionStyleMatch | None = None
+    size_profile_match: SizeProfileMatch | None = None
     body_profile_notes: str = Field(
         default="",
         description="Positive, supportive notes referencing fit and silhouette — never judgmental.",
@@ -81,10 +81,10 @@ class AnalyzeOutfitRequest(BaseModel):
     item_ids: list[str] = Field(..., min_length=1, description="IDs of the selected closet items")
     occasion: str = Field("casual", max_length=100)
     weather: str = Field("mild", max_length=100)
-    temperature: Optional[float] = Field(None, ge=-30, le=55)
-    user_profile: Optional[dict] = None
-    date: Optional[str] = Field(None, description="ISO date for weather lookup (YYYY-MM-DD)")
-    location: Optional[str] = Field(None, max_length=200, description="City/location for real-time weather")
+    temperature: float | None = Field(None, ge=-30, le=55)
+    user_profile: dict | None = None
+    date: str | None = Field(None, description="ISO date for weather lookup (YYYY-MM-DD)")
+    location: str | None = Field(None, max_length=200, description="City/location for real-time weather")
 
 
 # ── Response schemas ───────────────────────────────────────────────────────────
@@ -94,9 +94,9 @@ class SuggestedPairingItem(BaseModel):
     id: str
     name: str
     category: str
-    color: Optional[str] = None
-    image_url: Optional[str] = None
-    brand: Optional[str] = None
+    color: str | None = None
+    image_url: str | None = None
+    brand: str | None = None
     reason: str = Field(
         default="",
         description="Specific AI-generated reason why this item complements the outfit.",

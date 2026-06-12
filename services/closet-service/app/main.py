@@ -33,7 +33,7 @@ from app.db.session import connect as db_connect, disconnect as db_disconnect
 from app.middleware.logging import AccessLogMiddleware
 from app.middleware.request_id import RequestIDMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
-from app.services import ai_client, cache_service
+from app.services import ai_client, weather_service, cache_service
 
 settings = get_settings()
 logger = get_logger("main")
@@ -131,6 +131,8 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     if trend_task is not None:
+        import asyncio
+
         trend_task.cancel()
         try:
             await trend_task
@@ -141,6 +143,7 @@ async def lifespan(app: FastAPI):
     await db_disconnect()
     await cache_service.close()
     await ai_client.close_client()
+    await weather_service.close_client()
     logger.info("shutdown_complete")
 
 

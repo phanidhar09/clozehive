@@ -43,9 +43,9 @@ from langsmith import traceable
 from openai import APIError, AsyncOpenAI
 
 from app.core.config import get_settings
+from app.core.llm_json import parse_llm_json
 from app.core.logging import get_logger
 from app.core.openai_tracing import make_openai_client, wrap_openai_client
-from app.services.background_removal_service import remove_background
 from app.utils.user_context import build_user_context_suffix
 
 settings = get_settings()
@@ -75,15 +75,6 @@ def _build_name(raw: dict[str, Any]) -> str:
     sub = raw.get("subcategory") or raw.get("category") or "Item"
     parts.append(str(sub).title())
     return " ".join(parts) if parts else "Clothing Item"
-
-
-def _clean_json(text: str) -> str:
-    text = text.strip()
-    if text.startswith("```"):
-        text = text.split("```")[1].removeprefix("json").strip()
-        if "```" in text:
-            text = text[: text.index("```")]
-    return text.strip()
 
 
 # ── Vision prompt ───────────────────────────────────────────────────────────────
@@ -373,7 +364,7 @@ async def detect_fashion_items(
             ],
         )
         raw_text = (response.choices[0].message.content or "").strip()
-        vision_data: dict[str, Any] = json.loads(_clean_json(raw_text))
+        vision_data: dict[str, Any] = parse_llm_json(raw_text)
     except (APIError, json.JSONDecodeError, Exception) as exc:
         logger.error("fashion_vision_failed", error=str(exc))
         return {"total_items_detected": 1, "items": [_fallback_item(str(exc))]}
