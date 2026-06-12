@@ -13,7 +13,7 @@ shoes + bag, or a flat-lay of an entire outfit).  This service:
 
 2. For each detected item:
    • Crops the image to the bounding box (with a small context margin)
-   • Applies background removal (PIL-based, same as bulk_ingest pipeline)
+   • Applies background removal (PIL-based)
    • Encodes the cropped RGBA PNG as base64 for direct API / storage use
 
 3. Returns the structured JSON described in the API spec — ready for the
