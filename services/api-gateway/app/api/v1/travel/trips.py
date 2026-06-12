@@ -91,16 +91,16 @@ async def _build_packing_rag_context(
         fashion_ctx = await get_fashion_context_for_prompt(session, query, limit=2)
         if fashion_ctx:
             parts.append(fashion_ctx)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("fashion_context_unavailable", error=str(exc))
     try:
         memory_ctx = await get_packing_memory_for_prompt(
             session, str(user_id), destination, purpose, weather_summary, limit=2
         )
         if memory_ctx:
             parts.append(memory_ctx)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("packing_memory_unavailable", error=str(exc))
     return "\n\n".join(parts) or None
 
 

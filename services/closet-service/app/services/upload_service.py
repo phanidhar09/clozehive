@@ -250,9 +250,8 @@ def _gcs_delete(blob_name: str) -> None:
         bucket = client.bucket(settings.gcs_bucket_name)
         blob = bucket.blob(blob_name)
         blob.delete()
-    except Exception:
-        # Non-fatal: log at caller level; don't crash the delete request.
-        pass
+    except Exception as exc:
+        logger.warning("gcs_delete_failed", error=str(exc), blob=blob_name)
 
 
 def _blob_name_from_gcs_url(url: str) -> Optional[str]:
@@ -373,8 +372,8 @@ async def delete_upload(image_url: str) -> None:
     try:
         img_path = settings.upload_path / Path(image_url).name
         await asyncio.to_thread(img_path.unlink, True)  # missing_ok=True
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("local_upload_delete_failed", error=str(exc))
 
 
 def read_upload_bytes(url: str) -> bytes:

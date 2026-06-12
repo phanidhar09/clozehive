@@ -332,8 +332,8 @@ async def chat(body: ChatRequest, user_id: CurrentUser, session: DbSession):
     fashion_ctx = ""
     try:
         fashion_ctx = await get_fashion_context_for_prompt(session, body.message)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("fashion_context_unavailable", error=str(exc))
     messages = _chat_messages(body)
     cache_key = cache_service.build_cache_key(
         user_id,
@@ -394,8 +394,8 @@ async def chat_stream(body: ChatRequest, user_id: CurrentUser, session: DbSessio
             fashion_ctx = ""
             try:
                 fashion_ctx = await get_fashion_context_for_prompt(session, body.message)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("fashion_context_unavailable", error=str(exc))
             messages = _chat_messages(body)
             cache_key = cache_service.build_cache_key(
                 user_id,
@@ -630,8 +630,8 @@ async def packing(body: PackingRequest, user_id: CurrentUser, session: DbSession
     packing_ctx = ""
     try:
         packing_ctx = await get_fashion_context_for_prompt(session, rag_query)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("fashion_context_unavailable", error=str(exc))
     return await packing_service.generate_packing_list(
         body.destination,
         body.start_date,
@@ -657,8 +657,8 @@ async def packing_stream(body: PackingRequest, user_id: CurrentUser, session: Db
             packing_ctx = ""
             try:
                 packing_ctx = await get_fashion_context_for_prompt(session, rag_query)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("fashion_context_unavailable", error=str(exc))
             data = await packing_service.generate_packing_list(
                 body.destination,
                 body.start_date,

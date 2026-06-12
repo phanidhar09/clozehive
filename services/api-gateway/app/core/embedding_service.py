@@ -102,8 +102,8 @@ async def _redis_cache_get(key: str) -> list[float] | None:
             vec = json.loads(raw)
             if isinstance(vec, list) and len(vec) == _EMBEDDING_DIM:
                 return vec
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("embedding_cache_get_failed", error=str(exc))
     return None
 
 
@@ -113,8 +113,8 @@ async def _redis_cache_set(key: str, vec: list[float]) -> None:
 
         redis = await get_redis()
         await redis.set(key, json.dumps(vec), ex=_EMBED_CACHE_TTL)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("embedding_cache_set_failed", error=str(exc))
 
 
 @traceable(name="rag_embed_text", run_type="embedding")

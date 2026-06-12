@@ -134,8 +134,10 @@ async def lifespan(app: FastAPI):
         trend_task.cancel()
         try:
             await trend_task
-        except Exception:
+        except asyncio.CancelledError:
             pass
+        except Exception as exc:
+            logger.warning("trend_task_shutdown_error", error=str(exc))
     await db_disconnect()
     await cache_service.close()
     await ai_client.close_client()

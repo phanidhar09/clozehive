@@ -7,12 +7,14 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, File, UploadFile, status, Query
 from pydantic import BaseModel
 
+from app.core.logging import get_logger
 from app.core.deps import CurrentUser, DbSession
 from app.core.exceptions import NotFoundError
 from app.services import shopping_check_service
 from app.services.upload_service import delete_upload, read_validated_image, persist_upload
 
 router = APIRouter(prefix="/shopping", tags=["Shopping Check"])
+logger = get_logger("shopping_check_api")
 
 
 @router.post("/check", status_code=status.HTTP_201_CREATED)
@@ -38,8 +40,8 @@ async def check_shopping_item(
     image_url: str | None = None
     try:
         image_url = await persist_upload(image_bytes, media_type)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("shopping_image_persist_failed", error=str(exc))
 
     result = await shopping_check_service.analyze_shopping_item(
         image_bytes=image_bytes,

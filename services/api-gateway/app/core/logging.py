@@ -46,6 +46,8 @@ def _add_trace_context(_logger, _method_name, event_dict):
             event_dict["trace_id"] = format(ctx.trace_id, "032x")
             event_dict["span_id"] = format(ctx.span_id, "016x")
     except Exception:
+        # Intentionally silent: this runs inside the log processor itself,
+        # so emitting a log here would recurse. Missing trace ids are benign.
         pass
     return event_dict
 

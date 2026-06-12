@@ -117,8 +117,8 @@ def create_app() -> FastAPI:
     # Mount uploads for local dev
     try:
         app.mount("/uploads", StaticFiles(directory=settings.upload_path), name="uploads")
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("uploads_mount_skipped", error=str(exc))
 
     return app
 

@@ -122,8 +122,8 @@ def _alert_failed(user_id: str) -> None:
         from app.core.metrics import record_purge_failed
 
         record_purge_failed()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.error("purge_failure_metric_emit_failed", error=str(exc), user_id=user_id)
 
 
 async def reconcile_loop() -> None:

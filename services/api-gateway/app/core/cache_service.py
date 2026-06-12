@@ -163,8 +163,8 @@ async def release_lock(key: str) -> None:
     try:
         client = await get_redis()
         await client.delete(f"lock:{key}")
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("lock_release_failed", error=str(exc), key=key)
 
 
 async def get_or_compute(

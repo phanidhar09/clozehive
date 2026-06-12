@@ -214,8 +214,8 @@ async def _cache_set(key: str, data: dict[str, Any]) -> None:
     try:
         redis = await get_redis()
         await redis.set(key, json.dumps(data), ex=_CACHE_TTL)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("vision_cache_set_failed", error=str(exc))
 
 
 # ── BG removal per item ────────────────────────────────────────────────────────

@@ -44,8 +44,8 @@ def _ws_push(user_id: str, data: dict) -> None:
         loop = asyncio.get_event_loop()
         if loop.is_running():
             asyncio.ensure_future(_ws_manager.broadcast_to_user(user_id, data))
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("ws_broadcast_failed", error=str(exc))
 
 
 router = APIRouter(prefix="/outfits", tags=["Outfits"])
@@ -205,8 +205,8 @@ async def analyze_outfit(
             wx = await get_weather_by_city(body.location)
             effective_weather = wx.get("condition", effective_weather)
             effective_temp = wx.get("temp_c", effective_temp)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("weather_lookup_failed", error=str(exc))
     location_context = await build_location_context_block_async(body.location or "", mode="daily")
 
     # Constraint priority — arbitrates location norms vs weather vs occasion vs
@@ -237,16 +237,16 @@ async def analyze_outfit(
         )
         if fashion_ctx:
             rag_parts.append(fashion_ctx)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("fashion_context_unavailable", error=str(exc))
     try:
         history_ctx = await get_outfit_history_for_prompt(
             session, user_id, body.occasion, effective_weather or "", limit=2
         )
         if history_ctx:
             rag_parts.append(history_ctx)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("outfit_history_unavailable", error=str(exc))
     rag_context = "\n\n".join(rag_parts) or None
 
     _cache_key = hashlib.md5(
@@ -429,8 +429,8 @@ async def shuffle_outfit(
         try:
             w = await get_weather_by_city(body.location)
             weather_str = w.get("condition", "") if w else ""
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("weather_lookup_failed", error=str(exc))
 
     rag_query = f"outfit for {body.occasion} occasion weather:{weather_str or 'mild'}"
     embedding = await generate_text_embedding(rag_query)
