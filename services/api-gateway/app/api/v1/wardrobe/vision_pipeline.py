@@ -294,10 +294,6 @@ async def save_analyzed_items(
             saved_response = ClosetItemResponse.model_validate(new_item)
             saved.append(saved_response)
 
-            # Embedding refresh runs after this request commits (durable ARQ job
-            # when HEAVY_WORK_ASYNC is on, else in-process BackgroundTask).
-            await similarity_service.schedule_embedding_update(background_tasks, str(new_item.id))
-
         except Exception as exc:
             logger.error("save_analyzed_item_failed", item_id=req.item_id, error=str(exc))
             failed.append({"item_id": req.item_id, "name": req.name, "error": str(exc)})
@@ -305,6 +301,12 @@ async def save_analyzed_items(
     if saved:
         redis = await get_redis()
         await cache_service.invalidate_user_ai_cache(redis, user_id)
+        # Commit before scheduling the embedding refresh (durable ARQ job when
+        # HEAVY_WORK_ASYNC is on, else in-process BackgroundTask): the job opens
+        # its own session and cannot see this request's uncommitted rows.
+        await session.commit()
+        for saved_item in saved:
+            await similarity_service.schedule_embedding_update(background_tasks, str(saved_item.id))
 
     logger.info(
         "save_analyzed_items_complete",

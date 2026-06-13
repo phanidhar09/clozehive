@@ -23,7 +23,18 @@ export interface ClosetItem {
   eco_score?: number
   is_favorite?: boolean
   notes?: string
+  /** Physical availability — anything but 'available' is hidden from FANI styling. */
+  availability?: AvailabilityStatus
   created_at: string
+}
+
+export type AvailabilityStatus = 'available' | 'in_laundry' | 'at_cleaners' | 'lent_out'
+
+export const AVAILABILITY_LABELS: Record<AvailabilityStatus, string> = {
+  available: 'Available',
+  in_laundry: 'In laundry',
+  at_cleaners: 'At the cleaners',
+  lent_out: 'Lent out',
 }
 
 /** Canonical row from POST /closet/analyze-preview (aligned with backend ClosetPreviewItem). */
@@ -755,6 +766,34 @@ export interface AIChatContext {
   mood?: string
   location?: string
   weather_required?: boolean
+}
+
+// ── Weekly outfit planner ─────────────────────────────────────────────────────
+
+export interface PlannedDayItem {
+  id: string
+  name: string
+  category: string
+  color?: string | null
+  brand?: string | null
+  image_url?: string | null
+}
+
+export interface PlannedDay {
+  plan_date: string             // YYYY-MM-DD
+  occasion: string
+  items: PlannedDayItem[]
+  weather_condition?: string | null
+  temp_high?: number | null
+  temp_low?: number | null
+  reasoning: string
+  source: 'fani' | 'manual' | string
+  is_worn: boolean
+}
+
+export interface PlannerWeekResponse {
+  start_date: string
+  days: PlannedDay[]
 }
 
 // ── UI helpers ────────────────────────────────────────────────────────────────

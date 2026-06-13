@@ -7,7 +7,7 @@ from app.models.ai_chat import (  # noqa: F401
     DailyNudge,
     OutfitFeedback,
 )
-from app.models.closet import ClosetItem, Outfit  # noqa: F401
+from app.models.closet import ClosetItem, Outfit, PlannedOutfit  # noqa: F401
 from app.models.packing import PackingPlan  # noqa: F401
 from app.models.purge_outbox import PurgeOutbox  # noqa: F401
 from app.models.rag import FashionKnowledgeDocument, OutfitHistory, PackingMemory, PurchaseGap  # noqa: F401

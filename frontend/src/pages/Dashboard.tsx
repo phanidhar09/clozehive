@@ -9,6 +9,7 @@ import { useApp } from '@/store'
 import { outfitsApi, type OutfitOfDayResponse } from '@/lib/api'
 import SectionHeader from '@/components/ui/SectionHeader'
 import OnboardingChecklist from '@/components/dashboard/OnboardingChecklist'
+import WeeklyPlanner from '@/components/dashboard/WeeklyPlanner'
 import type { ClosetItem, OutfitSuggestion } from '@/types'
 
 // ── Outfit rating ─────────────────────────────────────────────────────────────
@@ -568,6 +569,9 @@ export default function Dashboard() {
           <StyleTipCard />
         </div>
       </div>
+
+      {/* ── Weekly outfit calendar ────────────────────────────────────────── */}
+      {!closetLoading && <WeeklyPlanner />}
 
       {/* ── Recent Pieces ─────────────────────────────────────────────────── */}
       {totalItems > 0 && (

@@ -2,7 +2,7 @@ import React, { useMemo, useRef, useState, useEffect, useLayoutEffect } from 're
 import {
   Search, SlidersHorizontal, ArrowUpDown, Loader2, RefreshCw, Trash2, X,
   Plus, Wand2, Shirt, Pencil, Check,
-  Heart, LayoutGrid, List,
+  Heart, LayoutGrid, List, Droplets, Sparkles, Handshake,
 } from 'lucide-react'
 import { useWindowVirtualizer } from '@tanstack/react-virtual'
 import { Link } from 'react-router-dom'
@@ -16,7 +16,8 @@ import EditItemModal from '@/components/closet/EditItemModal'
 import RevealCard from '@/components/ui/RevealCard'
 import PageHeader from '@/components/ui/PageHeader'
 import { PageStatePanel } from '@/components/system/PageStatePanel'
-import type { ClosetItem, Category } from '@/types'
+import type { AvailabilityStatus, ClosetItem, Category } from '@/types'
+import { AVAILABILITY_LABELS } from '@/types'
 import { cn } from '@/lib/utils'
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -151,8 +152,8 @@ function ClosetListRow({
 // ── Favourites section ─────────────────────────────────────────────────────────
 
 function FavouritesSection({
-  items, onOpen, onDelete, onEdit, deleting,
-}: { items: ClosetItem[]; onOpen: (i: ClosetItem) => void; onDelete: (i: ClosetItem) => void; onEdit: (i: ClosetItem) => void; deleting: string | null }) {
+  items, onOpen, onDelete, onEdit, onSetAvailability, deleting,
+}: { items: ClosetItem[]; onOpen: (i: ClosetItem) => void; onDelete: (i: ClosetItem) => void; onEdit: (i: ClosetItem) => void; onSetAvailability: (i: ClosetItem, s: AvailabilityStatus) => void; deleting: string | null }) {
   const favs = useMemo(() => items.filter(i => i.is_favorite), [items])
   if (favs.length === 0) return null
 
@@ -169,7 +170,7 @@ function FavouritesSection({
       <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
         {favs.map(item => (
           <div key={item.id} className="flex-shrink-0 w-[120px]">
-            <ClosetItemCard item={item} onOpen={onOpen} onDelete={onDelete} onEdit={onEdit} deleting={deleting === item.id} />
+            <ClosetItemCard item={item} onOpen={onOpen} onDelete={onDelete} onEdit={onEdit} onSetAvailability={onSetAvailability} deleting={deleting === item.id} />
           </div>
         ))}
       </div>
@@ -209,11 +210,47 @@ function CategoryTab({
   )
 }
 
+const AVAILABILITY_BADGE: Record<Exclude<AvailabilityStatus, 'available'>, { icon: typeof Droplets; classes: string }> = {
+  in_laundry:  { icon: Droplets,  classes: 'bg-sky-500/90' },
+  at_cleaners: { icon: Sparkles,  classes: 'bg-violet-500/90' },
+  lent_out:    { icon: Handshake, classes: 'bg-amber-500/90' },
+}
+
+function AvailabilityMenu({
+  item, onSetAvailability, onClose,
+}: { item: ClosetItem; onSetAvailability: (i: ClosetItem, s: AvailabilityStatus) => void; onClose: () => void }) {
+  const current = item.availability ?? 'available'
+  return (
+    <div
+      className="absolute top-10 left-2 z-40 w-40 rounded-xl border border-slate-200 dark:border-white/10
+                 bg-white dark:bg-slate-800 shadow-xl py-1"
+      onClick={e => e.stopPropagation()}
+    >
+      {(Object.keys(AVAILABILITY_LABELS) as AvailabilityStatus[]).map(status => (
+        <button
+          key={status}
+          onClick={() => { onSetAvailability(item, status); onClose() }}
+          className={cn(
+            'w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors',
+            'hover:bg-slate-50 dark:hover:bg-white/5',
+            current === status ? 'font-semibold text-brand-600 dark:text-brand-400' : 'text-slate-600 dark:text-slate-300',
+          )}
+        >
+          {current === status && <Check size={11} className="flex-shrink-0" />}
+          <span className={current === status ? '' : 'pl-[19px]'}>{AVAILABILITY_LABELS[status]}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
 function ClosetItemCard({
-  item, onOpen, onDelete, onEdit, deleting,
-}: { item: ClosetItem; onOpen: (i: ClosetItem) => void; onDelete: (i: ClosetItem) => void; onEdit: (i: ClosetItem) => void; deleting: boolean }) {
+  item, onOpen, onDelete, onEdit, onSetAvailability, deleting,
+}: { item: ClosetItem; onOpen: (i: ClosetItem) => void; onDelete: (i: ClosetItem) => void; onEdit: (i: ClosetItem) => void; onSetAvailability: (i: ClosetItem, s: AvailabilityStatus) => void; deleting: boolean }) {
   const isTransparent = item.image_url?.endsWith('.png')
   const [confirmingDelete, setConfirmingDelete] = React.useState(false)
+  const [availabilityOpen, setAvailabilityOpen] = React.useState(false)
+  const unavailable = item.availability != null && item.availability !== 'available'
 
   const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -238,7 +275,19 @@ function ClosetItemCard({
             : 'bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-900',
         )}
       >
-        <RevealCard item={item} onOpen={onOpen} onEdit={onEdit} className="absolute inset-0 rounded-2xl" />
+        <div className={cn('absolute inset-0', unavailable && 'opacity-45 saturate-50')}>
+          <RevealCard item={item} onOpen={onOpen} onEdit={onEdit} className="absolute inset-0 rounded-2xl" />
+        </div>
+
+        {/* Availability badge — FANI skips these items until marked available */}
+        {unavailable && (() => {
+          const { icon: Icon, classes } = AVAILABILITY_BADGE[item.availability as Exclude<AvailabilityStatus, 'available'>]
+          return (
+            <div className={cn('absolute bottom-2 left-2 z-20 flex items-center gap-1 rounded-full backdrop-blur-sm px-2 py-0.5 text-[9px] font-bold text-white', classes)}>
+              <Icon size={10} /> {AVAILABILITY_LABELS[item.availability as AvailabilityStatus]}
+            </div>
+          )
+        })()}
 
         {/* Eco badge */}
         {item.eco_score != null && item.eco_score >= 7 && (
@@ -268,6 +317,17 @@ function ClosetItemCard({
             <Pencil size={13} />
           </button>
           <button
+            onClick={e => { e.stopPropagation(); setAvailabilityOpen(o => !o) }}
+            className={cn(
+              'p-1.5 rounded-lg backdrop-blur-sm text-white transition-colors',
+              unavailable ? 'bg-sky-500/80 hover:bg-sky-500' : 'bg-black/45 hover:bg-black/65',
+            )}
+            title={`Availability: ${AVAILABILITY_LABELS[item.availability ?? 'available']}`}
+            aria-label={`Set availability for ${item.name}`}
+          >
+            <Droplets size={13} />
+          </button>
+          <button
             onClick={handleDeleteClick}
             disabled={deleting}
             className={cn(
@@ -282,6 +342,10 @@ function ClosetItemCard({
               : <Trash2 size={13} />}
           </button>
         </div>
+
+        {availabilityOpen && (
+          <AvailabilityMenu item={item} onSetAvailability={onSetAvailability} onClose={() => setAvailabilityOpen(false)} />
+        )}
       </div>
 
       {/* Item name + at-a-glance metadata */}
@@ -470,6 +534,26 @@ export default function Closet() {
   const handleItemEdited = (updated: ClosetItem) => {
     setClosetItems(closetItems.map(i => i.id === updated.id ? updated : i))
     setEditItem(null)
+  }
+
+  const handleSetAvailability = async (item: ClosetItem, availability: AvailabilityStatus) => {
+    try {
+      const updated = await closetApi.update(item.id, { availability })
+      setClosetItems(closetItems.map(i => i.id === updated.id ? updated : i))
+      if (availability !== 'available') {
+        toastStore.add({
+          title: AVAILABILITY_LABELS[availability],
+          body: `FANI won't suggest "${item.name}" until it's back.`,
+          variant: 'default',
+        })
+      }
+    } catch {
+      toastStore.add({
+        title: 'Update failed',
+        body: `Couldn't update availability for "${item.name}". Please try again.`,
+        variant: 'error',
+      })
+    }
   }
 
   const handleDelete = async (item: ClosetItem) => {
@@ -794,6 +878,7 @@ export default function Closet() {
           onOpen={setSelected}
           onDelete={handleDelete}
           onEdit={setEditItem}
+          onSetAvailability={handleSetAvailability}
           deleting={deleting}
         />
       )}
@@ -850,6 +935,7 @@ export default function Closet() {
                         onOpen={setSelected}
                         onDelete={handleDelete}
                         onEdit={setEditItem}
+                        onSetAvailability={handleSetAvailability}
                         deleting={deleting === item.id}
                       />
                     ))}

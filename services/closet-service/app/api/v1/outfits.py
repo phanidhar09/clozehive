@@ -240,6 +240,7 @@ async def analyze_outfit(request: Request, body: AnalyzeOutfitRequest, user_id: 
                 ClosetItem.user_id == uid,
                 ClosetItem.id.not_in(set(item_uuids)),
                 ClosetItem.is_archived == False,  # noqa: E712
+                ClosetItem.availability == "available",
             ).limit(50)
         )
         remaining_db_items = remaining_result.scalars().all()
@@ -386,6 +387,7 @@ async def shuffle_outfit(
             limit=60,
             threshold=0.20,
             filter_archived=True,
+            filter_available=True,
         )
         available = [
             {
@@ -404,7 +406,11 @@ async def shuffle_outfit(
         # Fallback: wear_count order when no embeddings exist yet
         all_rows = await session.execute(
             select(ClosetItem)
-            .where(ClosetItem.user_id == uid, ClosetItem.is_archived == False)  # noqa: E712
+            .where(
+                ClosetItem.user_id == uid,
+                ClosetItem.is_archived == False,  # noqa: E712
+                ClosetItem.availability == "available",
+            )
             .order_by(ClosetItem.wear_count.desc())
             .limit(80)
         )

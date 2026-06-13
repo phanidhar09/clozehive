@@ -11,7 +11,16 @@ from typing import Any, cast
 
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, Request, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,11 +46,21 @@ from app.schemas.closet import (
     LogWearRequest,
     coerce_closet_category,
 )
-from app.services import cache_service, closet_preview_service, similarity_service, vision_service
+from app.services import (
+    cache_service,
+    closet_preview_service,
+    similarity_service,
+    vision_service,
+)
 from app.services.closet_service import ClosetService
-from app.services.upload_service import delete_upload, persist_upload, read_validated_image
+from app.services.upload_service import (
+    delete_upload,
+    persist_upload,
+    read_validated_image,
+)
 from app.repositories.style_profile_repo import UserStyleProfileRepository
 from app.utils.user_context import profile_to_context
+
 
 async def _ws_push(user_id: str, data: dict) -> None:
     """Fire-and-forget WebSocket push via Redis pub/sub — never raises.
@@ -100,7 +119,9 @@ def _item_from_vision(
     vision_tags = list(vision["tags"]) if isinstance(vision.get("tags"), list) else []
     detected_gender = str(vision.get("gender") or "").strip().lower()
     if detected_gender in {"male", "female", "men", "women"}:
-        gender_tag = f"gender:{'male' if detected_gender in {'male', 'men'} else 'female'}"
+        gender_tag = (
+            f"gender:{'male' if detected_gender in {'male', 'men'} else 'female'}"
+        )
         if gender_tag not in vision_tags:
             vision_tags.append(gender_tag)
     return ClosetItemCreate(
@@ -113,7 +134,9 @@ def _item_from_vision(
         pattern=str(vision["pattern"]) if vision.get("pattern") else None,
         season=vision.get("season"),  # schema validator normalises str/list → list[str]
         occasion=_occasion_from_vision(vision) or None,
-        eco_score=float(vision["eco_score"]) if vision.get("eco_score") is not None else None,
+        eco_score=float(vision["eco_score"])
+        if vision.get("eco_score") is not None
+        else None,
         tags=vision_tags or None,
         image_url=image_url,
         notes=garment_notes,
@@ -134,6 +157,7 @@ def _get_svc(session: AsyncSession) -> ClosetService:
 
 
 # ── List / get ────────────────────────────────────────────────────────────────
+
 
 @router.get("/", response_model=ClosetListResponse)
 async def list_items(
@@ -159,19 +183,28 @@ async def list_items(
 
 
 @router.get("/{item_id}", response_model=ClosetItemResponse)
-async def get_item(user_id: CurrentUser, item_id: UUID, session: AsyncSession = Depends(get_session)):
+async def get_item(
+    user_id: CurrentUser, item_id: UUID, session: AsyncSession = Depends(get_session)
+):
     svc = _get_svc(session)
     return await svc.get_item(item_id, UUID(user_id))
 
 
 @router.get("/{item_id}/similar", response_model=list[ClosetItemResponse])
-async def get_similar_items(user_id: CurrentUser, item_id: UUID, session: AsyncSession = Depends(get_session)):
-    return await similarity_service.find_similar_items(session, str(item_id), user_id, limit=5)
+async def get_similar_items(
+    user_id: CurrentUser, item_id: UUID, session: AsyncSession = Depends(get_session)
+):
+    return await similarity_service.find_similar_items(
+        session, str(item_id), user_id, limit=5
+    )
 
 
 # ── Create ────────────────────────────────────────────────────────────────────
 
-@router.post("/", response_model=ClosetItemResponse, status_code=status.HTTP_201_CREATED)
+
+@router.post(
+    "/", response_model=ClosetItemResponse, status_code=status.HTTP_201_CREATED
+)
 async def create_item(
     user_id: CurrentUser,
     body: ClosetItemCreate,
@@ -181,13 +214,27 @@ async def create_item(
     svc = _get_svc(session)
     item = await svc.create_item(UUID(user_id), body)
     await cache_service.invalidate_user_ai_cache(await get_redis(), user_id)
-    background_tasks.add_task(similarity_service.update_item_embedding_job, str(item.id))
+    # Commit BEFORE scheduling the embedding job: it opens its own session and
+    # runs before dependency teardown, so an uncommitted row is invisible to it
+    # and the new item would silently get no embedding.
+    await session.commit()
+    background_tasks.add_task(
+        similarity_service.update_item_embedding_job, str(item.id)
+    )
     # Real-time push: notify the user's open browser tabs that a new item was added
-    background_tasks.add_task(_ws_push, user_id, {
-        "type": "notification",
-        "channel": "closet",
-        "data": {"event": "item_added", "item_name": item.name, "category": item.category},
-    })
+    background_tasks.add_task(
+        _ws_push,
+        user_id,
+        {
+            "type": "notification",
+            "channel": "closet",
+            "data": {
+                "event": "item_added",
+                "item_name": item.name,
+                "category": item.category,
+            },
+        },
+    )
     return item
 
 
@@ -237,8 +284,12 @@ async def confirm_closet_preview(
     )
     if saved:
         await cache_service.invalidate_user_ai_cache(await get_redis(), user_id)
+        # Commit before scheduling — the embedding jobs can't see uncommitted rows.
+        await session.commit()
         for item in saved:
-            background_tasks.add_task(similarity_service.update_item_embedding_job, str(item.id))
+            background_tasks.add_task(
+                similarity_service.update_item_embedding_job, str(item.id)
+            )
     return ClosetConfirmResponse(saved=saved, total_saved=len(saved))
 
 
@@ -276,7 +327,9 @@ async def bulk_analyze_preview(
                 filename=file.filename,
                 user_context=user_context,
             )
-            results.append(BulkAnalyzePreviewFileResult(filename=filename, preview=preview))
+            results.append(
+                BulkAnalyzePreviewFileResult(filename=filename, preview=preview)
+            )
         except Exception as exc:
             failed.append(BulkPreviewFailure(filename=filename, error=str(exc)))
 
@@ -318,7 +371,11 @@ async def upload_item(
     svc = _get_svc(session)
     item = await svc.create_item(UUID(user_id), item_data)
     await cache_service.invalidate_user_ai_cache(await get_redis(), user_id)
-    background_tasks.add_task(similarity_service.update_item_embedding_job, str(item.id))
+    # Commit before scheduling — the embedding job can't see the uncommitted row.
+    await session.commit()
+    background_tasks.add_task(
+        similarity_service.update_item_embedding_job, str(item.id)
+    )
     return ClosetUploadResponse(item=item, vision_analysis=vision)
 
 
@@ -342,7 +399,9 @@ async def bulk_upload_items(
     if len(files) > MAX_BULK_UPLOAD_FILES:
         raise BadRequestError("Maximum 20 files per bulk upload.")
 
-    results = await asyncio.gather(*(_analyse_file(file) for file in files), return_exceptions=True)
+    results = await asyncio.gather(
+        *(_analyse_file(file) for file in files), return_exceptions=True
+    )
     svc = _get_svc(session)
     created: list[ClosetItemResponse] = []
     failed: list[BulkUploadFailure] = []
@@ -356,21 +415,34 @@ async def bulk_upload_items(
 
         image_url, vision = cast(tuple[Any, Any], result)
         try:
-            item = await svc.create_item(user_uuid, _item_from_vision(vision, image_url))
+            item = await svc.create_item(
+                user_uuid, _item_from_vision(vision, image_url)
+            )
             created.append(item)
-            background_tasks.add_task(similarity_service.update_item_embedding_job, str(item.id))
         except Exception as exc:
             failed.append(BulkUploadFailure(filename=filename, error=str(exc)))
 
     if created:
         await cache_service.invalidate_user_ai_cache(await get_redis(), user_id)
+        # Commit before scheduling — the embedding jobs can't see uncommitted rows.
+        await session.commit()
+        for item in created:
+            background_tasks.add_task(
+                similarity_service.update_item_embedding_job, str(item.id)
+            )
     return BulkUploadResponse(created=created, failed=failed)
 
 
 # ── Update / delete ───────────────────────────────────────────────────────────
 
+
 @router.patch("/{item_id}", response_model=ClosetItemResponse)
-async def update_item(item_id: UUID, body: ClosetItemUpdate, user_id: CurrentUser, session: AsyncSession = Depends(get_session)):
+async def update_item(
+    item_id: UUID,
+    body: ClosetItemUpdate,
+    user_id: CurrentUser,
+    session: AsyncSession = Depends(get_session),
+):
     svc = _get_svc(session)
     item = await svc.update_item(item_id, UUID(user_id), body)
     await similarity_service.update_item_embedding_in_request(session, str(item.id))
@@ -394,20 +466,29 @@ async def delete_item(
 
 # ── Wear log ──────────────────────────────────────────────────────────────────
 
+
 @router.post("/{item_id}/wear", response_model=ClosetItemResponse)
-async def log_wear(item_id: UUID, body: LogWearRequest, user_id: CurrentUser, session: AsyncSession = Depends(get_session)):
+async def log_wear(
+    item_id: UUID,
+    body: LogWearRequest,
+    user_id: CurrentUser,
+    session: AsyncSession = Depends(get_session),
+):
     svc = _get_svc(session)
     return await svc.log_wear(item_id, UUID(user_id), body.worn_date)
 
 
 # ── Re-embed all items ────────────────────────────────────────────────────────
 
+
 @router.post("/re-embed", status_code=status.HTTP_202_ACCEPTED)
 async def re_embed_closet(
     user_id: CurrentUser,
     background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
-    force: bool = Query(False, description="Re-embed even items that already have an embedding"),
+    force: bool = Query(
+        False, description="Re-embed even items that already have an embedding"
+    ),
 ):
     """
     Regenerate embeddings for all closet items owned by the current user.
@@ -458,13 +539,14 @@ async def re_embed_closet(
                 except Exception as exc:
                     failed += 1
                     import logging
+
                     logging.getLogger("re_embed").warning(
                         "re_embed_item_failed", item_id=str(item.id), error=str(exc)
                     )
                 # Commit in batches of 20
                 if (i + 1) % 20 == 0:
                     await bg_session.commit()
-                    await asyncio.sleep(0.3)   # brief pause for API rate limits
+                    await asyncio.sleep(0.3)  # brief pause for API rate limits
 
             await bg_session.commit()
 

@@ -15,6 +15,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
@@ -62,6 +63,11 @@ class ClosetItem(Base):
     wear_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_worn: Mapped[date | None] = mapped_column(Date, nullable=True)
     is_archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Physical availability: available | in_laundry | at_cleaners | lent_out
+    # (see app.constants.wardrobe.Availability). FANI only styles available items.
+    availability: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="available", server_default="available"
+    )
 
     # ── Vision pipeline fields (added in migration 008) ───────────────────────
     original_image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -100,5 +106,40 @@ class Outfit(Base):
     style_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class PlannedOutfit(Base):
+    """One planned outfit per user per calendar day (weekly outfit planner)."""
+
+    __tablename__ = "planned_outfits"
+    __table_args__ = (UniqueConstraint("user_id", "plan_date", name="uq_planned_outfits_user_date"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        # No FK: the users table lives in the api-gateway DB. Cleanup on user
+        # deletion is handled by the internal purge seam, not ON DELETE CASCADE.
+        UUID(as_uuid=True),
+        nullable=False,
+        index=True,
+    )
+    plan_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    item_ids: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)
+    occasion: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # Forecast snapshot at planning time — keeps the day card explainable even
+    # after the live forecast shifts.
+    weather_condition: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    temp_high: Mapped[float | None] = mapped_column(Numeric(5, 1), nullable=True)
+    temp_low: Mapped[float | None] = mapped_column(Numeric(5, 1), nullable=True)
+    reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="fani")  # fani | manual
+    is_worn: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
 

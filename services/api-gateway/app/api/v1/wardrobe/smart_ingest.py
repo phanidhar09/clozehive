@@ -461,8 +461,6 @@ async def approve_items(
             await session.flush()  # get the DB-assigned id
             created_ids.append(str(new_item.id))
 
-            await similarity_service.schedule_embedding_update(background_tasks, str(new_item.id))
-
         except Exception as exc:
             logger.error(
                 "approve_item_failed",
@@ -471,7 +469,12 @@ async def approve_items(
             )
             failed += 1
 
-    # Request-scoped session commits in get_session; do not commit here.
+    # Commit before scheduling embedding refreshes: the jobs open their own
+    # sessions and cannot see this request's uncommitted rows.
+    if created_ids:
+        await session.commit()
+        for new_id in created_ids:
+            await similarity_service.schedule_embedding_update(background_tasks, new_id)
 
     # Invalidate AI suggestion cache and all closet list pages so the UI reloads
     redis = await get_redis()

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 from uuid import UUID
 
 from langsmith import traceable
 from openai import AsyncOpenAI
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -108,17 +109,30 @@ async def update_item_embedding_job(item_id: str) -> None:
 
     Use from FastAPI ``BackgroundTasks`` or fire-and-forget asyncio tasks so
     work is not tied to the request session lifecycle.
+
+    Call sites MUST commit the row before scheduling this in-process — the job
+    runs before dependency teardown, so an uncommitted row is invisible here.
+    The retry below only papers over the durable-queue (ARQ) variant of that
+    race, where the worker may pick the job up moments before the commit lands.
     """
-    async with AsyncSessionLocal() as session:
-        try:
-            item = await session.get(ClosetItem, UUID(item_id))
-            if item is None:
-                return
-            item.embedding = await generate_item_embedding(item)
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
+    for attempt in range(3):
+        async with AsyncSessionLocal() as session:
+            try:
+                # Bound the row-lock wait: if the row is still locked by an
+                # uncommitted request transaction, fail loudly instead of
+                # hanging forever (the failure shows up in background-task logs).
+                await session.execute(text("SET LOCAL lock_timeout = '5s'"))
+                item = await session.get(ClosetItem, UUID(item_id))
+                if item is not None:
+                    item.embedding = await generate_item_embedding(item)
+                    await session.commit()
+                    return
+            except Exception:
+                await session.rollback()
+                raise
+        # Row not visible yet — likely racing the creating transaction's commit.
+        await asyncio.sleep(0.5 * (attempt + 1))
+    logger.warning("embedding_job_item_missing", item_id=item_id)
 
 
 async def schedule_embedding_update(background_tasks, item_id: str) -> None:

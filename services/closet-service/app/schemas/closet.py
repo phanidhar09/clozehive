@@ -12,6 +12,9 @@ from app.schemas.validators import strip_string
 
 ClosetCategory = Literal["tops", "bottoms", "shoes", "outerwear", "dresses", "accessories", "other"]
 
+# Physical availability — anything but "available" is hidden from FANI styling.
+AvailabilityStatus = Literal["available", "in_laundry", "at_cleaners", "lent_out"]
+
 _CANONICAL_CATEGORIES = frozenset({
     "tops", "bottoms", "shoes", "outerwear", "dresses", "accessories", "other",
 })
@@ -192,6 +195,7 @@ class ClosetItemUpdate(BaseModel):
     size: str | None = Field(None, max_length=20)
     price: float | None = Field(None, ge=0, le=99999.99)
     is_archived: bool | None = None
+    availability: AvailabilityStatus | None = None
 
     @field_validator("name", "color", "fabric", "pattern", "image_url", "notes", "brand", "size", mode="before")
     @classmethod
@@ -240,6 +244,7 @@ class ClosetItemResponse(BaseModel):
     wear_count: int
     last_worn: date | None
     is_archived: bool
+    availability: str = "available"
     created_at: datetime
     updated_at: datetime
 

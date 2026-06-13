@@ -117,6 +117,14 @@ services:
         generateValue: true
       - key: ENVIRONMENT
         value: production
+      # This blueprint has no nginx in front of the gateway — the frontend calls
+      # clozehive-api directly (VITE_API_URL = this service). The closet/outfits/ai
+      # domain routers default to OFF in production (they assume nginx forwards
+      # those prefixes to closet-service), so without this override every
+      # /api/v1/closet, /outfits, /ai request 404s. Force the gateway to serve its
+      # own copies. Remove only if you add an nginx/router tier that splits traffic.
+      - key: SERVE_MIGRATED_DOMAIN_ROUTES
+        value: "true"
       - key: DEBUG
         value: "false"
       - key: REDIS_CHECK_ON_READY

@@ -21,6 +21,7 @@ from app.api.v1 import (
     outfit_history,
     outfits,
     packing_memory,
+    planner,
     purchase_gaps,
     rag,
     shopping_check,
@@ -33,6 +34,7 @@ api_router = APIRouter(prefix="/api/v1")
 # Wardrobe core
 api_router.include_router(closet.router)
 api_router.include_router(outfits.router)
+api_router.include_router(planner.router)               # weekly outfit calendar
 api_router.include_router(trips.router)
 api_router.include_router(packing_memory.router)        # trip-prefixed packing
 api_router.include_router(analytics.router)

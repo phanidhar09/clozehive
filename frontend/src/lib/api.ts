@@ -19,6 +19,8 @@ import type {
   OutfitAnalysis,
   OutfitSuggestion,
   PackingPlan,
+  PlannedDay,
+  PlannerWeekResponse,
   SavePlannerResponse,
   SocialUser,
   Trip,
@@ -296,6 +298,7 @@ function mapClosetItem(raw: Record<string, unknown>): ClosetItem {
     eco_score: raw.eco_score != null ? Number(raw.eco_score) : undefined,
     is_favorite: Boolean(raw.is_favorite),
     notes: raw.notes as string | undefined,
+    availability: (raw.availability as ClosetItem['availability']) ?? 'available',
     created_at: String(raw.created_at ?? ''),
   }
 }
@@ -1274,5 +1277,54 @@ export const shoppingCheckApi = {
       closet_item_id: closetItemId,
     })
     return data
+  },
+}
+
+// ── Weekly outfit planner ────────────────────────────────────────────────────
+
+function mapPlannedDay(day: PlannedDay): PlannedDay {
+  return {
+    ...day,
+    items: (day.items ?? []).map(it => ({ ...it, image_url: resolveUploadUrl(it.image_url) ?? it.image_url })),
+  }
+}
+
+export interface PlannerForecastDay {
+  date: string                 // YYYY-MM-DD
+  condition: string
+  temp_high?: number | null
+  temp_low?: number | null
+  occasion?: string | null
+}
+
+export const plannerApi = {
+  async getWeek(start?: string): Promise<PlannerWeekResponse> {
+    const { data } = await api.get<PlannerWeekResponse>('/planner/week', {
+      params: start ? { start } : undefined,
+    })
+    return { ...data, days: (data.days ?? []).map(mapPlannedDay) }
+  },
+
+  async generate(body: {
+    start_date?: string
+    days?: PlannerForecastDay[]
+    location?: string
+  }): Promise<PlannerWeekResponse> {
+    const { data } = await api.post<PlannerWeekResponse>('/planner/generate', body)
+    return { ...data, days: (data.days ?? []).map(mapPlannedDay) }
+  },
+
+  async setDay(planDate: string, body: { item_ids: string[]; occasion?: string; notes?: string }): Promise<PlannedDay> {
+    const { data } = await api.put<PlannedDay>(`/planner/${planDate}`, body)
+    return mapPlannedDay(data)
+  },
+
+  async clearDay(planDate: string): Promise<void> {
+    await api.delete(`/planner/${planDate}`)
+  },
+
+  async markWorn(planDate: string): Promise<PlannedDay> {
+    const { data } = await api.post<PlannedDay>(`/planner/${planDate}/worn`)
+    return mapPlannedDay(data)
   },
 }

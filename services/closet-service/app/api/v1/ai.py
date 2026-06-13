@@ -93,6 +93,7 @@ async def _get_closet_for_occasion(
             limit=30,
             threshold=0.25,
             filter_archived=True,
+            filter_available=True,
         )
         if rows:
             return [
@@ -110,7 +111,11 @@ async def _get_closet_for_occasion(
     # Fallback when no embeddings exist yet
     result = await session.execute(
         select(ClosetItem)
-        .where(ClosetItem.user_id == user_id, ClosetItem.is_archived == False)  # noqa: E712
+        .where(
+            ClosetItem.user_id == user_id,
+            ClosetItem.is_archived == False,  # noqa: E712
+            ClosetItem.availability == "available",
+        )
         .order_by(ClosetItem.wear_count.desc(), ClosetItem.created_at.desc())
         .limit(50)
     )

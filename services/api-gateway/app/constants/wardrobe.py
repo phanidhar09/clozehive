@@ -32,6 +32,15 @@ class Occasion(StrEnum):
     DATE_NIGHT = "date-night"
 
 
+class Availability(StrEnum):
+    """Where an item physically is — FANI only styles AVAILABLE items."""
+
+    AVAILABLE = "available"
+    IN_LAUNDRY = "in_laundry"
+    AT_CLEANERS = "at_cleaners"
+    LENT_OUT = "lent_out"
+
+
 DEFAULT_CATEGORY = ClosetCategory.UNCATEGORISED
 
 CLOSET_SECTIONS = frozenset(

@@ -193,6 +193,11 @@ async def create_item(
     svc = _get_svc(session)
     item = await svc.create_item(UUID(user_id), body)
     await cache_service.invalidate_user_ai_cache(await get_redis(), user_id)
+    # Commit BEFORE scheduling the embedding job: it opens its own session and
+    # runs before dependency teardown, so an uncommitted row is invisible to it
+    # (new items silently get no embedding) or, on updates, deadlocks on the
+    # row lock — see update_item below.
+    await session.commit()
     await similarity_service.schedule_embedding_update(background_tasks, str(item.id))
     # Real-time push: notify the user's open browser tabs that a new item was added
     background_tasks.add_task(
@@ -249,6 +254,8 @@ async def confirm_closet_preview(
     )
     if saved:
         await cache_service.invalidate_user_ai_cache(await get_redis(), user_id)
+        # Commit before scheduling — the embedding jobs can't see uncommitted rows.
+        await session.commit()
         for item in saved:
             await similarity_service.schedule_embedding_update(background_tasks, str(item.id))
     return ClosetConfirmResponse(saved=saved, total_saved=len(saved))
@@ -331,6 +338,8 @@ async def upload_item(
     svc = _get_svc(session)
     item = await svc.create_item(UUID(user_id), item_data)
     await cache_service.invalidate_user_ai_cache(await get_redis(), user_id)
+    # Commit before scheduling — the embedding job can't see the uncommitted row.
+    await session.commit()
     await similarity_service.schedule_embedding_update(background_tasks, str(item.id))
     return ClosetUploadResponse(item=item, vision_analysis=vision)
 
@@ -371,12 +380,15 @@ async def bulk_upload_items(
         try:
             item = await svc.create_item(user_uuid, _item_from_vision(vision, image_url))
             created.append(item)
-            await similarity_service.schedule_embedding_update(background_tasks, str(item.id))
         except Exception as exc:
             failed.append(BulkUploadFailure(filename=filename, error=str(exc)))
 
     if created:
         await cache_service.invalidate_user_ai_cache(await get_redis(), user_id)
+        # Commit before scheduling — the embedding jobs can't see uncommitted rows.
+        await session.commit()
+        for item in created:
+            await similarity_service.schedule_embedding_update(background_tasks, str(item.id))
     return BulkUploadResponse(created=created, failed=failed)
 
 
@@ -393,6 +405,12 @@ async def update_item(
 ):
     svc = _get_svc(session)
     item = await svc.update_item(item_id, UUID(user_id), body)
+    # Commit BEFORE scheduling the embedding refresh. The in-process job updates
+    # the same row from its own session; with the request transaction still
+    # holding the row lock it blocks forever, and since dependency teardown (the
+    # commit) runs after background tasks, the two deadlock — the edit is then
+    # rolled back when the pooled connection is recycled, silently losing it.
+    await session.commit()
     # Recompute the embedding off the request path. Doing it inline blocked the
     # response for the full OpenAI round-trip, and any embedding error rolled
     # back the metadata update too — silently losing the user's edit.

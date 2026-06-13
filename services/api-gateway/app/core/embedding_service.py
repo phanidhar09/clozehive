@@ -282,6 +282,7 @@ async def pgvector_cosine_search(
     filter_archived: bool = False,
     exclude_id: str | None = None,
     filter_category: str | None = None,
+    filter_available: bool = False,
 ) -> list[dict[str, Any]]:
     """Raw SQL cosine search against any table with an `embedding` vector column.
 
@@ -320,6 +321,8 @@ async def pgvector_cosine_search(
 
     archived_filter = "AND is_archived = false" if filter_archived else ""
     resolved_filter = "AND resolved = false" if table == "purchase_gaps" else ""
+    # Laundry/lent-out items stay out of styling suggestions (closet_items only).
+    available_filter = "AND availability = 'available'" if filter_available else ""
 
     exclude_filter = ""
     if exclude_id is not None:
@@ -340,6 +343,7 @@ async def pgvector_cosine_search(
         WHERE embedding IS NOT NULL
           {user_filter}
           {archived_filter}
+          {available_filter}
           {exclude_filter}
           {category_filter}
           {resolved_filter}
