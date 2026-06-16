@@ -113,6 +113,9 @@ class PlannedOutfit(Base):
     """One planned outfit per user per calendar day (weekly outfit planner)."""
 
     __tablename__ = "planned_outfits"
+    # The unique constraint doubles as the composite (user_id, plan_date) index,
+    # which serves every planner query — so user_id / plan_date carry no separate
+    # index=True (would be redundant write overhead; see migration 032).
     __table_args__ = (UniqueConstraint("user_id", "plan_date", name="uq_planned_outfits_user_date"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -120,9 +123,8 @@ class PlannedOutfit(Base):
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
-        index=True,
     )
-    plan_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    plan_date: Mapped[date] = mapped_column(Date, nullable=False)
     item_ids: Mapped[list[str] | None] = mapped_column(ARRAY(String), nullable=True)
     occasion: Mapped[str | None] = mapped_column(String(100), nullable=True)
     # Forecast snapshot at planning time — keeps the day card explainable even
