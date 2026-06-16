@@ -53,20 +53,3 @@ async def get_user(
         "style_profile": user.style_profile,
         "preferences": user.preferences,
     }
-
-
-@router.post("/embeddings/{item_id}")
-async def regenerate_embedding(
-    item_id: UUID,
-    x_internal_token: str | None = Header(default=None),
-) -> dict[str, str]:
-    """Regenerate a closet item's embedding. Called by the ai-worker's durable
-    ARQ embedding task (see HEAVY_WORK_ASYNC). Token-protected, internal only.
-
-    The embedding job opens its own DB session, so no request session is needed.
-    """
-    _verify_internal_token(x_internal_token)
-    from app.api.v1.wardrobe.services.similarity_service import update_item_embedding_job
-
-    await update_item_embedding_job(str(item_id))
-    return {"status": "ok", "item_id": str(item_id)}

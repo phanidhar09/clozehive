@@ -33,7 +33,6 @@ settings = get_settings()
 TASK_ANALYZE_IMAGE = "analyze_image_task"
 TASK_GENERATE_OUTFIT = "generate_outfit_task"
 TASK_GENERATE_PACKING = "generate_packing_task"
-TASK_GENERATE_EMBEDDING = "generate_embedding_task"
 
 _pool: ArqRedis | None = None
 
@@ -60,25 +59,6 @@ async def close_arq_pool() -> None:
     if _pool is not None:
         await _pool.close()
         _pool = None
-
-
-async def enqueue_embedding_job(item_id: str) -> bool:
-    """Enqueue a durable embedding-regeneration job for a closet item.
-
-    Unlike enqueue_ai_job this writes no ai_requests row — embeddings are
-    fire-and-forget background work with no client-facing status polling. The
-    item_id doubles as the ARQ job_id so re-enqueuing the same item while a job
-    is in flight is a no-op. Returns False if enqueue failed (caller may fall
-    back to in-process execution).
-    """
-    try:
-        pool = await get_arq_pool()
-        job = await pool.enqueue_job(TASK_GENERATE_EMBEDDING, item_id, _job_id=f"embed:{item_id}")
-        logger.info("embedding_job_enqueued", item_id=item_id, deduped=job is None)
-        return True
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("embedding_job_enqueue_failed", item_id=item_id, error=str(exc))
-        return False
 
 
 async def enqueue_ai_job(

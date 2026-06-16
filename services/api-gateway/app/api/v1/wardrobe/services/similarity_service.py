@@ -136,21 +136,13 @@ async def update_item_embedding_job(item_id: str) -> None:
 
 
 async def schedule_embedding_update(background_tasks, item_id: str) -> None:
-    """Schedule an item embedding refresh, durably or in-process.
+    """Schedule an item embedding refresh as an in-process FastAPI BackgroundTask.
 
-    When HEAVY_WORK_ASYNC is on, enqueue a durable ARQ job (survives web-process
-    restarts / scale-in, retried by the ai-worker). Otherwise — or if the enqueue
-    fails — fall back to an in-process FastAPI BackgroundTask. Either way the API
-    response is returned immediately; embeddings are computed after the response.
+    The API response returns immediately; the embedding is computed afterwards in
+    the same process. (The durable ai-worker variant was retired — closet-service,
+    the prod owner of the wardrobe domain, generates embeddings in-process too.)
     """
     from app.core.metrics import record_embedding_job
-    from app.core.task_queue import enqueue_embedding_job, should_offload_heavy_work
 
-    if should_offload_heavy_work():
-        if await enqueue_embedding_job(item_id):
-            record_embedding_job("arq")
-            return
-        # Enqueue failed (Redis/worker down) — degrade to in-process so the
-        # embedding still gets generated rather than silently dropped.
     record_embedding_job("inprocess")
     background_tasks.add_task(update_item_embedding_job, item_id)

@@ -30,13 +30,6 @@ def fake_agent(monkeypatch) -> AsyncMock:
 
 
 @pytest.fixture
-def fake_gateway(monkeypatch) -> AsyncMock:
-    gateway = AsyncMock()
-    monkeypatch.setattr(worker, "gateway_client", gateway)
-    return gateway
-
-
-@pytest.fixture
 def recorded_metrics(monkeypatch) -> list[tuple[str, str, float]]:
     calls: list[tuple[str, str, float]] = []
     monkeypatch.setattr(
