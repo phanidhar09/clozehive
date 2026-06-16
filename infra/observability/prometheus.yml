@@ -22,13 +22,6 @@ scrape_configs:
         labels:
           service: api-gateway
 
-  - job_name: closet-service
-    metrics_path: /metrics
-    static_configs:
-      - targets: ["closet-service:8003"]
-        labels:
-          service: closet-service
-
   - job_name: ai-agent
     metrics_path: /metrics
     static_configs:

@@ -1,62 +1,80 @@
 # Clozehive — Services & Workflows
 
-This document covers every service that is **actually wired and running** in the
-default stack (`docker compose up --build`). Optional/unwired components are
-listed at the end for completeness but are not documented as part of the
-running system.
+This document covers every service that is **actually wired and running**.
+Two topologies exist and are both documented:
+
+- **Production (Render)** — the deployed blueprint (`render.yaml`). No nginx; the
+  frontend calls the api-gateway directly. The gateway is the **sole owner of the
+  wardrobe domain**. `vision-service` and `ai-worker` are **not** deployed there.
+- **Local dev (`docker compose up --build`)** — the full multi-service stack
+  behind nginx, including `vision-service` and `ai-worker`.
+
+Optional/unwired components are listed at the end.
+
+> **History:** there used to be a separate `closet-service` (:8003) that owned the
+> wardrobe domain against its own Postgres. It was **retired** — the gateway always
+> carried a copy of those routers, and prod was already serving them from the
+> gateway. The wardrobe domain now lives only in the api-gateway.
 
 ---
 
 ## 1. System Overview
 
+### Production (Render) — canonical
+
+```mermaid
+flowchart LR
+    B[Browser] --> GW[api-gateway :8000<br/>SERVE_MIGRATED_DOMAIN_ROUTES=true]
+    GW -->|/ai proxy, internal token| AG[ai-agent]
+    GW --> PG[(clozehive-db<br/>identity + wardrobe + pgvector)]
+    GW --> R[(redis cache)]
+    GW --> RS[(redis-state<br/>OAuth/refresh/rate-limit)]
 ```
-Browser
-  │
-  ▼
-nginx (:80) ──────────────────────────────────────────────────────────────┐
-  │                                                                       │
-  ├── /                    → frontend (React SPA, :3000)                  │
-  ├── /api/v1/auth, profile, weather, admin, jobs, ws, /uploads          │
-  │                        → api-gateway (:8000)                          │
-  ├── /api/v1/closet|outfits|trips|ai|ai-chat|analytics|rag|...          │
-  │                        → closet-service (:8003)                       │
-  └── /api/v1/analyze-vision|smart-ingest|.../remove-background          │
-                           → vision-service (:8002)                       │
-                                                                          │
-api-gateway ── /ai/* proxy ──► ai-agent (:8001, LangGraph + GPT-4o)       │
-closet-service ────────────────┘                                          │
-                                                                          │
-api-gateway / closet-service ── enqueue ARQ job ──► redis-state (db 3)    │
-                                          │                               │
-                                          ▼                               │
-                                     ai-worker ──► ai-agent / gateway     │
-```
+
+The frontend's `VITE_API_URL` points at the gateway, which serves the **entire**
+`/api/v1` surface — identity, travel/weather, platform, **and** the wardrobe +
+intelligence domains (closet, outfits, trips, ai, ai-chat, analytics, rag, …).
+Vision ingestion runs **in-process in the gateway** (`smart_ingest` /
+`vision_pipeline` routers); embedding generation runs in-process via
+BackgroundTasks (`HEAVY_WORK_ASYNC=false`).
+
+### Local dev (`docker compose up`) — full stack
 
 ```mermaid
 flowchart LR
     B[Browser] --> N[nginx :80]
     N -->|"/"| FE[frontend :3000]
-    N -->|"auth, profile, weather,<br/>admin, jobs, ws, uploads"| GW[api-gateway :8000]
-    N -->|"closet, outfits, trips,<br/>ai, ai-chat, analytics, rag"| CS[closet-service :8003]
+    N -->|"auth, profile, weather, admin,<br/>jobs, ws, uploads + closet, outfits,<br/>trips, ai, ai-chat, analytics, rag"| GW[api-gateway :8000]
     N -->|"analyze-vision, smart-ingest,<br/>remove-background"| VS[vision-service :8002]
     GW -->|/ai proxy| AG[ai-agent :8001]
-    CS --> AG
-    GW -. enqueue ARQ .-> RS[(redis-state db3)]
-    RS --> AW[ai-worker]
+    GW -. enqueue ARQ .-> RSQ[(redis-state db3)]
+    RSQ --> AW[ai-worker]
     AW --> AG
-    AW -->|internal callback| GW
-    GW --> PG[(postgres<br/>users/auth)]
-    CS --> PGC[(postgres-closet<br/>wardrobe + pgvector)]
-    VS --> PGC
+    GW --> PG[(postgres<br/>identity + wardrobe + pgvector)]
+    VS --> PGC[(postgres-closet<br/>vision-saved items + pgvector)]
     GW --> R[(redis cache)]
-    CS --> R
     VS --> R
 ```
 
-**Two-database split:** `postgres` holds identity/auth/platform data;
-`postgres-closet` holds the wardrobe domain (items, outfits, trips,
-embeddings). Both run `pgvector/pgvector:pg16`. There is **no FK** from
-closet tables to `users` — cleanup happens through an internal purge seam.
+In dev the wardrobe/intelligence routers mount automatically
+(`mount_migrated_routes` defaults on outside production), and nginx routes the
+wardrobe prefixes to the gateway.
+
+> **Dev-stack caveat:** `vision-service` still writes analyzed items to
+> `postgres-closet`, but the gateway reads/writes wardrobe data in `postgres`
+> (clozehive). These are different databases, so items saved via the standalone
+> `vision-service` won't appear in the gateway's `/closet` endpoints in dev. This
+> does not affect production (vision-service isn't deployed there; the gateway's
+> own `vision_pipeline`/`smart_ingest` routers write to the same DB it reads). To
+> exercise the full upload→closet flow in dev, use the gateway's in-process vision
+> routes. (Aligning the dev stack — dropping vision-service or pointing it at
+> `postgres` — is a known follow-up.)
+
+**Databases:** `postgres` (clozehive) holds **everything the gateway owns** —
+identity/auth/platform **and** the wardrobe domain (items, outfits, trips,
+embeddings, `ai_requests`, agent vector store). `pgvector/pgvector:pg16` enables
+embedding search. In dev, `postgres-closet` is used only by the standalone
+`vision-service`.
 
 **Two-Redis split:** `redis` (allkeys-lru, evictable) is pure cache;
 `redis-state` (noeviction) holds data that must survive memory pressure —
@@ -65,17 +83,18 @@ queue (db 3).
 
 ---
 
-## 2. nginx (reverse proxy, `:80`)
+## 2. nginx (reverse proxy, `:80`) — dev stack only
 
-Single public entry point. Config: `infra/nginx/nginx.conf`.
+Single public entry point for the local stack (prod on Render has no nginx).
+Config: `infra/nginx/nginx.conf`.
 
 Responsibilities:
 - **Routing** (most-specific first):
   - `/api/v1/analyze-vision/stream` → vision-service, SSE mode (no buffering, no read timeout)
   - `/api/v1/(analyze-vision|save-analyzed-items|smart-ingest)` → vision-service
   - `/api/v1/closet/{id}/remove-background` → vision-service
-  - `/api/v1/(ai/*|ai-chat)/(stream|async)` → closet-service, SSE mode
-  - `/api/v1/(closet|outfits|trips|ai|ai-chat|analytics|shopping|rag|fashion-knowledge|purchase-gaps)` → closet-service (120 s read timeout for long AI generations)
+  - `/api/v1/(ai/*|ai-chat)/(stream|async)` → api-gateway, SSE mode
+  - `/api/v1/(closet|outfits|trips|ai|ai-chat|analytics|shopping|rag|fashion-knowledge|purchase-gaps)` → api-gateway (120 s read timeout for long AI generations)
   - `/api/v1/ws` → api-gateway, WebSocket upgrade (24 h timeouts)
   - `/api/` (everything else: auth, profile, weather, admin, jobs, rum) → api-gateway
   - `/uploads/` → api-gateway (garment images)
@@ -89,20 +108,21 @@ Responsibilities:
 ## 3. frontend (React SPA, `:3000` container / `:3001` host)
 
 Vite + React + TypeScript, served by its own nginx inside the container
-(proxies `/api` and `/uploads` to the gateway when `VITE_API_URL` is empty).
+(proxies `/api` and `/uploads` to the gateway when `VITE_API_URL` is empty). In
+production `VITE_API_URL` is the gateway's Render URL.
 
 Pages wired to the backend:
 
 | Page | Backend it talks to |
 |---|---|
-| Dashboard, Onboarding (incl. Style Profile) | api-gateway, closet-service |
-| Upload | vision-service (analyze + SSE stream), closet-service (save) |
-| Closet, ClosetMatch | closet-service (CRUD, similarity) |
-| OutfitBuilder, SavedOutfits | closet-service |
-| AIStylist, AIStylistChat | closet-service `/ai`, `/ai-chat` (SSE streaming) |
-| TravelPlanner | closet-service (trips, packing), api-gateway (weather) |
-| Analytics | closet-service |
-| PurchaseGaps, ShoppingCheck | closet-service |
+| Dashboard, Onboarding (incl. Style Profile) | api-gateway |
+| Upload | vision-service (analyze + SSE stream, dev) / api-gateway (save + in-process vision) |
+| Closet, ClosetMatch | api-gateway (CRUD, similarity) |
+| OutfitBuilder, SavedOutfits | api-gateway |
+| AIStylist, AIStylistChat | api-gateway `/ai`, `/ai-chat` (SSE streaming) |
+| TravelPlanner | api-gateway (trips, packing, weather) |
+| Analytics | api-gateway |
+| PurchaseGaps, ShoppingCheck | api-gateway |
 | Profile, ForgotPassword/ResetPassword, OAuth callback | api-gateway (identity) |
 
 Observability: Sentry (`@sentry/react`) + web-vitals RUM posted to the
@@ -110,64 +130,65 @@ gateway's `/rum` endpoint.
 
 ---
 
-## 4. api-gateway (FastAPI, `:8000`)
+## 4. api-gateway (FastAPI, `:8000`) — the wardrobe owner
 
-Owns **identity, travel-weather, and platform** domains, plus the `/ai/*`
-proxy to ai-agent and job enqueueing. Database: `postgres` (asyncpg +
-SQLAlchemy, Alembic migrations via the run-once `migrate` container).
+Owns the **entire `/api/v1` surface**: identity, travel-weather, platform, **the
+wardrobe domain, and the intelligence (closet-data AI) domain**, plus the
+`/ai/*` proxy to ai-agent and job enqueueing. Database: `postgres` (clozehive;
+asyncpg + SQLAlchemy, Alembic migrations via the run-once `migrate` container).
 
-Mounted routers (`app/api/v1/router.py`):
+### Always-mounted routers (`app/api/v1/router.py`)
 
 | Domain | Routes | Notes |
 |---|---|---|
-| **identity** | `/auth/*` (register, login, refresh, Google OAuth callback), `/profile` | JWT (shared `JWT_SECRET` across services); refresh tokens + OAuth CSRF state in redis-state |
-| **travel** | `/weather` | Trip CRUD itself migrated to closet-service |
-| **platform** | `/health`, `/admin`, `/rum`, `/ws` | `/ws` = real-time notification WebSocket; `/rum` ingests frontend web-vitals |
-| **intelligence (jobs)** | `/jobs/*` | Enqueue/poll async AI jobs (ARQ) |
+| **identity** | `/auth/*` (register, login, refresh, Google OAuth callback), `/profile` | JWT (shared `JWT_SECRET`); refresh tokens + OAuth CSRF state in redis-state |
+| **travel** | `/weather`, `/trips/*` | Trip CRUD + AI packing; live OpenWeather forecast |
+| **platform** | `/health`, `/admin`, `/rum`, `/ws` | `/ws` = notification WebSocket; `/rum` ingests web-vitals |
+
+### Wardrobe + intelligence routers
+
+These mount when `mount_migrated_routes` is true — which is **dev/test by
+default, and production via the explicit `SERVE_MIGRATED_DOMAIN_ROUTES=true`
+override** in `render.yaml`. They are the live owner of these prefixes (there is
+no separate service anymore).
+
+| Area | Routes | What it does |
+|---|---|---|
+| Closet | `/closet/*` | Item CRUD, image metadata, availability |
+| Similarity | `/closet/similarity`, match | pgvector embedding search over closet items |
+| Outfits | `/outfits/*` | Outfit CRUD + AI outfit generation |
+| Outfit history | wear tracking | Logs/queries what was worn when (feeds RAG) |
+| Planner | `/planner/*` | Weekly weather-aware outfit calendar |
+| Smart ingest | `/smart-ingest/*` | Bulk ingest sessions (in-process vision) |
+| Vision pipeline | `/analyze-vision`, `/save-analyzed-items` | In-process garment analysis + save |
+| AI | `/ai/*` (incl. `/stream`, `/async`) | Outfit/packing/stylist generation — calls **ai-agent** |
+| AI Chat | `/ai-chat/*` (SSE stream) | Conversational stylist with closet context |
+| Jobs | `/jobs/*` | Enqueue/poll async AI jobs (ARQ) |
+| Shopping check | `/shopping/*` | In-store "should I buy this?" advisor |
+| Purchase gaps | `/purchase-gaps` | Detects wardrobe gaps worth buying |
+| RAG | `/rag/*`, `/fashion-knowledge` | Retrieval over fashion knowledge + closet (pgvector) |
+| Analytics | `/analytics` | Closet usage stats |
+| Internal | `app/api/internal.py` | `GET /internal/users/{id}` seam, guarded by `INTERNAL_SERVICE_TOKEN` |
 
 Important behavior:
-- The wardrobe and intelligence routers still exist in the gateway codebase
-  but are mounted **only when `mount_migrated_routes` is true (dev/test)** —
-  in production closet-service is the sole owner of those prefixes.
 - Serves `/uploads/*` garment images (shared `uploads` volume; GCS optional).
-- `HEAVY_WORK_ASYNC=true` offloads embedding generation to the ARQ queue
-  (ai-worker); default `false` runs it in-process via BackgroundTasks.
+- Embedding generation runs **in-process** via FastAPI BackgroundTasks
+  (`similarity_service.schedule_embedding_update` → `update_item_embedding_job`).
+  `HEAVY_WORK_ASYNC=true` *would* offload it to the ARQ queue, but the durable
+  embedding path was retired and `ai-worker` isn't deployed in prod.
+- On account deletion the user row CASCADE-deletes their closet data in the same
+  DB; a legacy cross-service purge seam exists but is a no-op (`CLOSET_SERVICE_URL`
+  unset).
 - Observability: Prometheus `/metrics`, optional Sentry + OpenTelemetry.
 
 ---
 
-## 5. closet-service (FastAPI, `:8003`)
+## 5. vision-service (FastAPI, `:8002`) — dev stack only
 
-Owns the **wardrobe domain and all closet-data AI features**. Authenticates
-by validating the gateway-issued JWT **locally** (shared `JWT_SECRET`) — no
-per-request call back to the gateway. Database: `postgres-closet`
-(own Alembic migrations via `migrate-closet`).
-
-Mounted routers (`app/api/v1/router.py`):
-
-| Area | Routes | What it does |
-|---|---|---|
-| Closet | `/closet/*` | Item CRUD, image metadata |
-| Similarity | `/closet/similarity`, match | pgvector embedding search over closet items |
-| Outfits | `/outfits/*` | Outfit CRUD + AI outfit generation |
-| Outfit history | wear tracking | Logs/queries what was worn when |
-| Trips | `/trips/*` | Trip CRUD + AI packing lists |
-| Packing memory | trip-prefixed | Remembers packing preferences per user |
-| AI | `/ai/*` (incl. `/stream`, `/async`) | Outfit/packing/stylist generation — calls **ai-agent** |
-| AI Chat | `/ai-chat/*` (SSE stream) | Conversational AI stylist with closet context |
-| Shopping check | `/shopping/*` | In-store "should I buy this?" advisor |
-| Purchase gaps | `/purchase-gaps` | Detects wardrobe gaps worth buying |
-| RAG | `/rag/*`, `/fashion-knowledge` | Unified retrieval over fashion knowledge + closet (pgvector) |
-| Analytics | `/analytics` | Closet usage stats |
-| Trends | admin trend ingestion | Admin-only fashion-trend ingestion |
-| Internal | `app/api/internal.py` | Internal seam (e.g. user purge) guarded by `INTERNAL_SERVICE_TOKEN` |
-
----
-
-## 6. vision-service (FastAPI, `:8002`)
-
-Image analysis and background removal. Writes analyzed items **directly into
-`postgres-closet`** so saved items are immediately visible to closet-service.
+Standalone image analysis and background removal. **Not deployed on Render** —
+in production the gateway performs vision ingestion in-process via its
+`vision_pipeline`/`smart_ingest` routers. In the dev stack it writes analyzed
+items into `postgres-closet` (see the dev-stack caveat in §1).
 
 Endpoints (`app/api/v1/`):
 
@@ -175,7 +196,7 @@ Endpoints (`app/api/v1/`):
 |---|---|
 | `POST /analyze-vision` | Batch garment analysis (Gemini / OpenAI vision) |
 | `POST /analyze-vision/stream` | SSE — per-image progress streamed to the Upload page |
-| `POST /save-analyzed-items` | Persist analyzed items to the closet DB |
+| `POST /save-analyzed-items` | Persist analyzed items |
 | `POST /smart-ingest` + GET/PATCH/DELETE | Bulk ingest sessions: analyze many photos, review, then commit |
 | `POST /closet/{id}/remove-background` | Per-item background removal |
 
@@ -183,15 +204,15 @@ Key internals: `vision_pipeline_service` (parallelized detection),
 `gemini_service` / `fashion_analysis_service` (model calls),
 `background_removal_service`, `similarity_service` + `item_vision_enrichment`
 (embeddings for closet matching), Redis db 2 for caching, JWT validated
-locally.
+locally. `gemini_service.py` is the only file the CI drift gate
+(`scripts/check_service_drift.py`) used to pin — it now owns the sole copy.
 
 ---
 
-## 7. ai-agent (FastAPI + LangGraph, `:8001`)
+## 6. ai-agent (FastAPI + LangGraph, `:8001`)
 
-The LLM brain. **Not exposed through nginx** — reached only service-to-service
-(api-gateway, closet-service, ai-worker) on the Docker network, guarded by
-`INTERNAL_SERVICE_TOKEN`.
+The LLM brain. **Not exposed publicly** — reached only service-to-service
+(api-gateway, ai-worker) guarded by `INTERNAL_SERVICE_TOKEN`.
 
 - Agent: `create_react_agent` (LangGraph prebuilt ReAct) over `ChatOpenAI`
   (`gpt-4o`).
@@ -206,18 +227,20 @@ Endpoints (`/agent/*`):
 
 | Route | Used by |
 |---|---|
-| `POST /agent/chat`, `POST /agent/chat/stream` | closet-service AI chat (streamed back as SSE) |
+| `POST /agent/chat`, `POST /agent/chat/stream` | gateway AI chat (streamed back as SSE) |
 | `POST /agent/outfit` | outfit generation |
 | `POST /agent/packing` | trip packing lists |
 | `POST /agent/vision/analyze` | vision-assist for the worker path |
 
 ---
 
-## 8. ai-worker (ARQ worker, no HTTP port)
+## 7. ai-worker (ARQ worker, no HTTP port) — dev stack only
 
-Durable async job consumer. Listens on the ARQ queue in **redis-state db 3**
-(matching the gateway's `ARQ_REDIS_URL`), executes jobs, and writes results
-to the `ai_requests` table in `postgres`.
+Durable async job consumer. **Disabled on Render free tier** (workers require a
+paid plan; `HEAVY_WORK_ASYNC=false` keeps post-write work in-process). In the
+dev stack it listens on the ARQ queue in **redis-state db 3** (matching the
+gateway's `ARQ_REDIS_URL`), executes jobs, and writes results to the
+`ai_requests` table in `postgres`.
 
 Registered tasks (`app/worker.py`):
 
@@ -226,7 +249,9 @@ Registered tasks (`app/worker.py`):
 | `analyze_image_task` | → ai-agent `/agent/vision/analyze` → result to `ai_requests` |
 | `generate_outfit_task` | → ai-agent `/agent/outfit` → result to `ai_requests` |
 | `generate_packing_task` | → ai-agent `/agent/packing` → result to `ai_requests` |
-| `generate_embedding_task` | → calls **back into the gateway** (`GATEWAY_INTERNAL_URL` + internal token) to embed a closet item — the `HEAVY_WORK_ASYNC` path |
+
+(The former `generate_embedding_task` was removed — embeddings run in-process in
+the gateway.)
 
 Also runs a queue-depth poll loop and exposes Prometheus metrics on `:9104`
 (internal only). Jobs are enqueued by the gateway's `/jobs` endpoints and
@@ -234,82 +259,76 @@ polled by the frontend.
 
 ---
 
-## 9. Data & infrastructure services
+## 8. Data & infrastructure services
 
 | Service | Image | Role |
 |---|---|---|
-| `postgres` (host `:5433`) | pgvector/pg16 | Identity, auth, platform, `ai_requests`, agent vector store |
-| `postgres-closet` (host `:5434`) | pgvector/pg16 | Wardrobe domain: items, outfits, trips, embeddings |
-| `redis` (host `:6382`) | redis:7 | Cache — evictable (allkeys-lru). db0 gateway, db1 ai-agent, db2 vision, db4 closet-service |
+| `postgres` (host `:5433`) | pgvector/pg16 | Everything the gateway owns: identity, auth, platform, **wardrobe domain**, `ai_requests`, agent vector store |
+| `postgres-closet` (host `:5434`) | pgvector/pg16 | **Dev only** — standalone vision-service's analyzed-item store |
+| `redis` (host `:6382`) | redis:7 | Cache — evictable (allkeys-lru). db0 gateway, db1 ai-agent, db2 vision |
 | `redis-state` (host `:6383`) | redis:7 | **Non-evictable** (noeviction): OAuth state, refresh tokens, rate limits (db0), ARQ queue (db3) |
-| `migrate` / `migrate-closet` | run-once | Alembic `upgrade head` against each DB on every `compose up` |
+| `migrate` | run-once | Alembic `upgrade head` against `postgres` on every `compose up` |
 
 ---
 
-## 10. Core workflows
+## 9. Core workflows
 
-### 10.1 Authentication
+### 9.1 Authentication
 
 ```mermaid
 sequenceDiagram
     participant FE as frontend
-    participant N as nginx
     participant GW as api-gateway
     participant RS as redis-state
-    FE->>N: POST /api/v1/auth/login (or Google OAuth)
-    N->>GW: proxy (5 r/s auth limit)
+    FE->>GW: POST /api/v1/auth/login (or Google OAuth)
     GW->>RS: store refresh token / OAuth CSRF state
     GW-->>FE: access JWT + refresh token
-    Note over FE: JWT sent on every request;<br/>closet- & vision-service validate it locally<br/>(shared JWT_SECRET) — no gateway round-trip
+    Note over FE: JWT sent on every request; services<br/>validate it locally (shared JWT_SECRET)
 ```
 
-### 10.2 Garment upload & analysis
+### 9.2 Garment upload & analysis (production / in-process)
 
 ```mermaid
 sequenceDiagram
     participant FE as Upload page
-    participant N as nginx
-    participant VS as vision-service
+    participant GW as api-gateway
     participant LLM as Gemini / OpenAI Vision
-    participant DBC as postgres-closet
-    FE->>N: POST /api/v1/analyze-vision/stream (photos)
-    N->>VS: proxy (SSE, no buffering)
-    VS->>LLM: parallel per-image analysis
-    VS-->>FE: SSE progress events per item
-    FE->>VS: POST /api/v1/save-analyzed-items
-    VS->>DBC: insert closet items (+ embeddings)
-    Note over DBC: items immediately visible to closet-service
+    participant DB as postgres (clozehive)
+    FE->>GW: POST /api/v1/analyze-vision/stream (photos)
+    GW->>LLM: parallel per-image analysis
+    GW-->>FE: SSE progress events per item
+    FE->>GW: POST /api/v1/save-analyzed-items
+    GW->>DB: insert closet items (+ in-process embeddings)
 ```
 
 (Bulk path: `smart-ingest` creates a review session — analyze many photos,
-user reviews/edits, then commits.)
+user reviews/edits, then commits. In the dev stack the standalone vision-service
+serves the analyze/SSE side — see the §1 caveat.)
 
-### 10.3 AI stylist chat (streaming)
+### 9.3 AI stylist chat (streaming)
 
 ```mermaid
 sequenceDiagram
     participant FE as AIStylistChat
-    participant N as nginx
-    participant CS as closet-service
+    participant GW as api-gateway
     participant AG as ai-agent
-    FE->>N: POST /api/v1/ai-chat/stream
-    N->>CS: proxy (SSE mode)
-    CS->>CS: build context: closet items, style memory, RAG (pgvector)
-    CS->>AG: POST /agent/chat/stream (internal token)
+    FE->>GW: POST /api/v1/ai-chat/stream
+    GW->>GW: build context: closet items, style memory, RAG (pgvector)
+    GW->>AG: POST /agent/chat/stream (internal token)
     AG->>AG: LangGraph ReAct over GPT-4o<br/>tools: weather / outfit / packing
-    AG-->>CS: token stream
-    CS-->>FE: SSE tokens
+    AG-->>GW: token stream
+    GW-->>FE: SSE tokens
 ```
 
-### 10.4 Trip packing
+### 9.4 Trip packing
 
-1. User creates a trip in TravelPlanner → `POST /trips` (closet-service).
-2. Packing generation: closet-service → ai-agent `/agent/packing`; the
-   weather tool fetches a live OpenWeather forecast for the destination
-   (static climate profile fallback when no API key).
+1. User creates a trip in TravelPlanner → `POST /trips` (api-gateway).
+2. Packing generation: gateway → ai-agent `/agent/packing`; the weather tool
+   fetches a live OpenWeather forecast for the destination (static climate
+   profile fallback when no API key).
 3. Packing-memory service stores user preferences to improve future lists.
 
-### 10.5 Async AI jobs (ARQ)
+### 9.5 Async AI jobs (ARQ) — dev stack
 
 ```mermaid
 sequenceDiagram
@@ -327,14 +346,14 @@ sequenceDiagram
     FE->>GW: poll GET /api/v1/jobs/{id}
 ```
 
-Embedding offload variant: with `HEAVY_WORK_ASYNC=true`, closet-item
-embedding generation is enqueued the same way and `generate_embedding_task`
-calls back into the gateway's internal embedding endpoint.
+In production `ai-worker` isn't deployed and `HEAVY_WORK_ASYNC=false`, so these
+run synchronously in-process; the `/jobs` poll API still works for the flows
+that use it.
 
-### 10.6 Observability
+### 9.6 Observability
 
-- **Prometheus**: gateway/agent/worker expose `/metrics` (nginx blocks public
-  access); ai-worker exports queue depth and job SLA metrics on `:9104`.
+- **Prometheus**: gateway/agent expose `/metrics` (nginx blocks public access);
+  ai-worker exports queue depth and job SLA metrics on `:9104` (dev).
 - **Sentry**: frontend + gateway + worker (DSN optional).
 - **RUM**: frontend web-vitals → gateway `/api/v1/platform/rum`.
 - **LangSmith**: optional LLM tracing for ai-agent (env-gated).
@@ -342,16 +361,12 @@ calls back into the gateway's internal embedding endpoint.
 
 ---
 
-## 11. Not part of the running system (excluded by design)
+## 10. Not part of the running system (excluded by design)
 
-These exist in the repo but are **not wired** into the default stack and are
-intentionally not documented above:
+These exist in the repo but are **not wired** into the default stack:
 
 - **`mcp-vision`** (`services/mcp/vision`) — legacy MCP vision server; only
   starts with `docker compose --profile vision up`. The default stack runs all
   tools in-process inside ai-agent and analysis inside vision-service.
 - **Social domain** (`api-gateway/app/api/v1/social`, Groups page) — router is
   commented out (`# Non-MVP: Phase 2`); no backend routes are mounted.
-- **Gateway copies of wardrobe/intelligence routers** — mounted only in
-  dev/test (`mount_migrated_routes`); in production closet-service owns those
-  prefixes exclusively.

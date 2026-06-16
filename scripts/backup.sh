@@ -2,18 +2,15 @@
 # -----------------------------------------------------------------------------
 # Clozehive PostgreSQL backup script
 # Usage: ./scripts/backup.sh
-# Creates timestamped .sql.gz dumps in ./backups/ for both DB domains.
+# Creates a timestamped .sql.gz dump of the primary DB in ./backups/.
 # -----------------------------------------------------------------------------
 set -euo pipefail
 
 BACKUP_DIR="${BACKUP_DIR:-./backups}"
 PRIMARY_DB_CONTAINER="${PRIMARY_DB_CONTAINER:-clozehive-postgres-1}"
-CLOSET_DB_CONTAINER="${CLOSET_DB_CONTAINER:-clozehive-postgres-closet-1}"
 PRIMARY_DB_NAME="${POSTGRES_DB:-clozehive}"
-CLOSET_DB_NAME="${CLOSET_POSTGRES_DB:-clozehive_closet}"
 DB_USER="${POSTGRES_USER:-clozehive}"
 RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-30}"
-BACKUP_CLOSET_DB="${BACKUP_CLOSET_DB:-true}"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 
 mkdir -p "$BACKUP_DIR"
@@ -43,10 +40,6 @@ backup_one() {
 }
 
 backup_one "$PRIMARY_DB_CONTAINER" "$PRIMARY_DB_NAME" "clozehive_primary"
-
-if [[ "$BACKUP_CLOSET_DB" == "true" ]]; then
-  backup_one "$CLOSET_DB_CONTAINER" "$CLOSET_DB_NAME" "clozehive_closet"
-fi
 
 find "$BACKUP_DIR" -name "clozehive_*.sql.gz" -mtime +"$RETENTION_DAYS" -delete
 echo "[backup] Removed backups older than ${RETENTION_DAYS} days"

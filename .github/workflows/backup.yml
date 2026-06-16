@@ -40,11 +40,8 @@ jobs:
             export BACKUP_DIR="${{ secrets.BACKUP_DIR || './backups' }}"
             export BACKUP_RETENTION_DAYS="${{ secrets.BACKUP_RETENTION_DAYS || '30' }}"
             export PRIMARY_DB_CONTAINER="${{ secrets.PRIMARY_DB_CONTAINER || 'clozehive-postgres-1' }}"
-            export CLOSET_DB_CONTAINER="${{ secrets.CLOSET_DB_CONTAINER || 'clozehive-postgres-closet-1' }}"
             export POSTGRES_DB="${{ secrets.POSTGRES_DB || 'clozehive' }}"
-            export CLOSET_POSTGRES_DB="${{ secrets.CLOSET_POSTGRES_DB || 'clozehive_closet' }}"
             export POSTGRES_USER="${{ secrets.POSTGRES_USER || 'clozehive' }}"
-            export BACKUP_CLOSET_DB="${{ secrets.BACKUP_CLOSET_DB || 'true' }}"
             export S3_BACKUP_BUCKET="${{ secrets.S3_BACKUP_BUCKET }}"
             ./scripts/backup.sh
             ls -lht "${BACKUP_DIR}" | sed -n '1,5p'

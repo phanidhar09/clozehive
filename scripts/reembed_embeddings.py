@@ -16,23 +16,19 @@ For each known embedding table present in the target database, it rebuilds the
 embedding-input text from the row's own columns, calls OpenAI with the configured
 model, and writes the new vector back — in batches, resumably.
 
-Two databases
-─────────────
-The wardrobe domain (``closet_items``) and the RAG tables can live in different
-databases after the closet-service split. Run this once per database, pointing
-``DATABASE_URL`` at each:
+Single database
+───────────────
+The wardrobe domain (``closet_items``) and the RAG tables all live in the
+gateway database (``clozehive``). Point ``DATABASE_URL`` at it and run once with
+the default table set:
 
-    # main gateway DB (RAG tables)
     DATABASE_URL=postgresql://clozehive:clozehive@localhost:5433/clozehive \
-        python scripts/reembed_embeddings.py --tables outfit_history,packing_memory,\
-fashion_knowledge_documents,user_style_memory
+        python scripts/reembed_embeddings.py
 
-    # closet-service DB (wardrobe)
-    DATABASE_URL=postgresql://clozehive:clozehive@localhost:5434/clozehive_closet \
-        python scripts/reembed_embeddings.py --tables closet_items
-
-Tables not present in the connected DB are skipped automatically, so you can also
-just run with the default table set against each DB.
+Tables not present in the connected DB are skipped automatically, so the default
+table set is safe to run as-is. (Historically the wardrobe domain lived in a
+separate ``closet-service`` DB; that service was retired and its tables folded
+into the gateway DB.)
 
 Usage
 ─────

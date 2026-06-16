@@ -1,13 +1,18 @@
 # Deploying Clozehive to Google Cloud Run
 
+> **Live production runs on Render** (`render.yaml`). This GCP Cloud Run path is
+> an alternative deployment kept for portability; update it in lockstep with the
+> Render blueprint.
+
 Re-platforms the existing containers (the same ones in `docker-compose.yml` /
-`render.yaml`) onto Cloud Run. Backing stores are **serverless add-ons**:
+`render.yaml`) onto Cloud Run. The api-gateway owns the wardrobe domain (the
+former `closet-service` was retired). Backing stores are **serverless add-ons**:
 
 | Piece | Where | Notes |
 |-------|-------|-------|
-| Frontend, api-gateway, closet-service, ai-agent | Cloud Run **services** | HTTP, autoscaling |
+| Frontend, api-gateway, ai-agent | Cloud Run **services** | HTTP, autoscaling |
 | ai-worker (ARQ) | Cloud Run **worker pool** | no HTTP listener, CPU always on |
-| Postgres ×2 | **Neon** | `db-url-core` (api/agent/worker) + `db-url-closet` |
+| Postgres | **Neon** | `db-url-core` (api/agent/worker) — identity + wardrobe |
 | Redis ×2 | **Upstash** | `redis-cache-url` (evictable) + `redis-state-url` (noeviction) |
 | Uploads | **GCS bucket** | auth via runtime service account (ADC), no JSON key |
 
@@ -17,8 +22,8 @@ Re-platforms the existing containers (the same ones in `docker-compose.yml` /
 
 1. `gcloud` CLI installed and `gcloud auth login` done.
 2. A GCP project with billing enabled.
-3. A **Neon** account → create a project, then **two databases** (e.g.
-   `clozehive_core`, `clozehive_closet`). Copy both connection strings.
+3. A **Neon** account → create a project, then a database (e.g.
+   `clozehive_core`). Copy the connection string.
 4. An **Upstash** account → create **two Redis databases**. Set the cache one's
    eviction to `allkeys-lru` and the state one to `noeviction`. Copy both
    `rediss://` URLs.
@@ -39,8 +44,8 @@ $EDITOR secrets.env          # Neon URLs, Upstash URLs, OpenAI/Google keys…
 # 3. Run the four scripts in order
 ./00-setup.sh    # APIs, Artifact Registry, GCS bucket, runtime SA + IAM
 ./01-secrets.sh  # push secrets.env → Secret Manager (auto-gens JWT/internal token)
-./02-build.sh    # Cloud Build → 5 images in Artifact Registry
-./03-deploy.sh   # deploy 4 services + worker pool, fully wired
+./02-build.sh    # Cloud Build → 4 images in Artifact Registry
+./03-deploy.sh   # deploy 3 services + worker pool, fully wired
 ```
 
 The deploy prints the frontend + API URLs at the end.
@@ -66,16 +71,16 @@ The deploy prints the frontend + API URLs at the end.
 
 ## Hardening (optional, recommended before real traffic)
 
-`closet-service` and `ai-agent` are deployed `--allow-unauthenticated` for
-simplicity (they're already protected by the shared JWT + `INTERNAL_SERVICE_TOKEN`).
-To make them reachable **only** from other Cloud Run services, redeploy them with
+`ai-agent` is deployed `--allow-unauthenticated` for simplicity (it's already
+protected by the shared `INTERNAL_SERVICE_TOKEN`). To make it reachable **only**
+from other Cloud Run services, redeploy it with
 `--no-allow-unauthenticated --ingress internal`, grant the runtime SA
-`roles/run.invoker` on each, and the gateway's outbound calls will carry an ID
-token automatically. Left public by default so you can verify each service's
-`/health` directly during bring-up.
+`roles/run.invoker`, and the gateway's outbound calls will carry an ID token
+automatically. Left public by default so you can verify its `/health` directly
+during bring-up.
 
 ## Cost shape
 
 Pay-per-use except: api-gateway `min-instances=1` and the worker pool
 `min-instances=1` bill continuously (~a few $/mo each at idle). Neon + Upstash
-have free tiers. GCS is pennies. Scale-to-zero on closet/ai-agent/frontend.
+have free tiers. GCS is pennies. Scale-to-zero on ai-agent/frontend.

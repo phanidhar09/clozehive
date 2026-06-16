@@ -28,7 +28,6 @@ put_secret() {
 
 echo "▶ Writing secrets to Secret Manager…"
 put_secret db-url-core            "$DB_URL_CORE"
-put_secret db-url-closet          "$DB_URL_CLOSET"
 put_secret redis-cache-url        "$REDIS_CACHE_URL"
 put_secret redis-state-url        "$REDIS_STATE_URL"
 put_secret jwt-secret             "$JWT_SECRET"
