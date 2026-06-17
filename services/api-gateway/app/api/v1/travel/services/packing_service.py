@@ -362,9 +362,7 @@ def _ground_day_plans_to_closet(
     """
     valid_ids = {str(it["id"]) for it in closet_items if it.get("id")}
     name_to_id: dict[str, str] = {
-        str(it.get("name", "")).lower().strip(): str(it["id"])
-        for it in closet_items
-        if it.get("id") and it.get("name")
+        str(it.get("name", "")).lower().strip(): str(it["id"]) for it in closet_items if it.get("id") and it.get("name")
     }
 
     corrected = 0
@@ -1126,9 +1124,7 @@ async def generate_packing_list(
         # Grounding/validation below always runs against the FULL closet, so
         # trimming can never cause a real item to be flagged as hallucinated.
         bag = _get_bag_constraints(bag_size)
-        ranked_closet = _rank_closet_for_trip(
-            closet_items, weather_summary, activities, purpose, trip_style, bag
-        )
+        ranked_closet = _rank_closet_for_trip(closet_items, weather_summary, activities, purpose, trip_style, bag)
         if len(ranked_closet) < len(closet_items):
             logger.info(
                 "packing_closet_ranked",
