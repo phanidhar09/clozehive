@@ -184,6 +184,16 @@ services:
           type: web
           name: cloze-hive
           envVarKey: RENDER_EXTERNAL_URL
+      # Transactional email (password reset). The default 'console' provider only
+      # LOGS emails — password-reset mail is never delivered. Use Resend in prod:
+      # set RESEND_API_KEY (Dashboard secret) and EMAIL_FROM to a verified sender
+      # on your Resend domain, e.g. "Clozehive <no-reply@yourdomain.com>".
+      - key: EMAIL_PROVIDER
+        value: resend
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
       # Secrets — set in Render Dashboard after blueprint sync
       - key: OPENAI_API_KEY
         sync: false
