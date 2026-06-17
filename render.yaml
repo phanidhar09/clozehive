@@ -74,8 +74,13 @@ services:
       # instead (idempotent; gated by this flag in app/core/db_migrate.py).
       - key: RUN_MIGRATIONS_ON_STARTUP
         value: "true"
+      # Do NOT crash the boot if startup migrations fail/time out. Migrations run
+      # inside the FastAPI lifespan (before the port binds); paired with the 15s
+      # migration lock_timeout (alembic/env.py), a blocked migration now errors
+      # fast and the app still starts serving (/live passes, /ready reports the
+      # issue) instead of hanging the boot into a health-check restart loop.
       - key: FAIL_ON_STARTUP_MIGRATION_ERROR
-        value: "true"
+        value: "false"
       - key: DATABASE_URL
         fromDatabase:
           name: clozehive-db
@@ -179,6 +184,16 @@ services:
           type: web
           name: cloze-hive
           envVarKey: RENDER_EXTERNAL_URL
+      # Transactional email (password reset). The default 'console' provider only
+      # LOGS mail — reset emails are never delivered. Use Resend in production:
+      # set RESEND_API_KEY (Dashboard secret) and EMAIL_FROM to a verified sender
+      # on your Resend domain, e.g. "Clozehive <no-reply@yourdomain.com>".
+      - key: EMAIL_PROVIDER
+        value: resend
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
       # Secrets — set in Render Dashboard after blueprint sync
       - key: OPENAI_API_KEY
         sync: false

@@ -46,6 +46,18 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
+    # Fail fast instead of hanging the boot forever if a migration can't acquire
+    # its lock — e.g. an orphaned Postgres backend from an earlier interrupted
+    # migration still holding the alembic_version/table lock, or two booting
+    # instances racing `upgrade head`. Startup migrations run inside the FastAPI
+    # lifespan (before the port binds), so an unbounded wait means the health
+    # check never passes and Render restarts the instance → boot loop. lock_timeout
+    # bounds only the WAIT to acquire a lock, never how long a migration may run,
+    # so legitimately long migrations are unaffected. A blocked migration now
+    # errors after 15s; with FAIL_ON_STARTUP_MIGRATION_ERROR=false the app still
+    # boots and self-heals once the lock clears.
+    if connection.dialect.name == "postgresql":
+        connection.exec_driver_sql("SET lock_timeout = '15s'")
     context.configure(connection=connection, target_metadata=target_metadata)
     with context.begin_transaction():
         context.run_migrations()
