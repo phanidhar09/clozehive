@@ -81,10 +81,14 @@ services:
       # issue) instead of hanging the boot into a health-check restart loop.
       - key: FAIL_ON_STARTUP_MIGRATION_ERROR
         value: "false"
+      # Primary database = Neon (set the Neon connection string as a Dashboard
+      # secret on this service). Paste it as-is — the app strips Neon's
+      # ?sslmode=require and applies SSL via connect_args (see normalise_db_url /
+      # db/session.py). The ai-agent service MUST use the SAME DATABASE_URL (they
+      # share one Postgres for the vector store / style memory). On first boot set
+      # RUN_MIGRATIONS_ON_STARTUP=true so the schema is created in the empty Neon DB.
       - key: DATABASE_URL
-        fromDatabase:
-          name: clozehive-db
-          property: connectionString
+        sync: false
       # Optional read replica for read-only endpoints (closet list/get/similar).
       # Paste a replica connection string in the Dashboard, or leave unset to use
       # DATABASE_URL (the app falls back automatically). Render Postgres replicas
@@ -226,10 +230,10 @@ services:
       --proxy-headers
       --forwarded-allow-ips=*
     envVars:
+      # Same Neon connection string as clozehive-api (shared Postgres / vector
+      # store). Set as a Dashboard secret on this service too.
       - key: DATABASE_URL
-        fromDatabase:
-          name: clozehive-db
-          property: connectionString
+        sync: false
       - key: REDIS_URL
         fromService:
           type: redis

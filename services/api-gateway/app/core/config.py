@@ -8,9 +8,15 @@ from __future__ import annotations
 import logging
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# libpq query params that the asyncpg driver rejects — SSL is supplied via
+# connect_args (see db/session.py), so strip these from managed URLs (Neon,
+# Supabase, …) which append e.g. ``?sslmode=require&channel_binding=require``.
+_ASYNCPG_INCOMPATIBLE_DB_PARAMS = {"sslmode", "ssl", "channel_binding", "gssencmode"}
 
 # config.py lives at services/api-gateway/app/core/config.py — 5 levels up is the project root
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
@@ -20,13 +26,25 @@ _CFG_LOG = logging.getLogger("clozehive.config")
 
 
 def normalise_db_url(v: str) -> str:
-    """Rewrite ``postgres://`` / bare ``postgresql://`` URLs to the asyncpg driver."""
+    """Rewrite ``postgres://`` / bare ``postgresql://`` URLs to the asyncpg driver
+    and strip libpq query params (``sslmode``, ``channel_binding``, …) that asyncpg
+    rejects. Lets a managed connection string (Neon, Supabase, Render) be used
+    as-is; SSL is applied via connect_args in db/session.py."""
     if not isinstance(v, str):
         return v
     if v.startswith("postgres://"):
-        return "postgresql+asyncpg://" + v[len("postgres://") :]
-    if v.startswith("postgresql://") and "+asyncpg" not in v:
-        return "postgresql+asyncpg://" + v[len("postgresql://") :]
+        v = "postgresql+asyncpg://" + v[len("postgres://") :]
+    elif v.startswith("postgresql://") and "+asyncpg" not in v:
+        v = "postgresql+asyncpg://" + v[len("postgresql://") :]
+    # Drop asyncpg-incompatible query params (e.g. Neon's ?sslmode=require).
+    if "?" in v and any(p in v.lower() for p in _ASYNCPG_INCOMPATIBLE_DB_PARAMS):
+        parsed = urlparse(v)
+        kept = [
+            (k, val)
+            for k, val in parse_qsl(parsed.query, keep_blank_values=True)
+            if k.lower() not in _ASYNCPG_INCOMPATIBLE_DB_PARAMS
+        ]
+        v = urlunparse(parsed._replace(query=urlencode(kept)))
     return v
 
 
