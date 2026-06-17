@@ -19,8 +19,7 @@ microservices — orchestrated with Docker Compose locally and deployed on
 | `frontend/` | React 18 + Vite + TypeScript + Tailwind | SPA, PWA, served via nginx |
 | `services/api-gateway/` | FastAPI + SQLAlchemy (async) + Alembic | Auth, closet, outfits, AI routes, the public `/api/v1` surface |
 | `services/ai-agent/` | FastAPI + LangChain | LLM outfit/styling tools |
-| `services/ai-worker/` | ARQ (Redis queue) | Durable background jobs (e.g. embeddings) when `HEAVY_WORK_ASYNC=true` |
-| `services/closet-service/` | FastAPI | Closet domain service |
+| `services/ai-worker/` | ARQ (Redis queue) | Durable background AI jobs (image analysis, outfit, packing) when `HEAVY_WORK_ASYNC=true` |
 | `services/vision-service/` | FastAPI | Image detection / wardrobe vision |
 | `services/mcp/` | MCP servers | Tools (e.g. weather) |
 | `infra/`, `nginx/` | nginx, configs | Edge / reverse proxy |

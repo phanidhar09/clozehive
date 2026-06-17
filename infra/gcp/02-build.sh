@@ -19,7 +19,6 @@ build_backend() {
 }
 
 build_backend services/api-gateway    "$IMAGE_BASE/api-gateway"
-build_backend services/closet-service  "$IMAGE_BASE/closet-service"
 build_backend services/ai-agent        "$IMAGE_BASE/ai-agent"
 build_backend services/ai-worker       "$IMAGE_BASE/ai-worker"
 

@@ -313,22 +313,31 @@ export default function Upload() {
     const incoming = Array.from(selected)
     const images = incoming.filter(f => f.type.startsWith('image/'))
     const withinSize = images.filter(f => f.size <= MAX_FILE_SIZE)
-    const capped = withinSize.slice(0, MAX_FILES)
+
+    // "+ Add more" appends to the current selection rather than replacing it.
+    // De-dupe by name+size so re-picking the same photo is a no-op, then cap the total.
+    const existingKeys = new Set(files.map(f => `${f.name}:${f.size}`))
+    const fresh = withinSize.filter(f => !existingKeys.has(`${f.name}:${f.size}`))
+    const merged = [...files, ...fresh]
+    const capped = merged.slice(0, MAX_FILES)
+    const acceptedFresh = capped.slice(files.length) // new files that fit under the cap
 
     // Error prevention: tell the user about anything we couldn't accept
     const skipped: string[] = []
     const nonImage = incoming.length - images.length
     const tooBig = images.length - withinSize.length
-    const overflow = withinSize.length - capped.length
+    const dupes = withinSize.length - fresh.length
+    const overflow = merged.length - capped.length
     if (nonImage) skipped.push(`${nonImage} non-image file${nonImage === 1 ? '' : 's'}`)
     if (tooBig) skipped.push(`${tooBig} over 10MB`)
+    if (dupes) skipped.push(`${dupes} already added`)
     if (overflow) skipped.push(`${overflow} beyond the ${MAX_FILES}-photo limit`)
     setFileNotice(skipped.length ? `Skipped ${skipped.join(', ')}.` : null)
 
-    // Revoke previous object URLs to avoid leaks, then build fresh previews
-    filePreviews.forEach(p => URL.revokeObjectURL(p.url))
+    // Keep existing object URLs alive; only create previews for the newly accepted files.
+    const freshPreviews = acceptedFresh.map(f => ({ url: URL.createObjectURL(f), name: f.name }))
     setFiles(capped)
-    setFilePreviews(capped.map(f => ({ url: URL.createObjectURL(f), name: f.name })))
+    setFilePreviews(prev => [...prev, ...freshPreviews])
     setPreviewGroups([])
     setAnalyzeFailures([])
     setSaveOkMessage(null)
@@ -337,7 +346,7 @@ export default function Upload() {
     setSimilarItemsMap({})
     setSimilarLoadingIds(new Set())
     setSimilarErrorIds(new Set())
-  }, [filePreviews])
+  }, [files])
 
   /** Remove a single selected photo before analysis (user control & freedom). */
   const removeFile = useCallback((index: number) => {

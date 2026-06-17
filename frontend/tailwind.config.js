@@ -64,6 +64,7 @@ export default {
         'gradient-brand':   'linear-gradient(135deg, #0D9488 0%, #059669 100%)',
         'gradient-premium': 'linear-gradient(135deg, #14B8A6 0%, #0D9488 50%, #059669 100%)',
         'gradient-warm':    'linear-gradient(135deg, #D97706 0%, #F59E0B 100%)',
+        'gradient-sunset':  'linear-gradient(135deg, #F59E0B 0%, #D85A30 100%)',
         'gradient-fresh':   'linear-gradient(135deg, #2DD4BF 0%, #14B8A6 100%)',
         'gradient-card':    'linear-gradient(135deg, #0F766E 0%, #065F46 100%)',
         'shimmer': 'linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent)',

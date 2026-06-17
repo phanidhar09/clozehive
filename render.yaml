@@ -22,10 +22,6 @@ databases:
     postgresMajorVersion: "16"
     ipAllowList: []
 
-  # NOTE: closet-service uses a FREE external Postgres (Neon), not a Render DB,
-  # because Render allows only one free Postgres per account. Its DATABASE_URL is
-  # set as a Dashboard secret on the clozehive-closet service (sync: false).
-
 services:
   # ── Cache Redis (evictable) — closet/profile/AI/vision caches, previews ─────
   - type: redis
@@ -117,12 +113,11 @@ services:
         generateValue: true
       - key: ENVIRONMENT
         value: production
-      # This blueprint has no nginx in front of the gateway — the frontend calls
-      # clozehive-api directly (VITE_API_URL = this service). The closet/outfits/ai
-      # domain routers default to OFF in production (they assume nginx forwards
-      # those prefixes to closet-service), so without this override every
-      # /api/v1/closet, /outfits, /ai request 404s. Force the gateway to serve its
-      # own copies. Remove only if you add an nginx/router tier that splits traffic.
+      # The frontend calls clozehive-api directly (VITE_API_URL = this service)
+      # and the gateway is the sole owner of the wardrobe domain (closet/outfits/
+      # ai). Those routers default to OFF in production, so this override is
+      # REQUIRED — without it every /api/v1/closet, /outfits, /ai request 404s.
+      # (The closet-service split was retired; the gateway serves its own copies.)
       - key: SERVE_MIGRATED_DOMAIN_ROUTES
         value: "true"
       - key: DEBUG
@@ -199,115 +194,6 @@ services:
         sync: false
       - key: GOOGLE_REDIRECT_URI
         sync: false
-      - key: GCS_BUCKET_NAME
-        sync: false
-      - key: GCS_PROJECT_ID
-        sync: false
-      - key: GCS_CREDENTIALS_JSON
-        sync: false
-      - key: SENTRY_DSN
-        sync: false
-
-  # ── Closet Service (wardrobe domain + closet-heavy AI; own Postgres) ────────
-  # Not yet routed by nginx/gateway (Phase 4 cutover pending) — reachable at its
-  # own Render URL. Validates gateway-issued JWTs locally via shared JWT_SECRET.
-  - type: web
-    name: clozehive-closet
-    runtime: docker
-    plan: free
-    region: oregon
-    dockerfilePath: services/closet-service/Dockerfile
-    dockerContext: services/closet-service
-    healthCheckPath: /live
-    # Render injects $PORT; override the Dockerfile's fixed :8003
-    dockerCommand: >-
-      uvicorn app.main:app
-      --host 0.0.0.0
-      --port $PORT
-      --workers 1
-      --no-access-log
-      --proxy-headers
-      --forwarded-allow-ips=*
-    envVars:
-      # Free tier has no pre-deploy hook — apply the baseline closet schema on
-      # startup instead (idempotent; gated by this flag in app/core/db_migrate.py).
-      - key: RUN_MIGRATIONS_ON_STARTUP
-        value: "true"
-      - key: FAIL_ON_STARTUP_MIGRATION_ERROR
-        value: "true"
-      # Free external Postgres (Neon). Paste the Neon connection string in the
-      # Dashboard. Format: postgresql://USER:PASS@HOST/DB?sslmode=require
-      # (closet-service auto-enables SSL for neon.tech hosts and rewrites the
-      # scheme to postgresql+asyncpg). The baseline 13-table schema is applied on
-      # first boot via RUN_MIGRATIONS_ON_STARTUP above.
-      - key: DATABASE_URL
-        sync: false
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: clozehive-redis
-          property: connectionString
-      - key: REDIS_STATE_URL
-        fromService:
-          type: redis
-          name: clozehive-redis-state
-          property: connectionString
-      - key: ARQ_REDIS_URL
-        fromService:
-          type: redis
-          name: clozehive-redis-state
-          property: connectionString
-      # MUST be byte-identical to clozehive-api's JWT_SECRET — closet-service
-      # validates gateway-issued JWTs locally with this shared secret.
-      - key: JWT_SECRET
-        fromService:
-          type: web
-          name: clozehive-api
-          envVarKey: JWT_SECRET
-      - key: INTERNAL_SERVICE_TOKEN
-        fromService:
-          type: web
-          name: clozehive-api
-          envVarKey: INTERNAL_SERVICE_TOKEN
-      # Off-hot-path calls that need user account details from the gateway
-      - key: GATEWAY_INTERNAL_URL
-        fromService:
-          type: web
-          name: clozehive-api
-          envVarKey: RENDER_EXTERNAL_URL
-      - key: AI_AGENT_URL
-        fromService:
-          type: web
-          name: clozehive-ai-agent
-          envVarKey: RENDER_EXTERNAL_URL
-      - key: ENVIRONMENT
-        value: production
-      - key: DEBUG
-        value: "false"
-      - key: REDIS_CHECK_ON_READY
-        value: "true"
-      - key: LOG_LEVEL
-        value: INFO
-      - key: OPENAI_MODEL
-        value: gpt-4o
-      - key: OPENAI_API_BASE_URL
-        value: https://api.openai.com/v1
-      - key: OPENAI_MAX_TOKENS
-        value: "1024"
-      - key: VISION_PREVIEW_FAST
-        value: "true"
-      - key: RAG_VECTOR_STORE
-        value: pgvector
-      # Secrets — set in Render Dashboard after blueprint sync.
-      # ALLOWED_ORIGINS is REQUIRED: with ENVIRONMENT=production the service
-      # refuses to boot if it's empty or contains "localhost".
-      - key: ALLOWED_ORIGINS
-        sync: false
-      - key: OPENAI_API_KEY
-        sync: false
-      - key: GEMINI_API_KEY
-        sync: false
-      # Render disk is ephemeral — set GCS_* for persistent uploads
       - key: GCS_BUCKET_NAME
         sync: false
       - key: GCS_PROJECT_ID

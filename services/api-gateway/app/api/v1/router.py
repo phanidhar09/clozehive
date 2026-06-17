@@ -1,12 +1,12 @@
 """Aggregate all v1 domain routers.
 
-The wardrobe and intelligence domains were extracted to closet-service. nginx
-routes their prefixes (closet, outfits, ai, ai-chat, rag, fashion-knowledge,
-purchase-gaps, shopping) to closet-service, so the gateway only mounts its copies
-when ``settings.mount_migrated_routes`` is true (dev/test, or explicit override) —
-never in production, where closet-service is the sole owner. travel/platform mount
-their kept routers (weather, admin, health, ws, rum) unconditionally and gate only
-the migrated sub-routers (trips, analytics) internally.
+The gateway is the sole owner of the wardrobe and intelligence domains (closet,
+outfits, ai, ai-chat, rag, fashion-knowledge, purchase-gaps, shopping). Those
+routers mount when ``settings.mount_migrated_routes`` is true — which is dev/test
+by default, and production via the explicit ``SERVE_MIGRATED_DOMAIN_ROUTES=true``
+override (see render.yaml). The flag defaults off in production purely as a
+safety interlock; there is no separate service to fall back to. travel/platform
+mount their routers (weather, trips, admin, health, ws, rum) unconditionally.
 """
 
 from fastapi import APIRouter

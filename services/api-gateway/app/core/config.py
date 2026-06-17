@@ -53,12 +53,12 @@ class Settings(BaseSettings):
     environment: str = "development"  # development | staging | production
     debug: bool = False
 
-    # The wardrobe/intelligence/trips/analytics domains were extracted to
-    # closet-service; nginx routes those prefixes there, so the gateway's copies
-    # are unreachable via the production entrypoint. We therefore stop mounting
-    # them in production (single owner, no stale-copy drift) while keeping them
-    # in dev/test so the existing gateway suite still exercises that logic.
-    # Set SERVE_MIGRATED_DOMAIN_ROUTES explicitly to override the env-based default.
+    # The wardrobe/intelligence domain routers default to OFF in production as a
+    # safety interlock (a leftover from the retired closet-service split). The
+    # gateway is now the sole owner of those prefixes, so production MUST set
+    # SERVE_MIGRATED_DOMAIN_ROUTES=true (see render.yaml) or closet/outfits/ai
+    # 404. They mount automatically in dev/test. Set this flag explicitly to
+    # override the env-based default.
     serve_migrated_domain_routes: bool | None = None
 
     # ── Server ────────────────────────────────────────────────────────────────
@@ -155,8 +155,11 @@ class Settings(BaseSettings):
     # Shared secret sent as X-Internal-Token on every api-gateway → ai-agent request,
     # and on api-gateway → closet-service internal calls (e.g. user-data purge).
     internal_service_token: str = ""
-    # Base URL of closet-service for internal calls (user-data purge on account deletion).
-    closet_service_url: str = "http://closet-service:8003"
+    # Legacy: base URL of the retired closet-service. Empty by default so the
+    # account-purge fan-out is a clean no-op — the gateway owns closet data in
+    # its own DB and CASCADE-deletes it on account removal. Kept only so an
+    # external closet store can be re-pointed here if one is ever reintroduced.
+    closet_service_url: str = ""
     openweather_api_key: str = ""
     # Tavily web search — powers live destination dress guidelines (and later
     # festival/venue lookups). Empty key disables the web-intelligence layer;
@@ -182,7 +185,9 @@ class Settings(BaseSettings):
     openai_max_tokens: int = 4096
     # ── Gemini AI ─────────────────────────────────────────────────────────────
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-1.5-flash-latest"
+    # 2.5 Flash: stronger fashion/attribute reasoning than 1.5 with comparable latency,
+    # and native structured-output (response_schema) support. Override via env if needed.
+    gemini_model: str = "gemini-2.5-flash"
 
     # Closet POST /closet/analyze-preview: skip per-item BG removal + second OpenAI pass on each crop.
     # Much faster; detection metadata still comes from the first vision call. Set false for max quality.

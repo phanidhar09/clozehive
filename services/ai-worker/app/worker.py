@@ -25,7 +25,7 @@ from redis.asyncio import Redis
 from app.core.config import get_settings
 from app.core.logging import get_logger, setup_logging
 from app.core.metrics import record_job_terminal, set_queue_depth, start_metrics_server
-from app.services import ai_agent_client, db, gateway_client
+from app.services import ai_agent_client, db
 
 settings = get_settings()
 logger = get_logger("ai_worker")
@@ -122,20 +122,6 @@ async def generate_packing_task(
         raise
 
 
-async def generate_embedding_task(ctx: dict[str, Any], item_id: str) -> dict[str, Any]:
-    """Durably regenerate a closet item's embedding.
-
-    The embedding logic lives in the gateway (it owns the OpenAI client + closet
-    schema), so this task calls back into the gateway's token-protected internal
-    endpoint. ARQ retries on failure; no ai_requests row — this is fire-and-forget
-    background work with no client-facing status.
-    """
-    logger.info("generate_embedding_started", item_id=item_id, attempt=ctx.get("job_try"))
-    await gateway_client.regenerate_embedding(item_id)
-    logger.info("generate_embedding_completed", item_id=item_id)
-    return {"item_id": item_id, "status": "ok"}
-
-
 # ── Worker lifecycle ────────────────────────────────────────────────────────
 
 async def on_startup(ctx: dict[str, Any]) -> None:
@@ -171,7 +157,6 @@ async def on_shutdown(ctx: dict[str, Any]) -> None:
     if redis_client is not None:
         await redis_client.aclose()
     await ai_agent_client.close()
-    await gateway_client.close()
     await db.close()
     logger.info("ai_worker_stopped")
 
@@ -179,7 +164,7 @@ async def on_shutdown(ctx: dict[str, Any]) -> None:
 class WorkerSettings:
     """ARQ entrypoint: ``arq app.worker.WorkerSettings``."""
 
-    functions = [analyze_image_task, generate_outfit_task, generate_packing_task, generate_embedding_task]
+    functions = [analyze_image_task, generate_outfit_task, generate_packing_task]
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
     on_startup = on_startup
     on_shutdown = on_shutdown

@@ -1,5 +1,5 @@
-"""Platform domain — admin, health, WebSocket hub, RUM (gateway-owned);
-analytics (migrated to closet-service)."""
+"""Platform domain — admin, health, WebSocket hub, RUM (always on);
+analytics (migrated-routes gate)."""
 
 from fastapi import APIRouter
 
@@ -13,6 +13,6 @@ router.include_router(health.router, prefix="/health", tags=["health"])
 router.include_router(ws.router)
 router.include_router(rum.router)
 
-# analytics was migrated to closet-service.
+# analytics mounts under the migrated-routes gate.
 if get_settings().mount_migrated_routes:
     router.include_router(analytics.router)

@@ -91,20 +91,6 @@ class TestGeneratePackingTask:
         assert recorded_metrics == [("generate_packing", "completed", 1.5)]
 
 
-class TestGenerateEmbeddingTask:
-    async def test_delegates_to_gateway(self, fake_gateway):
-        result = await worker.generate_embedding_task({"job_try": 1}, "item-42")
-
-        fake_gateway.regenerate_embedding.assert_awaited_once_with("item-42")
-        assert result == {"item_id": "item-42", "status": "ok"}
-
-    async def test_gateway_error_propagates_for_retry(self, fake_gateway):
-        fake_gateway.regenerate_embedding.side_effect = RuntimeError("gateway 503")
-
-        with pytest.raises(RuntimeError):
-            await worker.generate_embedding_task({"job_try": 1}, "item-42")
-
-
 class TestFailOnLastTry:
     async def test_missing_job_try_defaults_to_first_attempt(self, fake_db):
         await worker._fail_on_last_try({}, uuid4(), RuntimeError("x"))
@@ -127,7 +113,6 @@ class TestWorkerSettings:
             "analyze_image_task",
             "generate_outfit_task",
             "generate_packing_task",
-            "generate_embedding_task",
         }
 
     def test_max_tries_matches_settings(self):

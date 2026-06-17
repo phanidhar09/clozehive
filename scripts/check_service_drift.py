@@ -18,13 +18,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Pairs that must stay byte-identical. Add a pair here whenever a module is
-# unified across services.
-SHARED_PAIRS: list[tuple[str, str]] = [
-    (
-        "services/closet-service/app/services/gemini_service.py",
-        "services/vision-service/app/services/gemini_service.py",
-    ),
-]
+# unified across services. (The closet-service/vision-service gemini_service
+# pair was removed when closet-service was retired — vision-service now owns
+# the only copy.)
+SHARED_PAIRS: list[tuple[str, str]] = []
 
 
 def main() -> int:

@@ -15,10 +15,6 @@ class Settings(BaseSettings):
     redis_url: str = "redis://redis:6379/3"
     database_url: str = "postgresql://clozehive:clozehive@postgres:5432/clozehive"
     ai_agent_url: str = "http://ai-agent:8001"
-    # api-gateway base URL + shared token, used by the durable embedding task to
-    # call back into the gateway's internal embedding endpoint (HEAVY_WORK_ASYNC).
-    gateway_internal_url: str = "http://api-gateway:8000"
-    internal_service_token: str = ""
     # ARQ re-runs a failing job up to this many times before it lands in the
     # failed set (each attempt re-invokes the task function).
     max_attempts: int = 5
