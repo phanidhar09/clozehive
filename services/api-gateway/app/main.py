@@ -121,19 +121,31 @@ async def lifespan(app: FastAPI):
         logger.warning("startup_db_failed_continuing", msg="DB unreachable — /ready will return 503")
 
     # Apply DB migrations on startup when enabled (hosts without shell/pre-deploy,
-    # e.g. Render free tier). Idempotent and non-fatal — see app/core/db_migrate.
+    # e.g. Render free tier). Run them in the BACKGROUND — never block the lifespan
+    # on migrations. Blocking here caused production boot loops: a hung/slow
+    # `alembic upgrade head` (e.g. an orphaned Postgres backend holding the
+    # alembic_version lock) kept the port from binding → /live health check timed
+    # out → Render killed and restarted the instance → repeat forever. Now the app
+    # always becomes live; /ready reflects migration status (see _startup_migrations_*),
+    # and the 15s lock_timeout in alembic/env.py makes a blocked migration fail fast.
     if settings.run_migrations_on_startup:
         logger.info("startup_migrations_begin")
+        import asyncio as _asyncio_mig
+
         from app.core.db_migrate import run_migrations_on_startup as _apply_migrations
 
-        _startup_migrations_ok = await _apply_migrations(
-            raise_on_error=settings.fail_on_startup_migration_error,
-        )
-        if not _startup_migrations_ok:
-            _startup_migrations_error = "startup migrations failed"
-            logger.error("startup_migrations_failed_readiness_blocked")
-        else:
-            _startup_migrations_error = ""
+        async def _run_startup_migrations() -> None:
+            global _startup_migrations_ok, _startup_migrations_error
+            # raise_on_error is forced False: a background-task exception can't
+            # (and must not) crash the already-serving process. Readiness, not
+            # liveness, gates traffic on migration success.
+            ok = await _apply_migrations(raise_on_error=False)
+            _startup_migrations_ok = ok
+            _startup_migrations_error = "" if ok else "startup migrations failed"
+            if not ok:
+                logger.error("startup_migrations_failed_readiness_blocked")
+
+        app.state.migration_task = _asyncio_mig.create_task(_run_startup_migrations())
 
     # Optional Firestore (legacy / non-MVP paths only; Phase 1 closet + trips live in Postgres)
     try:
