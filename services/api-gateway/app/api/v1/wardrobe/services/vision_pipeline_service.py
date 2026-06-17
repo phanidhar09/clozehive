@@ -82,6 +82,13 @@ def _compress_image(
     cap = _MAX_DIMENSION if max_side is None else max_side
     try:
         img: Image.Image = Image.open(io.BytesIO(image_bytes))
+        # Memory guard: for JPEG, ask the decoder to produce a reduced-scale
+        # raster (1/2, 1/4, 1/8) DURING decode instead of materialising the
+        # full-resolution image first. A 12–48MP phone photo otherwise decodes
+        # to a 48–190MB RGBA buffer before resize, which OOM-kills small
+        # instances mid-request (the dropped connection surfaces as a client
+        # "Network Error"). No-op for non-JPEG; must precede any pixel access.
+        img.draft("RGB", (cap, cap))
         w, h = img.size
         if max(w, h) > cap:
             scale = cap / max(w, h)
