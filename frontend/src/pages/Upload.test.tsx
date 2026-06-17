@@ -162,4 +162,35 @@ describe('Upload', () => {
     // IDs must be distinct.
     expect(new Set(payloadIds).size).toBe(2)
   })
+
+  it('"Add more" appends a second photo to the selection instead of replacing it', async () => {
+    const user = userEvent.setup()
+    // Real browsers hand back a unique blob URL per call; the global test mock returns a
+    // constant. Make it unique here so appended previews get distinct React keys.
+    let blobN = 0
+    vi.spyOn(URL, 'createObjectURL').mockImplementation(() => `blob:http://localhost/mock-${blobN++}`)
+
+    render(
+      <MemoryRouter>
+        <MockAppProvider value={{ fetchClosetItems: vi.fn() }}>
+          <Upload />
+        </MockAppProvider>
+      </MemoryRouter>,
+    )
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement
+    const first = new File([new Uint8Array([1, 2, 3])], 'first.jpg', { type: 'image/jpeg' })
+    const second = new File([new Uint8Array([4, 5, 6])], 'second.jpg', { type: 'image/jpeg' })
+
+    await user.upload(input, first)
+    expect(screen.getByText(/1 of 20 photo selected/i)).toBeInTheDocument()
+
+    // A second selection (what "+ Add more" triggers) must accumulate, not overwrite.
+    await user.upload(input, second)
+    expect(screen.getByText(/2 of 20 photos selected/i)).toBeInTheDocument()
+
+    // Re-picking an already-selected file is a no-op (de-duped by name+size).
+    await user.upload(input, first)
+    expect(screen.getByText(/2 of 20 photos selected/i)).toBeInTheDocument()
+  })
 })

@@ -22,23 +22,6 @@ export function tripApiErr(err: unknown, fallback: string): string {
   return msg?.trim() ? msg : fallback
 }
 
-// ── Destinations ──────────────────────────────────────────────────────────
-
-export const DESTINATIONS = [
-  'Tokyo, Japan','Kyoto, Japan','Seoul, South Korea','Bangkok, Thailand','Bali, Indonesia',
-  'Singapore','Kuala Lumpur, Malaysia','Ho Chi Minh City, Vietnam','Mumbai, India','Goa, India',
-  'Dubai, UAE','Istanbul, Turkey','Tel Aviv, Israel','Paris, France','London, UK',
-  'Rome, Italy','Milan, Italy','Barcelona, Spain','Lisbon, Portugal','Amsterdam, Netherlands',
-  'Berlin, Germany','Vienna, Austria','Prague, Czech Republic','Athens, Greece','Santorini, Greece',
-  'Stockholm, Sweden','Copenhagen, Denmark','Reykjavik, Iceland','New York, USA','Los Angeles, USA',
-  'Miami, USA','Chicago, USA','San Francisco, USA','Las Vegas, USA','Orlando, USA','Nashville, USA',
-  'Austin, USA','Toronto, Canada','Vancouver, Canada','Mexico City, Mexico','Cancun, Mexico',
-  'Playa del Carmen, Mexico','Rio de Janeiro, Brazil','Buenos Aires, Argentina','Lima, Peru',
-  'Bogotá, Colombia','Cartagena, Colombia','Cape Town, South Africa','Marrakech, Morocco',
-  'Cairo, Egypt','Nairobi, Kenya','Sydney, Australia','Melbourne, Australia','Auckland, New Zealand',
-  'Maldives','Bali, Indonesia','Phuket, Thailand','Santorini, Greece','Ibiza, Spain','Mykonos, Greece',
-]
-
 // ── Constants ──────────────────────────────────────────────────────────────
 
 export const PURPOSE_OPTIONS = [

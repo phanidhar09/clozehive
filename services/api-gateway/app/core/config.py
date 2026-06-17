@@ -185,7 +185,9 @@ class Settings(BaseSettings):
     openai_max_tokens: int = 4096
     # ── Gemini AI ─────────────────────────────────────────────────────────────
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-1.5-flash-latest"
+    # 2.5 Flash: stronger fashion/attribute reasoning than 1.5 with comparable latency,
+    # and native structured-output (response_schema) support. Override via env if needed.
+    gemini_model: str = "gemini-2.5-flash"
 
     # Closet POST /closet/analyze-preview: skip per-item BG removal + second OpenAI pass on each crop.
     # Much faster; detection metadata still comes from the first vision call. Set false for max quality.

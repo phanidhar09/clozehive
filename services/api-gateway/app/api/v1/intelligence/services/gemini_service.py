@@ -38,17 +38,28 @@ Return shape (same contract as fashion_analysis_service.analyze_fashion_image):
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from typing import Any
 
 from langsmith import traceable
 
+from app.api.v1.wardrobe.services.fashion_detection_prompt import (
+    FASHION_DETECTION_PROMPT,
+    FashionDetection,
+    to_detection_dict,
+)
 from app.core.config import get_settings
 from app.core.logging import get_logger
 
 settings = get_settings()
 logger = get_logger("gemini_service")
+
+# Transient-error retry: Gemini occasionally returns 429/503 or an empty body
+# under load. One quick retry recovers most of these before we fall back to OpenAI.
+_MAX_ATTEMPTS = 2
+_RETRY_BACKOFF_S = 0.6
 
 # ── Lazy client singleton (google-genai SDK) ──────────────────────────────────
 
@@ -65,122 +76,8 @@ def _get_client() -> Any:
     return _client
 
 
-# ── Detection prompt ──────────────────────────────────────────────────────────
-
-_DETECTION_PROMPT = """\
-You are an expert fashion AI with deep knowledge of garment construction, fabric, \
-color theory, and wardrobe cataloguing.
-
-TASK: Detect EVERY distinct wearable item visible in this image. Each item becomes \
-an independent closet entry — analyse each with the same care as if it were the \
-only item in the photo.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-WHAT TO DETECT (include ALL of these):
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• tops: t-shirt, shirt, blouse, tank top, hoodie, sweatshirt, sweater, cardigan, crop top
-• bottoms: jeans, trousers, chinos, shorts, skirt, leggings, joggers, cargo pants
-• outerwear: jacket, coat, blazer, parka, windbreaker, trench coat, bomber jacket
-• footwear: sneakers, boots, shoes, oxfords, loafers, sandals, heels, slides
-• accessories: bag, handbag, backpack, tote, hat, cap, belt, scarf, watch, sunglasses, jewelry
-• full-body: dress, jumpsuit, romper, suit, co-ord set
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-MULTI-ITEM RULES:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. ONE garment = ONE array entry. NEVER merge.
-   ✓ Shirt + jeans + sneakers → 3 entries
-   ✓ Flat-lay with 5 items → 5 entries
-2. FLAT-LAY: every garment gets its own tight bbox — do NOT use one bbox for the whole layout.
-3. LAYERED OUTFITS: jacket over shirt → 2 entries, each with its own tight bbox.
-4. PARTIAL items >10% visible → include, set segmentation_quality "low".
-5. SMALL accessories: belt, watch, sunglasses each get their own entry.
-6. Scan ENTIRE image — top-to-bottom, left-to-right — before writing any item.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-BBOX RULES:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• Fractional coords, (0,0)=top-left, (1,1)=bottom-right.
-• Tight around the visible region of THAT item only.
-• Never use {x_min:0, y_min:0, x_max:1, y_max:1} unless item truly fills the frame.
-• Minimum bbox area: (x_max-x_min)×(y_max-y_min) ≥ 0.005.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-COLOR — BE SPECIFIC:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Use precise color names. Prefer:
-  navy blue, cobalt blue, sky blue, powder blue, teal, turquoise
-  forest green, olive green, sage green, mint green, emerald
-  crimson, burgundy, coral, salmon, blush pink, hot pink, magenta
-  charcoal, slate grey, silver, light grey, off-white, ivory, cream
-  camel, tan, khaki, beige, sand, rust, burnt orange, mustard
-  black, white — only if truly pure.
-Avoid vague terms like "blue", "green", "gray". Pick the most accurate specific shade.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-MATERIAL — READ THE FABRIC, NOT THE COLOR:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Look at visible texture and drape:
-  • Matte flat weave, slight texture → cotton or linen
-  • Diagonal twill pattern, rigid body → denim
-  • Shiny, fluid, drapes in liquid folds → silk or satin
-  • Fuzzy surface, warm visual weight → wool or fleece
-  • Fine ribbing or tight knit → knit / knitwear
-  • Smooth high-sheen, plastic-looking → polyester or synthetic
-  • Grained or smooth stiff surface with sheen → leather or faux-leather
-  • Porous open weave → linen or woven cotton
-If texture is not determinable from the image, output "unknown" — never guess.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-CATEGORY EDGE CASES:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• hoodie, sweatshirt, cardigan → top (not outerwear)
-• blazer worn as outermost layer → outerwear
-• vest worn as outermost layer → outerwear; vest worn under jacket → do not detect separately
-• bodysuit worn as top → top
-• leggings → bottom; tights worn with dress → do not detect separately
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-OTHER METADATA RULES:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• detection_confidence: 0.0–1.0 (visibility × identification certainty). Min 0.35 to include.
-• segmentation_quality: "high" (clean edges), "medium" (some occlusion), "low" (heavily occluded).
-• brand: null unless a logo or text label is CLEARLY and FULLY legible. Never guess a brand.
-• Use null (not "") for all unknown/unverifiable fields.
-• name: format as "<Color> <Subcategory>" e.g. "Navy Slim-Fit Jeans", "Ivory Cable-Knit Sweater".
-• description: one concrete sentence — mention the actual item's visible qualities, not generics.
-
-Return ONLY valid JSON — no markdown, no prose, no trailing commas:
-
-{
-  "total_items_detected": <integer>,
-  "items": [
-    {
-      "item_id": "item_001",
-      "category": "top | bottom | footwear | outerwear | accessory | dress | other",
-      "subcategory": "<specific e.g. slim jeans | oversized hoodie | white leather sneakers>",
-      "name": "<Color Subcategory e.g. Charcoal Slim-Fit Chinos>",
-      "description": "<one specific sentence about this item's visible qualities>",
-      "gender": "male | female | unisex",
-      "fit": "slim | regular | oversized | relaxed | tailored | null",
-      "sleeve_type": "long | short | sleeveless | null",
-      "primary_color": "<specific shade e.g. navy blue | charcoal | ivory>",
-      "secondary_color": "<specific shade or null>",
-      "pattern": "solid | striped | plaid | checked | graphic | floral | animal_print | tie_dye | camo | houndstooth | paisley | null",
-      "material": "cotton | denim | leather | faux-leather | polyester | silk | wool | linen | fleece | knit | synthetic | unknown",
-      "brand": "<brand name or null>",
-      "occasions": ["casual","formal","business","party","travel","gym","beach","date"],
-      "season": ["summer","winter","all-season","fall","spring"],
-      "style_tags": ["minimal","streetwear","sporty","elegant","vintage","classic","preppy","bohemian","athleisure","workwear"],
-      "bbox": {"x_min": 0.05, "y_min": 0.10, "x_max": 0.95, "y_max": 0.90},
-      "detection_confidence": 0.95,
-      "segmentation_quality": "high | medium | low"
-    }
-  ]
-}
-
-BEFORE SUBMITTING: re-read your output and verify each item has the tightest possible \
-bbox, the most specific color name, and a material that matches the visible texture."""
+# The detection prompt + structured-output schema live in fashion_detection_prompt
+# so the Gemini and OpenAI paths can never drift apart.
 
 
 # ── JSON cleaning ─────────────────────────────────────────────────────────────
@@ -214,10 +111,15 @@ def is_available() -> bool:
 @traceable(name="gemini_detect_and_classify", run_type="llm")
 async def detect_and_classify(image_bytes: bytes, media_type: str) -> dict[str, Any]:
     """
-    Send image to Gemini 1.5 Flash for combined detection + metadata.
+    Send image to Gemini for combined detection + metadata.
+
+    Uses a strict ``response_schema`` (``FashionDetection``) so the model returns
+    structurally-guaranteed JSON — no free-form parsing of bbox keys or coercion of
+    list fields needed. Retries once on transient API errors before giving up; the
+    caller (vision_pipeline_service) then falls back to OpenAI.
 
     Returns the standard detection dict (same shape as fashion_analysis_service).
-    Raises on API error or JSON parse failure — callers should catch and fall back.
+    Raises on persistent API error or validation failure — callers should catch and fall back.
     """
     from google.genai import types
 
@@ -228,56 +130,64 @@ async def detect_and_classify(image_bytes: bytes, media_type: str) -> dict[str, 
         media_type if media_type in ("image/jpeg", "image/png", "image/webp", "image/gif") else "image/jpeg"
     )
 
-    try:
-        response = await client.aio.models.generate_content(
-            model=settings.gemini_model,
-            contents=[
-                types.Part.from_bytes(data=image_bytes, mime_type=effective_mime),
-                _DETECTION_PROMPT,
-            ],
-            config=types.GenerateContentConfig(
-                temperature=0.1,
-                max_output_tokens=4096,
-                response_mime_type="application/json",
-            ),
-        )
-        raw_text = response.text.strip()
-    except Exception as exc:
-        logger.error("gemini_api_error", error=str(exc))
-        raise
+    config = types.GenerateContentConfig(
+        temperature=0.1,
+        max_output_tokens=4096,
+        response_mime_type="application/json",
+        # Structured output — Gemini conforms its JSON to this schema, eliminating
+        # malformed bbox / missing-field classes of failure at the source.
+        response_schema=FashionDetection,
+    )
 
+    last_exc: Exception | None = None
+    for attempt in range(1, _MAX_ATTEMPTS + 1):
+        try:
+            response = await client.aio.models.generate_content(
+                model=settings.gemini_model,
+                contents=[
+                    types.Part.from_bytes(data=image_bytes, mime_type=effective_mime),
+                    FASHION_DETECTION_PROMPT,
+                ],
+                config=config,
+            )
+            return _parse_response(response)
+        except (ValueError, json.JSONDecodeError):
+            # Bad/empty model output — re-prompting rarely helps; fail fast to fallback.
+            raise
+        except Exception as exc:  # transient API errors (429/503/timeouts)
+            last_exc = exc
+            if attempt < _MAX_ATTEMPTS:
+                logger.warning("gemini_api_retry", attempt=attempt, error=str(exc))
+                await asyncio.sleep(_RETRY_BACKOFF_S * attempt)
+                continue
+            logger.error("gemini_api_error", error=str(exc))
+            raise
+
+    # Unreachable, but keeps type-checkers satisfied.
+    raise last_exc if last_exc else RuntimeError("gemini detection failed")
+
+
+def _parse_response(response: Any) -> dict[str, Any]:
+    """Validate a Gemini response into the standard detection dict.
+
+    Prefers the SDK's already-validated ``.parsed`` instance; falls back to parsing
+    ``.text`` through the same Pydantic schema so a single code path handles both.
+    """
+    parsed = getattr(response, "parsed", None)
+    if isinstance(parsed, FashionDetection):
+        result = to_detection_dict(parsed)
+        logger.info("gemini_detection_complete", items=result["total_items_detected"])
+        return result
+
+    raw_text = (getattr(response, "text", None) or "").strip()
+    if not raw_text:
+        raise ValueError("Gemini returned an empty response")
     try:
-        result: dict[str, Any] = json.loads(_clean_json(raw_text))
-    except json.JSONDecodeError as exc:
+        validated = FashionDetection.model_validate_json(_clean_json(raw_text))
+    except Exception as exc:
         logger.error("gemini_json_parse_error", error=str(exc), preview=raw_text[:400])
         raise ValueError(f"Gemini returned invalid JSON: {exc}") from exc
 
-    items: list[dict[str, Any]] = result.get("items") or []
-
-    for idx, item in enumerate(items):
-        # Ensure item_id
-        if not item.get("item_id"):
-            item["item_id"] = f"item_{idx + 1:03d}"
-        # Ensure list fields are lists
-        for field in ("occasions", "season", "style_tags"):
-            if not isinstance(item.get(field), list):
-                item[field] = []
-        # Ensure bbox dict
-        bbox = item.get("bbox")
-        if not isinstance(bbox, dict):
-            item["bbox"] = {"x_min": 0.0, "y_min": 0.0, "x_max": 1.0, "y_max": 1.0}
-        else:
-            # Normalise keys — Gemini sometimes returns x/y instead of x_min/y_min
-            if "x" in bbox and "x_min" not in bbox:
-                item["bbox"] = {
-                    "x_min": float(bbox.get("x", 0)),
-                    "y_min": float(bbox.get("y", 0)),
-                    "x_max": float(bbox.get("x", 0)) + float(bbox.get("width", 1)),
-                    "y_max": float(bbox.get("y", 0)) + float(bbox.get("height", 1)),
-                }
-        # Normalise confidence
-        item.setdefault("detection_confidence", item.pop("confidence_score", 0.8))
-        item.setdefault("segmentation_quality", "medium")
-
-    logger.info("gemini_detection_complete", items=len(items))
-    return {"total_items_detected": len(items), "items": items}
+    result = to_detection_dict(validated)
+    logger.info("gemini_detection_complete", items=result["total_items_detected"])
+    return result

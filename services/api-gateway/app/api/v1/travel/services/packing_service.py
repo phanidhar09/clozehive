@@ -210,6 +210,189 @@ def _per_day_weather_table(weather_days: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+# ── Trip-relevance ranking ─────────────────────────────────────────────────────
+# When a closet is large, dumping every item into the prompt bloats tokens and
+# dilutes the model's choices. We pre-rank items by how well they fit the trip's
+# weather, planned activities, purpose and style, then keep the best per category
+# so the model still sees full-outfit coverage but only the relevant candidates.
+
+# Below this many items we send the whole closet untouched — trimming a small
+# wardrobe risks removing a piece the model genuinely needs.
+_RANK_TRIM_THRESHOLD = 40
+
+_WARM_SEASONS = {"summer", "spring"}
+_COLD_SEASONS = {"winter", "fall", "autumn"}
+_ALL_SEASON = {"all", "all-season", "all season", "any", "year-round"}
+
+
+def _as_token_set(value: Any) -> set[str]:
+    """Flatten a str | list[str] | None field into a lowercased token set."""
+    if not value:
+        return set()
+    if isinstance(value, str):
+        return {value.lower().strip()}
+    if isinstance(value, (list, tuple, set)):
+        return {str(v).lower().strip() for v in value if v}
+    return set()
+
+
+def _trip_keywords(activities: list[dict[str, Any]], purpose: str, trip_style: str | None) -> set[str]:
+    kw: set[str] = set()
+    for act in activities or []:
+        kw |= _as_token_set(act.get("name"))
+        kw |= _as_token_set(act.get("formality"))
+    kw |= _as_token_set(purpose)
+    kw |= _as_token_set(trip_style)
+    # Normalise a couple of common multi-word tokens to their roots for matching.
+    return {t.replace("_", " ") for t in kw if t}
+
+
+def _score_item_for_trip(
+    item: dict[str, Any],
+    *,
+    avg_high: float,
+    rainy: bool,
+    trip_keywords: set[str],
+) -> float:
+    """Heuristic 0..~10 relevance score; higher = more trip-appropriate."""
+    score = 1.0  # baseline so every item stays eligible
+    seasons = _as_token_set(item.get("season"))
+    is_all_season = bool(seasons & _ALL_SEASON) or not seasons
+
+    # Weather/season fit — the dominant signal for travel.
+    if avg_high >= 26:
+        if seasons & _WARM_SEASONS:
+            score += 3.0
+        if seasons & _COLD_SEASONS:
+            score -= 2.5
+    elif avg_high <= 12:
+        if seasons & _COLD_SEASONS:
+            score += 3.0
+        if seasons & _WARM_SEASONS:
+            score -= 2.5
+    if is_all_season:
+        score += 1.0  # versatile pieces are always good travel candidates
+
+    # Activity / purpose / style fit — match against occasions, name, notes.
+    haystack = (
+        _as_token_set(item.get("occasion"))
+        | _as_token_set(item.get("occasions"))
+        | _as_token_set(item.get("name"))
+        | _as_token_set(item.get("notes"))
+        | _as_token_set(item.get("tags"))
+    )
+    haystack_text = " ".join(haystack)
+    for kw in trip_keywords:
+        if not kw:
+            continue
+        if kw in haystack:
+            score += 1.5
+        elif kw in haystack_text:  # substring (e.g. "beach" in "beachwear")
+            score += 0.75
+
+    # Rain: nudge waterproof/outer pieces up a touch.
+    if rainy:
+        cat = _normalise_category(str(item.get("category", "")))
+        if cat == "outerwear" or "waterproof" in haystack_text or "rain" in haystack_text:
+            score += 1.0
+
+    return score
+
+
+def _rank_closet_for_trip(
+    closet_items: list[dict[str, Any]],
+    weather_summary: dict[str, Any],
+    activities: list[dict[str, Any]],
+    purpose: str,
+    trip_style: str | None,
+    bag: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """
+    Return the most trip-relevant subset of the closet, preserving per-category
+    coverage. Small closets pass through untouched.
+    """
+    if len(closet_items) <= _RANK_TRIM_THRESHOLD:
+        return closet_items
+
+    avg_high = float(weather_summary.get("avg_high", 20) or 20)
+    rainy = bool(weather_summary.get("rainy_days", 0))
+    trip_keywords = _trip_keywords(activities, purpose, trip_style)
+
+    # Per-category candidate caps: give the model ~2x the bag limit so it has
+    # real choice, with a sensible floor for categories the bag doesn't cap.
+    cap_for: dict[str, int] = {
+        "tops": max(6, int(bag.get("max_tops", 5)) * 2),
+        "bottoms": max(4, int(bag.get("max_bottoms", 3)) * 2),
+        "shoes": max(3, int(bag.get("max_shoes", 2)) * 2),
+        "outerwear": max(2, int(bag.get("max_outerwear", 1)) * 2),
+        "accessories": max(4, int(bag.get("max_accessories", 3)) * 2),
+    }
+    default_cap = 4
+
+    scored_by_cat: dict[str, list[tuple[float, dict[str, Any]]]] = defaultdict(list)
+    for item in closet_items:
+        cat = _normalise_category(str(item.get("category", "")))
+        s = _score_item_for_trip(item, avg_high=avg_high, rainy=rainy, trip_keywords=trip_keywords)
+        scored_by_cat[cat].append((s, item))
+
+    ranked: list[dict[str, Any]] = []
+    for cat, scored in scored_by_cat.items():
+        scored.sort(key=lambda t: t[0], reverse=True)
+        ranked.extend(item for _, item in scored[: cap_for.get(cat, default_cap)])
+    return ranked
+
+
+# ── Closet grounding (anti-hallucination) ──────────────────────────────────────
+
+
+def _ground_day_plans_to_closet(
+    day_plans: list[dict[str, Any]],
+    closet_items: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int]:
+    """
+    Verify every outfit item the model tagged as ``from_closet`` actually exists.
+
+    - A valid ``closet_item_id`` is kept as-is.
+    - A wrong/blank id whose *name* matches a real closet item is repaired by
+      back-filling the real id.
+    - An item that matches neither is downgraded to ``missing_recommended`` with
+      its id cleared, so the UI never presents an invented item as owned.
+
+    Returns the (mutated) day_plans and a count of corrected items.
+    """
+    valid_ids = {str(it["id"]) for it in closet_items if it.get("id")}
+    name_to_id: dict[str, str] = {
+        str(it.get("name", "")).lower().strip(): str(it["id"])
+        for it in closet_items
+        if it.get("id") and it.get("name")
+    }
+
+    corrected = 0
+    for day in day_plans:
+        for outfit in day.get("outfits", []):
+            for item in outfit.get("items", []):
+                source = str(item.get("source") or "").lower()
+                cid = str(item.get("closet_item_id") or "").strip()
+                name = str(item.get("item_name") or "").lower().strip()
+                claims_closet = source == "from_closet" or bool(cid)
+                if not claims_closet:
+                    continue
+                if cid and cid in valid_ids:
+                    item["source"] = "from_closet"
+                    continue
+                # id is wrong/blank — try to recover via an exact name match.
+                if name in name_to_id:
+                    item["closet_item_id"] = name_to_id[name]
+                    item["source"] = "from_closet"
+                    corrected += 1
+                    continue
+                # Genuinely not in the closet — stop presenting it as owned.
+                item["closet_item_id"] = None
+                item["source"] = "missing_recommended"
+                corrected += 1
+    return day_plans, corrected
+
+
 # ── AI packing prompt (activity-aware) ────────────────────────────────────────
 
 
@@ -281,6 +464,17 @@ BAG SIZE CONSTRAINT: {bag["hint"]}
 
 USER'S CLOSET (ONLY use items from this list — never invent closet items):
 {closet_text}
+
+GROUNDING (STRICT): For every item with source "from_closet" you MUST copy the
+exact "id" and exact "name" from the closet JSON above into closet_item_id and
+item_name — character for character. Never invent, rename, or guess an id. If the
+right item is not in the closet, use source "missing_recommended" with
+closet_item_id null instead. An invented closet item is a hard failure.
+
+MATCHING RULES: Match each outfit to the day's forecast (fabric weight and
+coverage to the temperature, waterproof/outer layers on rainy days), the
+activity's formality and footwear needs, and the user's style profile colours and
+fit. Prefer cohesive colour pairings; do not pair clashing colours.
 
 INSTRUCTIONS:
 1. ACTIVITIES ARE THE #1 PRIORITY. When the user has listed planned activities,
@@ -369,6 +563,9 @@ Return ONLY valid JSON with this structure:
         resp = await client.chat.completions.create(
             model=_packing_chat_model(),
             max_tokens=4000,
+            # Low temperature: outfit planning rewards consistent, grounded
+            # choices over creative variety, and reduces id hallucination.
+            temperature=0.3,
             response_format={"type": "json_object"},
             messages=[{"role": "user", "content": prompt}],
             timeout=45.0,
@@ -923,6 +1120,23 @@ async def generate_packing_list(
         if priority_block:
             location_context = f"{priority_block}\n\n{location_context}" if location_context else priority_block
 
+        # ── Rank closet by trip-relevance before prompting ────────────────────
+        # Trims a large wardrobe to the items that actually fit this trip's
+        # weather/activities/style so the model chooses from sharper candidates.
+        # Grounding/validation below always runs against the FULL closet, so
+        # trimming can never cause a real item to be flagged as hallucinated.
+        bag = _get_bag_constraints(bag_size)
+        ranked_closet = _rank_closet_for_trip(
+            closet_items, weather_summary, activities, purpose, trip_style, bag
+        )
+        if len(ranked_closet) < len(closet_items):
+            logger.info(
+                "packing_closet_ranked",
+                destination=destination,
+                total=len(closet_items),
+                selected=len(ranked_closet),
+            )
+
         # ── New activity-aware AI call ────────────────────────────────────────
         ai_rich = await _ai_activity_aware_packing(
             destination,
@@ -932,7 +1146,7 @@ async def generate_packing_list(
             trip_style,
             bag_size,
             trip_days,
-            closet_items,
+            ranked_closet,
             weather_summary,
             weather_days,
             activities,
@@ -949,7 +1163,7 @@ async def generate_packing_list(
             end_date,
             purpose,
             trip_days,
-            closet_items,
+            ranked_closet,
             weather_summary,
             notes,
             style_profile_context_text=merged_ctx,
@@ -976,7 +1190,13 @@ async def generate_packing_list(
             climate_summary = summary_block.get("climate_summary")
             location_etiquette = summary_block.get("location_etiquette")
 
-            # Enrich with closet images
+            # Ground every "from_closet" pick against the FULL closet: repair
+            # recoverable ids and downgrade invented items to missing_recommended.
+            day_plans_rich, corrected = _ground_day_plans_to_closet(day_plans_rich, closet_items)
+            if corrected:
+                logger.info("packing_grounding_corrections", destination=destination, corrected=corrected)
+
+            # Enrich with closet images (after grounding back-fills real ids)
             day_plans_rich = _enrich_day_plans_with_images(day_plans_rich, closet_items)
         else:
             # Fallback rule-based rich plans
