@@ -78,8 +78,13 @@ services:
       # instead (idempotent; gated by this flag in app/core/db_migrate.py).
       - key: RUN_MIGRATIONS_ON_STARTUP
         value: "true"
+      # Do NOT crash the boot if startup migrations fail/time out. Combined with
+      # the 15s migration lock_timeout (alembic/env.py), a blocked migration now
+      # errors fast and the app still starts serving (/live passes, /ready reports
+      # the migration issue) instead of hard-failing the instance into a health-
+      # check boot loop. Set back to "true" only with an out-of-band migration path.
       - key: FAIL_ON_STARTUP_MIGRATION_ERROR
-        value: "true"
+        value: "false"
       - key: DATABASE_URL
         fromDatabase:
           name: clozehive-db
