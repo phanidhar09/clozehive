@@ -46,6 +46,17 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection: Connection) -> None:
+    # Fail fast instead of hanging the boot forever if a migration can't acquire
+    # its lock — e.g. the previous instance still holds it during a deploy
+    # overlap, or two booting instances race `upgrade head`. Without this,
+    # startup `command.upgrade` blocks indefinitely, the FastAPI lifespan never
+    # completes, the port never binds, the health check fails, and Render
+    # restarts the instance → silent boot loop. lock_timeout bounds only the
+    # WAIT to acquire a lock (not how long a migration may run), so it never
+    # kills a legitimately long migration. A blocked migration now errors after
+    # 15s; the next restart retries once the conflicting lock is released.
+    if connection.dialect.name == "postgresql":
+        connection.exec_driver_sql("SET lock_timeout = '15s'")
     context.configure(connection=connection, target_metadata=target_metadata)
     with context.begin_transaction():
         context.run_migrations()
