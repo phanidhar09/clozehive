@@ -417,8 +417,15 @@ async def run_pipeline(
 
         bbox = cast(dict[str, float], bbox_raw)
 
+        # Crop from the already-downscaled `compressed` image, NOT the full-res
+        # original. bbox is fractional, so the crop region is identical — but
+        # decoding the original (tens of MB RGBA) once per detected item, with
+        # items processed concurrently, multiplies peak memory and OOM-kills small
+        # instances mid-request (surfaces to the client as "Network Error").
+        # The compressed copy (≤1120px preview / ≤1500px) is ample for a preview
+        # crop and for downstream BG removal / enrichment.
         try:
-            crop_bytes = _crop_item(image_bytes, bbox)
+            crop_bytes = _crop_item(compressed, bbox)
         except Exception as crop_exc:
             if num_items > 1:
                 logger.warning(
@@ -428,7 +435,7 @@ async def run_pipeline(
                 )
                 raise RuntimeError(f"crop failed for detected_item_id={detected_item_id}: {crop_exc}") from crop_exc
             logger.warning("item_crop_failed_single_item", detected_item_id=detected_item_id, error=str(crop_exc))
-            crop_bytes = image_bytes
+            crop_bytes = compressed
 
         if preview_fast:
             try:
