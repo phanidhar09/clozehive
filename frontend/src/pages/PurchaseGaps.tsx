@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ShoppingBag, CheckCircle, AlertCircle, Loader2, RefreshCw, Trash2 } from 'lucide-react'
+import { FaniLoader } from '@/components/system/FaniLoader'
 import BackButton from '@/components/ui/BackButton'
 import GlassCard from '@/components/ui/GlassCard'
 import PageHeader from '@/components/ui/PageHeader'
@@ -194,8 +195,16 @@ export default function PurchaseGaps() {
 
       {/* Content */}
       {loading ? (
-        <div className="flex items-center justify-center py-20 text-slate-400 dark:text-white/40">
-          <Loader2 size={28} className="animate-spin" />
+        <div className="flex items-center justify-center py-20">
+          <FaniLoader
+            size="md"
+            messages={[
+              'Reviewing your wardrobe…',
+              'Spotting the gaps…',
+              'Pulling together suggestions…',
+            ]}
+            subline="FANI is checking what's missing"
+          />
         </div>
       ) : error ? (
         <GlassCard className="p-6 flex items-center gap-3 text-red-600 dark:text-red-400">

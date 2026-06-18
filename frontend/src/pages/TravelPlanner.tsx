@@ -9,6 +9,7 @@ import { useMemo, useState } from 'react'
 import { notificationStore, toastStore } from '@/store/notificationStore'
 import BackButton from '@/components/ui/BackButton'
 import PageHeader from '@/components/ui/PageHeader'
+import { FaniLoader } from '@/components/system/FaniLoader'
 import { usePageState } from '@/hooks/usePageState'
 import {
   AlertCircle, ArrowLeft, Bookmark, BookmarkPlus, Calendar, Check,
@@ -568,10 +569,17 @@ export default function TravelPlanner() {
 
               {/* Loading state */}
               {loading && (
-                <div className="card p-8 flex flex-col items-center gap-3 text-slate-500 dark:text-white/40">
-                  <Loader2 size={28} className="animate-spin text-brand-500" />
-                  <p className="text-sm font-medium">FANI is building your personalized travel wardrobe…</p>
-                  <p className="text-xs text-slate-400">Analyzing your closet · Checking weather · Planning outfits by activity</p>
+                <div className="card p-8 flex justify-center">
+                  <FaniLoader
+                    messages={[
+                      'Reading your closet…',
+                      'Checking the weather…',
+                      'Planning outfits by activity…',
+                      'Packing your bag…',
+                      'Almost there…',
+                    ]}
+                    subline="FANI is building your travel wardrobe"
+                  />
                 </div>
               )}
 

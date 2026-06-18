@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { notificationStore, toastStore } from '@/store/notificationStore'
 import BackButton from '@/components/ui/BackButton'
+import { FaniLoader } from '@/components/system/FaniLoader'
 import {
   closestCenter,
   DndContext,
@@ -1664,15 +1665,30 @@ export default function OutfitBuilder() {
           <div className="flex-1 overflow-y-auto p-5 space-y-5">
             {/* Loading states */}
             {analyzing && (
-              <div className="flex items-center gap-3 rounded-2xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-700 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-300">
-                <Loader2 size={15} className="animate-spin flex-shrink-0" />
-                Analyzing your outfit with AI…
+              <div className="flex justify-center py-6">
+                <FaniLoader
+                  size="md"
+                  messages={[
+                    'Looking at your outfit…',
+                    'Checking colors & balance…',
+                    'Rating the combination…',
+                    'Almost there…',
+                  ]}
+                  subline="FANI is styling your look"
+                />
               </div>
             )}
             {shuffling && (
-              <div className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
-                <Loader2 size={15} className="animate-spin flex-shrink-0" />
-                Finding alternative outfit combinations…
+              <div className="flex justify-center py-6">
+                <FaniLoader
+                  size="md"
+                  messages={[
+                    'Rethinking the combination…',
+                    'Mixing in new pieces…',
+                    'Finding fresh pairings…',
+                  ]}
+                  subline="FANI is shuffling your outfit"
+                />
               </div>
             )}
 

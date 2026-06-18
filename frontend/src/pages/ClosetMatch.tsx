@@ -9,12 +9,13 @@ import { useState, useMemo, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Shirt, Sparkles, ShoppingBag, ChevronRight, Package,
-  Loader2, AlertCircle, Star, TrendingUp, Tag, ArrowRight,
+  AlertCircle, Star, TrendingUp, Tag, ArrowRight,
   Search, CheckCircle2,
 } from 'lucide-react'
 import BackButton from '@/components/ui/BackButton'
 import GlassCard from '@/components/ui/GlassCard'
 import PageHeader from '@/components/ui/PageHeader'
+import { FaniLoader } from '@/components/system/FaniLoader'
 import { shoppingCheckApi, type ClosetMatchResult, type ClosetMatchSuggestion, type ClosetPairing } from '@/lib/api'
 import { resolveUploadUrl } from '@/lib/api'
 import { useApp } from '@/store'
@@ -499,18 +500,17 @@ export default function ClosetMatch() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="flex flex-col items-center justify-center gap-4 py-16"
+              className="flex flex-col items-center justify-center py-16"
             >
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-brand-500 to-brand-600
-                              flex items-center justify-center shadow-glow-sm">
-                <Loader2 size={26} className="text-white animate-spin" />
-              </div>
-              <div className="text-center">
-                <p className="font-semibold text-slate-800 dark:text-white">Analysing your wardrobe…</p>
-                <p className="text-sm text-slate-500 dark:text-white/50 mt-1">
-                  FANI is finding the perfect pairings
-                </p>
-              </div>
+              <FaniLoader
+                messages={[
+                  'Reading your wardrobe…',
+                  'Checking outfit compatibility…',
+                  'Finding the perfect pairings…',
+                  'Almost there…',
+                ]}
+                subline="FANI is styling your closet"
+              />
             </motion.div>
           )}
 

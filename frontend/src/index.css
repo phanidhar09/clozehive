@@ -251,7 +251,13 @@
   .animate-float-2,
   .animate-float-3,
   .animate-glow-pulse,
-  .shimmer-bg { animation: none !important; }
+  .animate-fani-letter,
+  .animate-fani-dot,
+  .animate-fani-star,
+  .shimmer-bg { animation: none !important; opacity: 1 !important; }
+
+  /* Keep the brand glow subtly on (not animated) when motion is reduced */
+  .animate-fani-glow { animation: none !important; opacity: .5 !important; }
 
   * { transition-duration: 0.01ms !important; }
 }
