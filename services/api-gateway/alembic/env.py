@@ -58,7 +58,18 @@ def do_run_migrations(connection: Connection) -> None:
     # boots and self-heals once the lock clears.
     if connection.dialect.name == "postgresql":
         connection.exec_driver_sql("SET lock_timeout = '15s'")
-    context.configure(connection=connection, target_metadata=target_metadata)
+    # Commit after EACH migration rather than wrapping the whole chain in one
+    # transaction. A single giant transaction means nothing persists until the
+    # final commit — so if the boot is interrupted mid-upgrade (a redeploy, an
+    # instance restart) the entire chain rolls back and the next boot starts from
+    # an empty DB, re-running 001→head forever without ever landing. Per-migration
+    # commits make progress durable and resumable: alembic_version advances step
+    # by step, so an interrupted upgrade picks up where it left off.
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        transaction_per_migration=True,
+    )
     with context.begin_transaction():
         context.run_migrations()
 
