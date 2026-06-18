@@ -26,6 +26,7 @@ const Upload = lazy(() => import('@/pages/Upload'))
 const AIStylist = lazy(() => import('@/pages/AIStylist'))
 const AIStylistChat = lazy(() => import('@/pages/AIStylistChat'))
 const TravelPlanner = lazy(() => import('@/pages/TravelPlanner'))
+const WeeklyPlanner = lazy(() => import('@/pages/WeeklyPlanner'))
 const AvatarBuilder = lazy(() => import('@/pages/AvatarBuilder'))
 const Analytics = lazy(() => import('@/pages/Analytics'))
 const Groups = lazy(() => import('@/pages/Groups'))
@@ -151,6 +152,7 @@ function AnimatedRoutes() {
             }
           />
           <Route path="travel"     element={<PageBoundary><TravelPlanner /></PageBoundary>} />
+          <Route path="planner"    element={<PageBoundary><WeeklyPlanner /></PageBoundary>} />
           <Route
             path="avatar"
             element={

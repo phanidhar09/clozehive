@@ -18,9 +18,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Pairs that must stay byte-identical. Add a pair here whenever a module is
-# unified across services. (The closet-service/vision-service gemini_service
-# pair was removed when closet-service was retired — vision-service now owns
-# the only copy.)
+# unified across services. (Empty since the standalone vision-service was
+# retired — the api-gateway now owns the only copy of the vision pipeline,
+# fashion-analysis, and gemini modules.)
 SHARED_PAIRS: list[tuple[str, str]] = []
 
 

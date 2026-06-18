@@ -295,9 +295,9 @@ services:
 
   # Vision (image analysis, background removal) runs in-process inside
   # api-gateway (the `vision_pipeline` / `smart_ingest` routers), matching
-  # production. The standalone vision-service was removed from the default stack
-  # so dev and prod share one wardrobe DB. (Its code remains under
-  # services/vision-service/ for the optional `--profile vision` MCP path.)
+  # production — dev and prod share one wardrobe DB. The standalone
+  # vision-service has been retired; the optional `--profile vision` path now
+  # refers to the `mcp-vision` container above.
 
   # ── DB Migrations (MVP default — run-once container) ───────────────────────
 

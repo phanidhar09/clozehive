@@ -44,7 +44,7 @@ from app.db.session import get_read_session, get_session
 
 _log = get_logger("closet_routes")
 
-# Hard cap for any vision-service / OpenAI vision call.  Without this a
+# Hard cap for any in-process vision / OpenAI vision call.  Without this a
 # hanging upstream can block a worker process indefinitely.
 _VISION_TIMEOUT_S: float = 30.0
 

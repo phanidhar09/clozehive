@@ -2,7 +2,7 @@
 
 Acess the link https://clozehive.netlify.app 
 
-ClozeHive is a **wardrobe intelligence** application: a digital closet, outfit building, **FANI**-powered AI styling, travel and packing help, analytics, and **RAG**-enhanced insights grounded in your items and history. The stack is a **React + Vite + TypeScript** SPA, a **FastAPI** API gateway (auth, closet, outfits, trips, analytics, AI orchestration entrypoints), a dedicated **vision-service** for heavy image work, a **LangGraph-style ai-agent** with **MCP** tool servers, **PostgreSQL + pgvector**, **Redis**, and **nginx** as the single browser entrypoint in Docker.
+ClozeHive is a **wardrobe intelligence** application: a digital closet, outfit building, **FANI**-powered AI styling, travel and packing help, analytics, and **RAG**-enhanced insights grounded in your items and history. The stack is a **React + Vite + TypeScript** SPA, a **FastAPI** API gateway (auth, closet, outfits, trips, analytics, AI orchestration entrypoints, and in-process image-analysis/background-removal vision pipeline), a **LangGraph-style ai-agent** with **MCP** tool servers, **PostgreSQL + pgvector**, **Redis**, and **nginx** as the single browser entrypoint in Docker.
 
 **Repository:** [github.com/phanidhar09/clozehive](https://github.com/phanidhar09/clozehive)
 
@@ -49,8 +49,7 @@ flowchart TB
   end
 
   subgraph app [Application Services]
-    GW[api-gateway :8000<br/>auth, closet, outfits, trips, RAG, WS hub]
-    VS[vision-service :8002<br/>analyze, smart-ingest, bg removal]
+    GW[api-gateway :8000<br/>auth, closet, outfits, trips, RAG, WS hub<br/>+ in-process vision: analyze, smart-ingest, bg removal]
     AG[ai-agent :8001<br/>FANI agent + inline tools]
   end
 
@@ -69,7 +68,7 @@ flowchart TB
   N -->|/| FE
   FE --> SPA
   N -->|/api/v1/* (general)| GW
-  N -->|/api/v1/analyze-vision*, /smart-ingest,\n/closet/*/remove-background| VS
+  N -->|/api/v1/analyze-vision*, /smart-ingest,\n/closet/*/remove-background| GW
   N -->|/uploads/*| GW
   N -->|/api/v1/ws| GW
 
@@ -77,17 +76,14 @@ flowchart TB
   GW --> RD
   GW --> UP
   GW -->|AI_AGENT_URL + X-Internal-Token| AG
-  VS --> PG
-  VS --> RD
-  VS --> UP
   AG --> PG
   AG --> RD
   MIG --> PG
   AG -. legacy profile .-> MV
 ```
 
-- **Default `docker compose up`** starts `postgres`, `redis`, `ai-agent`, `api-gateway`, `vision-service`, `frontend`, `nginx`, and one-shot `migrate`.
-- **nginx** is the single browser entrypoint: serves SPA traffic, proxies most `/api` traffic to `api-gateway`, sends vision-heavy endpoints to `vision-service`, proxies `/uploads`, and upgrades `/api/v1/ws`.
+- **Default `docker compose up`** starts `postgres`, `redis`, `ai-agent`, `api-gateway`, `frontend`, `nginx`, and one-shot `migrate`.
+- **nginx** is the single browser entrypoint: serves SPA traffic, proxies `/api` traffic (including vision-heavy endpoints) to `api-gateway`, proxies `/uploads`, and upgrades `/api/v1/ws`.
 - **api-gateway** calls **ai-agent** over internal HTTP (`AI_AGENT_URL`) and can attach `X-Internal-Token` for service-to-service auth.
 - **ai-agent** runs weather/outfit/packing tools inline (in-process) by default; no external MCP containers are required for normal local MVP runs.
 
@@ -95,11 +91,11 @@ flowchart TB
 
 | Flow | Wiring |
 |------|--------|
-| Browser → API | Frontend uses relative `/api/v1` by default; browser hits `nginx` first, then nginx routes to `api-gateway` or `vision-service` based on path. |
+| Browser → API | Frontend uses relative `/api/v1` by default; browser hits `nginx` first, which proxies all `/api` paths to `api-gateway`. |
 | Auth + app data | `api-gateway` owns auth/session APIs and core business routes (closet, outfits, trips, analytics, RAG, shopping check), backed by Postgres + Redis. |
 | Real-time notifications | Browser WebSocket connects to `/api/v1/ws`; nginx upgrades and forwards to gateway WebSocket router. |
 | AI chat / outfit / packing | Gateway AI routes assemble user/closet/RAG context, then call `ai-agent` via `app/services/ai_client.py`. |
-| Vision ingestion | Vision-heavy endpoints are routed directly to `vision-service`, which performs detection + background-removal pipeline and uses Postgres/Redis for persistence/cache. |
+| Vision ingestion | Vision-heavy endpoints run **in-process inside `api-gateway`** (the `vision_pipeline` / `smart_ingest` routers): detection + background-removal pipeline, backed by Postgres/Redis for persistence/cache. |
 | Shared state | Postgres is the source of truth; Redis is used for caching, preview sessions, token/session helpers, and fast cross-request state. |
 
 ---
@@ -110,8 +106,7 @@ flowchart TB
 |---------|------|
 | `frontend` | React app (Vite). In Docker, host port defaults to **3001** → container **3000** (`FRONTEND_HOST_PORT`). |
 | `nginx` | Single entry **:80** — API, vision paths, uploads, WS, frontend. |
-| `services/api-gateway` | Public API: auth, profile, closet, outfits, trips, analytics, AI proxy routes, RAG routers, WebSocket hub, Kafka producers when enabled. |
-| `services/vision-service` | Vision pipeline: analyze/stream, smart ingest, background removal — shares DB/Redis and uses OpenAI/Gemini per config. |
+| `services/api-gateway` | Public API: auth, profile, closet, outfits, trips, analytics, AI proxy routes, RAG routers, WebSocket hub, Kafka producers when enabled. Also runs the **vision pipeline in-process** (analyze/stream, smart ingest, background removal) using OpenAI/Gemini per config. |
 | `services/ai-agent` | FANI agent service used by gateway AI routes. Default behavior is inline LangGraph tools (`weather`, `outfit`, `packing`) inside the service. |
 | `services/mcp/*` | Optional/legacy MCP HTTP/SSE servers (for non-default profiles or experiments). |
 | `services/ai-worker` | Background worker code (not part of the default `docker-compose.yml` MVP stack). |
@@ -162,7 +157,6 @@ Legacy or archive material, if present, may live under `archive/`.
 | API gateway (direct) | `http://localhost:8000` — `/live`, `/ready`, `/health`, `/docs` |
 | OpenAPI | `http://localhost:8000/docs` |
 | ai-agent (direct) | `http://localhost:8001/health` |
-| vision-service (internal / direct) | `http://localhost:8002/live` |
 
 **Ports:** Postgres is **`5433`→5432** and Redis **`6382`→6379** on the host by default (see `.env.example`) to avoid clashes with local installs.
 
@@ -187,7 +181,7 @@ Routers are mounted under **`/api/v1`** (see `services/api-gateway/app/api/v1/ro
 - **Fashion RAG**, **purchase gaps**, **unified RAG**
 - **WebSocket** — `/api/v1/ws` for notifications
 
-Vision-specific paths (e.g. analyze stream, smart ingest, remove-background) are routed by nginx to **vision-service** while sharing the same `/api/v1/...` URL shape to the browser.
+Vision-specific paths (e.g. analyze stream, smart ingest, remove-background) run **in-process inside `api-gateway`** and share the same `/api/v1/...` URL shape to the browser (nginx applies longer read timeouts to these routes).
 
 ---
 
@@ -207,16 +201,13 @@ python3 -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r services/api-gateway/requirements-dev.txt
 pip install -r services/ai-agent/requirements.txt
-# If working on vision or uploads end-to-end locally:
-pip install -r services/vision-service/requirements.txt
 ```
 
 Run processes in separate terminals (examples):
 
 ```sh
-make dev-api           # API gateway :8000
+make dev-api           # API gateway :8000 (includes the in-process vision pipeline)
 make dev-agent         # AI agent :8001
-# optional: uvicorn for vision-service on :8002
 make dev-frontend      # Vite on :3000 (see frontend/package.json)
 ```
 
@@ -231,7 +222,7 @@ Use **`.env.example`** as the source of truth. Commonly customized:
 | Variable | Notes |
 |----------|--------|
 | `OPENAI_API_KEY` | Chat, embeddings, much of vision/analysis. |
-| `GEMINI_API_KEY` | Optional for vision-service paths when configured. |
+| `GEMINI_API_KEY` | Optional for the gateway's vision/analysis paths when configured. |
 | `JWT_SECRET` | Strong random value in production (≥ 32 chars). |
 | `DATABASE_URL` | Host dev often uses Postgres on **5433** per example. |
 | `REDIS_URL` | Host dev often **6382**; OAuth requires working Redis. |
@@ -313,9 +304,9 @@ pip install pip-audit && pip-audit -r services/api-gateway/requirements.txt
 
 ## Troubleshooting (quick)
 
-- **OpenAI / model errors** — `OPENAI_API_KEY` in `.env`; restart **api-gateway**, **ai-agent**, and **vision-service** after changes.
+- **OpenAI / model errors** — `OPENAI_API_KEY` in `.env`; restart **api-gateway** and **ai-agent** after changes.
 - **FANI / ai-agent** — In current MVP wiring, ai-agent runs inline tools by default; check `docker compose logs ai-agent api-gateway` first. If using legacy MCP profile, also verify the relevant `mcp-*` service health.
-- **Vision timeouts** — nginx sets longer read timeouts for AI and vision; check **vision-service** logs and `GEMINI_API_KEY` / OpenAI quotas.
+- **Vision timeouts** — nginx sets longer read timeouts for AI and vision; check **api-gateway** logs and `GEMINI_API_KEY` / OpenAI quotas.
 - **WebSockets** — Ensure clients hit a URL nginx proxies (e.g. `ws://localhost/api/v1/ws?...` through **:80**) or align direct **:8000** dev with `ALLOWED_ORIGINS`.
 - **Stale builds** — `make clean`, then rebuild images or `npm run build` as needed.
 

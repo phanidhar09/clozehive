@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ShoppingBag, CheckCircle, AlertCircle, Loader2, RefreshCw, Trash2 } from 'lucide-react'
+import { ShoppingBag, CheckCircle, AlertCircle, Loader2, RefreshCw, Trash2, ExternalLink } from 'lucide-react'
 import { FaniLoader } from '@/components/system/FaniLoader'
 import BackButton from '@/components/ui/BackButton'
 import GlassCard from '@/components/ui/GlassCard'
@@ -19,6 +19,32 @@ function priorityLabel(score: number | null): 'high' | 'medium' | 'low' {
   if (score >= 7) return 'high'
   if (score >= 4) return 'medium'
   return 'low'
+}
+
+/**
+ * Build a natural-language product search from a gap's attributes so the user can
+ * go find the missing item. Orders terms the way a shopper would type them:
+ * color → descriptive attributes → category, with occasion/season as context.
+ */
+function buildShopQuery(gap: PurchaseGap): string {
+  const attrValues = gap.suggested_attributes
+    ? Object.values(gap.suggested_attributes)
+        .filter((v): v is string => typeof v === 'string' && v.length > 0)
+        .slice(0, 2)
+    : []
+  const parts = [
+    gap.missing_color,
+    ...attrValues,
+    gap.missing_category,
+    gap.missing_occasion,
+    gap.missing_season ? `${gap.missing_season} wear` : null,
+  ].filter((p): p is string => Boolean(p))
+  // De-dupe terms (e.g. an attribute that repeats the color) while keeping order.
+  return Array.from(new Set(parts.map(p => p.toLowerCase().trim()))).join(' ')
+}
+
+function shopUrl(gap: PurchaseGap): string {
+  return `https://www.google.com/search?tbm=shop&q=${encodeURIComponent(buildShopQuery(gap))}`
 }
 
 function GapCard({ gap, onResolve, onDelete }: { gap: PurchaseGap; onResolve: (id: string) => void; onDelete: (id: string) => void }) {
@@ -101,6 +127,18 @@ function GapCard({ gap, onResolve, onDelete }: { gap: PurchaseGap; onResolve: (i
       )}
 
       <div className="flex items-center justify-end gap-2">
+        <a
+          href={shopUrl(gap)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mr-auto flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg
+                     bg-brand-500 text-white hover:bg-brand-600 transition-colors"
+          title={`Search shops for "${buildShopQuery(gap)}"`}
+        >
+          <ShoppingBag size={12} />
+          Shop this gap
+          <ExternalLink size={11} className="opacity-70" />
+        </a>
         <button
           onClick={handleDelete}
           disabled={deleting}

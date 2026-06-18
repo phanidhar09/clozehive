@@ -289,40 +289,6 @@ class TestSanitizeUserText:
         assert "[redacted]" in result
 
 
-# ── Multi-item vision deduplication (via Gemini service) ─────────────────────
-
-class TestGeminiDeduplication:
-    """Test the bbox-IoU deduplication logic imported directly."""
-
-    def test_iou_identical_boxes(self):
-        # The IoU dedup helper lives in the standalone vision-service. It is not
-        # importable from the api-gateway test environment, so skip gracefully
-        # (matching the sibling bbox tests below) rather than hard-failing.
-        try:
-            from services.vision_service.app.services.gemini_service import _bbox_iou
-        except ImportError:
-            pytest.skip("Vision service not on path in this test environment")
-        box = {"x_min": 0.2, "y_min": 0.2, "x_max": 0.8, "y_max": 0.8}
-        assert _bbox_iou(box, box) == pytest.approx(1.0)
-
-    def test_bbox_iou_no_overlap(self):
-        try:
-            from services.vision_service.app.services.gemini_service import _bbox_iou
-        except ImportError:
-            pytest.skip("Vision service not on path in this test environment")
-        a = {"x_min": 0.0, "y_min": 0.0, "x_max": 0.4, "y_max": 0.5}
-        b = {"x_min": 0.5, "y_min": 0.5, "x_max": 1.0, "y_max": 1.0}
-        assert _bbox_iou(a, b) == 0.0
-
-    def test_bbox_iou_full_overlap(self):
-        try:
-            from services.vision_service.app.services.gemini_service import _bbox_iou
-        except ImportError:
-            pytest.skip("Vision service not on path in this test environment")
-        box = {"x_min": 0.1, "y_min": 0.1, "x_max": 0.9, "y_max": 0.9}
-        assert _bbox_iou(box, box) == pytest.approx(1.0)
-
-
 # ── RAG retrieval fallback behavior ──────────────────────────────────────────
 
 class TestRagFallbackBehavior:

@@ -4,7 +4,7 @@ import {
   Home, Shirt, Plus, Plane, Heart,
   X, Moon, Sun, LogOut,
   Sparkles, Wand2, ShoppingCart, ShoppingBag,
-  BarChart3, Layers,
+  BarChart3, Layers, CalendarDays,
   type LucideIcon,
 } from 'lucide-react'
 import { useApp } from '@/store'
@@ -38,6 +38,7 @@ const NAV_GROUPS: SidebarNavGroup[] = [
     heading: 'Create',
     items: [
       { to: '/outfit-builder', label: 'Build Outfit',   icon: Wand2 },
+      { to: '/planner',        label: 'Weekly Planner', icon: CalendarDays },
       { to: '/saved-outfits',  label: 'Saved Outfits',  icon: Heart },
       { to: '/travel',         label: 'Travel Packing', icon: Plane },
     ],

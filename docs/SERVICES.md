@@ -5,16 +5,21 @@ Two topologies exist and are both documented:
 
 - **Production (Render)** — the deployed blueprint (`render.yaml`). No nginx; the
   frontend calls the api-gateway directly. The gateway is the **sole owner of the
-  wardrobe domain**. `vision-service` and `ai-worker` are **not** deployed there.
-- **Local dev (`docker compose up --build`)** — the full multi-service stack
-  behind nginx, including `vision-service` and `ai-worker`.
+  wardrobe domain** and runs the vision pipeline in-process. `ai-worker` is **not**
+  deployed there.
+- **Local dev (`docker compose up --build`)** — the multi-service stack behind
+  nginx (gateway, ai-agent, frontend, and the `ai-worker` job consumer). Vision
+  runs in-process inside the gateway, matching production.
 
 Optional/unwired components are listed at the end.
 
-> **History:** there used to be a separate `closet-service` (:8003) that owned the
-> wardrobe domain against its own Postgres. It was **retired** — the gateway always
-> carried a copy of those routers, and prod was already serving them from the
-> gateway. The wardrobe domain now lives only in the api-gateway.
+> **History:** there used to be separate `closet-service` (:8003) and
+> `vision-service` (:8002) processes — the former owned the wardrobe domain against
+> its own Postgres, the latter did image analysis/background removal against
+> `postgres-closet`. Both were **retired**: the gateway always carried copies of
+> those routers and prod already served them in-process, so the standalone services
+> were dormant, drift-prone duplicates. The wardrobe domain and vision pipeline now
+> live only in the api-gateway.
 
 ---
 
@@ -44,37 +49,25 @@ BackgroundTasks (`HEAVY_WORK_ASYNC=false`).
 flowchart LR
     B[Browser] --> N[nginx :80]
     N -->|"/"| FE[frontend :3000]
-    N -->|"auth, profile, weather, admin,<br/>jobs, ws, uploads + closet, outfits,<br/>trips, ai, ai-chat, analytics, rag"| GW[api-gateway :8000]
-    N -->|"analyze-vision, smart-ingest,<br/>remove-background"| VS[vision-service :8002]
+    N -->|"all /api/v1 incl. analyze-vision,<br/>smart-ingest, remove-background"| GW[api-gateway :8000]
     GW -->|/ai proxy| AG[ai-agent :8001]
     GW -. enqueue ARQ .-> RSQ[(redis-state db3)]
     RSQ --> AW[ai-worker]
     AW --> AG
     GW --> PG[(postgres<br/>identity + wardrobe + pgvector)]
-    VS --> PGC[(postgres-closet<br/>vision-saved items + pgvector)]
     GW --> R[(redis cache)]
-    VS --> R
 ```
 
-In dev the wardrobe/intelligence routers mount automatically
-(`mount_migrated_routes` defaults on outside production), and nginx routes the
-wardrobe prefixes to the gateway.
-
-> **Dev-stack caveat:** `vision-service` still writes analyzed items to
-> `postgres-closet`, but the gateway reads/writes wardrobe data in `postgres`
-> (clozehive). These are different databases, so items saved via the standalone
-> `vision-service` won't appear in the gateway's `/closet` endpoints in dev. This
-> does not affect production (vision-service isn't deployed there; the gateway's
-> own `vision_pipeline`/`smart_ingest` routers write to the same DB it reads). To
-> exercise the full upload→closet flow in dev, use the gateway's in-process vision
-> routes. (Aligning the dev stack — dropping vision-service or pointing it at
-> `postgres` — is a known follow-up.)
+In dev the wardrobe/intelligence routers (including the vision pipeline) mount
+automatically (`mount_migrated_routes` defaults on outside production), and nginx
+proxies all `/api/v1` prefixes — vision routes included — to the gateway. The dev
+stack now mirrors production: there is no separate vision database or vision
+process, so the full upload→closet flow runs against one `postgres`.
 
 **Databases:** `postgres` (clozehive) holds **everything the gateway owns** —
 identity/auth/platform **and** the wardrobe domain (items, outfits, trips,
 embeddings, `ai_requests`, agent vector store). `pgvector/pgvector:pg16` enables
-embedding search. In dev, `postgres-closet` is used only by the standalone
-`vision-service`.
+embedding search.
 
 **Two-Redis split:** `redis` (allkeys-lru, evictable) is pure cache;
 `redis-state` (noeviction) holds data that must survive memory pressure —
@@ -90,9 +83,9 @@ Config: `infra/nginx/nginx.conf`.
 
 Responsibilities:
 - **Routing** (most-specific first):
-  - `/api/v1/analyze-vision/stream` → vision-service, SSE mode (no buffering, no read timeout)
-  - `/api/v1/(analyze-vision|save-analyzed-items|smart-ingest)` → vision-service
-  - `/api/v1/closet/{id}/remove-background` → vision-service
+  - `/api/v1/analyze-vision/stream` → api-gateway (in-process vision), SSE mode (no buffering, no read timeout)
+  - `/api/v1/(analyze-vision|save-analyzed-items|smart-ingest)` → api-gateway (in-process vision)
+  - `/api/v1/closet/{id}/remove-background` → api-gateway (in-process vision)
   - `/api/v1/(ai/*|ai-chat)/(stream|async)` → api-gateway, SSE mode
   - `/api/v1/(closet|outfits|trips|ai|ai-chat|analytics|shopping|rag|fashion-knowledge|purchase-gaps)` → api-gateway (120 s read timeout for long AI generations)
   - `/api/v1/ws` → api-gateway, WebSocket upgrade (24 h timeouts)
@@ -116,7 +109,7 @@ Pages wired to the backend:
 | Page | Backend it talks to |
 |---|---|
 | Dashboard, Onboarding (incl. Style Profile) | api-gateway |
-| Upload | vision-service (analyze + SSE stream, dev) / api-gateway (save + in-process vision) |
+| Upload | api-gateway (analyze + SSE stream + save, all in-process vision) |
 | Closet, ClosetMatch | api-gateway (CRUD, similarity) |
 | OutfitBuilder, SavedOutfits | api-gateway |
 | AIStylist, AIStylistChat | api-gateway `/ai`, `/ai-chat` (SSE streaming) |
@@ -183,29 +176,24 @@ Important behavior:
 
 ---
 
-## 5. vision-service (FastAPI, `:8002`) — dev stack only
+## 5. Vision pipeline (in api-gateway) — retired standalone service
 
-Standalone image analysis and background removal. **Not deployed on Render** —
-in production the gateway performs vision ingestion in-process via its
-`vision_pipeline`/`smart_ingest` routers. In the dev stack it writes analyzed
-items into `postgres-closet` (see the dev-stack caveat in §1).
+There is no separate `vision-service` process anymore. Image analysis, smart
+ingest, and background removal run **in-process inside the api-gateway** via its
+wardrobe routers (see §4: *Smart ingest*, *Vision pipeline*). This matches
+production, where the standalone service was never deployed.
 
-Endpoints (`app/api/v1/`):
+The routes (`/analyze-vision`, `/analyze-vision/stream`, `/save-analyzed-items`,
+`/smart-ingest`, `/closet/{id}/remove-background`) are served by the gateway and
+write to the same `postgres` (clozehive) DB the gateway reads from.
 
-| Route | What it does |
-|---|---|
-| `POST /analyze-vision` | Batch garment analysis (Gemini / OpenAI vision) |
-| `POST /analyze-vision/stream` | SSE — per-image progress streamed to the Upload page |
-| `POST /save-analyzed-items` | Persist analyzed items |
-| `POST /smart-ingest` + GET/PATCH/DELETE | Bulk ingest sessions: analyze many photos, review, then commit |
-| `POST /closet/{id}/remove-background` | Per-item background removal |
-
-Key internals: `vision_pipeline_service` (parallelized detection),
+Key internals (`app/api/v1/wardrobe/services/`): `vision_pipeline_service`
+(parallelized detection + an OOM-guarded `img.draft()` reduced-scale JPEG decode),
 `gemini_service` / `fashion_analysis_service` (model calls),
 `background_removal_service`, `similarity_service` + `item_vision_enrichment`
-(embeddings for closet matching), Redis db 2 for caching, JWT validated
-locally. `gemini_service.py` is the only file the CI drift gate
-(`scripts/check_service_drift.py`) used to pin — it now owns the sole copy.
+(embeddings for closet matching). The CI drift gate
+(`scripts/check_service_drift.py`) no longer pins any pairs — the gateway owns the
+sole copy.
 
 ---
 
@@ -263,9 +251,8 @@ polled by the frontend.
 
 | Service | Image | Role |
 |---|---|---|
-| `postgres` (host `:5433`) | pgvector/pg16 | Everything the gateway owns: identity, auth, platform, **wardrobe domain**, `ai_requests`, agent vector store |
-| `postgres-closet` (host `:5434`) | pgvector/pg16 | **Dev only** — standalone vision-service's analyzed-item store |
-| `redis` (host `:6382`) | redis:7 | Cache — evictable (allkeys-lru). db0 gateway, db1 ai-agent, db2 vision |
+| `postgres` (host `:5433`) | pgvector/pg16 | Everything the gateway owns: identity, auth, platform, **wardrobe domain** (incl. vision-ingested items), `ai_requests`, agent vector store |
+| `redis` (host `:6382`) | redis:7 | Cache — evictable (allkeys-lru). db0 gateway (incl. vision cache), db1 ai-agent |
 | `redis-state` (host `:6383`) | redis:7 | **Non-evictable** (noeviction): OAuth state, refresh tokens, rate limits (db0), ARQ queue (db3) |
 | `migrate` | run-once | Alembic `upgrade head` against `postgres` on every `compose up` |
 
@@ -302,8 +289,8 @@ sequenceDiagram
 ```
 
 (Bulk path: `smart-ingest` creates a review session — analyze many photos,
-user reviews/edits, then commits. In the dev stack the standalone vision-service
-serves the analyze/SSE side — see the §1 caveat.)
+user reviews/edits, then commits. This runs identically in dev and prod: all
+in-process in the gateway.)
 
 ### 9.3 AI stylist chat (streaming)
 
@@ -367,6 +354,7 @@ These exist in the repo but are **not wired** into the default stack:
 
 - **`mcp-vision`** (`services/mcp/vision`) — legacy MCP vision server; only
   starts with `docker compose --profile vision up`. The default stack runs all
-  tools in-process inside ai-agent and analysis inside vision-service.
+  tools in-process inside ai-agent and vision analysis in-process inside the
+  api-gateway.
 - **Social domain** (`api-gateway/app/api/v1/social`, Groups page) — router is
   commented out (`# Non-MVP: Phase 2`); no backend routes are mounted.
