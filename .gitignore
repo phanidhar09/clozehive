@@ -108,6 +108,10 @@ ai-service/venv/
 *.pkl
 *.h5
 
+# ── RAG eval cache (generated artefact) ──────────────────────
+.rag_eval_cache.json
+**/scripts/.rag_eval_cache.json
+
 # ── Misc ──────────────────────────────────────────────────────
 *.tmp
 *.temp
