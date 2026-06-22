@@ -1,9 +1,9 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Camera, Upload, ShoppingCart, CheckCircle, XCircle, AlertCircle,
   Loader2, RotateCcw, Star, TrendingUp, Package, Sparkles, Trash2,
-  PlusCircle, Shirt,
+  PlusCircle, Shirt, Link2, ExternalLink, Copy,
 } from 'lucide-react'
 import BackButton from '@/components/ui/BackButton'
 import GlassCard from '@/components/ui/GlassCard'
@@ -186,14 +186,24 @@ function ResultCard({
   onReset,
 }: {
   result: ShoppingCheckResult
-  previewUrl: string
+  previewUrl: string | null
   onReset: () => void
 }) {
   const [bought, setBought] = useState<boolean | null>(null)
   const rec = REC_CONFIG[result.buy_recommendation]
   const RecIcon = rec.icon
 
+  // Instrument: the user actually saw a verdict (funnel step after check_created).
+  useEffect(() => {
+    shoppingCheckApi.logEvent(result.check_id, 'verdict_viewed', {
+      recommendation: result.buy_recommendation,
+      input_type: result.input_type,
+    })
+  }, [result.check_id, result.buy_recommendation, result.input_type])
+
   const analysis = result.item_analysis as Record<string, unknown>
+  const dupes = result.matched_items.filter(m => m.is_duplicate)
+  const pairings = result.matched_items.filter(m => !m.is_duplicate)
 
   return (
     <div className="space-y-5">
@@ -201,8 +211,10 @@ function ResultCard({
       <GlassCard className="p-5">
         <div className="flex gap-5 items-start">
           {/* Item photo */}
-          <div className="w-28 h-28 rounded-2xl overflow-hidden bg-slate-100 dark:bg-white/[0.06] flex-shrink-0 shadow-md">
-            <img src={previewUrl} alt="Shopping item" className="w-full h-full object-cover" />
+          <div className="w-28 h-28 rounded-2xl overflow-hidden bg-slate-100 dark:bg-white/[0.06] flex-shrink-0 shadow-md flex items-center justify-center">
+            {previewUrl
+              ? <img src={previewUrl} alt="Shopping item" className="w-full h-full object-cover" />
+              : <ShoppingCart size={28} className="text-slate-300 dark:text-white/20" />}
           </div>
 
           {/* Score + recommendation */}
@@ -253,6 +265,29 @@ function ResultCard({
         )}
       </GlassCard>
 
+      {/* Source attribution — only for URL / screenshot checks */}
+      {result.source_url && (
+        <a
+          href={result.source_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs
+                     bg-slate-50 dark:bg-white/[0.04] border border-slate-200 dark:border-white/10
+                     text-slate-600 dark:text-white/60 hover:bg-slate-100 dark:hover:bg-white/[0.08] transition-colors"
+        >
+          <Link2 size={13} className="flex-shrink-0 text-brand-500" />
+          <span className="truncate flex-1">
+            {result.source_brand ? <span className="font-semibold">{result.source_brand} · </span> : null}
+            {result.source_title || result.source_site || result.source_url}
+            {result.source_price ? <span className="text-slate-400 dark:text-white/40"> · {result.source_price}</span> : null}
+          </span>
+          {result.input_type === 'screenshot' && (
+            <span className="text-[10px] text-slate-400 dark:text-white/30 flex-shrink-0">via screenshot</span>
+          )}
+          <ExternalLink size={12} className="flex-shrink-0 text-slate-400" />
+        </a>
+      )}
+
       {/* Reasoning */}
       <GlassCard className="p-4 space-y-2">
         <div className="flex items-center gap-2">
@@ -260,45 +295,72 @@ function ResultCard({
           <h3 className="text-sm font-semibold text-slate-800 dark:text-white">FANI's Take</h3>
         </div>
         <p className="text-sm text-slate-600 dark:text-white/70 leading-relaxed">{result.reasoning}</p>
+
+        {/* Honest one-liners: dupe-check + completes-N-outfits */}
+        <div className="flex flex-wrap gap-2 pt-1">
+          {(result.dupe_count ?? 0) > 0 && (
+            <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full
+                             bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400">
+              <Copy size={12} />
+              You own {result.dupe_count} like this
+            </span>
+          )}
+          {(result.completes_outfits ?? 0) > 0 && (
+            <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full
+                             bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400">
+              <Shirt size={12} />
+              Completes {result.completes_outfits} outfit{result.completes_outfits === 1 ? '' : 's'}
+            </span>
+          )}
+        </div>
       </GlassCard>
 
-      {/* Matched closet items */}
-      {result.matched_items.length > 0 && (
+      {/* Dupe-check — the honest "you already own this" warning */}
+      {dupes.length > 0 && (
         <GlassCard className="p-4 space-y-3">
           <div className="flex items-center gap-2">
-            <Package size={15} className="text-slate-500 dark:text-white/50" />
+            <Copy size={15} className="text-red-500" />
             <h3 className="text-sm font-semibold text-slate-800 dark:text-white">
-              {result.matched_items.some(m => m.is_duplicate)
-                ? 'Similar items in your closet'
-                : 'Pairs well with these items'}
+              You already own {dupes.length === 1 ? 'a' : dupes.length} similar {dupes.length === 1 ? 'item' : 'items'}
             </h3>
           </div>
           <div className="flex gap-3 overflow-x-auto pb-1">
-            {result.matched_items.map(item => (
+            {dupes.map(item => (
               <div key={item.id} className="flex-shrink-0 w-20 space-y-1">
-                <div className={cn(
-                  'w-20 h-20 rounded-xl overflow-hidden bg-slate-100 dark:bg-white/[0.06] relative',
-                  item.is_duplicate && 'ring-2 ring-red-400',
-                )}>
+                <div className="w-20 h-20 rounded-xl overflow-hidden bg-slate-100 dark:bg-white/[0.06] relative ring-2 ring-red-400">
                   {item.image_url
-                    ? <img src={resolveUploadUrl(item.image_url)} alt={item.name}
-                        className="w-full h-full object-cover" />
-                    : <div className="w-full h-full flex items-center justify-center">
-                        <Package size={22} className="text-slate-300 dark:text-white/20" />
-                      </div>
-                  }
-                  {item.is_duplicate && (
-                    <div className="absolute inset-0 bg-red-500/20 flex items-center justify-center rounded-xl">
-                      <span className="text-[9px] font-bold text-red-600 dark:text-red-400 bg-white dark:bg-slate-900 px-1 rounded">
-                        OWNED
-                      </span>
-                    </div>
-                  )}
+                    ? <img src={resolveUploadUrl(item.image_url)} alt={item.name} className="w-full h-full object-cover" />
+                    : <div className="w-full h-full flex items-center justify-center"><Package size={22} className="text-slate-300 dark:text-white/20" /></div>}
+                  <div className="absolute inset-0 bg-red-500/20 flex items-center justify-center rounded-xl">
+                    <span className="text-[9px] font-bold text-red-600 dark:text-red-400 bg-white dark:bg-slate-900 px-1 rounded">OWNED</span>
+                  </div>
                 </div>
-                <p className="text-[10px] text-slate-600 dark:text-white/60 truncate text-center leading-tight">
-                  {item.name}
-                </p>
-                <p className="text-[10px] text-slate-400 dark:text-white/30 text-center">
+                <p className="text-[10px] text-slate-600 dark:text-white/60 truncate text-center leading-tight">{item.name}</p>
+              </div>
+            ))}
+          </div>
+        </GlassCard>
+      )}
+
+      {/* Compatibility — what this genuinely pairs with (NOT embedding similarity) */}
+      {pairings.length > 0 && (
+        <GlassCard className="p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <Package size={15} className="text-emerald-500" />
+            <h3 className="text-sm font-semibold text-slate-800 dark:text-white">
+              Pairs with {pairings.length} {pairings.length === 1 ? 'item' : 'items'} you own
+            </h3>
+          </div>
+          <div className="flex gap-3 overflow-x-auto pb-1">
+            {pairings.map(item => (
+              <div key={item.id} className="flex-shrink-0 w-20 space-y-1">
+                <div className="w-20 h-20 rounded-xl overflow-hidden bg-slate-100 dark:bg-white/[0.06]">
+                  {item.image_url
+                    ? <img src={resolveUploadUrl(item.image_url)} alt={item.name} className="w-full h-full object-cover" />
+                    : <div className="w-full h-full flex items-center justify-center"><Package size={22} className="text-slate-300 dark:text-white/20" /></div>}
+                </div>
+                <p className="text-[10px] text-slate-600 dark:text-white/60 truncate text-center leading-tight">{item.name}</p>
+                <p className="text-[10px] text-emerald-500/80 text-center">
                   {Math.round(item.similarity_score * 100)}% match
                 </p>
               </div>
@@ -326,9 +388,16 @@ function ResultCard({
         <AddToClosetButton checkId={result.check_id} />
       </GlassCard>
 
+      {/* Repeat-paste nudge — the retention/viral signal made visible */}
+      {result.input_type !== 'photo' && (result.url_check_count ?? 0) >= 2 && (
+        <p className="text-center text-xs text-slate-400 dark:text-white/35">
+          That’s {result.url_check_count} links you’ve run past FANI — it’s learning your taste.
+        </p>
+      )}
+
       {/* Check another */}
       <button
-        onClick={onReset}
+        onClick={() => { shoppingCheckApi.logEvent(result.check_id, 'paste_again'); onReset() }}
         className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold
                    text-brand-600 dark:text-brand-400
                    hover:bg-brand-50 dark:hover:bg-brand-900/20
@@ -535,6 +604,53 @@ function UploadZone({ onFile }: { onFile: (f: File) => void }) {
   )
 }
 
+// ── URL paste bar ─────────────────────────────────────────────────────────────
+
+function UrlPasteBar({ onSubmit, disabled }: { onSubmit: (url: string) => void; disabled: boolean }) {
+  const [url, setUrl] = useState('')
+  const valid = /^https?:\/\/.+\..+/i.test(url.trim())
+
+  const submit = () => {
+    if (valid && !disabled) onSubmit(url.trim())
+  }
+
+  return (
+    <GlassCard className="p-4 space-y-2">
+      <div className="flex items-center gap-2">
+        <Link2 size={15} className="text-brand-500" />
+        <h3 className="text-sm font-semibold text-slate-800 dark:text-white">Paste a product link</h3>
+      </div>
+      <div className="flex gap-2">
+        <input
+          type="url"
+          inputMode="url"
+          value={url}
+          onChange={e => setUrl(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') submit() }}
+          placeholder="https://brand.com/the-jacket-you-want"
+          disabled={disabled}
+          className="flex-1 min-w-0 px-3 py-2.5 rounded-xl text-sm
+                     bg-white dark:bg-white/[0.04] border border-slate-200 dark:border-white/10
+                     text-slate-800 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/30
+                     focus:outline-none focus:ring-2 focus:ring-brand-400 disabled:opacity-50"
+        />
+        <button
+          onClick={submit}
+          disabled={!valid || disabled}
+          className="flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold
+                     bg-brand-600 text-white hover:bg-brand-700 transition-colors
+                     disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          Check it
+        </button>
+      </div>
+      <p className="text-[11px] text-slate-400 dark:text-white/35">
+        FANI reads the product page and gives one honest verdict against your closet.
+      </p>
+    </GlassCard>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function ShoppingCheck() {
@@ -573,6 +689,23 @@ export default function ShoppingCheck() {
     }
   }
 
+  const handleUrl = async (url: string) => {
+    setPreview(null)
+    setResult(null)
+    setError(null)
+    setLoading(true)
+    try {
+      const res = await shoppingCheckApi.checkUrl(url)
+      setPreview(res.image_url ? (resolveUploadUrl(res.image_url) ?? null) : null)
+      setResult(res)
+      loadHistory()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Couldn’t read that link. Try a direct product page.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const reset = () => {
     setPreview(null)
     setResult(null)
@@ -598,7 +731,7 @@ export default function ShoppingCheck() {
         chipClassName="bg-gradient-to-br from-green-500 to-emerald-600 shadow-glow-sm"
         iconColor="text-white"
         title="Shop with FANI"
-        subtitle="Snap any item in-store — FANI tells you if it belongs in your closet"
+        subtitle="Paste a product link or snap an item — FANI tells you if it belongs in your closet"
         actions={
           <a
             href="/closet-match"
@@ -630,22 +763,36 @@ export default function ShoppingCheck() {
         </div>
       )}
 
-      {/* Upload zone */}
-      {!result && !loading && !error && <UploadZone onFile={handleFile} />}
+      {/* URL paste + Upload zone */}
+      {!result && !loading && !error && (
+        <div className="space-y-4">
+          <UrlPasteBar onSubmit={handleUrl} disabled={loading} />
+          <div className="flex items-center gap-3">
+            <div className="flex-1 h-px bg-slate-200 dark:bg-white/10" />
+            <span className="text-[11px] font-medium text-slate-400 dark:text-white/30 uppercase tracking-wider">or</span>
+            <div className="flex-1 h-px bg-slate-200 dark:bg-white/10" />
+          </div>
+          <UploadZone onFile={handleFile} />
+        </div>
+      )}
 
       {/* Loading state */}
-      {loading && preview && (
+      {loading && (
         <GlassCard className="p-8 flex flex-col items-center gap-4">
           <div className="relative">
-            <div className="w-24 h-24 rounded-2xl overflow-hidden">
-              <img src={preview} alt="" className="w-full h-full object-cover" />
+            <div className="w-24 h-24 rounded-2xl overflow-hidden flex items-center justify-center bg-slate-100 dark:bg-white/[0.06]">
+              {preview
+                ? <img src={preview} alt="" className="w-full h-full object-cover" />
+                : <Link2 size={26} className="text-slate-300 dark:text-white/20" />}
             </div>
             <div className="absolute inset-0 bg-black/40 rounded-2xl flex items-center justify-center">
               <Loader2 size={28} className="text-white animate-spin" />
             </div>
           </div>
           <div className="text-center space-y-1">
-            <p className="font-semibold text-slate-800 dark:text-white">Analysing your item…</p>
+            <p className="font-semibold text-slate-800 dark:text-white">
+              {preview ? 'Analysing your item…' : 'Reading the product page…'}
+            </p>
             <p className="text-sm text-slate-500 dark:text-white/50">
               Checking against your closet and computing compatibility
             </p>
@@ -667,7 +814,7 @@ export default function ShoppingCheck() {
       )}
 
       {/* Result */}
-      {result && preview && (
+      {result && (
         <ResultCard result={result} previewUrl={preview} onReset={reset} />
       )}
 

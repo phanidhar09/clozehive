@@ -183,6 +183,13 @@ class Settings(BaseSettings):
     # festival/venue lookups). Empty key disables the web-intelligence layer;
     # every feature degrades to its static/LLM-infer fallback.
     tavily_api_key: str = ""
+    # "Shop with FANI" URL paste: when a pasted product page exposes no OG/JSON-LD
+    # image, we fall back to a rendered screenshot fed through the vision pipeline.
+    # This is a URL template into any stateless screenshot service (e.g.
+    # "https://image.thum.io/get/width/1200/{url}") — {url} is replaced with the
+    # URL-encoded page. Empty = screenshot fallback disabled (no scraper infra
+    # required); the feature still works whenever OG/JSON-LD metadata is present.
+    product_screenshot_url_template: str = ""
     ai_cache_enabled: bool = True
     ai_cache_ttl: int = 600
     # When True, heavy post-write work (closet item embeddings) is handed to the

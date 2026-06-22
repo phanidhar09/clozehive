@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.intelligence.services import ai_service
 from app.api.v1.intelligence.services.fashion_rag_service import get_fashion_context_for_prompt
 from app.api.v1.wardrobe.services.vision_service import analyze_for_bulk
+from app.core import outfit_compatibility as compat
 from app.core.embedding_service import (
     generate_text_embedding,
     item_to_embedding_text,
@@ -34,21 +35,76 @@ from app.core.logging import get_logger
 logger = get_logger("shopping_check_service")
 
 # ── Scoring weights ──────────────────────────────────────────────────────────
-_DUPLICATE_THRESHOLD = 0.88  # cosine sim — item is "essentially the same"
-_MATCH_THRESHOLD = 0.65  # cosine sim — item pairs well
+_DUPLICATE_THRESHOLD = 0.88  # cosine sim — item is "essentially the same" (dupe-check only)
 
 # Percentage-weighted scoring: each factor weight is the % it can contribute, and
 # the weights SUM TO 100. buy_score = Σ(weight × factor_subscore) where each
 # subscore is 0–1, so the result is a true 0–100% with no clamping needed.
 _WEIGHTS: dict[str, float] = {
     "uniqueness": 30.0,  # not a near-duplicate of something already owned
-    "compatibility": 25.0,  # pairs with items already in the closet
-    "gap_fill": 20.0,  # fills a detected category gap
-    "occasion_new": 15.0,  # adds new occasion coverage
-    "season_new": 10.0,  # adds new season coverage
+    "compatibility": 35.0,  # genuinely *pairs* with items already in the closet
+    "gap_fill": 15.0,  # fills a detected category gap
+    "occasion_new": 12.0,  # adds new occasion coverage
+    "season_new": 8.0,  # adds new season coverage
 }
 assert round(sum(_WEIGHTS.values())) == 100, "buy_score weights must sum to 100%"
-_COMPAT_SATURATION = 5  # this many compatible items = full compatibility credit
+_COMPAT_SATURATION = 4  # this many genuine pairings = full compatibility credit
+# Embedding-similarity cutoff for the dupe-check (a near-identical item). This is
+# ONLY used for "do you already own this" — never for "does this match".
+_DUPE_FETCH_LIMIT = 12
+# Cap how many closet items we role-score for compatibility (closets are small).
+_COMPAT_CLOSET_LIMIT = 200
+
+
+# ── Instrumentation ───────────────────────────────────────────────────────────
+
+# The Shop with FANI funnel. Logged from line one so repeat-paste (retention) and
+# act-on-verdict (intent) are measurable from the first user.
+SHOPPING_EVENT_TYPES = frozenset(
+    {
+        "check_created",  # a verdict was produced (photo or URL)
+        "verdict_viewed",  # user actually saw the result card
+        "outfit_opened",  # user expanded the matched/pairing items
+        "verdict_acted",  # user recorded a buy/skip decision
+        "added_to_closet",  # user saved the item
+        "paste_again",  # user started another check from the result
+    }
+)
+
+
+async def record_shopping_event(
+    session: AsyncSession,
+    user_id: str,
+    event_type: str,
+    check_id: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> bool:
+    """Best-effort funnel event write. Never raises into the caller — analytics
+    must not break a verdict. Returns True if a row was written."""
+    if event_type not in SHOPPING_EVENT_TYPES:
+        logger.warning("shopping_event_unknown_type", event_type=event_type)
+        return False
+    import json as _json
+
+    try:
+        await session.execute(
+            text("""
+                INSERT INTO shopping_events (id, user_id, check_id, event_type, metadata, created_at)
+                VALUES (gen_random_uuid(), CAST(:uid AS uuid),
+                        CAST(:cid AS uuid), :etype, CAST(:meta AS jsonb), NOW())
+            """),
+            {
+                "uid": user_id,
+                "cid": check_id,
+                "etype": event_type,
+                "meta": _json.dumps(metadata) if metadata is not None else None,
+            },
+        )
+        await session.commit()
+        return True
+    except Exception as exc:  # noqa: BLE001 — instrumentation is never load-bearing
+        logger.warning("shopping_event_write_failed", event_type=event_type, error=str(exc))
+        return False
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -116,6 +172,29 @@ async def _has_open_gap_for_category(session: AsyncSession, user_id: str, catego
     return result.first() is not None
 
 
+async def _fetch_closet_for_compat(session: AsyncSession, user_id: str) -> list[dict[str, Any]]:
+    """Fetch the user's available closet items with the attributes compatibility
+    scoring needs. Unlike the embedding search, this returns the WHOLE closet
+    (capped) so role-complementary items — the things the pasted item pairs with,
+    which embedding similarity never surfaces — are actually considered.
+
+    Only AVAILABLE items are styled (in-laundry / at-cleaners / lent-out excluded),
+    matching the rest of the styling pipeline.
+    """
+    sql = text("""
+        SELECT id, name, category, color, fabric, pattern, season, occasion,
+               image_url, processed_image_url
+        FROM closet_items
+        WHERE user_id = CAST(:uid AS uuid)
+          AND is_archived = false
+          AND COALESCE(availability, 'available') = 'available'
+        ORDER BY wear_count DESC NULLS LAST, created_at DESC
+        LIMIT :lim
+    """)
+    result = await session.execute(sql, {"uid": user_id, "lim": _COMPAT_CLOSET_LIMIT})
+    return [dict(r) for r in result.mappings().all()]
+
+
 # ── Core analysis ─────────────────────────────────────────────────────────────
 
 
@@ -125,31 +204,85 @@ async def analyze_shopping_item(
     user_id: str,
     session: AsyncSession,
     image_url: str | None = None,
+    *,
+    input_type: str = "photo",
+    source_url: str | None = None,
+    product_meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Analyse a shopping item photo against the user's closet and return a
     buy recommendation with percentage score.
+
+    ``input_type`` records how the image was sourced ("photo" upload, "url"
+    product image, or "screenshot" page render). ``product_meta`` carries the
+    OG/JSON-LD fields pulled from a pasted product URL — used both to enrich the
+    vision analysis (brand/name the photo can't reveal) and for attribution.
     """
     # 1. Vision analysis
     analysis = await analyze_for_bulk(image_bytes, media_type)
+
+    # 1b. Enrich with product-page metadata the image alone can't reveal (brand,
+    #     marketed name, price) and keep the source for attribution in the UI.
+    if product_meta:
+        if product_meta.get("brand") and not analysis.get("brand"):
+            analysis["brand"] = product_meta["brand"]
+        if product_meta.get("title") and not analysis.get("name"):
+            analysis["name"] = product_meta["title"]
+        analysis["source_url"] = source_url or product_meta.get("source_url")
+        analysis["source_title"] = product_meta.get("title")
+        analysis["source_brand"] = product_meta.get("brand")
+        analysis["source_price"] = product_meta.get("price")
+        analysis["source_site"] = product_meta.get("site_name")
+
     item_text = _build_item_text(analysis)
     category = analysis.get("category", "").lower()
 
-    # 2. Embed the new item
+    # 2. Embed the new item — used ONLY for the dupe-check ("do you own this").
     embedding = await generate_text_embedding(item_text)
 
-    # 3. Similarity search against closet — fetch extra candidates, re-rank below
-    similar_items: list[dict[str, Any]] = []
+    # 3a. DUPE-CHECK (embedding similarity). High cosine similarity = a near-
+    #     identical garment (another navy blazer). This is the honesty signal,
+    #     deliberately kept apart from compatibility.
+    dupe_candidates: list[dict[str, Any]] = []
     if embedding:
-        similar_items = await pgvector_cosine_search(
+        dupe_candidates = await pgvector_cosine_search(
             session=session,
             table="closet_items",
             embedding=embedding,
             user_id=user_id,
-            limit=20,  # fetch more, trim after scoring
-            threshold=_MATCH_THRESHOLD,
+            limit=_DUPE_FETCH_LIMIT,
+            threshold=_DUPLICATE_THRESHOLD,
             filter_archived=True,
         )
+    dupe_items = [it for it in dupe_candidates if float(it.get("similarity_score", 0)) >= _DUPLICATE_THRESHOLD]
+    has_duplicate = bool(dupe_items)
+    dupe_ids = {str(it.get("id", "")) for it in dupe_items}
+
+    # 3b. COMPATIBILITY (does this *go with* what I own). Score the pasted item
+    #     against role-complementary closet items — the matches embedding search
+    #     can never surface. A blazer is scored against bottoms/shoes/layers,
+    #     not against other blazers.
+    closet = await _fetch_closet_for_compat(session, user_id)
+    pairings: list[dict[str, Any]] = []
+    for owned in closet:
+        if str(owned.get("id", "")) in dupe_ids:
+            continue  # a duplicate isn't a "pairing"
+        result = compat.score_compatibility(analysis, owned)
+        if result["pairs"]:
+            pairings.append(
+                {
+                    "id": str(owned.get("id", "")),
+                    "name": owned.get("name", ""),
+                    "category": owned.get("category", ""),
+                    "color": owned.get("color", ""),
+                    "image_url": owned.get("processed_image_url") or owned.get("image_url"),
+                    "similarity_score": result["score"],  # compatibility, not embedding
+                    "is_duplicate": False,
+                    "compat_reasons": result["reasons"],
+                }
+            )
+    pairings.sort(key=lambda p: p["similarity_score"], reverse=True)
+    compatible_count = len(pairings)
 
     # 4. Existing coverage
     owned_occasions, owned_seasons = await _fetch_existing_occasions_seasons(session, user_id)
@@ -158,8 +291,6 @@ async def analyze_shopping_item(
     #    contributes (weight × subscore) %, and all weights sum to 100.
     reasons: list[str] = []
 
-    has_duplicate = any(float(it.get("similarity_score", 0)) >= _DUPLICATE_THRESHOLD for it in similar_items)
-    compatible_items = [it for it in similar_items if float(it.get("similarity_score", 0)) < _DUPLICATE_THRESHOLD]
     item_occasions = {o.lower() for o in (analysis.get("occasion_tags") or [])}
     new_occasions = item_occasions - owned_occasions
     item_seasons = {s.lower() for s in (analysis.get("season_tags") or [])}
@@ -169,7 +300,7 @@ async def analyze_shopping_item(
     # Factor subscores (0–1)
     subscores: dict[str, float] = {
         "uniqueness": 0.0 if has_duplicate else 1.0,
-        "compatibility": min(len(compatible_items) / _COMPAT_SATURATION, 1.0),
+        "compatibility": min(compatible_count / _COMPAT_SATURATION, 1.0),
         "gap_fill": 1.0 if fills_gap else 0.0,
         # Novelty only counts when the item isn't a duplicate.
         "occasion_new": 1.0 if (new_occasions and not has_duplicate) else 0.0,
@@ -183,9 +314,13 @@ async def analyze_shopping_item(
 
     # Human-readable reasons mirror the factors that contributed.
     if has_duplicate:
-        reasons.append("You already own a very similar item.")
-    if compatible_items:
-        reasons.append(f"Pairs well with {len(compatible_items)} item(s) already in your closet.")
+        reasons.append(f"You already own {len(dupe_items)} very similar item(s).")
+    if pairings:
+        sample = ", ".join(p["name"] for p in pairings[:3] if p["name"])
+        tail = f" (e.g. {sample})" if sample else ""
+        reasons.append(f"Pairs with {compatible_count} item(s) you already own{tail}.")
+    else:
+        reasons.append("Doesn't clearly pair with anything in your closet yet.")
     if fills_gap:
         reasons.append(f"Fills a detected gap in your {category} collection.")
     if subscores["occasion_new"]:
@@ -193,10 +328,10 @@ async def analyze_shopping_item(
     if subscores["season_new"]:
         reasons.append(f"Extends your wardrobe into: {', '.join(new_seasons)}.")
 
-    # 6. Recommendation label
-    if score >= 75:
+    # 6. Recommendation label — Worth it vs Skip, with a middle "consider" band.
+    if score >= 70:
         recommendation = "buy"
-    elif score >= 50:
+    elif score >= 45:
         recommendation = "consider"
     else:
         recommendation = "skip"
@@ -210,25 +345,27 @@ async def analyze_shopping_item(
     boost_pct += len(new_seasons) * 2.0
     boost_pct = min(boost_pct, 20.0)
 
-    # 8. Build matched item summaries (deduplicated)
-    seen_ids: set[str] = set()
-    matched_summary = []
-    for it in similar_items[:5]:
-        iid = str(it.get("id", ""))
-        if iid in seen_ids:
-            continue
-        seen_ids.add(iid)
+    # 8. Matched items shown in the UI: duplicates first (the honest warning),
+    #    then the best genuine pairings. Both carry is_duplicate so the frontend
+    #    renders "you own this" vs "pairs with this" distinctly.
+    matched_summary: list[dict[str, Any]] = []
+    for it in dupe_items[:5]:
         matched_summary.append(
             {
-                "id": iid,
+                "id": str(it.get("id", "")),
                 "name": it.get("name", ""),
                 "category": it.get("category", ""),
                 "color": it.get("color", ""),
                 "image_url": it.get("processed_image_url") or it.get("image_url"),
                 "similarity_score": round(float(it.get("similarity_score", 0)), 3),
-                "is_duplicate": float(it.get("similarity_score", 0)) >= _DUPLICATE_THRESHOLD,
+                "is_duplicate": True,
             }
         )
+    matched_summary.extend(pairings[:6])
+
+    # 8b. Honest one-liners surfaced in the UI.
+    dupe_count = len(dupe_items)
+    completes_outfits = compatible_count
 
     # 9. Persist to DB
     record_id = str(uuid.uuid4())
@@ -237,11 +374,13 @@ async def analyze_shopping_item(
     sql = text("""
         INSERT INTO shopping_checks
             (id, user_id, image_url, item_analysis, matched_items,
-             buy_score, buy_recommendation, closet_boost_pct, reasoning, created_at)
+             buy_score, buy_recommendation, closet_boost_pct, reasoning,
+             input_type, source_url, created_at)
         VALUES
             (CAST(:id AS uuid), CAST(:uid AS uuid), :image_url,
              CAST(:analysis AS jsonb), CAST(:matched AS jsonb),
-             :score, :rec, :boost, :reason, NOW())
+             :score, :rec, :boost, :reason,
+             :input_type, :source_url, NOW())
     """)
     import json
 
@@ -257,9 +396,32 @@ async def analyze_shopping_item(
             "rec": recommendation,
             "boost": round(boost_pct, 1),
             "reason": reasoning_text,
+            "input_type": input_type,
+            "source_url": source_url,
         },
     )
     await session.commit()
+
+    # Instrument repeat link-paste behaviour: the retention/viral signal. Cheap
+    # count of how many URL/screenshot checks this user has now run.
+    url_check_count = await _count_url_checks(session, user_id) if input_type != "photo" else 0
+
+    # Funnel: a verdict was produced. Records the shape of the result so we can
+    # later correlate "what kind of verdict" with "did they act / paste again".
+    await record_shopping_event(
+        session,
+        user_id,
+        "check_created",
+        check_id=record_id,
+        metadata={
+            "input_type": input_type,
+            "recommendation": recommendation,
+            "buy_score": round(score, 1),
+            "dupe_count": dupe_count,
+            "completes_outfits": completes_outfits,
+            "has_source_url": bool(source_url),
+        },
+    )
 
     return {
         "check_id": record_id,
@@ -270,7 +432,112 @@ async def analyze_shopping_item(
         "closet_boost_pct": round(boost_pct, 1),
         "score_breakdown": score_breakdown,
         "reasoning": reasoning_text,
+        "image_url": image_url,
+        "input_type": input_type,
+        "source_url": source_url,
+        "source_title": (product_meta or {}).get("title"),
+        "source_brand": (product_meta or {}).get("brand"),
+        "source_price": (product_meta or {}).get("price"),
+        "source_site": (product_meta or {}).get("site_name"),
+        "dupe_count": dupe_count,
+        "completes_outfits": completes_outfits,
+        "url_check_count": url_check_count,
     }
+
+
+async def _count_url_checks(session: AsyncSession, user_id: str) -> int:
+    """How many URL/screenshot-sourced checks this user has run (incl. the latest)."""
+    sql = text("""
+        SELECT COUNT(*) AS n FROM shopping_checks
+        WHERE user_id = CAST(:uid AS uuid)
+          AND input_type IN ('url', 'screenshot')
+    """)
+    result = await session.execute(sql, {"uid": user_id})
+    row = result.mappings().first()
+    return int(row["n"]) if row else 0
+
+
+async def analyze_shopping_item_from_url(
+    url: str,
+    user_id: str,
+    session: AsyncSession,
+) -> dict[str, Any]:
+    """
+    Run the FANI buy/skip verdict against a pasted product URL.
+
+    Pulls the product image from OG/JSON-LD metadata; if the page exposes none,
+    falls back to a rendered screenshot (when a screenshot service is configured)
+    and runs the same vision pipeline. No scraper infrastructure — one page fetch.
+    """
+    from app.core import product_url as product_url_mod
+    from app.core.exceptions import BadRequestError
+    from app.core.upload_service import persist_upload
+
+    # 1. Try to read the page's OG/JSON-LD metadata. Big retailers (Abercrombie,
+    #    Nike, Zara…) sit behind Akamai/Cloudflare bot managers that 403 any
+    #    server-side fetch — that's expected, not a hard failure. We remember the
+    #    page was blocked and degrade to the screenshot renderer below.
+    meta: product_url_mod.ProductMetadata | None = None
+    page_blocked = False
+    try:
+        meta = await product_url_mod.fetch_product_metadata(url)
+    except BadRequestError as exc:
+        # Re-raise true user errors (bad scheme, SSRF, malformed URL) immediately;
+        # only "couldn't open / reach" failures are eligible for the screenshot path.
+        msg = str(exc).lower()
+        if "private" in msg or "http(s)" in msg or "valid url" in msg or "redirect" in msg:
+            raise
+        page_blocked = True
+        logger.info("shopping_url_page_blocked", url=url[:120], detail=str(exc))
+
+    source_url = meta.source_url if meta else url.strip()
+
+    # 2. Prefer the author-curated product image when we could read the page.
+    image: tuple[bytes, str] | None = None
+    input_type = "url"
+    if meta and meta.image_url:
+        image = await product_url_mod.fetch_image_bytes(meta.image_url)
+
+    # 3. Fall back to a rendered page screenshot through the same vision pipeline.
+    #    This uses a real-browser render service (config:
+    #    PRODUCT_SCREENSHOT_URL_TEMPLATE) which also gets past bot managers.
+    if image is None:
+        image = await product_url_mod.fetch_page_screenshot(source_url)
+        if image is not None:
+            input_type = "screenshot"
+
+    if image is None:
+        if page_blocked:
+            raise BadRequestError(
+                "That store blocks automated readers, so FANI couldn't open the "
+                "page. Screenshot a photo of the item and upload it instead."
+            )
+        raise BadRequestError(
+            "Couldn't pull a product image from that link. Try a direct product "
+            "page, or snap a photo instead."
+        )
+
+    image_bytes, media_type = image
+
+    # Persist the sourced image (best-effort — verdict still runs if storage fails).
+    image_url: str | None = None
+    try:
+        image_url = await persist_upload(image_bytes, media_type, None)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("shopping_url_image_persist_failed", error=str(exc))
+
+    return await analyze_shopping_item(
+        image_bytes=image_bytes,
+        media_type=media_type,
+        user_id=user_id,
+        session=session,
+        image_url=image_url,
+        input_type=input_type,
+        source_url=source_url,
+        # meta is None when the page was bot-blocked and we used a screenshot —
+        # still record the pasted URL so attribution + instrumentation work.
+        product_meta=meta.to_dict() if meta else {"source_url": source_url},
+    )
 
 
 async def record_purchase_decision(
@@ -300,6 +567,9 @@ async def record_purchase_decision(
     if not row:
         return None
     await session.commit()
+    await record_shopping_event(
+        session, user_id, "verdict_acted", check_id=check_id, metadata={"bought": bought}
+    )
     return dict(row)
 
 
@@ -312,6 +582,7 @@ async def get_shopping_history(
     sql = text("""
         SELECT id, image_url, item_analysis, matched_items, buy_score,
                buy_recommendation, closet_boost_pct, reasoning,
+               input_type, source_url,
                purchase_decision, decision_at, created_at
         FROM shopping_checks
         WHERE user_id = CAST(:uid AS uuid)
@@ -647,5 +918,9 @@ async def add_shopping_item_to_closet(
         },
     )
     await session.commit()
+    await record_shopping_event(
+        session, user_id, "added_to_closet", check_id=check_id,
+        metadata={"closet_item_id": new_id},
+    )
     created = result.mappings().first()
     return dict(created) if created else {"id": new_id}

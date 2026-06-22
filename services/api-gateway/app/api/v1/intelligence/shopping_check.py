@@ -5,7 +5,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, File, Query, UploadFile, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.api.v1.intelligence.services import shopping_check_service
 from app.core.deps import CurrentUser, DbSession
@@ -51,6 +51,60 @@ async def check_shopping_item(
         image_url=image_url,
     )
     return result
+
+
+class UrlCheckRequest(BaseModel):
+    url: str = Field(..., min_length=4, max_length=2048, description="Product page URL")
+
+
+@router.post("/check-url", status_code=status.HTTP_201_CREATED)
+async def check_shopping_url(
+    body: UrlCheckRequest,
+    user_id: CurrentUser,
+    session: DbSession,
+):
+    """
+    Paste a product URL and get FANI's honest verdict against your closet.
+
+    Pulls the product image from the page's Open Graph / JSON-LD metadata; if the
+    page exposes none, falls back to a rendered screenshot through the existing
+    vision pipeline. No scraper infrastructure — a single page fetch.
+
+    Returns the same shape as ``/shopping/check`` plus source attribution
+    (``source_url``, ``source_title``, ``source_brand``, ``source_price``) and
+    ``url_check_count`` — how many product links this user has now checked (the
+    repeat-paste retention/viral signal).
+    """
+    result = await shopping_check_service.analyze_shopping_item_from_url(
+        url=body.url,
+        user_id=user_id,
+        session=session,
+    )
+    return result
+
+
+class ShoppingEventRequest(BaseModel):
+    event_type: str = Field(..., max_length=40, description="Funnel event, e.g. verdict_viewed")
+    metadata: dict | None = None
+
+
+@router.post("/{check_id}/event", status_code=status.HTTP_202_ACCEPTED)
+async def log_shopping_event(
+    check_id: UUID,
+    body: ShoppingEventRequest,
+    user_id: CurrentUser,
+    session: DbSession,
+):
+    """Record a Shop with FANI funnel event (viewed / opened outfit / acted /
+    pasted again). Best-effort instrumentation — unknown event types are ignored."""
+    written = await shopping_check_service.record_shopping_event(
+        session=session,
+        user_id=user_id,
+        event_type=body.event_type,
+        check_id=str(check_id),
+        metadata=body.metadata,
+    )
+    return {"recorded": written}
 
 
 class PurchaseDecisionRequest(BaseModel):

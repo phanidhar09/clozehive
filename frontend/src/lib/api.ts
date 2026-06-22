@@ -1193,6 +1193,22 @@ export interface ShoppingCheckResult {
   /** Per-factor % contributions to buy_score (weights sum to 100). */
   score_breakdown?: Record<string, number>
   reasoning: string
+  /** Persisted image URL of the analysed item (set for URL/screenshot checks). */
+  image_url?: string | null
+  /** How the item was sourced: photo upload, product-URL image, or page screenshot. */
+  input_type?: 'photo' | 'url' | 'screenshot'
+  /** Pasted product URL (URL checks only). */
+  source_url?: string | null
+  source_title?: string | null
+  source_brand?: string | null
+  source_price?: string | null
+  source_site?: string | null
+  /** How many near-duplicates of this item the closet already holds. */
+  dupe_count?: number
+  /** How many owned items this would pair into outfits with. */
+  completes_outfits?: number
+  /** Running count of product links this user has checked (repeat-paste signal). */
+  url_check_count?: number
 }
 
 export interface ShoppingHistoryEntry extends ShoppingCheckResult {
@@ -1252,8 +1268,18 @@ export const shoppingCheckApi = {
     return data
   },
 
+  async checkUrl(url: string): Promise<ShoppingCheckResult> {
+    const { data } = await api.post<ShoppingCheckResult>('/shopping/check-url', { url })
+    return data
+  },
+
   async recordDecision(checkId: string, bought: boolean): Promise<void> {
     await api.patch(`/shopping/${checkId}/decision`, { bought })
+  },
+
+  /** Fire-and-forget Shop with FANI funnel event (instrumentation). */
+  logEvent(checkId: string, eventType: string, metadata?: Record<string, unknown>): void {
+    void api.post(`/shopping/${checkId}/event`, { event_type: eventType, metadata }).catch(() => {})
   },
 
   async getHistory(limit = 30): Promise<ShoppingHistoryEntry[]> {
