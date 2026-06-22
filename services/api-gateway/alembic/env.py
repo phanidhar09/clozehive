@@ -86,6 +86,13 @@ async def run_async_migrations() -> None:
     )
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)
+        # The `SET lock_timeout` in do_run_migrations autobegins a transaction on
+        # the async connection before alembic configures its own per-migration
+        # transactions. SQLAlchemy's "commit as you go" leaves that outer async
+        # transaction open, so exiting this block would ROLL BACK the whole
+        # upgrade (alembic_version advances in-memory but never persists). Commit
+        # explicitly so applied migrations are durable.
+        await connection.commit()
     await connectable.dispose()
 
 
