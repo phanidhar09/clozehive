@@ -9,7 +9,8 @@ import BackButton from '@/components/ui/BackButton'
 import GlassCard from '@/components/ui/GlassCard'
 import PageHeader from '@/components/ui/PageHeader'
 import Badge from '@/components/ui/Badge'
-import { shoppingCheckApi, type ShoppingCheckResult, type ShoppingHistoryEntry } from '@/lib/api'
+import { shoppingCheckApi, type ShoppingCheckResult, type ShoppingHistoryEntry,
+  type BuiltOutfit, type GapSuggestion } from '@/lib/api'
 import { resolveUploadUrl } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -177,6 +178,155 @@ function AddToClosetButton({ checkId }: { checkId: string }) {
         : <PlusCircle size={14} />}
       {status === 'error' ? 'Failed — try again' : 'Add to My Closet'}
     </button>
+  )
+}
+
+// ── Outfit builder (Ask 2) ────────────────────────────────────────────────────
+
+const TIER_STYLE: Record<BuiltOutfit['tier'], string> = {
+  Perfect: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+  Great: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+  Solid: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+  Wearable: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+  Risky: 'bg-slate-100 text-slate-600 dark:bg-white/[0.06] dark:text-white/50',
+}
+
+function OutfitCardMini({ outfit, anchorImg }: { outfit: BuiltOutfit; anchorImg: string | null }) {
+  const forgotten = new Set(outfit.forgotten_item_ids)
+  return (
+    <div className="rounded-2xl border border-slate-200 dark:border-white/10 p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <span className={cn('text-xs font-bold px-2.5 py-1 rounded-full', TIER_STYLE[outfit.tier])}>
+          {outfit.tier}
+        </span>
+        <span className="text-[11px] text-slate-400 dark:text-white/30">
+          {Math.round(outfit.score * 100)}% cohesion
+        </span>
+      </div>
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {/* Anchor (the new item) leads the look */}
+        <div className="flex-shrink-0 w-16 text-center space-y-1">
+          <div className="w-16 h-16 rounded-xl overflow-hidden bg-slate-100 dark:bg-white/[0.06] ring-2 ring-brand-400 flex items-center justify-center">
+            {anchorImg
+              ? <img src={anchorImg} alt="" className="w-full h-full object-cover" />
+              : <ShoppingCart size={18} className="text-brand-400" />}
+          </div>
+          <p className="text-[9px] text-brand-500 font-semibold">NEW</p>
+        </div>
+        {outfit.items.map(it => (
+          <div key={it.id} className="flex-shrink-0 w-16 text-center space-y-1">
+            <div className={cn('w-16 h-16 rounded-xl overflow-hidden bg-slate-100 dark:bg-white/[0.06] flex items-center justify-center',
+              forgotten.has(it.id) && 'ring-2 ring-amber-300')}>
+              {it.image_url
+                ? <img src={resolveUploadUrl(it.image_url)} alt={it.name} className="w-full h-full object-cover" />
+                : <Package size={18} className="text-slate-300 dark:text-white/20" />}
+            </div>
+            <p className="text-[9px] text-slate-500 dark:text-white/50 truncate leading-tight">{it.name}</p>
+          </div>
+        ))}
+      </div>
+      <p className="text-xs text-slate-600 dark:text-white/65 leading-snug">{outfit.note}</p>
+    </div>
+  )
+}
+
+function GapSuggestionCard({ gaps }: { gaps: GapSuggestion[] }) {
+  if (gaps.length === 0) return null
+  return (
+    <div className="rounded-2xl border border-amber-200 dark:border-amber-700/40 bg-amber-50/60 dark:bg-amber-900/15 p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <TrendingUp size={14} className="text-amber-600 dark:text-amber-400" />
+        <h4 className="text-sm font-semibold text-amber-800 dark:text-amber-300">Complete your closet</h4>
+      </div>
+      {gaps.map(g => (
+        <div key={g.role} className="text-xs text-amber-800/90 dark:text-amber-200/80 leading-snug">
+          <span className="font-semibold capitalize">Add {g.shop_for}</span>
+          {' '}— {g.formality}, in {g.suggested_colors.slice(0, 2).join(' or ')}.
+          {g.completes_outfits > 0 && (
+            <span className="font-bold text-amber-900 dark:text-amber-200">
+              {' '}Completes {g.completes_outfits} outfit{g.completes_outfits === 1 ? '' : 's'} you own.
+            </span>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function OutfitBuilderSection({ checkId, anchorImg }: { checkId: string; anchorImg: string | null }) {
+  const [status, setStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
+  const [outfits, setOutfits] = useState<BuiltOutfit[]>([])
+  const [missing, setMissing] = useState<string[]>([])
+  const [gaps, setGaps] = useState<GapSuggestion[]>([])
+  const [completesN, setCompletesN] = useState(0)
+
+  const load = async () => {
+    setStatus('loading')
+    try {
+      const res = await shoppingCheckApi.buildOutfits(checkId)
+      setOutfits(res.outfits)
+      setMissing(res.missing_roles)
+      setGaps(res.gap_suggestions)
+      setCompletesN(res.completes_outfits)
+      setStatus('done')
+    } catch {
+      setStatus('error')
+    }
+  }
+
+  if (status === 'idle') {
+    return (
+      <button
+        onClick={load}
+        className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold
+                   bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-400
+                   border border-brand-200 dark:border-brand-700/40 hover:bg-brand-100 dark:hover:bg-brand-900/40 transition-colors"
+      >
+        <Sparkles size={15} /> Build outfits from my closet
+      </button>
+    )
+  }
+
+  return (
+    <GlassCard className="p-4 space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Sparkles size={15} className="text-brand-500" />
+          <h3 className="text-sm font-semibold text-slate-800 dark:text-white">Best looks you could build</h3>
+        </div>
+        {status === 'done' && completesN > 0 && (
+          <span className="text-[11px] font-bold px-2 py-1 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+            Completes {completesN} outfit{completesN === 1 ? '' : 's'}
+          </span>
+        )}
+      </div>
+      {status === 'loading' && (
+        <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-white/50 py-3">
+          <Loader2 size={15} className="animate-spin" /> Searching your closet for the best combinations…
+        </div>
+      )}
+      {status === 'error' && (
+        <button onClick={load} className="text-sm text-brand-600 dark:text-brand-400 hover:underline">
+          Couldn’t build outfits — try again
+        </button>
+      )}
+      {status === 'done' && outfits.length === 0 && (
+        <p className="text-sm text-slate-500 dark:text-white/50">
+          Not enough in your closet to complete a look around this yet
+          {missing.length > 0 && <> — you’re missing a {missing.join(' and ')}.</>}
+        </p>
+      )}
+      {status === 'done' && outfits.map((o, i) => (
+        <OutfitCardMini key={i} outfit={o} anchorImg={anchorImg} />
+      ))}
+      {/* Ask 3 — gap completers with the buy-signal */}
+      {status === 'done' && <GapSuggestionCard gaps={gaps} />}
+      {status === 'done' && outfits.length > 0 && gaps.length === 0 && missing.length > 0 && (
+        <p className="text-[11px] text-amber-600 dark:text-amber-400">
+          Add a {missing.join(' and ')} to unlock more complete outfits.
+        </p>
+      )}
+    </GlassCard>
   )
 }
 
@@ -368,6 +518,9 @@ function ResultCard({
           </div>
         </GlassCard>
       )}
+
+      {/* Ask 2 — build the best outfits from items the user already owns */}
+      <OutfitBuilderSection checkId={result.check_id} anchorImg={previewUrl} />
 
       {/* Purchase decision */}
       <GlassCard className="p-4 space-y-3">

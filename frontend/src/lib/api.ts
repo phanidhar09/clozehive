@@ -1258,6 +1258,42 @@ export interface ClosetMatchResult {
   grounded_in_knowledge?: boolean
 }
 
+export interface BuiltOutfitItem {
+  id: string
+  name: string
+  category: string
+  color: string
+  image_url: string | null
+  role: string
+  wear_count: number
+}
+
+export interface BuiltOutfit {
+  score: number
+  tier: 'Perfect' | 'Great' | 'Solid' | 'Wearable' | 'Risky'
+  items: BuiltOutfitItem[]
+  missing_roles: string[]
+  forgotten_item_ids: string[]
+  note: string
+}
+
+export interface GapSuggestion {
+  role: string
+  shop_for: string
+  suggested_colors: string[]
+  formality: string
+  completes_outfits: number
+  reason: string
+}
+
+export interface BuiltOutfitsResult {
+  anchor: { name: string; category: string; color: string; image_url: string | null }
+  outfits: BuiltOutfit[]
+  missing_roles: string[]
+  completes_outfits: number
+  gap_suggestions: GapSuggestion[]
+}
+
 export const shoppingCheckApi = {
   async checkItem(file: File): Promise<ShoppingCheckResult> {
     const form = new FormData()
@@ -1270,6 +1306,11 @@ export const shoppingCheckApi = {
 
   async checkUrl(url: string): Promise<ShoppingCheckResult> {
     const { data } = await api.post<ShoppingCheckResult>('/shopping/check-url', { url })
+    return data
+  },
+
+  async buildOutfits(checkId: string): Promise<BuiltOutfitsResult> {
+    const { data } = await api.post<BuiltOutfitsResult>(`/shopping/${checkId}/outfits`)
     return data
   },
 

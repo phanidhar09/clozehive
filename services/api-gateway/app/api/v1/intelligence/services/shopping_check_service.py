@@ -37,6 +37,21 @@ logger = get_logger("shopping_check_service")
 # ── Scoring weights ──────────────────────────────────────────────────────────
 _DUPLICATE_THRESHOLD = 0.88  # cosine sim — item is "essentially the same" (dupe-check only)
 
+# Steers vision when the input is a rendered product-PAGE screenshot (the fallback
+# for bot-blocked retailers) rather than a clean garment photo. Without this the
+# model labels the whole page "other" and compatibility finds nothing to pair.
+_SCREENSHOT_VISION_HINT = (
+    "IMPORTANT CONTEXT: This image is a SCREENSHOT of an online clothing-store "
+    "product page — not a clean studio photo. It may include site navigation, "
+    "buttons, price text, thumbnails of other products, and a model wearing "
+    "several garments. Identify the SINGLE main product this page is selling "
+    "(usually the largest central garment, matching the page title). Describe "
+    "ONLY that item. Ignore site chrome, navigation, related-product thumbnails, "
+    "and any secondary garments the model also wears. Always assign a concrete "
+    "category (tops, bottoms, shoes, outerwear, dresses, accessories) — never "
+    "'other' — by inferring the main product's type."
+)
+
 # Percentage-weighted scoring: each factor weight is the % it can contribute, and
 # the weights SUM TO 100. buy_score = Σ(weight × factor_subscore) where each
 # subscore is 0–1, so the result is a true 0–100% with no clamping needed.
@@ -183,7 +198,7 @@ async def _fetch_closet_for_compat(session: AsyncSession, user_id: str) -> list[
     """
     sql = text("""
         SELECT id, name, category, color, fabric, pattern, season, occasion,
-               image_url, processed_image_url
+               image_url, processed_image_url, wear_count
         FROM closet_items
         WHERE user_id = CAST(:uid AS uuid)
           AND is_archived = false
@@ -218,8 +233,19 @@ async def analyze_shopping_item(
     OG/JSON-LD fields pulled from a pasted product URL — used both to enrich the
     vision analysis (brand/name the photo can't reveal) and for attribution.
     """
-    # 1. Vision analysis
-    analysis = await analyze_for_bulk(image_bytes, media_type)
+    # 1. Vision analysis. A page screenshot needs extra steering — it contains
+    #    site chrome, price text, and thumbnails of other products, so the model
+    #    must pick the single main garment instead of assuming one clean photo.
+    extra_instruction: str | None = None
+    if input_type == "screenshot":
+        extra_instruction = _SCREENSHOT_VISION_HINT
+        name_hint = (product_meta or {}).get("title")
+        if name_hint:
+            extra_instruction += (
+                f"\n\nThe page title/URL indicates the product is: \"{name_hint}\". "
+                "Identify and describe THAT garment specifically."
+            )
+    analysis = await analyze_for_bulk(image_bytes, media_type, extra_instruction=extra_instruction)
 
     # 1b. Enrich with product-page metadata the image alone can't reveal (brand,
     #     marketed name, price) and keep the source for attribution in the UI.
@@ -364,8 +390,12 @@ async def analyze_shopping_item(
     matched_summary.extend(pairings[:6])
 
     # 8b. Honest one-liners surfaced in the UI.
+    #     "completes N outfits" = distinct COMPLETE looks this unlocks from owned
+    #     items (the real buy-signal), not just the count of items it pairs with.
+    from app.core import outfit_builder
+
     dupe_count = len(dupe_items)
-    completes_outfits = compatible_count
+    completes_outfits, _capped = outfit_builder.count_completable_outfits(analysis, closet)
 
     # 9. Persist to DB
     record_id = str(uuid.uuid4())
@@ -526,6 +556,13 @@ async def analyze_shopping_item_from_url(
     except Exception as exc:  # noqa: BLE001
         logger.warning("shopping_url_image_persist_failed", error=str(exc))
 
+    # Carry a product-name hint (page title, else the URL slug) — this is what
+    # lets vision pick the RIGHT garment out of a fully-styled product-page
+    # screenshot instead of grabbing whichever item the model also wears.
+    product_meta = meta.to_dict() if meta else {"source_url": source_url}
+    if not product_meta.get("title"):
+        product_meta["title"] = product_url_mod.product_name_hint_from_url(source_url)
+
     return await analyze_shopping_item(
         image_bytes=image_bytes,
         media_type=media_type,
@@ -534,10 +571,82 @@ async def analyze_shopping_item_from_url(
         image_url=image_url,
         input_type=input_type,
         source_url=source_url,
-        # meta is None when the page was bot-blocked and we used a screenshot —
-        # still record the pasted URL so attribution + instrumentation work.
-        product_meta=meta.to_dict() if meta else {"source_url": source_url},
+        product_meta=product_meta,
     )
+
+
+def _outfit_note(anchor_name: str, items: list[dict[str, Any]], forgotten_ids: set[str], tier: str) -> str:
+    """A short, deterministic stylist one-liner for a built outfit."""
+    names = ", ".join(it["name"] for it in items if it.get("name"))
+    anchor = anchor_name or "this piece"
+    note = f"{tier} look — styles {anchor} with {names}." if names else f"{tier} look around {anchor}."
+    forgotten = next((it["name"] for it in items if str(it.get("id", "")) in forgotten_ids and it.get("name")), None)
+    if forgotten:
+        note += f" Brings back your {forgotten} you haven't worn yet."
+    return note
+
+
+async def build_outfits_for_check(
+    check_id: str,
+    user_id: str,
+    session: AsyncSession,
+) -> dict[str, Any] | None:
+    """Ask 2 — anchored outfit completion. Treat the checked item as the anchor and
+    return the best complete outfits buildable from the user's own closet."""
+    from app.core import outfit_builder
+
+    fetch_sql = text("""
+        SELECT id, image_url, item_analysis FROM shopping_checks
+        WHERE id = CAST(:cid AS uuid) AND user_id = CAST(:uid AS uuid)
+    """)
+    res = await session.execute(fetch_sql, {"cid": check_id, "uid": user_id})
+    row = res.mappings().first()
+    if not row:
+        return None
+
+    import json as _json
+
+    analysis = row["item_analysis"]
+    if isinstance(analysis, str):
+        analysis = _json.loads(analysis)
+
+    closet = await _fetch_closet_for_compat(session, user_id)
+    built = outfit_builder.build_outfits(analysis, closet)
+
+    # Attach a stylist note to each outfit.
+    for outfit in built["outfits"]:
+        outfit["note"] = _outfit_note(
+            analysis.get("name", ""),
+            outfit["items"],
+            set(outfit.get("forgotten_item_ids") or []),
+            outfit["tier"],
+        )
+
+    # Ask 3: the buy-signal + actionable gap completers.
+    completes_outfits, _capped = outfit_builder.count_completable_outfits(analysis, closet)
+    gap_suggestions = outfit_builder.suggest_for_gaps(analysis, built["missing_roles"], closet)
+
+    await record_shopping_event(
+        session, user_id, "outfit_opened", check_id=check_id,
+        metadata={
+            "outfit_count": len(built["outfits"]),
+            "completes_outfits": completes_outfits,
+            "missing_roles": built["missing_roles"],
+        },
+    )
+
+    return {
+        "anchor": {
+            "name": analysis.get("name", ""),
+            "category": analysis.get("category", ""),
+            "color": analysis.get("primary_color") or analysis.get("color", ""),
+            "image_url": row.get("image_url"),
+        },
+        "outfits": built["outfits"],
+        "missing_roles": built["missing_roles"],
+        "completes_outfits": completes_outfits,
+        "gap_suggestions": gap_suggestions,
+    }
 
 
 async def record_purchase_decision(

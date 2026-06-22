@@ -107,6 +107,27 @@ async def log_shopping_event(
     return {"recorded": written}
 
 
+@router.post("/{check_id}/outfits", status_code=status.HTTP_200_OK)
+async def build_outfits_for_check(
+    check_id: UUID,
+    user_id: CurrentUser,
+    session: DbSession,
+):
+    """Ask 2 — "build the best outfits I could wear with this". Returns the top
+    complete looks assembled from the user's own closet around the checked item,
+    each with a 5-tier rating, a stylist note, and the items to compose visually.
+    Required roles the closet can't fill are returned as ``missing_roles`` (the
+    seam Ask 3 — gap detection — uses)."""
+    result = await shopping_check_service.build_outfits_for_check(
+        check_id=str(check_id),
+        user_id=user_id,
+        session=session,
+    )
+    if result is None:
+        raise NotFoundError("Shopping check not found")
+    return result
+
+
 class PurchaseDecisionRequest(BaseModel):
     bought: bool
 

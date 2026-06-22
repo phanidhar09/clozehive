@@ -173,9 +173,19 @@ Return ONLY valid JSON. No markdown fences, no prose, no trailing commas."""
 
 
 @traceable(name="gateway_vision_analyze_for_bulk", run_type="chain")
-async def analyze_for_bulk(image_bytes: bytes, media_type: str = "image/jpeg") -> dict[str, Any]:
+async def analyze_for_bulk(
+    image_bytes: bytes,
+    media_type: str = "image/jpeg",
+    *,
+    extra_instruction: str | None = None,
+) -> dict[str, Any]:
     """
     Rich garment analysis for ingest and preview fallback.
+
+    ``extra_instruction`` is prepended to the prompt for non-standard inputs —
+    e.g. a product-page screenshot, where the model must pick the single main
+    garment out of site chrome and other products rather than assume one clean
+    studio photo.
 
     Returns a dict with primary_color, occasion_tags, etc., merged with validated canonical fields.
     """
@@ -188,6 +198,7 @@ async def analyze_for_bulk(image_bytes: bytes, media_type: str = "image/jpeg") -
 
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
     data_url = f"data:{media_type};base64,{image_b64}"
+    prompt_text = f"{extra_instruction}\n\n{_BULK_PROMPT}" if extra_instruction else _BULK_PROMPT
     try:
         response = await _get_client().chat.completions.create(
             model=settings.openai_model,
@@ -199,7 +210,7 @@ async def analyze_for_bulk(image_bytes: bytes, media_type: str = "image/jpeg") -
                     "role": "user",
                     "content": [
                         {"type": "image_url", "image_url": {"url": data_url, "detail": "high"}},
-                        {"type": "text", "text": _BULK_PROMPT},
+                        {"type": "text", "text": prompt_text},
                     ],
                 }
             ],

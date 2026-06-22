@@ -399,3 +399,26 @@ _URL_RE = re.compile(r"^https?://", re.IGNORECASE)
 
 def looks_like_url(value: str) -> bool:
     return bool(_URL_RE.match(value.strip()))
+
+
+# Trailing product-id chunks in a slug we don't want in the readable name.
+_SLUG_ID_RE = re.compile(r"\b\d{5,}\b")
+
+
+def product_name_hint_from_url(url: str) -> str | None:
+    """Best-effort readable product name from a URL slug — the cheap signal that
+    survives even when a bot-blocked page exposes no title. E.g.
+    ".../p/premium-heavyweight-20-tee-58965824?..." → "premium heavyweight 20 tee".
+    """
+    try:
+        path = urlparse(url).path
+    except ValueError:
+        return None
+    segments = [s for s in path.split("/") if s and s.lower() not in ("p", "shop", "us", "product", "products")]
+    if not segments:
+        return None
+    slug = segments[-1]
+    words = slug.replace("_", "-").split("-")
+    words = [w for w in words if w and not _SLUG_ID_RE.fullmatch(w)]
+    name = " ".join(words).strip()
+    return name or None

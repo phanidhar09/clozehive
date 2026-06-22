@@ -109,3 +109,10 @@ def test_looks_like_url():
     assert product_url.looks_like_url("http://x.io")
     assert not product_url.looks_like_url("brand.com/jacket")
     assert not product_url.looks_like_url("not a url")
+
+
+def test_product_name_hint_from_url():
+    h = product_url.product_name_hint_from_url
+    assert h("https://www.abercrombie.com/shop/us/p/premium-heavyweight-20-tee-58965824?categoryId=12835") == "premium heavyweight 20 tee"
+    assert h("https://brand.com/products/charcoal-slim-chinos") == "charcoal slim chinos"
+    assert h("https://brand.com/") is None
