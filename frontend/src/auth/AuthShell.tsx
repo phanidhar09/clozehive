@@ -109,8 +109,15 @@ export default function AuthShell({ brandHeading, brandSub, activeStep = 0, chil
       </div>
 
       {/* ── Right content panel ──────────────────────────────── */}
-      <div className="flex-1 flex items-center justify-center p-6 sm:p-12 lg:h-screen lg:overflow-y-auto">
-        <div className="w-full max-w-md py-6 animate-slide-up">
+      {/* A soft teal glow carries the brand colour onto the form side so the
+          handoff from the (light) marketing site feels continuous — and it
+          shows on mobile/tablet too, where the left brand panel is hidden. */}
+      <div className="relative flex-1 flex items-center justify-center p-6 sm:p-12 lg:h-screen lg:overflow-y-auto overflow-hidden">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -top-24 left-1/2 -translate-x-1/2 w-[36rem] h-[36rem] rounded-full blur-3xl opacity-60 lg:opacity-40 bg-brand-400/15 dark:bg-brand-500/15"
+        />
+        <div className="relative w-full max-w-md py-6 animate-slide-up">
           {/* Mobile logo */}
           <div className="lg:hidden flex items-center gap-2 mb-8">
             <div className="w-9 h-9 rounded-xl bg-gradient-brand flex items-center justify-center">

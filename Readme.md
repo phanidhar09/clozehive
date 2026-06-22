@@ -1,6 +1,7 @@
 # ClozeHive 
 
-Acess the link https://clozehive.netlify.app 
+**Launch the app:** https://cloze-hive.onrender.com — sign up or log in to start.
+**Marketing site:** https://clozehive.netlify.app (overview & features)
 
 ClozeHive is a **wardrobe intelligence** application: a digital closet, outfit building, **FANI**-powered AI styling, travel and packing help, analytics, and **RAG**-enhanced insights grounded in your items and history. The stack is a **React + Vite + TypeScript** SPA, a **FastAPI** API gateway (auth, closet, outfits, trips, analytics, AI orchestration entrypoints, and in-process image-analysis/background-removal vision pipeline), a **LangGraph-style ai-agent** with **MCP** tool servers, **PostgreSQL + pgvector**, **Redis**, and **nginx** as the single browser entrypoint in Docker.
 
