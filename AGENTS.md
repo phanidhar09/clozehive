@@ -17,12 +17,18 @@ microservices — orchestrated with Docker Compose locally and deployed on
 | Path | Stack | Responsibility |
 |------|-------|----------------|
 | `frontend/` | React 18 + Vite + TypeScript + Tailwind | SPA, PWA, served via nginx |
-| `services/api-gateway/` | FastAPI + SQLAlchemy (async) + Alembic | Auth, closet, outfits, AI routes, the public `/api/v1` surface |
-| `services/ai-agent/` | FastAPI + LangChain | LLM outfit/styling tools |
-| `services/ai-worker/` | ARQ (Redis queue) | Durable background AI jobs (image analysis, outfit, packing) when `HEAVY_WORK_ASYNC=true` |
-| `services/vision-service/` | FastAPI | Image detection / wardrobe vision |
-| `services/mcp/` | MCP servers | Tools (e.g. weather) |
+| `services/api-gateway/` | FastAPI + SQLAlchemy (async) + Alembic | The application. Auth, closet, outfits, trips, analytics, RAG, the public `/api/v1` surface, **and the image-detection / background-removal vision pipeline in-process**. Most AI (stylist chat, outfit scoring, vision) runs here directly against OpenAI/Gemini — not via `ai-agent`. |
+| `services/ai-agent/` | FastAPI + LangGraph | FANI agent with inline tools. Currently used only by the WebSocket floating chat and the conditional packing path; its `/outfit` and `/vision/analyze` endpoints are unused (the gateway owns those). |
+| `services/ai-worker/` | ARQ (Redis queue) | Durable background AI jobs, gated by `HEAVY_WORK_ASYNC` (**off by default**, not in `render.yaml`). When enabled it proxies back to `ai-agent`. |
+| `services/mcp/` | MCP servers | Optional/legacy tool servers (e.g. vision), only under the `--profile vision` compose profile. |
 | `infra/`, `nginx/` | nginx, configs | Edge / reverse proxy |
+
+> **Reality check:** the docs above once described a fuller microservice mesh. In
+> practice this is a **modular monolith** (`api-gateway`) plus a lightly-used
+> `ai-agent`. The former `closet-service` and `vision-service` splits were
+> retired and deleted; the gateway is the sole owner of the closet + vision
+> stack. Treat `ai-worker` and `mcp/*` as optional/dormant unless explicitly
+> enabled.
 
 **Data stores:** PostgreSQL (primary + closet DB, optional read replica via
 `DATABASE_READ_URL`); two Redis roles — **cache** (`REDIS_URL`, evictable) and

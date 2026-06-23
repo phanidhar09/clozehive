@@ -107,11 +107,11 @@ flowchart TB
 |---------|------|
 | `frontend` | React app (Vite). In Docker, host port defaults to **3001** → container **3000** (`FRONTEND_HOST_PORT`). |
 | `nginx` | Single entry **:80** — API, vision paths, uploads, WS, frontend. |
-| `services/api-gateway` | Public API: auth, profile, closet, outfits, trips, analytics, AI proxy routes, RAG routers, WebSocket hub, Kafka producers when enabled. Also runs the **vision pipeline in-process** (analyze/stream, smart ingest, background removal) using OpenAI/Gemini per config. |
+| `services/api-gateway` | Public API: auth, profile, closet, outfits, trips, analytics, AI routes, RAG routers, WebSocket hub, and ARQ job producers when `HEAVY_WORK_ASYNC` is enabled. Also runs the **vision pipeline in-process** (analyze/stream, smart ingest, background removal) using OpenAI/Gemini per config. |
 | `services/ai-agent` | FANI agent service used by gateway AI routes. Default behavior is inline LangGraph tools (`weather`, `outfit`, `packing`) inside the service. |
 | `services/mcp/*` | Optional/legacy MCP HTTP/SSE servers (for non-default profiles or experiments). |
 | `services/ai-worker` | Background worker code (not part of the default `docker-compose.yml` MVP stack). |
-| `infra/` | Postgres init, Kafka topic scripts, nginx config. |
+| `infra/` | Postgres init, nginx config (legacy Kafka/Redpanda topic scripts remain but the async path now uses ARQ + Redis). |
 
 Legacy or archive material, if present, may live under `archive/`.
 
