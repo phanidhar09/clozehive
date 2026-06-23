@@ -29,6 +29,7 @@ import { sendMessage, aiChatSessionsApi } from '@/services/aiChatApi'
 import { cn } from '@/lib/utils'
 import ChatInput from '@/components/ai-chat/ChatInput'
 import OutfitRecommendationCard from '@/components/ai-chat/OutfitRecommendationCard'
+import { FaniLoader } from '@/components/system/FaniLoader'
 import type { StylistChatMessage, AIChatContext, StylingHint, AIChatSession } from '@/types'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -687,7 +688,7 @@ export default function AIStylistChat() {
         {/* Loading history indicator */}
         {loadingHistory && (
           <div className="flex items-center justify-center py-8">
-            <div className="h-6 w-6 rounded-full border-2 border-brand-400 border-t-transparent animate-spin" />
+            <FaniLoader size="md" messages={['Loading your chat history…']} />
           </div>
         )}
 

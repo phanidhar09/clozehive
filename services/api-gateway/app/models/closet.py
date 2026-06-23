@@ -91,6 +91,40 @@ class ClosetItem(Base):
     owner: Mapped[User] = relationship("User", back_populates="closet_items")
 
 
+class WearEvent(Base):
+    """Append-only wear history — one row per item per time it's worn.
+
+    ClosetItem.wear_count / last_worn are a destructive rollup (a counter and a
+    single date); they can't reconstruct *when* something was worn. This table is
+    the source of truth for time-series analytics: cost-per-wear over time,
+    utilization, streaks, and the weekly recap. Both write paths that bump the
+    rollup (manual log_wear and the planner's mark-worn) also append here.
+    """
+
+    __tablename__ = "wear_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    item_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("closet_items.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    worn_on: Mapped[date] = mapped_column(Date, nullable=False)
+    # Loose link back to the outfit (planned_outfit or saved outfit) that drove
+    # the wear, when one exists. Kept FK-free on purpose — it may point at either
+    # table, and analytics only ever reads it for grouping, never joins on it.
+    outfit_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")  # manual | planner
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
 class Outfit(Base):
     __tablename__ = "outfits"
 

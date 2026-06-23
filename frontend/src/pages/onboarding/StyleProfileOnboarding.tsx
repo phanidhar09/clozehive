@@ -18,6 +18,7 @@ import { useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ArrowLeft, ArrowRight, Check, Loader2, Sparkles, X } from 'lucide-react'
 import { profileApi } from '@/lib/api'
+import { FaniLoader } from '@/components/system/FaniLoader'
 import { cn } from '@/lib/utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -813,7 +814,7 @@ export default function StyleProfileOnboarding() {
   if (loading) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-brand-500" />
+        <FaniLoader />
       </div>
     )
   }

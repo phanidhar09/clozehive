@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Sparkles, Loader2 } from 'lucide-react'
 import { tokenStorage, authApi, profileApi } from '@/lib/api'
+import { FaniLoader } from '@/components/system/FaniLoader'
 import { useApp } from '@/store'
 
 const INFLIGHT_KEY = 'ch_oauth_inflight'
@@ -104,16 +104,8 @@ export default function OAuthCallback() {
   }, [login, navigate])
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center gap-6 bg-white dark:bg-slate-900">
-      <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center shadow-lg">
-        <Sparkles size={26} className="text-white" />
-      </div>
-
-      <div className="flex flex-col items-center gap-3 text-center">
-        <Loader2 size={24} className="animate-spin text-brand-500" />
-        <p className="text-slate-700 dark:text-slate-300 font-medium">Completing sign-in…</p>
-        <p className="text-xs text-slate-400 dark:text-slate-500">Setting up your wardrobe</p>
-      </div>
+    <div className="min-h-screen flex flex-col items-center justify-center bg-white dark:bg-slate-900">
+      <FaniLoader messages={['Completing sign-in…']} subline="Setting up your wardrobe" />
     </div>
   )
 }

@@ -764,10 +764,56 @@ export const tripsApi = {
 
 // ── Analytics ───────────────────────────────────────────────────────────────
 
+export interface DigestItem {
+  item_id: string
+  name: string
+  category: string
+  detail: string
+}
+
+export interface WeeklyDigest {
+  week_start: string
+  week_end: string
+  wears_logged: number
+  items_worn: number
+  new_items: number
+  utilization_rate: number
+  most_worn?: DigestItem | null
+  best_value?: DigestItem | null
+  forgotten_gem?: DigestItem | null
+  headline: string
+}
+
 export const analyticsApi = {
   async getClosetAnalytics(): Promise<ClosetAnalytics> {
     const { data } = await api.get<ClosetAnalytics>('/analytics/closet')
     return data
+  },
+  async getWeeklyDigest(): Promise<WeeklyDigest> {
+    const { data } = await api.get<WeeklyDigest>('/analytics/weekly-digest')
+    return data
+  },
+}
+
+// ── Daily FANI nudges ─────────────────────────────────────────────────────────
+
+export interface DailyNudge {
+  id: string
+  nudge_date: string
+  message: string
+  nudge_type: string
+  payload: Record<string, unknown>
+  dismissed: boolean
+  created_at: string
+}
+
+export const nudgeApi = {
+  async getToday(): Promise<DailyNudge | null> {
+    const { data } = await api.get<{ nudge: DailyNudge | null }>('/ai-chat/nudges/today')
+    return data.nudge
+  },
+  async dismiss(id: string): Promise<void> {
+    await api.post(`/ai-chat/nudges/${id}/dismiss`)
   },
 }
 
@@ -1192,7 +1238,11 @@ export interface ShoppingCheckResult {
   closet_boost_pct: number
   /** Per-factor % contributions to buy_score (weights sum to 100). */
   score_breakdown?: Record<string, number>
+  /** Max % each factor can contribute — denominators for the breakdown bars. */
+  score_weights?: Record<string, number>
   reasoning: string
+  /** RAG-grounded natural-language verdict; null when knowledge was unavailable. */
+  fani_take?: { take: string; cited_titles: string[]; grounded: boolean } | null
   /** Persisted image URL of the analysed item (set for URL/screenshot checks). */
   image_url?: string | null
   /** How the item was sourced: photo upload, product-URL image, or page screenshot. */

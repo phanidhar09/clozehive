@@ -127,10 +127,14 @@ class ClosetService:
         item = await self.repo.get_owned(item_id, user_id)
         if not item:
             raise NotFoundError(f"Item {item_id} not found")
+        worn_on = worn_date or date.today()
+        # Append to the wear history (source of truth for time-series analytics)
+        # in addition to bumping the fast rollup columns on the item itself.
+        await self.repo.add_wear_event(user_id=user_id, item_id=item_id, worn_on=worn_on, source="manual")
         updated = await self.repo.update(
             item,
             wear_count=item.wear_count + 1,
-            last_worn=worn_date or date.today(),
+            last_worn=worn_on,
         )
         await cache_service.invalidate_closet_list_cache(str(user_id))
         return _to_response(updated)

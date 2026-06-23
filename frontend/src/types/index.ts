@@ -477,6 +477,45 @@ export interface PurchaseGapInsight {
   suggested_attributes?: Record<string, string> | null
 }
 
+export interface CostPerWearItem {
+  item_id: string
+  name: string
+  category: string
+  price: number
+  wear_count: number
+  cost_per_wear: number
+}
+
+export interface ForgottenGem {
+  item_id: string
+  name: string
+  category: string
+  wear_count: number
+  last_worn?: string | null
+  days_since_worn?: number | null
+}
+
+export interface VersatilityItem {
+  item_id: string
+  name: string
+  category: string
+  outfit_count: number
+}
+
+export interface WardrobeValueInsights {
+  items_priced: number
+  total_value: number
+  value_worn: number
+  value_unworn: number
+  utilization_rate: number
+  active_rate_90d: number
+  avg_cost_per_wear?: number | null
+  best_value_items: CostPerWearItem[]
+  worst_value_items: CostPerWearItem[]
+  forgotten_gems: ForgottenGem[]
+  most_versatile: VersatilityItem[]
+}
+
 export interface ClosetAnalytics {
   summary: ClosetSummary
   category_coverage: CategoryCoverageItem[]
@@ -484,6 +523,7 @@ export interface ClosetAnalytics {
   category_stats: CategoryStats[]
   outfit_readiness: OutfitReadiness
   usage_insights?: UsageInsights | null
+  value_insights?: WardrobeValueInsights | null
   purchase_gap_insights?: PurchaseGapInsight[]
 }
 

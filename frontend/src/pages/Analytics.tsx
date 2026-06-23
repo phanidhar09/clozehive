@@ -4,8 +4,9 @@ import {
   PieChart, Pie, Cell,
 } from 'recharts'
 import {
-  TrendingUp, Shirt, Star, Loader2, BarChart3, ShoppingBag,
+  TrendingUp, Shirt, Star, BarChart3, ShoppingBag,
   AlertTriangle, Palette, Layers, Sparkles,
+  DollarSign, Recycle, Clock, Repeat, PiggyBank,
 } from 'lucide-react'
 import { useApp } from '@/store'
 import Badge from '@/components/ui/Badge'
@@ -13,9 +14,18 @@ import GlassCard from '@/components/ui/GlassCard'
 import EmptyState from '@/components/ui/EmptyState'
 import PageHeader from '@/components/ui/PageHeader'
 import SectionHeader from '@/components/ui/SectionHeader'
+import { FaniLoader } from '@/components/system/FaniLoader'
 import { analyticsApi } from '@/lib/api'
 import { useAsyncError } from '@/hooks/useAsyncError'
-import type { ClosetAnalytics, CategoryCoverageItem, ColorStats, PurchaseGapInsight } from '@/types'
+import type {
+  ClosetAnalytics, CategoryCoverageItem, ColorStats, PurchaseGapInsight,
+  CostPerWearItem, ForgottenGem, VersatilityItem,
+} from '@/types'
+
+/** Compact currency — no decimals for round-ish totals, 2dp for per-wear figures. */
+function money(n: number, dp = 0): string {
+  return `$${n.toLocaleString(undefined, { minimumFractionDigits: dp, maximumFractionDigits: dp })}`
+}
 
 type TooltipChartPayload = {
   active?: boolean
@@ -152,6 +162,14 @@ export default function Analytics() {
     loadAnalytics()
   }, [closetItems.length, throwAsyncError])
 
+  /* Resolve item thumbnails from the already-loaded (signed) closet store by id,
+     so analytics never has to re-sign image URLs. */
+  const imageById = useMemo(() => {
+    const m = new Map<string, string | undefined>()
+    for (const it of closetItems) m.set(it.id, it.image_url ?? undefined)
+    return m
+  }, [closetItems])
+
   /* Wardrobe health score — avg coverage across categories, capped per category at 100% */
   const score = useMemo(() => {
     const cov = analytics?.category_coverage ?? []
@@ -170,10 +188,7 @@ export default function Analytics() {
   if (closetLoading && closetItems.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-center space-y-3">
-          <Loader2 size={32} className="animate-spin text-brand-500 mx-auto" />
-          <p className="text-slate-500 dark:text-slate-400 text-sm">Loading closet data…</p>
-        </div>
+        <FaniLoader size="md" messages={['Loading closet data…']} />
       </div>
     )
   }
@@ -194,15 +209,26 @@ export default function Analytics() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-center space-y-3">
-          <Loader2 size={32} className="animate-spin text-brand-500 mx-auto" />
-          <p className="text-slate-500 dark:text-slate-400 text-sm">Analyzing your closet…</p>
-        </div>
+        <FaniLoader size="md" messages={['Analyzing your closet…']} />
       </div>
     )
   }
 
   if (!analytics) return null
+
+  const value = analytics.value_insights
+
+  /* Thumbnail resolved from the closet store; falls back to a shirt glyph. */
+  const thumb = (id: string, name: string) => {
+    const src = imageById.get(id)
+    return src
+      ? <img src={src} alt={name} className="w-10 h-10 rounded-lg object-cover shrink-0 ring-1 ring-black/5 dark:ring-white/10" />
+      : (
+        <div className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-white/10 flex items-center justify-center shrink-0">
+          <Shirt size={16} className="text-slate-300 dark:text-white/30" />
+        </div>
+      )
+  }
 
   return (
     <div className="space-y-8 max-w-6xl mx-auto">
@@ -390,6 +416,139 @@ export default function Analytics() {
           </div>
         </GlassCard>
       </section>
+
+      {/* ── Value & Usage (cost-per-wear, utilization, forgotten gems) ──────── */}
+      {value && (
+        <section className="space-y-4">
+          <SectionHeader icon={<PiggyBank size={16} className="text-emerald-500" />} title="Value & Usage" />
+
+          {/* Headline stats */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatTile
+              icon={<Recycle size={18} />}
+              label="Closet Used"
+              value={`${value.utilization_rate}%`}
+              accent="text-emerald-500"
+              chipBg="bg-emerald-50 dark:bg-emerald-500/10"
+            />
+            <StatTile
+              icon={<Clock size={18} />}
+              label="Worn (90 days)"
+              value={`${value.active_rate_90d}%`}
+              accent="text-sky-500"
+              chipBg="bg-sky-50 dark:bg-sky-500/10"
+            />
+            <StatTile
+              icon={<DollarSign size={18} />}
+              label="Avg Cost / Wear"
+              value={value.avg_cost_per_wear != null ? money(value.avg_cost_per_wear, 2) : '—'}
+            />
+            <StatTile
+              icon={<PiggyBank size={18} />}
+              label="Value Unworn"
+              value={value.items_priced > 0 ? money(value.value_unworn) : '—'}
+              accent="text-rose-500"
+              chipBg="bg-rose-50 dark:bg-rose-500/10"
+            />
+          </div>
+
+          {/* Cost-per-wear leaderboards */}
+          {(value.best_value_items.length > 0 || value.worst_value_items.length > 0) && (
+            <div className="grid lg:grid-cols-2 gap-4">
+              {value.best_value_items.length > 0 && (
+                <GlassCard padding="lg">
+                  <p className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                    <TrendingUp size={13} /> Best Value · lowest cost-per-wear
+                  </p>
+                  <div className="space-y-2.5">
+                    {value.best_value_items.map((it: CostPerWearItem) => (
+                      <div key={it.item_id} className="flex items-center gap-3">
+                        {thumb(it.item_id, it.name)}
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-slate-800 dark:text-white truncate">{it.name}</p>
+                          <p className="text-[11px] text-slate-400 dark:text-white/40">worn {it.wear_count}× · {money(it.price)}</p>
+                        </div>
+                        <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400 tabular-nums shrink-0">{money(it.cost_per_wear, 2)}<span className="text-[10px] font-normal text-slate-400">/wear</span></span>
+                      </div>
+                    ))}
+                  </div>
+                </GlassCard>
+              )}
+              {value.worst_value_items.length > 0 && (
+                <GlassCard padding="lg">
+                  <p className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                    <AlertTriangle size={13} /> Earn Their Keep · highest cost-per-wear
+                  </p>
+                  <div className="space-y-2.5">
+                    {value.worst_value_items.map((it: CostPerWearItem) => (
+                      <div key={it.item_id} className="flex items-center gap-3">
+                        {thumb(it.item_id, it.name)}
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-slate-800 dark:text-white truncate">{it.name}</p>
+                          <p className="text-[11px] text-slate-400 dark:text-white/40">worn {it.wear_count}× · {money(it.price)}</p>
+                        </div>
+                        <span className="text-sm font-bold text-amber-600 dark:text-amber-400 tabular-nums shrink-0">{money(it.cost_per_wear, 2)}<span className="text-[10px] font-normal text-slate-400">/wear</span></span>
+                      </div>
+                    ))}
+                  </div>
+                </GlassCard>
+              )}
+            </div>
+          )}
+
+          {/* Forgotten gems + Most versatile */}
+          <div className="grid lg:grid-cols-2 gap-4">
+            {value.forgotten_gems.length > 0 && (
+              <GlassCard padding="lg">
+                <p className="text-[11px] font-semibold text-slate-500 dark:text-white/50 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                  <Clock size={13} /> Forgotten Gems · time to bring these back
+                </p>
+                <div className="space-y-2.5">
+                  {value.forgotten_gems.map((g: ForgottenGem) => (
+                    <div key={g.item_id} className="flex items-center gap-3">
+                      {thumb(g.item_id, g.name)}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-slate-800 dark:text-white truncate">{g.name}</p>
+                        <p className="text-[11px] text-slate-400 dark:text-white/40 capitalize">{g.category}</p>
+                      </div>
+                      <Badge variant={g.wear_count === 0 ? 'red' : 'amber'}>
+                        {g.wear_count === 0 ? 'never worn' : `${g.days_since_worn}d ago`}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              </GlassCard>
+            )}
+            {value.most_versatile.length > 0 && (
+              <GlassCard padding="lg">
+                <p className="text-[11px] font-semibold text-slate-500 dark:text-white/50 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                  <Repeat size={13} /> Most Versatile · powers the most outfits
+                </p>
+                <div className="space-y-2.5">
+                  {value.most_versatile.map((it: VersatilityItem) => (
+                    <div key={it.item_id} className="flex items-center gap-3">
+                      {thumb(it.item_id, it.name)}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-slate-800 dark:text-white truncate">{it.name}</p>
+                        <p className="text-[11px] text-slate-400 dark:text-white/40 capitalize">{it.category}</p>
+                      </div>
+                      <span className="text-sm font-bold text-brand-600 dark:text-brand-400 tabular-nums shrink-0">
+                        {it.outfit_count}<span className="text-[10px] font-normal text-slate-400 ml-0.5">outfits</span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </GlassCard>
+            )}
+          </div>
+
+          {value.items_priced === 0 && (
+            <p className="text-xs text-slate-400 dark:text-white/40 flex items-center gap-1.5">
+              <DollarSign size={12} /> Add prices to your items (or paste a product URL) to unlock cost-per-wear and value insights.
+            </p>
+          )}
+        </section>
+      )}
 
       {/* ── AI Purchase Gap Insights (RAG) ──────────────────────────────────── */}
       {(analytics.purchase_gap_insights ?? []).length > 0 && (

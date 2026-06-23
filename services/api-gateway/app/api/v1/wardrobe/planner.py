@@ -23,7 +23,7 @@ from app.core.deps import CurrentUser, DbSession
 from app.core.exceptions import BadRequestError, NotFoundError
 from app.core.logging import get_logger
 from app.core.rate_limit import limiter
-from app.models.closet import ClosetItem, PlannedOutfit
+from app.models.closet import ClosetItem, PlannedOutfit, WearEvent
 
 router = APIRouter(prefix="/planner", tags=["Weekly Planner"])
 logger = get_logger("planner.routes")
@@ -353,6 +353,17 @@ async def mark_worn(
         item.wear_count = (item.wear_count or 0) + 1
         if item.last_worn is None or item.last_worn < plan_date:
             item.last_worn = plan_date
+        # Append to the wear history alongside the rollup bump, tagged to the
+        # planned day that drove it (feeds time-series analytics).
+        session.add(
+            WearEvent(
+                user_id=uid,
+                item_id=item.id,
+                worn_on=plan_date,
+                source="planner",
+                outfit_id=row.id,
+            )
+        )
     row.is_worn = True
     await session.flush()
 

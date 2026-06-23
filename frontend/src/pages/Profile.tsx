@@ -15,6 +15,7 @@ import type {
 } from '@/types'
 import UserCard from '@/components/ui/UserCard'
 import GlassCard from '@/components/ui/GlassCard'
+import { FaniLoader } from '@/components/system/FaniLoader'
 import AvatarEditor, { withAvatarDefaults } from '@/components/profile/AvatarEditor'
 import { analyzeCloset } from '@/lib/closetInsights'
 import { requestGeolocation } from '@/hooks/useWeather'
@@ -878,8 +879,8 @@ function SocialTab({
       )}
 
       {listLoading ? (
-        <GlassCard padding="md" className="py-8 text-center text-slate-400 dark:text-white/40 text-sm">
-          <Loader2 size={16} className="animate-spin inline mr-2" /> Loading…
+        <GlassCard padding="md" className="py-8">
+          <FaniLoader size="md" />
         </GlassCard>
       ) : list.length === 0 ? (
         <GlassCard padding="lg" className="text-center text-slate-400 dark:text-white/40">

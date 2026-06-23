@@ -3,11 +3,12 @@ import { useNavigate } from 'react-router-dom'
 import {
   Camera, Upload, ShoppingCart, CheckCircle, XCircle, AlertCircle,
   Loader2, RotateCcw, Star, TrendingUp, Package, Sparkles, Trash2,
-  PlusCircle, Shirt, Link2, ExternalLink, Copy,
+  PlusCircle, Shirt, Link2, ExternalLink, Copy, BarChart3,
 } from 'lucide-react'
 import BackButton from '@/components/ui/BackButton'
 import GlassCard from '@/components/ui/GlassCard'
 import PageHeader from '@/components/ui/PageHeader'
+import { FaniLoader } from '@/components/system/FaniLoader'
 import Badge from '@/components/ui/Badge'
 import { shoppingCheckApi, type ShoppingCheckResult, type ShoppingHistoryEntry,
   type BuiltOutfit, type GapSuggestion } from '@/lib/api'
@@ -131,6 +132,85 @@ function PurchasePrompt({
         </button>
       </div>
     </div>
+  )
+}
+
+// ── Score breakdown ("Why this score") ─────────────────────────────────────────
+
+// Factor labels/order for the breakdown. The per-factor max comes from the
+// backend (`score_weights`) so the bars never drift if weights change; the
+// `fallbackMax` here only applies if an older API response omits score_weights.
+// Order = importance (highest weight first).
+const FACTOR_META: { key: string; label: string; fallbackMax: number; hint: string }[] = [
+  { key: 'compatibility', label: 'Pairs with your closet', fallbackMax: 35, hint: 'Genuinely matches things you own' },
+  { key: 'uniqueness', label: 'Not a duplicate', fallbackMax: 30, hint: "You don't already own one like it" },
+  { key: 'gap_fill', label: 'Fills a gap', fallbackMax: 15, hint: 'Covers a category you’re missing' },
+  { key: 'occasion_new', label: 'New occasions', fallbackMax: 12, hint: 'Adds events you can dress for' },
+  { key: 'season_new', label: 'New seasons', fallbackMax: 8, hint: 'Extends your seasonal range' },
+]
+
+function ScoreBreakdown({
+  breakdown,
+  weights,
+}: {
+  breakdown: Record<string, number>
+  weights?: Record<string, number>
+}) {
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => {
+    const t = requestAnimationFrame(() => setMounted(true))
+    return () => cancelAnimationFrame(t)
+  }, [])
+
+  const rows = FACTOR_META.filter(f => f.key in breakdown)
+  if (rows.length === 0) return null
+
+  return (
+    <GlassCard className="p-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <BarChart3 size={15} className="text-brand-500" />
+        <h3 className="text-sm font-semibold text-slate-800 dark:text-white">Why this score</h3>
+      </div>
+      <div className="space-y-2.5">
+        {rows.map(({ key, label, fallbackMax, hint }) => {
+          const max = weights?.[key] ?? fallbackMax
+          const earned = Math.max(0, Math.round((breakdown[key] ?? 0) * 10) / 10)
+          const pct = max > 0 ? Math.min(100, (earned / max) * 100) : 0
+          const won = earned > 0
+          const barColor = pct >= 66 ? 'bg-emerald-500' : pct >= 33 ? 'bg-amber-500' : won ? 'bg-amber-400' : 'bg-slate-300 dark:bg-white/10'
+          return (
+            <div key={key} className="space-y-1">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className={cn(
+                  'text-xs font-medium',
+                  won ? 'text-slate-700 dark:text-white/80' : 'text-slate-400 dark:text-white/35',
+                )}>
+                  {label}
+                </span>
+                <span className={cn(
+                  'text-[11px] font-semibold tabular-nums',
+                  won ? 'text-slate-600 dark:text-white/60' : 'text-slate-300 dark:text-white/25',
+                )}>
+                  +{earned}<span className="text-slate-300 dark:text-white/25"> / {max}</span>
+                </span>
+              </div>
+              <div className="h-1.5 rounded-full bg-slate-100 dark:bg-white/[0.06] overflow-hidden">
+                <div
+                  className={cn('h-full rounded-full transition-[width] duration-700 ease-out', barColor)}
+                  style={{ width: mounted ? `${pct}%` : '0%' }}
+                />
+              </div>
+              {!won && (
+                <p className="text-[10px] text-slate-400 dark:text-white/30 leading-tight">{hint}</p>
+              )}
+            </div>
+          )
+        })}
+      </div>
+      <p className="text-[10px] text-slate-400 dark:text-white/35 pt-0.5 border-t border-slate-100 dark:border-white/[0.06]">
+        Scores are computed from your actual closet — no guesswork.
+      </p>
+    </GlassCard>
   )
 }
 
@@ -301,8 +381,8 @@ function OutfitBuilderSection({ checkId, anchorImg }: { checkId: string; anchorI
         )}
       </div>
       {status === 'loading' && (
-        <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-white/50 py-3">
-          <Loader2 size={15} className="animate-spin" /> Searching your closet for the best combinations…
+        <div className="py-4">
+          <FaniLoader size="md" messages={['Searching your closet for the best combinations…']} />
         </div>
       )}
       {status === 'error' && (
@@ -415,6 +495,11 @@ function ResultCard({
         )}
       </GlassCard>
 
+      {/* Why this score — transparent, closet-grounded breakdown */}
+      {result.score_breakdown && Object.keys(result.score_breakdown).length > 0 && (
+        <ScoreBreakdown breakdown={result.score_breakdown} weights={result.score_weights} />
+      )}
+
       {/* Source attribution — only for URL / screenshot checks */}
       {result.source_url && (
         <a
@@ -443,8 +528,28 @@ function ResultCard({
         <div className="flex items-center gap-2">
           <Sparkles size={15} className="text-brand-500" />
           <h3 className="text-sm font-semibold text-slate-800 dark:text-white">FANI's Take</h3>
+          {result.fani_take?.grounded && (
+            <span className="ml-auto inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full
+                             bg-brand-50 dark:bg-brand-900/20 text-brand-600 dark:text-brand-400">
+              <Sparkles size={9} /> Grounded
+            </span>
+          )}
         </div>
-        <p className="text-sm text-slate-600 dark:text-white/70 leading-relaxed">{result.reasoning}</p>
+        <p className="text-sm text-slate-600 dark:text-white/70 leading-relaxed">
+          {result.fani_take?.take || result.reasoning}
+        </p>
+
+        {/* When an AI take is shown, keep the deterministic factors as a sub-line */}
+        {result.fani_take?.take && (
+          <p className="text-xs text-slate-400 dark:text-white/40 leading-relaxed">{result.reasoning}</p>
+        )}
+
+        {/* Cited fashion-knowledge sources — makes the take auditable */}
+        {result.fani_take?.cited_titles && result.fani_take.cited_titles.length > 0 && (
+          <p className="text-[10px] text-slate-400 dark:text-white/35 leading-tight">
+            Grounded in: {result.fani_take.cited_titles.join(' · ')}
+          </p>
+        )}
 
         {/* Honest one-liners: dupe-check + completes-N-outfits */}
         <div className="flex flex-wrap gap-2 pt-1">
@@ -931,25 +1036,17 @@ export default function ShoppingCheck() {
 
       {/* Loading state */}
       {loading && (
-        <GlassCard className="p-8 flex flex-col items-center gap-4">
-          <div className="relative">
-            <div className="w-24 h-24 rounded-2xl overflow-hidden flex items-center justify-center bg-slate-100 dark:bg-white/[0.06]">
-              {preview
-                ? <img src={preview} alt="" className="w-full h-full object-cover" />
-                : <Link2 size={26} className="text-slate-300 dark:text-white/20" />}
-            </div>
-            <div className="absolute inset-0 bg-black/40 rounded-2xl flex items-center justify-center">
-              <Loader2 size={28} className="text-white animate-spin" />
-            </div>
+        <GlassCard className="p-8 flex flex-col items-center gap-5">
+          <div className="w-24 h-24 rounded-2xl overflow-hidden flex items-center justify-center bg-slate-100 dark:bg-white/[0.06]">
+            {preview
+              ? <img src={preview} alt="" className="w-full h-full object-cover" />
+              : <Link2 size={26} className="text-slate-300 dark:text-white/20" />}
           </div>
-          <div className="text-center space-y-1">
-            <p className="font-semibold text-slate-800 dark:text-white">
-              {preview ? 'Analysing your item…' : 'Reading the product page…'}
-            </p>
-            <p className="text-sm text-slate-500 dark:text-white/50">
-              Checking against your closet and computing compatibility
-            </p>
-          </div>
+          <FaniLoader
+            size="md"
+            messages={[preview ? 'Analysing your item…' : 'Reading the product page…']}
+            subline="Checking against your closet and computing compatibility"
+          />
         </GlassCard>
       )}
 

@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import Button from '@/components/ui/Button'
 import Input from '@/components/ui/Input'
+import { FaniLoader } from '@/components/system/FaniLoader'
 import { tripsApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import type { PackingPlan, Trip, TripActivity } from '@/types'
@@ -237,10 +238,12 @@ export function OccasionPlanner({ closetItems }: { closetItems: { id: string }[]
 
         {/* Loading */}
         {loading && (
-          <div className="card p-8 flex flex-col items-center gap-3 text-slate-500 dark:text-white/40">
-            <Loader2 size={28} className="animate-spin text-brand-500" />
-            <p className="text-sm font-medium">FANI is finding your perfect outfit…</p>
-            <p className="text-xs text-slate-400">Scanning your closet · Matching the dress code · Styling the look</p>
+          <div className="card p-8">
+            <FaniLoader
+              size="md"
+              messages={['Scanning your closet…', 'Matching the dress code…', 'Styling the look…']}
+              subline="FANI is finding your perfect outfit"
+            />
           </div>
         )}
 

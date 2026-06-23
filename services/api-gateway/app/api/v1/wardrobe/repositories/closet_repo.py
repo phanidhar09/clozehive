@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import date
 from uuid import UUID
 
 from sqlalchemy import and_, select
 
-from app.models.closet import ClosetItem
+from app.models.closet import ClosetItem, WearEvent
 from app.repositories.base import BaseRepository
 
 
@@ -50,6 +51,26 @@ class ClosetRepository(BaseRepository[ClosetItem]):
         return await self.count(
             ClosetItem.user_id == user_id,
             ClosetItem.is_archived == False,  # noqa: E712
+        )
+
+    async def add_wear_event(
+        self,
+        *,
+        user_id: UUID,
+        item_id: UUID,
+        worn_on: date,
+        source: str = "manual",
+        outfit_id: UUID | None = None,
+    ) -> None:
+        """Append a row to the wear history. Caller's transaction commits it."""
+        self.session.add(
+            WearEvent(
+                user_id=user_id,
+                item_id=item_id,
+                worn_on=worn_on,
+                source=source,
+                outfit_id=outfit_id,
+            )
         )
 
     async def get_owned(self, item_id: UUID, user_id: UUID) -> ClosetItem | None:

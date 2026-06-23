@@ -14,6 +14,7 @@ Flow:
 
 from __future__ import annotations
 
+import re
 import uuid
 from typing import Any
 
@@ -21,7 +22,10 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.intelligence.services import ai_service
-from app.api.v1.intelligence.services.fashion_rag_service import get_fashion_context_for_prompt
+from app.api.v1.intelligence.services.fashion_rag_service import (
+    get_fashion_context_for_prompt,
+    search_fashion_knowledge,
+)
 from app.api.v1.wardrobe.services.vision_service import analyze_for_bulk
 from app.core import outfit_compatibility as compat
 from app.core.embedding_service import (
@@ -33,6 +37,43 @@ from app.core.embedding_service import (
 from app.core.logging import get_logger
 
 logger = get_logger("shopping_check_service")
+
+
+def parse_price_to_float(raw: Any) -> float | None:
+    """Best-effort parse of a scraped price string into a positive float.
+
+    OG/JSON-LD prices arrive as free-form strings ("$129.99", "USD 1,299.00",
+    "1.299,00 €", "129,99"). We isolate the first numeric run and resolve the
+    decimal separator by position so both US (1,299.00) and EU (1.299,00)
+    formats land correctly. Returns None for anything non-positive or unparseable
+    so a bad scrape never writes a junk price.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, (int, float)):
+        return float(raw) if raw > 0 else None
+
+    match = re.search(r"\d[\d.,\s]*", str(raw))
+    if not match:
+        return None
+    num = match.group(0).strip().replace(" ", "")
+
+    if "," in num and "." in num:
+        # Whichever separator appears last is the decimal point.
+        if num.rfind(",") > num.rfind("."):
+            num = num.replace(".", "").replace(",", ".")
+        else:
+            num = num.replace(",", "")
+    elif "," in num:
+        # Comma alone: decimal if it's a trailing ",dd", else a thousands sep.
+        num = num.replace(",", ".") if re.search(r",\d{2}$", num) else num.replace(",", "")
+
+    try:
+        val = float(num)
+    except ValueError:
+        return None
+    return round(val, 2) if val > 0 else None
+
 
 # ── Scoring weights ──────────────────────────────────────────────────────────
 _DUPLICATE_THRESHOLD = 0.88  # cosine sim — item is "essentially the same" (dupe-check only)
@@ -210,6 +251,160 @@ async def _fetch_closet_for_compat(session: AsyncSession, user_id: str) -> list[
     return [dict(r) for r in result.mappings().all()]
 
 
+# ── Scoring engine (pure) ──────────────────────────────────────────────────────
+
+
+def compute_buy_score(
+    *,
+    has_duplicate: bool,
+    compatible_count: int,
+    fills_gap: bool,
+    has_new_occasions: bool,
+    has_new_seasons: bool,
+) -> tuple[int, dict[str, float], str]:
+    """Pure scoring core — given the closet-derived signals, return the 0–100 buy
+    score, its per-factor % breakdown, and the recommendation band.
+
+    Extracted from :func:`analyze_shopping_item` so the product's most important
+    number is unit-testable in isolation (no vision/embeddings/DB needed).
+    """
+    subscores: dict[str, float] = {
+        "uniqueness": 0.0 if has_duplicate else 1.0,
+        "compatibility": min(compatible_count / _COMPAT_SATURATION, 1.0),
+        "gap_fill": 1.0 if fills_gap else 0.0,
+        # Novelty only counts when the item isn't a duplicate.
+        "occasion_new": 1.0 if (has_new_occasions and not has_duplicate) else 0.0,
+        "season_new": 1.0 if (has_new_seasons and not has_duplicate) else 0.0,
+    }
+    score_breakdown = {k: round(_WEIGHTS[k] * subscores[k], 1) for k in _WEIGHTS}
+    score = max(0, min(100, round(sum(score_breakdown.values()))))
+
+    if score >= 70:
+        recommendation = "buy"
+    elif score >= 45:
+        recommendation = "consider"
+    else:
+        recommendation = "skip"
+    return score, score_breakdown, recommendation
+
+
+# ── RAG-grounded verdict ("FANI's Take") ───────────────────────────────────────
+
+# The deterministic score is AUTHORITATIVE. The model may only *explain* it using
+# retrieved, cited fashion knowledge — it is structurally prevented from inventing
+# items/brands/numbers because every fact it's allowed to use is supplied below and
+# out-of-range citations are dropped after parsing.
+_SHOPPING_TAKE_SYSTEM = """You are FANI, a professional AI fashion stylist giving a buy/skip verdict.
+
+You receive two things:
+1. [VERDICT FACTS] — computed from the user's REAL closet. These are AUTHORITATIVE and final.
+2. [FASHION KNOWLEDGE] — retrieved styling rules, each tagged [SOURCE-N].
+
+Write a short, confident verdict (2-3 sentences, second person) that EXPLAINS the facts.
+
+GROUNDING RULES — mandatory; they override any styling intuition:
+- The VERDICT FACTS are true. Never contradict them, and never state a number that isn't given.
+- NEVER invent owned items, brands, prices, retailers, or attributes. Reference the user's own
+  items only by the exact names listed in the facts (if any are listed).
+- Base every styling claim on [FASHION KNOWLEDGE] and cite it inline as [SOURCE-N] using the exact
+  tag. If the knowledge does not cover a point, give conservative, widely-accepted advice and do
+  NOT cite a source — never fabricate a citation.
+- Be honest: if the facts say it's a duplicate or pairs with nothing, say so plainly.
+
+Return ONLY a json object: {"verdict": "<2-3 sentence take>", "cited_sources": [<source numbers you cited>]}"""
+
+
+async def _generate_grounded_take(
+    session: AsyncSession,
+    *,
+    analysis: dict[str, Any],
+    recommendation: str,
+    score: int,
+    dupe_count: int,
+    pairing_names: list[str],
+    compatible_count: int,
+    fills_gap: bool,
+    new_occasions: set[str],
+    new_seasons: set[str],
+    category: str,
+) -> dict[str, Any] | None:
+    """Produce a RAG-grounded natural-language verdict layered on top of the
+    deterministic score. Best-effort: returns None (caller keeps the templated
+    reasoning) when no knowledge is retrieved or the model output is unusable.
+    """
+    color = analysis.get("primary_color") or analysis.get("color") or ""
+    name = analysis.get("name") or category or "this item"
+    item_occasions = ", ".join(analysis.get("occasion_tags") or []) or "unspecified"
+
+    rag_query = (
+        f"Is a {color} {category} worth buying? How to style and pair it, "
+        f"what to wear it with, suitable occasions ({item_occasions})."
+    )
+    docs = await search_fashion_knowledge(session, rag_query, limit=3)
+    if not docs:
+        return None  # nothing to ground on → keep the deterministic reasoning only
+
+    knowledge_block = "\n\n".join(
+        f"[SOURCE-{i}] {d['title']}\n{d['content'][:500]}" for i, d in enumerate(docs, 1)
+    )
+
+    pairs_fact = (
+        f"Pairs with {compatible_count} owned item(s): {', '.join(pairing_names)}."
+        if pairing_names
+        else "Does not clearly pair with anything currently in the closet."
+    )
+    facts = (
+        "[VERDICT FACTS]\n"
+        f"- Item: {name} ({color} {category}).\n"
+        f"- Verdict: {recommendation.upper()} (buy score {round(score)}/100).\n"
+        f"- {('You already own ' + str(dupe_count) + ' near-identical item(s).') if dupe_count else 'Not a duplicate of anything you own.'}\n"
+        f"- {pairs_fact}\n"
+        f"- {('Fills a gap in your ' + category + ' collection.') if fills_gap else 'Does not fill a flagged wardrobe gap.'}\n"
+        f"- New occasions it would add: {', '.join(sorted(new_occasions)) or 'none'}.\n"
+        f"- New seasons it would add: {', '.join(sorted(new_seasons)) or 'none'}.\n"
+    )
+    user_msg = (
+        f"{facts}\n\n[FASHION KNOWLEDGE — cite [SOURCE-N] when you use a rule]\n"
+        f"{knowledge_block}\n[END FASHION KNOWLEDGE]\n\n"
+        "Write the verdict now. Explain the facts above using the fashion knowledge and cite "
+        "[SOURCE-N]. Do not invent items, brands, prices, or numbers."
+    )
+
+    raw = await ai_service.chat(
+        messages=[{"role": "user", "content": user_msg}],
+        system_prompt=_SHOPPING_TAKE_SYSTEM,
+        use_json_mode=True,
+        temperature=0.2,
+        max_tokens=300,
+    )
+
+    import json as _json
+
+    try:
+        cleaned = raw.strip().strip("```json").strip("```").strip()
+        data = _json.loads(cleaned)
+    except Exception:
+        logger.warning("shopping_take_unparseable", raw=raw[:160])
+        return None
+
+    verdict = str(data.get("verdict") or "").strip()
+    if not verdict:
+        return None
+
+    # Map cited source numbers → titles for audit/UI. Out-of-range numbers the
+    # model may emit are dropped — a hallucinated citation never reaches the user.
+    cited_titles: list[str] = []
+    for n in data.get("cited_sources") or []:
+        try:
+            idx = int(n) - 1
+        except (TypeError, ValueError):
+            continue
+        if 0 <= idx < len(docs) and docs[idx]["title"] not in cited_titles:
+            cited_titles.append(docs[idx]["title"])
+
+    return {"take": verdict, "cited_titles": cited_titles, "grounded": True}
+
+
 # ── Core analysis ─────────────────────────────────────────────────────────────
 
 
@@ -323,20 +518,14 @@ async def analyze_shopping_item(
     new_seasons = item_seasons - owned_seasons
     fills_gap = bool(category and await _has_open_gap_for_category(session, user_id, category))
 
-    # Factor subscores (0–1)
-    subscores: dict[str, float] = {
-        "uniqueness": 0.0 if has_duplicate else 1.0,
-        "compatibility": min(compatible_count / _COMPAT_SATURATION, 1.0),
-        "gap_fill": 1.0 if fills_gap else 0.0,
-        # Novelty only counts when the item isn't a duplicate.
-        "occasion_new": 1.0 if (new_occasions and not has_duplicate) else 0.0,
-        "season_new": 1.0 if (new_seasons and not has_duplicate) else 0.0,
-    }
-
-    # Weighted percentage contributions (sum to ≤ 100).
-    score_breakdown = {k: round(_WEIGHTS[k] * subscores[k], 1) for k in _WEIGHTS}
-    score = round(sum(score_breakdown.values()))
-    score = max(0, min(100, score))
+    # Pure scoring core — see compute_buy_score (unit-tested in isolation).
+    score, score_breakdown, recommendation = compute_buy_score(
+        has_duplicate=has_duplicate,
+        compatible_count=compatible_count,
+        fills_gap=fills_gap,
+        has_new_occasions=bool(new_occasions),
+        has_new_seasons=bool(new_seasons),
+    )
 
     # Human-readable reasons mirror the factors that contributed.
     if has_duplicate:
@@ -349,18 +538,10 @@ async def analyze_shopping_item(
         reasons.append("Doesn't clearly pair with anything in your closet yet.")
     if fills_gap:
         reasons.append(f"Fills a detected gap in your {category} collection.")
-    if subscores["occasion_new"]:
+    if new_occasions and not has_duplicate:
         reasons.append(f"Adds new occasion coverage: {', '.join(new_occasions)}.")
-    if subscores["season_new"]:
+    if new_seasons and not has_duplicate:
         reasons.append(f"Extends your wardrobe into: {', '.join(new_seasons)}.")
-
-    # 6. Recommendation label — Worth it vs Skip, with a middle "consider" band.
-    if score >= 70:
-        recommendation = "buy"
-    elif score >= 45:
-        recommendation = "consider"
-    else:
-        recommendation = "skip"
 
     # 7. Closet boost % — how much this raises wardrobe completeness
     #    Simple heuristic: gap fill = 5%, novel occasions = 3%, novel seasons = 2%
@@ -436,6 +617,27 @@ async def analyze_shopping_item(
     # count of how many URL/screenshot checks this user has now run.
     url_check_count = await _count_url_checks(session, user_id) if input_type != "photo" else 0
 
+    # RAG-grounded natural-language verdict, layered ON TOP of the deterministic
+    # score. Best-effort: the score is authoritative and the model may only explain
+    # it from cited knowledge, so a failure here never blocks or skews the verdict.
+    fani_take: dict[str, Any] | None = None
+    try:
+        fani_take = await _generate_grounded_take(
+            session,
+            analysis=analysis,
+            recommendation=recommendation,
+            score=score,
+            dupe_count=dupe_count,
+            pairing_names=[p["name"] for p in pairings[:5] if p.get("name")],
+            compatible_count=compatible_count,
+            fills_gap=fills_gap,
+            new_occasions=new_occasions,
+            new_seasons=new_seasons,
+            category=category,
+        )
+    except Exception as exc:  # noqa: BLE001 — the take is never load-bearing
+        logger.warning("shopping_take_generation_failed", error=str(exc))
+
     # Funnel: a verdict was produced. Records the shape of the result so we can
     # later correlate "what kind of verdict" with "did they act / paste again".
     await record_shopping_event(
@@ -461,7 +663,11 @@ async def analyze_shopping_item(
         "buy_recommendation": recommendation,
         "closet_boost_pct": round(boost_pct, 1),
         "score_breakdown": score_breakdown,
+        # Max % each factor can contribute — lets the UI render "earned / max" bars
+        # without hardcoding the weights (they stay in sync with the backend).
+        "score_weights": {k: round(v, 1) for k, v in _WEIGHTS.items()},
         "reasoning": reasoning_text,
+        "fani_take": fani_take,
         "image_url": image_url,
         "input_type": input_type,
         "source_url": source_url,
@@ -1013,17 +1219,17 @@ async def add_shopping_item_to_closet(
         """
         INSERT INTO closet_items
             (id, user_id, name, category, color, fabric, pattern, brand,
-             season, occasion, tags, notes, image_url,
+             season, occasion, tags, notes, image_url, price,
              wear_count, is_archived, created_at
              {emb_col})
         VALUES
             (CAST(:id AS uuid), CAST(:uid AS uuid),
              :name, :category, :color, :fabric, :pattern, :brand,
              CAST(:season AS jsonb), CAST(:occasion AS jsonb), CAST(:tags AS jsonb),
-             :notes, :image_url,
+             :notes, :image_url, :price,
              0, false, NOW()
              {emb_val})
-        RETURNING id, name, category, color, image_url, created_at
+        RETURNING id, name, category, color, image_url, price, created_at
     """.format(
             emb_col=", embedding" if emb_literal else "",
             emb_val=f", {emb_literal}" if emb_literal else "",
@@ -1048,6 +1254,9 @@ async def add_shopping_item_to_closet(
             "tags": json.dumps(analysis.get("style_tags") or []),
             "notes": analysis.get("description", ""),
             "image_url": row.get("image_url"),
+            # Backfill price from the scraped product metadata so cost-per-wear
+            # works the moment the item is logged. None when no price was scraped.
+            "price": parse_price_to_float(analysis.get("source_price")),
         },
     )
     await session.commit()

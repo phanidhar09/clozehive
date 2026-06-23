@@ -9,7 +9,10 @@ import { useApp } from '@/store'
 import { outfitsApi, type OutfitOfDayResponse } from '@/lib/api'
 import SectionHeader from '@/components/ui/SectionHeader'
 import OnboardingChecklist from '@/components/dashboard/OnboardingChecklist'
+import FaniNudge from '@/components/dashboard/FaniNudge'
+import WeeklyDigest from '@/components/dashboard/WeeklyDigest'
 import WeeklyPlanner from '@/components/dashboard/WeeklyPlanner'
+import { FaniLoader } from '@/components/system/FaniLoader'
 import type { ClosetItem, OutfitSuggestion } from '@/types'
 
 // ── Outfit rating ─────────────────────────────────────────────────────────────
@@ -230,12 +233,8 @@ function TodaysLookCard({ closetItems }: { closetItems: ClosetItem[] }) {
       {/* Card body */}
       <div className="p-5">
         {loading && (
-          <div className="flex flex-col items-center gap-3 py-12">
-            <div className="w-10 h-10 rounded-full bg-brand-50 dark:bg-brand-500/10
-                            flex items-center justify-center">
-              <Loader2 size={20} className="animate-spin text-brand-500" />
-            </div>
-            <p className="text-sm text-slate-400 dark:text-slate-500">Curating your look…</p>
+          <div className="py-12">
+            <FaniLoader size="md" messages={['Curating your look…']} />
           </div>
         )}
 
@@ -497,6 +496,8 @@ export default function Dashboard() {
 
       <OnboardingChecklist />
 
+      <FaniNudge />
+
       {/* ── Hero ──────────────────────────────────────────────────────────── */}
       <div className="relative overflow-hidden rounded-3xl
                       bg-gradient-to-br from-brand-700 via-brand-600 to-brand-500
@@ -549,6 +550,9 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* ── Weekly recap (self-hides when there's nothing to recap) ───────── */}
+      {!closetLoading && totalItems > 0 && <WeeklyDigest />}
+
       {/* ── Main two-column area ──────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
 
@@ -558,7 +562,7 @@ export default function Dashboard() {
           {closetLoading && (
             <div className="rounded-2xl border border-cream-200 dark:border-white/[0.07]
                             bg-white dark:bg-white/[0.03] flex items-center justify-center py-20">
-              <Loader2 size={24} className="animate-spin text-brand-500" />
+              <FaniLoader size="md" />
             </div>
           )}
         </div>

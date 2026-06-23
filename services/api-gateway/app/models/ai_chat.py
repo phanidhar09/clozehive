@@ -63,7 +63,8 @@ class DailyNudge(Base):
     )
     nudge_date: Mapped[date_type] = mapped_column(Date, nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)
-    # weather_outfit | new_arrival | unworn_pick | calendar_prep | streak | generic
+    # calendar_prep | festival | weather_outfit | new_arrival | forgotten_gem
+    # | unworn_pick | streak | generic
     nudge_type: Mapped[str] = mapped_column(String(40), nullable=False)
     payload: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     dismissed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

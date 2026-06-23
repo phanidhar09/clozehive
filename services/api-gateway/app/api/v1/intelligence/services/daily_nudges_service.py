@@ -4,7 +4,8 @@ Generated lazily on the first request to ``/ai-chat/nudges/today`` per
 calendar date. The nudge type is chosen from a small priority hierarchy based
 on what's actionable for *this* user *today*:
 
-  calendar_prep  > festival  > weather_outfit  > new_arrival  > unworn_pick  > generic
+  calendar_prep > festival > weather_outfit > new_arrival > forgotten_gem
+  > unworn_pick > generic
 
 A short LLM call turns the chosen context into a one-sentence FANI message.
 If the LLM call fails or the user has no actionable context, we return
@@ -37,6 +38,9 @@ NEW_ARRIVAL_WINDOW_DAYS = 5
 TRIP_PREP_WINDOW_DAYS = 3
 # A user needs at least this many unworn items before we suggest they style one.
 UNWORN_MIN_ITEMS = 4
+# An item worn before but untouched for this long is a "forgotten gem" to revive.
+# Kept in step with AnalyticsService._FORGOTTEN_DAYS so the two surfaces agree.
+FORGOTTEN_GEM_DAYS = 60
 
 
 _NUDGE_SYSTEM_PROMPT = (
@@ -106,6 +110,31 @@ async def _unworn_pick(session: AsyncSession, user_id: UUID) -> ClosetItem | Non
             ClosetItem.wear_count == 0,
         )
         .order_by(func.random())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def _forgotten_gem(session: AsyncSession, user_id: UUID, today: date) -> ClosetItem | None:
+    """A previously-worn item gone quiet for a while — the strongest revival hook.
+
+    Unlike ``_unworn_pick`` (never-worn backlog), a gem was *loved* and then
+    forgotten; reviving it is delightful and rewards owning, not buying. Rank by
+    investment (price) first so an expensive, neglected piece surfaces ahead of a
+    cheap one, then by how long it's been gone.
+    """
+    cutoff = today - timedelta(days=FORGOTTEN_GEM_DAYS)
+    result = await session.execute(
+        select(ClosetItem)
+        .where(
+            ClosetItem.user_id == user_id,
+            ClosetItem.is_archived == False,  # noqa: E712
+            ClosetItem.availability == "available",
+            ClosetItem.wear_count > 0,
+            ClosetItem.last_worn.is_not(None),
+            ClosetItem.last_worn <= cutoff,
+        )
+        .order_by(ClosetItem.price.desc().nullslast(), ClosetItem.last_worn.asc())
         .limit(1)
     )
     return result.scalar_one_or_none()
@@ -289,7 +318,33 @@ async def _compose_nudge(session: AsyncSession, user_id: UUID, today: date) -> t
                 },
             )
 
-    # 5. Unworn pick — gentle "you have things you haven't worn" nudge.
+    # 5. Forgotten gem — revive a once-loved piece that's gone quiet. Ranks above
+    #    the never-worn nudge: bringing back something they chose to wear is a
+    #    stronger, more delightful hook than highlighting a never-touched item.
+    gem = await _forgotten_gem(session, user_id, today)
+    if gem and gem.last_worn:
+        days_since = (today - gem.last_worn).days
+        ctx = (
+            f"The user owns '{gem.name}' ({gem.category}"
+            f"{', ' + gem.color if gem.color else ''}) but hasn't worn it in "
+            f"{days_since} days, though they've worn it {gem.wear_count} times before. "
+            "Warmly suggest letting FANI build a fresh outfit to bring it back into rotation."
+        )
+        message = await _llm_nudge(ctx)
+        if message:
+            return (
+                message,
+                "forgotten_gem",
+                {
+                    "item_id": str(gem.id),
+                    "item_name": gem.name,
+                    "category": gem.category,
+                    "days_since_worn": days_since,
+                    "wear_count": gem.wear_count,
+                },
+            )
+
+    # 6. Unworn pick — gentle "you have things you haven't worn" nudge.
     unworn = await _unworn_pick(session, user_id)
     if unworn:
         ctx = (
@@ -310,7 +365,7 @@ async def _compose_nudge(session: AsyncSession, user_id: UUID, today: date) -> t
                 },
             )
 
-    # 6. Nothing actionable — skip; don't bug the user with filler.
+    # 7. Nothing actionable — skip; don't bug the user with filler.
     return None
 
 
