@@ -46,6 +46,13 @@ ALLOWED_MIME_SIGNATURES = {
     "image/webp": (b"RIFF", b"WEBP"),
 }
 
+# HEIC/HEIF files are ISO-BMFF: bytes 4-8 are "ftyp", bytes 8-12 are the major
+# brand. Apple devices emit these brands. We accept them on upload and transcode
+# to JPEG so downstream consumers (vision models, browsers) never see HEIC.
+_HEIF_BRANDS = frozenset(
+    {b"heic", b"heix", b"heim", b"heis", b"hevc", b"hevx", b"hevm", b"hevs", b"mif1", b"msf1"}
+)
+
 MIME_TO_SUFFIX = {
     "image/jpeg": ".jpg",
     "image/png": ".png",
@@ -70,7 +77,34 @@ def _detect_image_type(header: bytes) -> str | None:
         and header[8:12] == ALLOWED_MIME_SIGNATURES["image/webp"][1]
     ):
         return "image/webp"
+    if header[4:8] == b"ftyp" and header[8:12] in _HEIF_BRANDS:
+        return "image/heic"
     return None
+
+
+def _heic_to_jpeg(image_bytes: bytes) -> bytes:
+    """Decode HEIC/HEIF bytes and re-encode as JPEG.
+
+    Requires ``pillow-heif``, which registers a HEIF opener with Pillow. Raises
+    BadRequestError if the plugin is missing or the bytes can't be decoded.
+    """
+    try:
+        import pillow_heif  # noqa: F401  — registers the HEIF opener on import
+
+        from PIL import Image
+    except ImportError as exc:
+        raise BadRequestError(
+            "HEIC images aren't supported on this server. Please upload JPEG, PNG, or WebP."
+        ) from exc
+
+    try:
+        pillow_heif.register_heif_opener()
+        img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=90, optimize=True)
+        return buf.getvalue()
+    except Exception as exc:  # noqa: BLE001
+        raise BadRequestError("Could not read the HEIC image. Try a different photo.") from exc
 
 
 def strip_metadata(image_bytes: bytes, content_type: str) -> bytes:
@@ -105,7 +139,11 @@ def strip_metadata(image_bytes: bytes, content_type: str) -> bytes:
 
 
 async def read_validated_image(file: UploadFile) -> tuple[bytes, str]:
-    """Read upload bytes, enforce size and JPEG/PNG/WebP via magic bytes."""
+    """Read upload bytes, enforce size and JPEG/PNG/WebP/HEIC via magic bytes.
+
+    HEIC uploads are transcoded to JPEG, so callers always receive a
+    web/vision-friendly content type.
+    """
     if file.size is not None and file.size > MAX_UPLOAD_SIZE_BYTES:
         raise BadRequestError("File too large. Maximum size is 10MB.")
 
@@ -113,11 +151,18 @@ async def read_validated_image(file: UploadFile) -> tuple[bytes, str]:
     await file.seek(0)
     content_type = _detect_image_type(header)
     if not content_type:
-        raise BadRequestError("Invalid file type. Only JPEG, PNG, and WebP images are accepted.")
+        raise BadRequestError(
+            "Invalid file type. Only JPEG, PNG, WebP, and HEIC images are accepted."
+        )
 
     image_bytes = await file.read()
     if len(image_bytes) > MAX_UPLOAD_SIZE_BYTES:
         raise BadRequestError("File too large. Maximum size is 10MB.")
+
+    # HEIC isn't web/vision-friendly — transcode to JPEG and continue as JPEG.
+    if content_type == "image/heic":
+        image_bytes = await asyncio.to_thread(_heic_to_jpeg, image_bytes)
+        content_type = "image/jpeg"
 
     image_bytes = strip_metadata(image_bytes, content_type)
     return image_bytes, content_type

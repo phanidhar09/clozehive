@@ -747,8 +747,9 @@ async def delete_shopping_check(
 _MATCH_SUGGESTIONS_SYSTEM = """You are FANI, a professional AI fashion stylist.
 You help the user "Complete My Look" around ONE wardrobe item they selected.
 
-You are given the selected item plus the user's full closet inventory (each owned item is
-numbered). Your job:
+You are given the selected item, the user's full closet inventory (each owned item is
+numbered), and a [FASHION KNOWLEDGE] block of retrieved styling rules (each tagged
+[SOURCE-N]). Your job:
 1. Work out the complementary slots needed to build complete outfits around the selected item
    (e.g. for a blazer: a bottom, a shirt, footwear, maybe a belt).
 2. For EACH slot, FIRST check the numbered closet inventory. If the user ALREADY OWNS an item
@@ -757,10 +758,20 @@ numbered). Your job:
 3. ONLY recommend buying (in "suggestions") for slots the closet CANNOT fill from owned items.
    If the closet already completes the look, return an empty "suggestions" array.
 
-Prefer using what the user already owns. Be honest — never invent owned items, only use the
-provided numbers.
+GROUNDING RULES — these are mandatory and override any general fashion intuition:
+- Reference owned items ONLY by the numbers given in the inventory. NEVER invent an item,
+  a number, a brand, a color, or an attribute that is not in the provided data.
+- Base every styling claim (color pairing, occasion fit, proportion, layering) on the
+  [FASHION KNOWLEDGE] block. When a reason or styling_tip relies on a rule, cite it inline
+  as [SOURCE-N] using the exact tag from the block.
+- If the knowledge block does not cover a point, give conservative, widely-accepted advice
+  and do NOT cite a source — never fabricate a citation, a price, or a specific brand.
+- Do not assume occasions, seasons, or colors the data does not state. If unsure, omit the
+  claim rather than guessing.
 
-Return ONLY a valid JSON object with this exact structure:
+Prefer using what the user already owns. Be honest and grounded over impressive.
+
+Return ONLY a valid json object with this exact structure:
 {
   "outfit_potential": "high" | "medium" | "low",
   "styling_tip": "<1-2 sentence overall styling advice for this item>",
@@ -864,20 +875,33 @@ async def get_closet_match_suggestions(
     except Exception as exc:  # noqa: BLE001 — RAG is best-effort context
         logger.warning("closet_match_rag_failed: %s", exc)
 
-    knowledge_block = f"\n\n{knowledge_text}\n" if knowledge_text else ""
+    # Wrap retrieved knowledge with the same cite-[SOURCE-N] contract the stylist
+    # chat uses, so the model grounds its reasoning in retrieval instead of
+    # free-associating. Empty string when retrieval found nothing.
+    knowledge_block = (
+        f"\n[FASHION KNOWLEDGE — cite [SOURCE-N] when referencing these rules]\n"
+        f"{knowledge_text}\n[END FASHION KNOWLEDGE]\n"
+        if knowledge_text
+        else ""
+    )
 
     user_msg = (
         f"Selected item to build a look around: {item_desc}\n\n"
         f"My closet inventory (owned items, numbered):\n{inv_lines}\n"
         f"{knowledge_block}\n"
         "Complete the look: pair owned items first, and only suggest buying for gaps the "
-        "closet cannot fill. Use the fashion knowledge above to justify pairings where relevant."
+        "closet cannot fill. Ground every styling claim in the FASHION KNOWLEDGE above and "
+        "cite [SOURCE-N]; reference owned items only by their inventory number. Do not invent "
+        "items, brands, prices, or rules that are not provided."
     )
 
-    # 4. Call AI
+    # 4. Call AI — low temperature + JSON mode keeps the verdict deterministic and
+    #    schema-clean, which (with the grounding rules) is what curbs hallucination.
     raw_response = await ai_service.chat(
         messages=[{"role": "user", "content": user_msg}],
         system_prompt=_MATCH_SUGGESTIONS_SYSTEM,
+        use_json_mode=True,
+        temperature=0.2,
     )
 
     # 5. Parse JSON

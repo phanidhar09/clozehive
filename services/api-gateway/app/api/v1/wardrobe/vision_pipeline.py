@@ -113,7 +113,7 @@ def _safe_float(v: Any) -> float | None:
 )
 async def analyze_vision_stream(
     user_id: CurrentUser,
-    file: UploadFile = File(..., description="Single outfit/clothing image (JPEG/PNG/WebP, ≤10 MB)"),
+    file: UploadFile = File(..., description="Single outfit/clothing image (JPEG/PNG/WebP/HEIC, ≤10 MB)"),
 ) -> StreamingResponse:
     """
     Upload one photo and receive Server-Sent Events as processing progresses.
@@ -161,7 +161,7 @@ async def analyze_vision_stream(
 )
 async def analyze_vision(
     user_id: CurrentUser,
-    file: UploadFile = File(..., description="Single clothing/outfit image (JPEG/PNG/WebP, ≤10 MB)"),
+    file: UploadFile = File(..., description="Single clothing/outfit image (JPEG/PNG/WebP/HEIC, ≤10 MB)"),
 ) -> VisionAnalyzeResponse:
     """
     Upload one photo containing any number of clothing items.

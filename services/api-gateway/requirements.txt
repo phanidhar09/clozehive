@@ -66,6 +66,7 @@ firebase-admin==7.4.0
 python-dotenv==1.2.2
 orjson==3.11.9
 pillow==12.2.0
+pillow-heif==1.1.0  # HEIC/HEIF decode (Apple photos) — registers a Pillow opener
 
 # ── Gemini AI (new SDK — avoids google-ai-generativelanguage protobuf<6 pin) ──
 google-genai==2.6.0
