@@ -106,9 +106,7 @@ def build_outfits(
     fillable_required = [r for r in plan["required"] if buckets.get(r)]
 
     # Candidate sets for the cartesian product (top N per fillable required role).
-    candidate_lists = [
-        [item for item, _ in buckets[r][:_CANDIDATES_PER_ROLE]] for r in fillable_required
-    ]
+    candidate_lists = [[item for item, _ in buckets[r][:_CANDIDATES_PER_ROLE]] for r in fillable_required]
 
     outfits: list[dict[str, Any]] = []
     seen: set[frozenset[str]] = set()
@@ -121,9 +119,7 @@ def build_outfits(
         for opt_role in plan["optional"]:
             best: tuple[dict[str, Any], float] | None = None
             for cand, _anchor_score in buckets.get(opt_role, []):
-                coherence = sum(
-                    compat.score_compatibility(cand, existing)["score"] for existing in items
-                ) / len(items)
+                coherence = sum(compat.score_compatibility(cand, existing)["score"] for existing in items) / len(items)
                 if coherence >= compat.PAIR_THRESHOLD and (best is None or coherence > best[1]):
                     best = (cand, coherence)
             if best is not None:
@@ -224,7 +220,9 @@ def _suggested_colors(anchor: dict[str, Any]) -> list[str]:
     return base[:3]
 
 
-def suggest_for_gaps(anchor: dict[str, Any], missing_roles: list[str], closet: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def suggest_for_gaps(
+    anchor: dict[str, Any], missing_roles: list[str], closet: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
     """For each missing required role, a concrete, attribute-rich completer
     suggestion + how many outfits it would unlock."""
     if not missing_roles:

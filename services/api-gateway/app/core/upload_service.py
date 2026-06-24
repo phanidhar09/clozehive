@@ -49,9 +49,7 @@ ALLOWED_MIME_SIGNATURES = {
 # HEIC/HEIF files are ISO-BMFF: bytes 4-8 are "ftyp", bytes 8-12 are the major
 # brand. Apple devices emit these brands. We accept them on upload and transcode
 # to JPEG so downstream consumers (vision models, browsers) never see HEIC.
-_HEIF_BRANDS = frozenset(
-    {b"heic", b"heix", b"heim", b"heis", b"hevc", b"hevx", b"hevm", b"hevs", b"mif1", b"msf1"}
-)
+_HEIF_BRANDS = frozenset({b"heic", b"heix", b"heim", b"heis", b"hevc", b"hevx", b"hevm", b"hevs", b"mif1", b"msf1"})
 
 MIME_TO_SUFFIX = {
     "image/jpeg": ".jpg",
@@ -90,12 +88,9 @@ def _heic_to_jpeg(image_bytes: bytes) -> bytes:
     """
     try:
         import pillow_heif  # noqa: F401  — registers the HEIF opener on import
-
         from PIL import Image
     except ImportError as exc:
-        raise BadRequestError(
-            "HEIC images aren't supported on this server. Please upload JPEG, PNG, or WebP."
-        ) from exc
+        raise BadRequestError("HEIC images aren't supported on this server. Please upload JPEG, PNG, or WebP.") from exc
 
     try:
         pillow_heif.register_heif_opener()
@@ -151,9 +146,7 @@ async def read_validated_image(file: UploadFile) -> tuple[bytes, str]:
     await file.seek(0)
     content_type = _detect_image_type(header)
     if not content_type:
-        raise BadRequestError(
-            "Invalid file type. Only JPEG, PNG, WebP, and HEIC images are accepted."
-        )
+        raise BadRequestError("Invalid file type. Only JPEG, PNG, WebP, and HEIC images are accepted.")
 
     image_bytes = await file.read()
     if len(image_bytes) > MAX_UPLOAD_SIZE_BYTES:

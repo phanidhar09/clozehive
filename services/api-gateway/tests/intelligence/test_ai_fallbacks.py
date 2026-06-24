@@ -16,6 +16,7 @@ async def test_generate_outfits_falls_back_when_ai_raises(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.real_packing
 async def test_packing_fallback_on_bad_dates():
     from app.api.v1.travel.services.packing_service import generate_packing_list
 

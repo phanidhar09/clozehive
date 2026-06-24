@@ -52,8 +52,7 @@ _MAX_REDIRECTS = 5
 # A real browser UA — many brand CDNs serve a bare page (or 403) to bots, which
 # would strip the OG tags we need.
 _USER_AGENT = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 )
 
 
@@ -270,9 +269,7 @@ async def _get(url: str, *, accept: str) -> httpx.Response:
     """SSRF-guarded GET that follows redirects manually, validating each hop."""
     current = _validate_url(url)
     headers = {"User-Agent": _USER_AGENT, "Accept": accept}
-    async with httpx.AsyncClient(
-        timeout=_REQUEST_TIMEOUT_S, follow_redirects=False
-    ) as client:
+    async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_S, follow_redirects=False) as client:
         for _ in range(_MAX_REDIRECTS):
             resp = await client.get(current, headers=headers)
             if resp.is_redirect:
@@ -350,7 +347,7 @@ def _transcode_to_jpeg(data: bytes) -> bytes | None:
     except ImportError:
         return None
     try:
-        img = Image.open(io.BytesIO(data))
+        img: Image.Image = Image.open(io.BytesIO(data))
         img = img.convert("RGB")
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=90, optimize=True)

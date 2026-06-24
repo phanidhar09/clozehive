@@ -239,9 +239,7 @@ class AnalyticsService:
             weakest_covered_occasions=weakest_covered,
         )
 
-    async def _compute_value_insights(
-        self, user_id: UUID, items: Sequence[ClosetItem]
-    ) -> WardrobeValueInsights:
+    async def _compute_value_insights(self, user_id: UUID, items: Sequence[ClosetItem]) -> WardrobeValueInsights:
         """Cost-per-wear, utilization, forgotten gems, and versatility.
 
         Built from price + the wear rollup (wear_count / last_worn) on each item,
@@ -272,14 +270,16 @@ class AnalyticsService:
         active_rate_90d = round(worn_90d / total * 100, 1)
 
         # ── Value math (needs prices) ─────────────────────────────────────────
-        priced = [i for i in active if i.price is not None]
-        total_value = sum(float(i.price) for i in priced)
-        value_worn = sum(float(i.price) for i in priced if (i.wear_count or 0) > 0)
+        # Pair each priced item with its price as a float so the value math is
+        # None-safe (the filter guarantees price is set).
+        priced = [(i, float(i.price)) for i in active if i.price is not None]
+        total_value = sum(price for _, price in priced)
+        value_worn = sum(price for i, price in priced if (i.wear_count or 0) > 0)
         value_unworn = round(total_value - value_worn, 2)
 
         # ── Cost-per-wear, ranked (priced + actually worn) ────────────────────
         cpw: list[CostPerWearItem] = []
-        for i in priced:
+        for i, price in priced:
             wc = i.wear_count or 0
             if wc <= 0:
                 continue  # cost-per-wear is meaningless before the first wear
@@ -288,9 +288,9 @@ class AnalyticsService:
                     item_id=str(i.id),
                     name=i.name,
                     category=i.category,
-                    price=float(i.price),
+                    price=price,
                     wear_count=wc,
-                    cost_per_wear=round(float(i.price) / wc, 2),
+                    cost_per_wear=round(price / wc, 2),
                 )
             )
         cpw.sort(key=lambda c: c.cost_per_wear)
@@ -346,9 +346,7 @@ class AnalyticsService:
             most_versatile=most_versatile,
         )
 
-    async def _compute_versatility(
-        self, user_id: UUID, items: Sequence[ClosetItem]
-    ) -> list[VersatilityItem]:
+    async def _compute_versatility(self, user_id: UUID, items: Sequence[ClosetItem]) -> list[VersatilityItem]:
         """Count saved-outfit membership per item (Outfit.item_ids holds str ids)."""
         result = await self.session.execute(select(Outfit.item_ids).where(Outfit.user_id == user_id))
         counts: Counter[str] = Counter()
@@ -440,8 +438,8 @@ class AnalyticsService:
             if iid in by_id and by_id[iid].price is not None and (by_id[iid].wear_count or 0) > 0
         ]
         if priced_worn:
-            cheapest = min(priced_worn, key=lambda i: float(i.price) / (i.wear_count or 1))
-            cpw = round(float(cheapest.price) / (cheapest.wear_count or 1), 2)
+            cheapest = min(priced_worn, key=lambda i: float(i.price or 0) / (i.wear_count or 1))
+            cpw = round(float(cheapest.price or 0) / (cheapest.wear_count or 1), 2)
             best_value = DigestItem(
                 item_id=str(cheapest.id),
                 name=cheapest.name,
@@ -450,26 +448,26 @@ class AnalyticsService:
             )
 
         # ── New arrivals this week ────────────────────────────────────────────
-        new_items = sum(
-            1 for i in items if i.created_at and i.created_at.date() >= window_start
-        )
+        new_items = len([i for i in items if i.created_at and i.created_at.date() >= window_start])
 
         # ── One forgotten gem to revive (worn before, quiet ≥ threshold) ──────
         forgotten_cutoff = today - timedelta(days=_FORGOTTEN_DAYS)
+        # Pair each candidate with its (non-None) last_worn date so the gap math
+        # below is None-safe (the filter guarantees last_worn is set).
         candidates = [
-            i
+            (i, i.last_worn)
             for i in items
             if (i.wear_count or 0) > 0 and i.last_worn and i.last_worn <= forgotten_cutoff
         ]
         forgotten_gem: DigestItem | None = None
         if candidates:
             # Most-neglected first: longest gap, then highest price as tiebreak.
-            gem = max(candidates, key=lambda i: ((today - i.last_worn).days, float(i.price or 0)))
+            gem, last_worn = max(candidates, key=lambda c: ((today - c[1]).days, float(c[0].price or 0)))
             forgotten_gem = DigestItem(
                 item_id=str(gem.id),
                 name=gem.name,
                 category=gem.category,
-                detail=f"{(today - gem.last_worn).days} days ago",
+                detail=f"{(today - last_worn).days} days ago",
             )
 
         # ── Utilization (share of the closet worn at least once) ──────────────

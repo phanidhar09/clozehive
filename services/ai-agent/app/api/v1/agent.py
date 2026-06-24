@@ -6,6 +6,7 @@ import asyncio
 import json
 from typing import Any
 
+import structlog
 from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -22,19 +23,15 @@ from app.services.vector_store import embed_query, search_closet_context
 
 router = APIRouter(prefix="/agent", tags=["Agent"])
 settings = get_settings()
+logger = structlog.get_logger("agent_routes")
 
 TOOLS_UNAVAILABLE_DETAIL = (
     "Agent tools are not yet ready — agent is still starting up. Retry in a moment."
 )
 
 
-def _require_tool_routes() -> None:
-    """Raise when agent tools are not loaded."""
-    pass  # tools are always inline; only agent readiness matters
-
-
-def _mcp_output_to_str(raw: Any) -> str:
-    """MCP tools may return a plain string or LangChain-style content blocks."""
+def _tool_output_to_str(raw: Any) -> str:
+    """Inline tools may return a plain string or LangChain-style content blocks."""
     if raw is None:
         return ""
     if isinstance(raw, str):
@@ -54,12 +51,12 @@ def _mcp_output_to_str(raw: Any) -> str:
     return str(raw)
 
 
-def _parse_json_mcp(raw: Any) -> Any:
+def _parse_json_tool(raw: Any) -> Any:
     if isinstance(raw, dict):
         return raw
-    text = _mcp_output_to_str(raw).strip()
+    text = _tool_output_to_str(raw).strip()
     if not text:
-        raise ValueError("empty MCP tool output")
+        raise ValueError("empty tool output")
     return json.loads(text)
 
 
@@ -115,7 +112,10 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     reply: str
-    mode: str = "full"  # "full" = MCP tools loaded, "llm_only" = no MCP tools
+    # "full" = inline tools available to the agent, "llm_only" = none loaded.
+    # Inline tools are always present, so this is "full" in practice; kept for
+    # response-shape stability with older gateway/clients.
+    mode: str = "full"
 
 
 class OutfitRequest(BaseModel):
@@ -214,7 +214,8 @@ async def chat(body: ChatRequest, background: BackgroundTasks):
             background.add_task(extract_and_store_memories, body.user_id, body.message)
         return ChatResponse(reply=reply, mode=mode)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+        logger.error("agent_chat_failed", error=str(exc))
+        raise HTTPException(status_code=500, detail="Chat failed. Please try again.") from exc
 
 
 @router.post("/chat/stream")
@@ -234,7 +235,8 @@ async def chat_stream(body: ChatRequest):
                 yield _sse({"type": "token", "content": token})
             yield _sse({"type": "done", "mode": mode})
         except Exception as exc:
-            yield _sse({"type": "error", "message": str(exc)})
+            logger.error("agent_chat_stream_failed", error=str(exc))
+            yield _sse({"type": "error", "message": "Chat failed. Please try again."})
 
     # Learn durable preferences after the stream finishes — never blocks tokens.
     learn_task = (
@@ -257,8 +259,7 @@ async def chat_stream(body: ChatRequest):
 
 @router.post("/outfit")
 async def outfit(body: OutfitRequest):
-    """Generate outfit suggestions via the outfit MCP tool."""
-    _require_tool_routes()
+    """Generate outfit suggestions via the inline outfit tool."""
     agent = _require_agent()
     outfit_tool = next((t for t in agent.tools if "generate_outfit" in t.name), None)
     if not outfit_tool:
@@ -277,19 +278,20 @@ async def outfit(body: OutfitRequest):
         if body.user_profile:
             invoke_args["user_profile_json"] = json.dumps(body.user_profile)
         raw = await outfit_tool.ainvoke(invoke_args)
-        return _parse_json_mcp(raw)
+        return _parse_json_tool(raw)
     except HTTPException:
         raise
     except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=502, detail=f"Invalid outfit JSON from MCP: {exc}") from exc
+        logger.error("agent_outfit_bad_json", error=str(exc))
+        raise HTTPException(status_code=502, detail="Outfit tool returned malformed output.") from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.error("agent_outfit_failed", error=str(exc))
+        raise HTTPException(status_code=500, detail="Outfit generation failed. Please try again.") from exc
 
 
 @router.post("/packing")
 async def packing(body: PackingRequest):
-    """Call weather MCP then packing MCP for a structured PackingResult JSON."""
-    _require_tool_routes()
+    """Chain the inline weather tool then packing tool into a structured PackingResult JSON."""
     agent = _require_agent()
     weather_tool = next((t for t in agent.tools if "get_weather_summary" in t.name), None)
     packing_tool = next((t for t in agent.tools if "generate_trip_packing_list" in t.name), None)
@@ -305,7 +307,7 @@ async def packing(body: PackingRequest):
             "start_date": body.start_date,
             "end_date": body.end_date,
         })
-        weather_data = _parse_json_mcp(wraw)
+        weather_data = _parse_json_tool(wraw)
         if isinstance(weather_data, dict) and weather_data.get("error"):
             raise HTTPException(status_code=502, detail=str(weather_data["error"]))
 
@@ -324,7 +326,7 @@ async def packing(body: PackingRequest):
             "closet_items_json": json.dumps(body.closet_items),
             "weather_summary_json": weather_json,
         })
-        result = _parse_json_mcp(praw)
+        result = _parse_json_tool(praw)
         if isinstance(result, dict) and result.get("error"):
             raise HTTPException(status_code=502, detail=str(result["error"]))
         if isinstance(result, dict) and isinstance(weather_data, dict) and not weather_data.get(
@@ -336,15 +338,16 @@ async def packing(body: PackingRequest):
     except HTTPException:
         raise
     except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=502, detail=f"Invalid packing JSON from MCP: {exc}") from exc
+        logger.error("agent_packing_bad_json", error=str(exc))
+        raise HTTPException(status_code=502, detail="Packing tool returned malformed output.") from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.error("agent_packing_failed", error=str(exc))
+        raise HTTPException(status_code=500, detail="Packing list generation failed. Please try again.") from exc
 
 
 @router.post("/vision/analyze")
 async def vision_analyze(body: VisionRequest):
-    """Analyze garment image via the vision MCP tool."""
-    _require_tool_routes()
+    """Analyze garment image via the inline vision tool."""
     agent = _require_agent()
     vision_tool = next(
         (t for t in agent.tools if "analyze_clothing" in t.name and "from_bytes" not in t.name),
@@ -361,10 +364,12 @@ async def vision_analyze(body: VisionRequest):
             "image_base64": body.image_base64,
             "media_type": body.media_type,
         })
-        return _normalize_vision_response(_parse_json_mcp(raw))
+        return _normalize_vision_response(_parse_json_tool(raw))
     except HTTPException:
         raise
     except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=502, detail=f"Invalid vision JSON from MCP: {exc}") from exc
+        logger.error("agent_vision_bad_json", error=str(exc))
+        raise HTTPException(status_code=502, detail="Vision tool returned malformed output.") from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.error("agent_vision_failed", error=str(exc))
+        raise HTTPException(status_code=500, detail="Vision analysis failed. Please try again.") from exc

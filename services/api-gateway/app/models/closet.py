@@ -120,9 +120,7 @@ class WearEvent(Base):
     # table, and analytics only ever reads it for grouping, never joins on it.
     outfit_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     source: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")  # manual | planner
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 class Outfit(Base):

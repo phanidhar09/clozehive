@@ -186,12 +186,36 @@ _FABRIC_ADJ: dict[str, float] = {
 
 # Name / subcategory cues that strongly imply formality.
 _NAME_FORMAL = (
-    "blazer", "suit", "tuxedo", "trouser", "dress shirt", "oxford", "loafer",
-    "heel", "pump", "gown", "sport coat", "tie", "slacks", "chino",
+    "blazer",
+    "suit",
+    "tuxedo",
+    "trouser",
+    "dress shirt",
+    "oxford",
+    "loafer",
+    "heel",
+    "pump",
+    "gown",
+    "sport coat",
+    "tie",
+    "slacks",
+    "chino",
 )
 _NAME_CASUAL = (
-    "hoodie", "jogger", "sweatpant", "sneaker", "t-shirt", "tee", "tank",
-    "cargo", "track", "flip-flop", "slipper", "graphic", "legging", "short",
+    "hoodie",
+    "jogger",
+    "sweatpant",
+    "sneaker",
+    "t-shirt",
+    "tee",
+    "tank",
+    "cargo",
+    "track",
+    "flip-flop",
+    "slipper",
+    "graphic",
+    "legging",
+    "short",
 )
 
 
@@ -220,9 +244,7 @@ def formality_level(item: dict[str, Any]) -> float:
     fabric = (str(_resolve(item, "fabric", "material") or "")).lower()
     fabric_adj = next((v for k, v in _FABRIC_ADJ.items() if k in fabric), 0.0)
 
-    name = " ".join(
-        str(_resolve(item, k) or "").lower() for k in ("name", "subcategory", "category")
-    )
+    name = " ".join(str(_resolve(item, k) or "").lower() for k in ("name", "subcategory", "category"))
     name_adj = 0.0
     if any(tok in name for tok in _NAME_FORMAL):
         name_adj += 0.6

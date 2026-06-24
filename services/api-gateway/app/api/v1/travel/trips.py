@@ -14,7 +14,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.identity.services.style_profile_context import load_merged_user_profile_for_ai
-from app.api.v1.intelligence.services import ai_client
 from app.api.v1.intelligence.services.fashion_rag_service import get_fashion_context_for_prompt
 from app.api.v1.intelligence.services.purchase_gap_service import detect_and_save_gaps
 from app.api.v1.travel.schemas.trips import (
@@ -119,38 +118,32 @@ async def _generate_trip_packing(
     rag_context: str | None = None,
 ) -> dict[str, Any]:
     """
-    Generate packing plan — tries ai-agent first (LangChain/MCP), falls back to
-    in-gateway packing_service. 50s hard timeout.
+    Generate packing plan via the in-gateway packing_service — the single,
+    full-featured packing implementation (RAG-grounded, honours activities /
+    trip_style / bag_size, returns a graceful mock on AI failure). 50s hard
+    timeout; packing_service supplies its own per-step fallbacks within it.
+
+    (Previously this raced the ai-agent /packing endpoint first, but that path
+    silently dropped activities/trip_style/bag_size/rag_context and needed
+    output-shape glue, so trip packing diverged from the /ai/packing route.
+    The agent endpoint still exists for the async ai-worker path.)
     """
     prof = await load_merged_user_profile_for_ai(session, user_id, None)
 
     async def _run() -> dict[str, Any]:
-        try:
-            # ai_client doesn't yet support activities — fall through to packing_service
-            return await ai_client.generate_packing_list(
-                destination,
-                start_date,
-                end_date,
-                purpose,
-                closet_items,
-                notes=notes,
-                user_style_profile=prof,
-            )
-        except Exception as exc:
-            logger.warning("trip_packing_ai_agent_fallback", error=str(exc), destination=destination)
-            return await packing_service.generate_packing_list(
-                destination,
-                start_date,
-                end_date,
-                purpose,
-                closet_items,
-                notes=notes,
-                activities=activities,
-                trip_style=trip_style,
-                bag_size=bag_size,
-                user_style_profile=prof,
-                rag_context=rag_context,
-            )
+        return await packing_service.generate_packing_list(
+            destination,
+            start_date,
+            end_date,
+            purpose,
+            closet_items,
+            notes=notes,
+            activities=activities,
+            trip_style=trip_style,
+            bag_size=bag_size,
+            user_style_profile=prof,
+            rag_context=rag_context,
+        )
 
     try:
         return await asyncio.wait_for(_run(), timeout=50.0)

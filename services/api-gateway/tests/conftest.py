@@ -5,7 +5,7 @@ GCS, or weather credentials** are required. See Readme.md (Testing) for commands
 
 - **Redis**: in-memory ``FakeRedis`` for rate-limit / auth token storage.
 - **cache_service**: in-memory dict so closet **analyze-preview** sessions work.
-- **ai_client.generate_packing_list**: deterministic fixture (trip packing without HTTP to ai-agent).
+- **packing_service.generate_packing_list**: deterministic fixture (trip/AI packing without OpenAI/weather).
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from app.db.session import get_read_session, get_session
 from app.main import app
 from app.core.rate_limit import auth_limiter, limiter
 from app.api.v1.identity.services import auth_service
-from app.api.v1.intelligence.services import ai_client
+from app.api.v1.travel.services import packing_service
 from app.core import cache_service
 from app.core import redis as redis_core
 import app.api.v1.intelligence.ai as ai_mod
@@ -105,10 +105,13 @@ async def _deterministic_packing_list(
     closet_items: list[dict[str, Any]],
     notes: str | None = None,
     user_style_profile: dict[str, Any] | None = None,
+    **_kwargs: Any,
 ) -> dict[str, Any]:
     """
-    Stub ai-agent packing: echoes real closet item ids/names so trip tests
+    Stub packing_service: echoes real closet item ids/names so trip tests
     prove packing uses the user's wardrobe (no HTTP, no OpenAI/weather).
+    Accepts (and ignores) the full packing_service kwargs — activities,
+    trip_style, bag_size, rag_context — via **_kwargs.
     """
     take: list[dict[str, Any]] = []
     for it in closet_items[:20]:
@@ -131,7 +134,7 @@ async def _deterministic_packing_list(
 
 
 @pytest.fixture(autouse=True)
-def fake_services(monkeypatch):
+def fake_services(monkeypatch, request):
     fake_redis = FakeRedis()
     cache_store: dict[str, Any] = {}
 
@@ -176,7 +179,12 @@ def fake_services(monkeypatch):
     # (3/minute on register) — fixtures register users far faster than that.
     auth_limiter.enabled = False
 
-    monkeypatch.setattr(ai_client, "generate_packing_list", _deterministic_packing_list)
+    # Trip/route tests want deterministic, closet-grounded packing without
+    # OpenAI/weather. Unit tests that assert on the *real* packing_service
+    # behaviour (e.g. graceful bad-date handling) opt out with
+    # @pytest.mark.real_packing.
+    if request.node.get_closest_marker("real_packing") is None:
+        monkeypatch.setattr(packing_service, "generate_packing_list", _deterministic_packing_list)
 
     async def noop_embedding(*_a, **_kw):
         return None

@@ -1,103 +1,194 @@
-# ClozeHive 
+<div align="center">
 
-**Launch the app:** https://cloze-hive.onrender.com — sign up or log in to start.
-**Marketing site:** https://clozehive.netlify.app (overview & features)
+# ClozeHive
 
-ClozeHive is a **wardrobe intelligence** application: a digital closet, outfit building, **FANI**-powered AI styling, travel and packing help, analytics, and **RAG**-enhanced insights grounded in your items and history. The stack is a **React + Vite + TypeScript** SPA, a **FastAPI** API gateway (auth, closet, outfits, trips, analytics, AI orchestration entrypoints, and in-process image-analysis/background-removal vision pipeline), a **LangGraph-style ai-agent** with **MCP** tool servers, **PostgreSQL + pgvector**, **Redis**, and **nginx** as the single browser entrypoint in Docker.
+### Wardrobe intelligence, powered by FANI
 
-**Repository:** [github.com/phanidhar09/clozehive](https://github.com/phanidhar09/clozehive)
+**A digital closet that thinks** — outfit building, AI styling, travel packing, wear analytics, and RAG-grounded insights built on top of your own items and history.
 
-**Environment variables, Docker, GCP, migrations, tests, and troubleshooting:** see **[docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)**.
+[**Launch the app →**](https://cloze-hive.onrender.com) &nbsp;•&nbsp; [Marketing site](https://clozehive.netlify.app) &nbsp;•&nbsp; [Repository](https://github.com/phanidhar09/clozehive)
+
+![Frontend](https://img.shields.io/badge/Frontend-React%2018%20%2B%20Vite%20%2B%20TypeScript-61dafb)
+![Backend](https://img.shields.io/badge/Backend-FastAPI%20%2B%20Python%203.12-009688)
+![Data](https://img.shields.io/badge/Data-PostgreSQL%20%2B%20pgvector-336791)
+![Cache](https://img.shields.io/badge/State-Redis-dc382d)
+![AI](https://img.shields.io/badge/AI-FANI%20%C2%B7%20RAG%20%C2%B7%20LangGraph-7c3aed)
+
+</div>
+
+---
+
+## Table of contents
+
+1. [Overview](#overview)
+2. [Meet FANI](#meet-fani)
+3. [Feature highlights](#feature-highlights)
+4. [Architecture](#architecture)
+5. [Core workflows](#core-workflows)
+6. [Service responsibilities](#service-responsibilities)
+7. [Domain map (api-gateway)](#domain-map-api-gateway)
+8. [Technology stack](#technology-stack)
+9. [Quick start (Docker)](#quick-start-docker)
+10. [Local setup without Docker](#local-setup-without-docker)
+11. [Configuration](#configuration)
+12. [API surface (v1)](#api-surface-v1)
+13. [Testing & quality](#testing--quality)
+14. [Operations & health](#operations--health)
+15. [Frontend routes](#frontend-routes)
+16. [Documentation](#documentation)
+
+---
+
+## Overview
+
+ClozeHive is a **wardrobe intelligence platform**. Users build a digital closet, compose and save outfits, get AI-driven styling and packing help, and track how they actually wear their clothes over time. Every recommendation is grounded in the user's real items and history through a **retrieval-augmented (RAG)** pipeline backed by vector search.
+
+The system is a domain-driven service architecture:
+
+- a **React + Vite + TypeScript** single-page app,
+- a **FastAPI** api-gateway that owns the full product API — identity, wardrobe, intelligence, travel, and platform domains — and runs the **image-analysis / background-removal vision pipeline in-process**,
+- a dedicated **FANI ai-agent** (LangGraph ReAct + inline tools) the gateway calls for chat, outfit, and packing reasoning,
+- an optional **ai-worker** for durable async AI jobs (local dev only),
+- **PostgreSQL + pgvector** as the single source of truth and embedding store, **Redis** for cache and session/OAuth state, and
+- **nginx** as the single browser entrypoint in the local Docker topology.
+
+> Full environment, migration, GCP, and deployment detail lives in **[docs/ENVIRONMENT.md](docs/ENVIRONMENT.md)**, **[docs/SERVICES.md](docs/SERVICES.md)**, and **[docs/RUNBOOK.md](docs/RUNBOOK.md)**. AI agents should read **[AGENTS.md](AGENTS.md)** for the operational contract.
 
 ---
 
 ## Meet FANI
 
-**FANI (Fashion AI Nurturing Individuality)** is ClozeHive's built-in AI stylist. FANI powers outfit recommendations, daily style tips, wardrobe gap detection, AI chat, and packing suggestions — available as a floating chat on every page and as a full-screen stylist at `/ai-stylist`.
+**FANI — Fashion AI Nurturing Individuality** — is ClozeHive's built-in AI stylist. FANI powers outfit recommendations, the daily Tip of the Day, wardrobe-gap detection, conversational styling, travel packing, and **Shop with FANI** purchase advice.
+
+The primary stylist experience is the full-screen chat at **`/ai-stylist`** (persisted sessions, structured outfit cards, closet context). The dashboard surfaces FANI nudges and Tip of the Day.
+
+Outfit suggestions carry a **5-tier FANI rating** — Needs Improvement → Average → Good → Excellent → Best Fit — each with a star count, a color badge, and a short stylist note.
 
 ---
 
-## Features (high level)
+## Feature highlights
 
 | Area | What you get |
-|------|----------------|
-| **Home** | Daily FANI Tip of the Day (day-of-week rotation), Style at a Glance strip (Most Worn / Never Worn / Closet Gaps), 6-item quick action grid, Outfit of the Day with 5-tier FANI rating. |
-| **Closet** | CRUD, metadata, images (local disk or GCS), preview/confirm upload flows, **similar items**, background removal (vision path). |
-| **Outfits** | Outfit builder, saved outfits, outfit history APIs for RAG. |
-| **FANI AI Stylist** | Structured **AI Stylist Chat** (`/ai-stylist`); FANI floating chat available on every page. |
-| **Outfit Rating** | 5-tier FANI rating system: Needs Improvement → Average → Good → Excellent → Best Fit — each tier shows star count, color badge, and a stylist note. |
-| **Travel** | Trips, packing lists; gateway can use **ai-agent** / MCP packing tools; packing memory APIs. |
-| **Intelligence** | **RAG** routes: fashion knowledge, closet similarity, purchase gaps, unified `/rag/*`, embeddings in Postgres/pgvector. |
-| **Profile & Settings** | LinkedIn-style settings page — Display Name, Location & Weather, FANI Preferences, Privacy. Profile hover dropdown gives quick access to Saved Outfits, Closet Insights, and Wardrobe Gaps. |
-| **Real-time** | **WebSocket** notifications (`/api/v1/ws`) for in-app updates. |
-| **Auth** | JWT + refresh, **Google OAuth** (Redis-backed CSRF state). |
-| **Optional integrations** | Legacy/advanced profiles (for example `mcp-vision`) can be enabled when needed; default MVP stack runs without external MCP tool containers. |
+|------|--------------|
+| **Home** | Daily FANI Tip of the Day (day-of-week rotation), Style at a Glance (Most Worn / Never Worn / Closet Gaps), quick-action grid, and Outfit of the Day with a 5-tier FANI rating. |
+| **Style onboarding** | Guided style-profile flow (`/onboarding/style-profile`) that feeds FANI personalization and RAG context. |
+| **Closet** | Full item CRUD with rich metadata, image storage (local disk or GCS), preview/confirm upload flows, **similar-item** search, availability flags, and AI background removal. |
+| **Closet match** | Find items in your closet that pair with a reference piece (`/closet-match`). |
+| **Smart ingest** | Upload a photo (incl. HEIC) → detection → background removal → structured item metadata, all in-process in the gateway. Bulk **smart-ingest** sessions for multi-photo review. |
+| **Outfits** | Outfit builder, saved looks, outfit history (feeds RAG), and **weekly planner** with weather-aware day plans. |
+| **FANI AI Stylist** | Structured stylist chat at `/ai-stylist` with SSE streaming, persisted history, and handoff from dashboard nudges. |
+| **Travel** | Trips, weather-aware packing lists, packing-memory APIs, occasion planning, and FANI/agent packing tools. |
+| **Shop with FANI** | Upload an in-store photo **or** paste a product URL → closet match, buy/skip verdict, outfit ideas, and optional add-to-closet (SSRF-guarded URL fetch). |
+| **Intelligence (RAG)** | Fashion knowledge, closet similarity, purchase-gap detection, and a unified `/rag/*` surface backed by pgvector embeddings. |
+| **Analytics** | Wear events (append-only), cost-per-wear, utilization, forgotten gems, and versatility scoring. |
+| **Profile & Settings** | Display name, location & weather, FANI preferences, avatar, and privacy; navbar dropdown for Saved Outfits, Closet Insights, and Wardrobe Gaps. |
+| **Real-time** | WebSocket notifications at `/api/v1/ws` (toast UI in the app shell). |
+| **Auth** | JWT + refresh tokens, **Google OAuth**, and password reset (Mailpit in dev). |
 
 ---
 
 ## Architecture
 
+ClozeHive runs in **two topologies that share one codebase**. The gateway is the single owner of the wardrobe and intelligence domains and runs the vision pipeline in-process in both.
+
+### Production (Render) — canonical
+
+The frontend calls the gateway directly (`VITE_API_URL`). There is no nginx and no `ai-worker`; the gateway serves the **entire** `/api/v1` surface with `SERVE_MIGRATED_DOMAIN_ROUTES=true`.
+
+```mermaid
+flowchart LR
+    B[Browser SPA] -->|VITE_API_URL| GW[api-gateway :8000<br/>full /api/v1 surface<br/>+ in-process vision pipeline]
+    GW -->|internal token| AG[ai-agent<br/>FANI tools]
+    GW --> PG[(PostgreSQL + pgvector<br/>identity · wardrobe · embeddings)]
+    GW --> R[(Redis<br/>cache)]
+    GW --> RS[(redis-state<br/>OAuth · refresh · rate-limit)]
+    GW --> GCS[(GCS / uploads)]
+```
+
+### Local development (`docker compose up --build`)
+
+The multi-service stack behind nginx. Vision still runs in-process inside the gateway, matching production.
+
 ```mermaid
 flowchart TB
-  subgraph browser [Client]
+  subgraph client [Client]
     U[User Browser]
-    SPA[SPA bundle]
   end
 
-  subgraph edge [Edge / Web]
-    N[nginx :80 (single entrypoint)]
-    FE[frontend :3000 (Vite app)]
+  subgraph edge [Edge]
+    N["nginx :80 — single entrypoint"]
+    FE["frontend (Vite SPA)"]
   end
 
-  subgraph app [Application Services]
-    GW[api-gateway :8000<br/>auth, closet, outfits, trips, RAG, WS hub<br/>+ in-process vision: analyze, smart-ingest, bg removal]
-    AG[ai-agent :8001<br/>FANI agent + inline tools]
+  subgraph app [Application]
+    GW["api-gateway :8000<br/>identity · wardrobe · intelligence · travel · platform<br/>+ in-process vision: analyze · smart-ingest · bg-removal"]
+    AG["ai-agent :8001<br/>FANI agent + inline LangGraph tools"]
+    AW["ai-worker<br/>async AI jobs (ARQ)"]
   end
 
-  subgraph state [State + Storage]
-    PG[(Postgres + pgvector<br/>source of truth)]
-    RD[(Redis<br/>cache + sessions + staging)]
+  subgraph state [State & Storage]
+    PG[(PostgreSQL + pgvector)]
+    RD[(Redis — cache)]
+    RS[(redis-state — sessions/OAuth/ARQ)]
     UP[(uploads volume / GCS)]
+    MP[mailpit — dev mail]
   end
 
-  subgraph optional [Optional Profiles]
-    MV[mcp-vision :8011<br/>legacy/experimental]
-    MIG[migrate one-shot<br/>alembic upgrade head]
+  subgraph optional [Optional profiles]
+    MV["mcp-vision :8011 — legacy/experimental"]
+    MIG["migrate (one-shot) — alembic upgrade head"]
   end
 
   U --> N
   N -->|/| FE
-  FE --> SPA
-  N -->|/api/v1/* (general)| GW
-  N -->|/api/v1/analyze-vision*, /smart-ingest,\n/closet/*/remove-background| GW
-  N -->|/uploads/*| GW
-  N -->|/api/v1/ws| GW
-
-  GW --> PG
-  GW --> RD
-  GW --> UP
+  N -->|/api/v1/* incl. vision & uploads| GW
+  N -->|/api/v1/ws upgrade| GW
+  GW --> PG & RD & RS & UP
   GW -->|AI_AGENT_URL + X-Internal-Token| AG
-  AG --> PG
-  AG --> RD
+  AW --> RS
+  AW --> AG
+  AG --> PG & RD
   MIG --> PG
   AG -. legacy profile .-> MV
 ```
 
-- **Default `docker compose up`** starts `postgres`, `redis`, `ai-agent`, `api-gateway`, `frontend`, `nginx`, and one-shot `migrate`.
-- **nginx** is the single browser entrypoint: serves SPA traffic, proxies `/api` traffic (including vision-heavy endpoints) to `api-gateway`, proxies `/uploads`, and upgrades `/api/v1/ws`.
-- **api-gateway** calls **ai-agent** over internal HTTP (`AI_AGENT_URL`) and can attach `X-Internal-Token` for service-to-service auth.
-- **ai-agent** runs weather/outfit/packing tools inline (in-process) by default; no external MCP containers are required for normal local MVP runs.
+**Key wiring**
 
-## How Services Are Wired
+| Flow | How it works |
+|------|--------------|
+| Browser → API | SPA uses relative `/api/v1`; nginx (local) or the gateway directly (prod) handles all `/api` paths. |
+| Auth & app data | The gateway owns auth/session and all core business routes, backed by Postgres + Redis. |
+| Real-time | Browser WebSocket connects to `/api/v1/ws`; nginx upgrades and forwards to the gateway hub. |
+| FANI chat / outfit / packing | Gateway assembles user + closet + RAG context, then calls **ai-agent** via `intelligence/services/ai_client.py` with an internal token. |
+| Vision & embeddings | Detection, background removal, and embedding updates run **in-process** in the gateway (`wardrobe` domain). |
+| Shopping check & RAG retrieval | Gateway in-process services + pgvector; no ai-agent hop for the core verdict path. |
+| Async AI jobs | `POST /jobs` → ARQ on redis-state → ai-worker → ai-agent (local dev; sync in-process in prod). |
+| Shared state | Single Postgres DB for everything; Redis cache + redis-state for OAuth, refresh tokens, rate limits. |
 
-| Flow | Wiring |
-|------|--------|
-| Browser → API | Frontend uses relative `/api/v1` by default; browser hits `nginx` first, which proxies all `/api` paths to `api-gateway`. |
-| Auth + app data | `api-gateway` owns auth/session APIs and core business routes (closet, outfits, trips, analytics, RAG, shopping check), backed by Postgres + Redis. |
-| Real-time notifications | Browser WebSocket connects to `/api/v1/ws`; nginx upgrades and forwards to gateway WebSocket router. |
-| AI chat / outfit / packing | Gateway AI routes assemble user/closet/RAG context, then call `ai-agent` via `app/services/ai_client.py`. |
-| Vision ingestion | Vision-heavy endpoints run **in-process inside `api-gateway`** (the `vision_pipeline` / `smart_ingest` routers): detection + background-removal pipeline, backed by Postgres/Redis for persistence/cache. |
-| Shared state | Postgres is the source of truth; Redis is used for caching, preview sessions, token/session helpers, and fast cross-request state. |
+**What runs where**
+
+| Capability | Owner |
+|------------|-------|
+| Auth, profile, trips, analytics, WebSocket | api-gateway |
+| Closet, outfits, planner, vision, embeddings | api-gateway (in-process) |
+| FANI chat, outfit generation, packing lists | api-gateway → ai-agent |
+| Shop with FANI, purchase gaps, fashion RAG | api-gateway + pgvector |
+| LangGraph tools (`weather`, `outfit`, `packing`) | ai-agent |
+
+> **History:** standalone `closet-service` (:8003) and `vision-service` (:8002) were **retired** — the gateway already carried those routers and prod served them in-process. The wardrobe domain and vision pipeline now live only in the api-gateway.
+
+---
+
+## Core workflows
+
+End-to-end paths (see [docs/SERVICES.md](docs/SERVICES.md) for sequence diagrams):
+
+1. **Garment upload** — `POST /analyze-vision/stream` (SSE per item) → user confirms → `POST /save-analyzed-items` → closet rows + background embedding update.
+2. **FANI stylist chat** — `POST /ai-chat/stream` → gateway builds closet/RAG/style context → ai-agent `/agent/chat/stream` → SSE tokens to browser.
+3. **Trip packing** — create trip → packing generation via ai-agent `/agent/packing` (live OpenWeather forecast with static fallback) → packing-memory improves future lists.
+4. **Shop with FANI** — photo (`POST /shopping/check`) or URL (`POST /shopping/check-url`) → closet similarity + buy/skip score → optional outfit ideas and add-to-closet.
+5. **Weekly planner** — weather-aware outfit calendar via `/planner/*`, backed by closet items and forecasts.
+6. **Async AI jobs** (dev) — enqueue via `/jobs`, poll status; production runs the same flows synchronously in the gateway.
 
 ---
 
@@ -105,141 +196,161 @@ flowchart TB
 
 | Service | Role |
 |---------|------|
-| `frontend` | React app (Vite). In Docker, host port defaults to **3001** → container **3000** (`FRONTEND_HOST_PORT`). |
-| `nginx` | Single entry **:80** — API, vision paths, uploads, WS, frontend. |
-| `services/api-gateway` | Public API: auth, profile, closet, outfits, trips, analytics, AI routes, RAG routers, WebSocket hub, and ARQ job producers when `HEAVY_WORK_ASYNC` is enabled. Also runs the **vision pipeline in-process** (analyze/stream, smart ingest, background removal) using OpenAI/Gemini per config. |
-| `services/ai-agent` | FANI agent service used by gateway AI routes. Default behavior is inline LangGraph tools (`weather`, `outfit`, `packing`) inside the service. |
-| `services/mcp/*` | Optional/legacy MCP HTTP/SSE servers (for non-default profiles or experiments). |
-| `services/ai-worker` | Background worker code (not part of the default `docker-compose.yml` MVP stack). |
-| `infra/` | Postgres init, nginx config (legacy Kafka/Redpanda topic scripts remain but the async path now uses ARQ + Redis). |
-
-Legacy or archive material, if present, may live under `archive/`.
+| `frontend` | React + Vite + TypeScript SPA. In Docker, host port defaults to **3001** → container **3000** (`FRONTEND_HOST_PORT`). Sentry + web-vitals RUM. |
+| `nginx` | **Local only.** Single entry on **:80** — serves the SPA and proxies API, vision paths, uploads, and WebSocket upgrades to the gateway. |
+| `services/api-gateway` | The product backend. Owns identity, wardrobe, intelligence, travel, and platform domains; runs the **vision pipeline in-process**; hosts WebSocket hub; calls ai-agent for FANI reasoning; enqueues ARQ jobs when `HEAVY_WORK_ASYNC` is on. |
+| `services/ai-agent` | FANI LLM brain — **not public**. LangGraph ReAct over GPT-4o with inline tools (`weather`, `outfit`, `packing`); style memory + pgvector store. |
+| `services/ai-worker` | ARQ consumer for durable async AI jobs. **Local dev only** — not deployed to Render. |
+| `services/mcp/*` | Optional/legacy MCP HTTP/SSE servers (e.g. `mcp-vision`) for `--profile vision` experiments. |
+| `infra/` | Postgres init, nginx config, GCP, and observability assets. |
+| `mailpit` | Dev-only SMTP catcher (`:8025` UI) for password-reset emails. |
 
 ---
 
-## Local setup with Docker
+## Domain map (api-gateway)
 
-1. **Copy env template** and fill secrets:
+The gateway's API is organized into cohesive domains under `services/api-gateway/app/api/v1/`:
 
-   ```sh
-   cp .env.example .env
-   ```
+| Domain | Routers | Mounting |
+|--------|---------|----------|
+| **identity** | `auth`, `profile` | Always |
+| **travel** | `weather`; `trips`, `packing_memory` | weather always; trips when migrated* |
+| **platform** | `health`, `admin`, `ws`, `rum`; `analytics` | health/ws always; analytics when migrated* |
+| **wardrobe** | `closet`, `closet_similarity`, `outfits`, `outfit_history`, `planner`, `smart_ingest`, `vision_pipeline` | Migrated* |
+| **intelligence** | `ai`, `ai_chat`, `rag`, `fashion_rag`, `purchase_gaps`, `shopping_check`, `jobs` | Migrated* |
+| **social** | `social` | Phase 2 (not mounted; `Groups` page is a frontend stub) |
 
-   For Vite-only overrides, use `frontend/.env.example` → `frontend/.env`.
+\* Migrated domains mount when `mount_migrated_routes` is true — dev/test by default, and production via the explicit `SERVE_MIGRATED_DOMAIN_ROUTES=true` interlock in `render.yaml`.
 
-2. **Start the stack:**
+---
 
-   ```sh
-   make up
-   ```
+## Technology stack
 
-   Or: `docker compose up --build` (add `-d` to detach).
+| Layer | Choices |
+|-------|---------|
+| **Frontend** | React 18, Vite, TypeScript, Tailwind CSS, Zustand, Framer Motion; Vitest + Testing Library + Playwright (e2e). |
+| **Backend** | Python 3.12, FastAPI, Pydantic, SQLAlchemy (async), Alembic, ARQ (async jobs). |
+| **AI / ML** | FANI ai-agent (LangGraph ReAct), OpenAI + Gemini, RAG over pgvector embeddings. |
+| **Data & state** | PostgreSQL + pgvector (single DB), Redis cache + `redis-state` (OAuth, refresh, ARQ). |
+| **Edge & infra** | nginx (local edge), Docker Compose, Render (production), GCS for image storage, Mailpit for dev mail. |
+| **Observability** | Prometheus `/metrics`, Sentry (frontend + backend), RUM via `/api/v1/rum`, optional LangSmith tracing. |
+| **Quality** | pytest (domain-organized), Ruff, mypy, ESLint, GitHub Actions CI. |
 
-   The **migrate** service runs **Alembic** so the DB schema is applied on startup; you can still run `make migrate` if you need to re-apply manually.
+---
 
-3. **Optional: legacy MCP vision server** (heavier / experimental): Compose profile **`vision`**:
+## Quick start (Docker)
 
-   ```sh
-   docker compose --profile vision up --build
-   ```
+```sh
+# 1. Configure secrets
+cp .env.example .env        # then fill in keys (OpenAI, JWT, Google OAuth, …)
 
-4. **Health checks:**
+# 2. Start the full stack (postgres, redis, redis-state, ai-agent,
+#    ai-worker, api-gateway, frontend, nginx, mailpit, + one-shot migrate)
+make up                     # or: docker compose up --build [-d]
 
-   ```sh
-   make health
-   ```
+# 3. Verify
+make health
+```
+
+The one-shot **migrate** service runs Alembic on startup, so the schema is applied automatically. Re-apply manually any time with `make migrate`.
+
+Optional legacy MCP vision server:
+
+```sh
+docker compose --profile vision up --build
+```
 
 ### Useful URLs (defaults)
 
 | What | URL |
 |------|-----|
 | **Recommended entry** (nginx) | `http://localhost` |
-| Frontend (direct to container map) | `http://localhost:3001` (`FRONTEND_HOST_PORT`) |
+| Frontend (direct container map) | `http://localhost:3001` (`FRONTEND_HOST_PORT`) |
 | API gateway (direct) | `http://localhost:8000` — `/live`, `/ready`, `/health`, `/docs` |
-| OpenAPI | `http://localhost:8000/docs` |
+| OpenAPI / Swagger | `http://localhost:8000/docs` |
 | ai-agent (direct) | `http://localhost:8001/health` |
+| Mailpit (dev mail UI) | `http://localhost:8025` |
 
-**Ports:** Postgres is **`5433`→5432** and Redis **`6382`→6379** on the host by default (see `.env.example`) to avoid clashes with local installs.
-
-**CORS / origins:** `ALLOWED_ORIGINS` must include the exact origin users open (e.g. `http://localhost` vs `http://localhost:3001`).
-
----
-
-## API surface (v1)
-
-Routers are mounted under **`/api/v1`** (see `services/api-gateway/app/api/v1/router.py`), including:
-
-- **Auth** — register, login, refresh, Google OAuth callback
-- **Profile**
-- **Closet** — items, preview flows, similarity
-- **Outfits** + **outfit history** (RAG)
-- **Trips** + **packing memory**
-- **Analytics**
-- **AI** — FANI stylist/outfit/trip helpers (streaming/long-timeout paths configured in nginx)
-- **AI chat** — persisted FANI chat (`/api/v1/ai-chat/*`)
-- **Weather**
-- **Admin**
-- **Fashion RAG**, **purchase gaps**, **unified RAG**
-- **WebSocket** — `/api/v1/ws` for notifications
-
-Vision-specific paths (e.g. analyze stream, smart ingest, remove-background) run **in-process inside `api-gateway`** and share the same `/api/v1/...` URL shape to the browser (nginx applies longer read timeouts to these routes).
-
----
-
-## Production-oriented compose
-
-For a slimmer or production-tuned layout, see `docker-compose.prod.yml` and nginx-oriented docs in-repo. Adjust env vars for your provider; helper scripts may live under `scripts/` (deploy, backup, restore, LetsEncrypt).
+> **Ports:** Postgres maps **5433 → 5432** and Redis **6382 → 6379** on the host by default (see `.env.example`). `redis-state` uses **6383**.
+>
+> **CORS:** `ALLOWED_ORIGINS` must include the exact origin users open (e.g. `http://localhost` vs `http://localhost:3001`).
 
 ---
 
 ## Local setup without Docker
 
-You need **Postgres (with pgvector)**, **Redis**, and matching `DATABASE_URL` / `REDIS_URL`. Then:
+You need **PostgreSQL (with pgvector)** and **Redis**, with matching `DATABASE_URL` / `REDIS_URL` / `REDIS_STATE_URL`.
 
 ```sh
 npm --prefix frontend install
-python3 -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+python3 -m venv .venv && source .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -r services/api-gateway/requirements-dev.txt
 pip install -r services/ai-agent/requirements.txt
 ```
 
-Run processes in separate terminals (examples):
+Run each process in its own terminal:
 
 ```sh
-make dev-api           # API gateway :8000 (includes the in-process vision pipeline)
-make dev-agent         # AI agent :8001
-make dev-frontend      # Vite on :3000 (see frontend/package.json)
+make dev-api        # API gateway :8000 (includes in-process vision pipeline)
+make dev-agent      # FANI ai-agent :8001
+make dev-frontend   # Vite dev server :3000
 ```
 
 Point `VITE_API_URL` at your gateway if the frontend origin differs from the API.
 
 ---
 
-## Environment variables
+## Configuration
 
-Use **`.env.example`** as the source of truth. Commonly customized:
+`.env.example` is the source of truth. The most commonly customized values:
 
 | Variable | Notes |
-|----------|--------|
-| `OPENAI_API_KEY` | Chat, embeddings, much of vision/analysis. |
-| `GEMINI_API_KEY` | Optional for the gateway's vision/analysis paths when configured. |
+|----------|-------|
+| `OPENAI_API_KEY` | Chat, embeddings, and most of the vision/analysis pipeline. |
+| `GEMINI_API_KEY` | Optional secondary provider for vision/analysis paths. |
 | `JWT_SECRET` | Strong random value in production (≥ 32 chars). |
-| `DATABASE_URL` | Host dev often uses Postgres on **5433** per example. |
-| `REDIS_URL` | Host dev often **6382**; OAuth requires working Redis. |
-| `ENABLE_MCP_TOOLS` | **ai-agent** toggle for external MCP URLs in legacy setups. Inline tools work without external MCP containers. |
-| `ALLOWED_ORIGINS` | Must list real SPA origins. |
-| Google OAuth | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`. |
-| GCS | `GCS_BUCKET_NAME` + credentials for cloud image storage (optional for local disk). |
-| Frontend | `VITE_API_URL`, `VITE_HIDE_NON_MVP`. |
+| `DATABASE_URL` | Postgres + pgvector; host dev often uses port 5433 per the example. |
+| `REDIS_URL` | Cache; host dev often uses 6382. |
+| `REDIS_STATE_URL` | Non-evictable Redis for OAuth state, refresh tokens, rate limits, ARQ. |
+| `AI_AGENT_URL` / `INTERNAL_SERVICE_TOKEN` | Gateway → ai-agent service-to-service auth. |
+| `ALLOWED_ORIGINS` | Must list the real SPA origins. |
+| `SERVE_MIGRATED_DOMAIN_ROUTES` | Production interlock to mount wardrobe + intelligence domains. |
+| `HEAVY_WORK_ASYNC` | Off by default; when on, offloads some AI work to ai-worker (dev). |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` | Google OAuth. |
+| `GCS_BUCKET_NAME` (+ credentials) | Cloud image storage (optional; falls back to local disk). |
+| `VITE_API_URL` / `VITE_HIDE_NON_MVP` | Frontend API origin and non-MVP feature gating. |
+| `KAFKA_ENABLED` | Optional event publishing (off by default; see docs/ENVIRONMENT.md). |
 
-Never commit a real `.env` or service-account JSON.
+> Never commit a real `.env` or service-account JSON.
 
 ---
 
-## Testing
+## API surface (v1)
 
-**API gateway** — pytest with SQLite/fakes for many tests (see `services/api-gateway/tests/`):
+All routers mount under **`/api/v1`** (`services/api-gateway/app/api/v1/router.py`):
+
+- **Auth** — register, login, refresh, Google OAuth callback, password reset
+- **Profile** — display settings, style profile, location
+- **Closet** — items, preview flows, similarity, availability
+- **Outfits** + **outfit history** (RAG) + **planner** (weekly calendar)
+- **Smart ingest** & **vision pipeline** — analyze/stream, background removal (in-process)
+- **Trips** + **packing memory** + **weather**
+- **Analytics** — wear analytics & value metrics
+- **AI** — FANI outfit / trip helpers (streaming, long-timeout paths)
+- **AI chat** — persisted FANI stylist chat (`/api/v1/ai-chat/*`, SSE stream)
+- **RAG** — fashion knowledge, closet similarity, purchase gaps, unified `/rag/*`
+- **Shopping check** — photo + URL buy/skip advisor, closet match, history, add-to-closet
+- **Jobs** — enqueue/poll async AI work (ARQ, dev-oriented)
+- **Admin**, **health**, **RUM**
+- **WebSocket** — `/api/v1/ws` for notifications
+
+Browse the live, always-current contract at **`/docs`** (Swagger UI).
+
+---
+
+## Testing & quality
+
+**API gateway** — pytest (SQLite/fakes for many suites), organized by domain under `tests/`:
 
 ```sh
 cd services/api-gateway
@@ -248,53 +359,22 @@ pip install -r requirements-dev.txt
 python3 -m pytest tests/ -v --tb=short
 ```
 
-From repo root: `make test-api`.
-
 **Frontend** — Vitest + Testing Library:
 
 ```sh
 cd frontend && npm ci && npm run test
 ```
 
-From repo root: `make test-frontend`. Both: `make test`.
-
----
-
-## Common commands
+From the repo root:
 
 ```sh
-make help             # Makefile targets
-make up               # docker compose up -d --build
-make stop             # docker compose down (keep volumes)
-make down-clean       # confirm + docker compose down -v (destructive)
-make logs             # tail logs
-make migrate          # Alembic via migrate container
-make test-api         # gateway pytest
-make test-frontend    # Vitest
-make test             # both
-make build-frontend   # production Vite build
-make smoke            # compose validation + health
-make clean            # scripts/clean-artifacts.sh
+make test-api          # gateway pytest
+make test-frontend     # Vitest
+make test              # both
+make lint              # ruff across Python services
 ```
 
----
-
-## Verification & health
-
-```sh
-docker compose config
-docker compose config --quiet
-make smoke
-make build-frontend
-```
-
-**Gateway endpoints:**
-
-- `GET /live` — process up
-- `GET /ready` — DB (and Redis if `REDIS_CHECK_ON_READY=true`)
-- `GET /health` — aggregated JSON
-
-### Dependency audits
+**Dependency audits:**
 
 ```sh
 npm audit --prefix frontend
@@ -303,32 +383,86 @@ pip install pip-audit && pip-audit -r services/api-gateway/requirements.txt
 
 ---
 
-## Troubleshooting (quick)
+## Operations & health
 
-- **OpenAI / model errors** — `OPENAI_API_KEY` in `.env`; restart **api-gateway** and **ai-agent** after changes.
-- **FANI / ai-agent** — In current MVP wiring, ai-agent runs inline tools by default; check `docker compose logs ai-agent api-gateway` first. If using legacy MCP profile, also verify the relevant `mcp-*` service health.
-- **Vision timeouts** — nginx sets longer read timeouts for AI and vision; check **api-gateway** logs and `GEMINI_API_KEY` / OpenAI quotas.
-- **WebSockets** — Ensure clients hit a URL nginx proxies (e.g. `ws://localhost/api/v1/ws?...` through **:80**) or align direct **:8000** dev with `ALLOWED_ORIGINS`.
-- **Stale builds** — `make clean`, then rebuild images or `npm run build` as needed.
+```sh
+make help            # all Makefile targets
+make up              # docker compose up -d --build
+make stop            # docker compose down (keep volumes)
+make down-clean      # confirm + down -v (DESTRUCTIVE)
+make db-backup       # dump Postgres before destructive ops
+make logs            # tail all service logs
+make logs-api        # tail gateway (also logs-agent, logs-worker)
+make migrate         # Alembic via the migrate container
+make build-frontend  # production Vite build
+make smoke           # compose validation + health
+make health          # container health checks
+make clean           # remove build artifacts
+```
+
+**Gateway health endpoints:**
+
+| Endpoint | Meaning |
+|----------|---------|
+| `GET /live` | Process is up. |
+| `GET /ready` | DB reachable (and Redis if `REDIS_CHECK_ON_READY=true`). |
+| `GET /health` | Aggregated JSON status. |
+
+**Production-oriented compose:** see `docker-compose.prod.yml` and `render.yaml`; deploy/backup/restore/LetsEncrypt helpers live under `scripts/`.
+
+### Troubleshooting
+
+- **OpenAI / model errors** — verify `OPENAI_API_KEY`; restart `api-gateway` and `ai-agent` after changes.
+- **FANI / ai-agent** — inline tools run by default; check `docker compose logs ai-agent api-gateway`. For the legacy MCP profile, also check the relevant `mcp-*` service.
+- **Vision timeouts** — nginx applies longer read timeouts for AI/vision routes; check gateway logs and `GEMINI_API_KEY` / OpenAI quotas.
+- **WebSockets** — connect through a URL nginx proxies (`ws://localhost/api/v1/ws?...`) or align direct `:8000` dev with `ALLOWED_ORIGINS`.
+- **Stale builds** — `make clean`, then rebuild images or `npm run build`.
 
 ---
 
-## Frontend routes (reference)
+## Frontend routes
 
 | Route | Description |
 |-------|-------------|
-| `/dashboard` | **Home** — FANI Tip of Day, Style at a Glance, Outfit of the Day with rating, quick actions, recent closet items |
-| `/closet` | Browse and manage all wardrobe items |
+| `/dashboard` | **Home** — FANI Tip of the Day, Style at a Glance, Outfit of the Day, quick actions |
+| `/closet` | Browse and manage wardrobe items |
+| `/closet-match` | Pair a reference item with matches from your closet |
 | `/outfit-builder` | Mix & match items into outfits |
-| `/upload` | Scan & add new clothing via FANI vision analysis |
-| `/ai-stylist` | Full-screen FANI AI Stylist Chat |
-| `/travel` | Travel packing planner |
-| `/analytics` | Closet Insights — wear analytics & trends |
-| `/purchase-gaps` | Wardrobe Gaps — missing wardrobe essentials |
 | `/saved-outfits` | FANI-curated saved looks |
-| `/profile` | Profile view with avatar, stats, outfit history |
-| `/profile?tab=settings` | LinkedIn-style Settings — display name, location, FANI preferences, privacy |
+| `/upload` | Scan & add clothing via vision analysis (replaces legacy `/fashion-analysis`) |
+| `/ai-stylist` | Full-screen FANI stylist chat (SSE, persisted history) |
+| `/planner` | Weekly weather-aware outfit calendar |
+| `/travel` | Travel packing planner |
+| `/shopping-check` | Shop with FANI — photo or product URL buy/skip advisor |
+| `/analytics` | Closet Insights — wear analytics & trends |
+| `/purchase-gaps` | Wardrobe Gaps — missing essentials |
+| `/profile` | Profile with avatar, stats, outfit history |
+| `/profile?tab=settings` | Settings — display name, location, FANI preferences, privacy |
+| `/onboarding/style-profile` | Style profile onboarding questionnaire |
+| `/login`, `/signup`, `/oauth/callback` | Authentication |
+| `/forgot-password`, `/reset-password` | Password reset flow |
+| `/privacy`, `/terms` | Legal pages |
 
-**Navigation:** The top navbar avatar triggers a hover dropdown with quick links to Saved Outfits, Closet Insights, Wardrobe Gaps, View Profile, and Settings. The sidebar covers primary navigation (Home, My Closet, Outfit Builder, Add to Closet, Travel Packing).
+**Non-MVP** (hidden when `VITE_HIDE_NON_MVP=true`): `/ai-stylist-classic`, `/avatar`, `/groups`.
 
-Non-MVP areas (e.g. groups, avatar editor, classic stylist) may be hidden when `VITE_HIDE_NON_MVP` is enabled — see `frontend/src/App.tsx`.
+The navbar avatar opens a dropdown (Saved Outfits, Closet Insights, Wardrobe Gaps, View Profile, Settings); the sidebar and mobile bottom nav cover primary navigation.
+
+---
+
+## Documentation
+
+| Doc | Contents |
+|-----|----------|
+| [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) | Environment variables, Docker, GCP, migrations, troubleshooting. |
+| [docs/SERVICES.md](docs/SERVICES.md) | Every wired service, workflows, and sequence diagrams. |
+| [docs/RUNBOOK.md](docs/RUNBOOK.md) | Operational runbook. |
+| [SECURITY.md](SECURITY.md) | Security policy and reporting. |
+| [AGENTS.md](AGENTS.md) | AI coding agent conventions and architecture cheat sheet. |
+
+---
+
+<div align="center">
+
+**ClozeHive** — your wardrobe, intelligently styled by **FANI**.
+
+</div>

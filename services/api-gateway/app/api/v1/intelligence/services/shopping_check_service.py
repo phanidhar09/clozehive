@@ -344,9 +344,7 @@ async def _generate_grounded_take(
     if not docs:
         return None  # nothing to ground on → keep the deterministic reasoning only
 
-    knowledge_block = "\n\n".join(
-        f"[SOURCE-{i}] {d['title']}\n{d['content'][:500]}" for i, d in enumerate(docs, 1)
-    )
+    knowledge_block = "\n\n".join(f"[SOURCE-{i}] {d['title']}\n{d['content'][:500]}" for i, d in enumerate(docs, 1))
 
     pairs_fact = (
         f"Pairs with {compatible_count} owned item(s): {', '.join(pairing_names)}."
@@ -437,7 +435,7 @@ async def analyze_shopping_item(
         name_hint = (product_meta or {}).get("title")
         if name_hint:
             extra_instruction += (
-                f"\n\nThe page title/URL indicates the product is: \"{name_hint}\". "
+                f'\n\nThe page title/URL indicates the product is: "{name_hint}". '
                 "Identify and describe THAT garment specifically."
             )
     analysis = await analyze_for_bulk(image_bytes, media_type, extra_instruction=extra_instruction)
@@ -749,8 +747,7 @@ async def analyze_shopping_item_from_url(
                 "page. Screenshot a photo of the item and upload it instead."
             )
         raise BadRequestError(
-            "Couldn't pull a product image from that link. Try a direct product "
-            "page, or snap a photo instead."
+            "Couldn't pull a product image from that link. Try a direct product page, or snap a photo instead."
         )
 
     image_bytes, media_type = image
@@ -767,7 +764,9 @@ async def analyze_shopping_item_from_url(
     # screenshot instead of grabbing whichever item the model also wears.
     product_meta = meta.to_dict() if meta else {"source_url": source_url}
     if not product_meta.get("title"):
-        product_meta["title"] = product_url_mod.product_name_hint_from_url(source_url)
+        title_hint = product_url_mod.product_name_hint_from_url(source_url)
+        if title_hint:
+            product_meta["title"] = title_hint
 
     return await analyze_shopping_item(
         image_bytes=image_bytes,
@@ -833,7 +832,10 @@ async def build_outfits_for_check(
     gap_suggestions = outfit_builder.suggest_for_gaps(analysis, built["missing_roles"], closet)
 
     await record_shopping_event(
-        session, user_id, "outfit_opened", check_id=check_id,
+        session,
+        user_id,
+        "outfit_opened",
+        check_id=check_id,
         metadata={
             "outfit_count": len(built["outfits"]),
             "completes_outfits": completes_outfits,
@@ -882,9 +884,7 @@ async def record_purchase_decision(
     if not row:
         return None
     await session.commit()
-    await record_shopping_event(
-        session, user_id, "verdict_acted", check_id=check_id, metadata={"bought": bought}
-    )
+    await record_shopping_event(session, user_id, "verdict_acted", check_id=check_id, metadata={"bought": bought})
     return dict(row)
 
 
@@ -1261,7 +1261,10 @@ async def add_shopping_item_to_closet(
     )
     await session.commit()
     await record_shopping_event(
-        session, user_id, "added_to_closet", check_id=check_id,
+        session,
+        user_id,
+        "added_to_closet",
+        check_id=check_id,
         metadata={"closet_item_id": new_id},
     )
     created = result.mappings().first()

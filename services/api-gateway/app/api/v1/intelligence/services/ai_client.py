@@ -8,7 +8,6 @@ from __future__ import annotations
 import base64
 import json
 from collections.abc import AsyncIterator
-from datetime import date
 from typing import Any
 
 import httpx
@@ -22,47 +21,6 @@ from app.core.metrics import track_ai
 
 logger = get_logger("ai_client")
 settings = get_settings()
-
-
-def _enrich_agent_packing_for_trips(data: dict[str, Any]) -> dict[str, Any]:
-    """
-    MCP packing JSON is a PackingResult (packing_list, missing_items, …).
-    Trip routes expect take_from_your_closet / you_might_still_need like packing_service.
-    """
-    if not data.get("take_from_your_closet"):
-        take: list[dict[str, Any]] = []
-        for it in data.get("packing_list") or []:
-            if not isinstance(it, dict) or not it.get("available_in_closet"):
-                continue
-            take.append(
-                {
-                    "item_id": it.get("closet_item_id"),
-                    "name": str(it.get("name") or ""),
-                    "category": str(it.get("category") or "general"),
-                    "reason": str(it.get("reason") or "Recommended for this trip."),
-                    "recommended_days": [],
-                }
-            )
-        data["take_from_your_closet"] = take
-
-    if not data.get("you_might_still_need"):
-        need: list[dict[str, Any]] = []
-        for it in data.get("missing_items") or []:
-            if not isinstance(it, dict):
-                continue
-            need.append(
-                {
-                    "name": str(it.get("name") or ""),
-                    "category": str(it.get("category") or "general"),
-                    "reason": str(it.get("reason") or "Consider bringing this."),
-                }
-            )
-        data["you_might_still_need"] = need
-
-    if data.get("packing_list") is not None and data.get("items") is None:
-        data["items"] = data["packing_list"]
-
-    return data
 
 
 # ── Shared async HTTP client (lifecycle managed in main.py) ──────────────────
@@ -238,56 +196,6 @@ async def generate_outfits(
         raise ServiceUnavailableError("AI service timed out")
     except httpx.HTTPStatusError as exc:
         raise AIServiceError("Outfit generation failed", detail=exc.response.text)
-
-
-@_retryable
-async def generate_packing_list(
-    destination: str,
-    start_date: str,
-    end_date: str,
-    purpose: str,
-    closet_items: list[dict[str, Any]],
-    notes: str | None = None,
-    user_style_profile: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    payload = {
-        "destination": destination,
-        "start_date": start_date,
-        "end_date": end_date,
-        "purpose": purpose,
-        "notes": notes,
-        "closet_items": closet_items,
-        "user_style_profile": user_style_profile,
-    }
-    try:
-        with track_ai("generate_packing"):
-            resp = await _agent_request(lambda: get_client().post("/api/v1/agent/packing", json=payload))
-            resp.raise_for_status()
-            data: dict[str, Any] = resp.json()
-        # Enrich for frontend TravelPlanner (expects duration_days + trip_type).
-        if isinstance(data, dict):
-            _enrich_agent_packing_for_trips(data)
-            try:
-                s = date.fromisoformat(start_date)
-                e = date.fromisoformat(end_date)
-                data.setdefault("duration_days", max(1, (e - s).days + 1))
-            except ValueError:
-                data.setdefault("duration_days", 1)
-            data.setdefault("trip_type", purpose)
-            # Normalise daily_plan entries for UI that reads outfit_suggestion / items_needed.
-            for day in data.get("daily_plan") or []:
-                if isinstance(day, dict):
-                    if day.get("outfit_suggestion") is None and day.get("outfit_name"):
-                        day["outfit_suggestion"] = day["outfit_name"]
-                    if day.get("items_needed") is None and day.get("items"):
-                        day["items_needed"] = day["items"]
-        return data
-    except CircuitOpenError:
-        raise ServiceUnavailableError("AI service is temporarily unavailable")
-    except httpx.TimeoutException:
-        raise ServiceUnavailableError("AI service timed out")
-    except httpx.HTTPStatusError as exc:
-        raise AIServiceError("Packing list generation failed", detail=exc.response.text)
 
 
 @_retryable

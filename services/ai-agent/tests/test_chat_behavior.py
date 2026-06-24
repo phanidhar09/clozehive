@@ -391,7 +391,10 @@ class TestStreamEndpoint:
         ]
         error_events = [e for e in events if e.get("type") == "error"]
         assert error_events, "expected at least one error event"
-        assert "agent exploded" in error_events[0]["message"]
+        # The raw exception text must NOT leak to the client; a generic,
+        # user-facing message is returned instead (the real error is logged).
+        assert "agent exploded" not in error_events[0]["message"]
+        assert error_events[0]["message"] == "Chat failed. Please try again."
 
     @pytest.mark.asyncio
     async def test_stream_503_when_agent_not_ready(
