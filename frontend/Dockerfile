@@ -17,6 +17,20 @@ COPY . .
 # Empty = relative `/api` + `/uploads` in the browser; this image proxies them to api-gateway (see nginx.docker.conf).
 ARG VITE_API_URL=""
 ENV VITE_API_URL=${VITE_API_URL}
+# Observability — Vite inlines VITE_* at build time, so these must be build args.
+# All optional; empty values leave the integration disabled.
+ARG VITE_SENTRY_DSN=""
+ARG VITE_SENTRY_TRACES_SAMPLE_RATE=""
+ARG VITE_POSTHOG_KEY=""
+ARG VITE_POSTHOG_HOST=""
+ARG VITE_ENVIRONMENT=""
+ARG VITE_APP_VERSION=""
+ENV VITE_SENTRY_DSN=${VITE_SENTRY_DSN} \
+    VITE_SENTRY_TRACES_SAMPLE_RATE=${VITE_SENTRY_TRACES_SAMPLE_RATE} \
+    VITE_POSTHOG_KEY=${VITE_POSTHOG_KEY} \
+    VITE_POSTHOG_HOST=${VITE_POSTHOG_HOST} \
+    VITE_ENVIRONMENT=${VITE_ENVIRONMENT} \
+    VITE_APP_VERSION=${VITE_APP_VERSION}
 RUN npm run build
 
 # ── Stage 2: nginx (proxies /api and /uploads — `serve` cannot, and breaks vision upload) ─

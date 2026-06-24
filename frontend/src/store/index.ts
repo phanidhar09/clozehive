@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect } from 'react'
 import type { ClosetItem, ColorScheme, AuthUser } from '@/types'
 import { tokenStorage, authApi, closetApi } from '@/lib/api'
+import { analyticsIdentify, analyticsReset } from '@/observability'
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Types
@@ -162,6 +163,12 @@ export function useCreateAppState(): AppState {
     tokenStorage.set(accessToken)
     setCurrentUser(user)
     persistUser(user)
+    analyticsIdentify(user.id, {
+      email: user.email,
+      username: user.username,
+      role: user.role,
+      auth_provider: user.auth_provider,
+    })
   }, [])
 
   const logout = useCallback(async () => {
@@ -170,6 +177,7 @@ export function useCreateAppState(): AppState {
     clearPersistedUser()
     setCurrentUser(null)
     setClosetItems([])
+    analyticsReset()
     if (window.location.pathname !== '/login') window.location.assign('/login')
   }, [])
 
@@ -188,10 +196,26 @@ export function useCreateAppState(): AppState {
       clearPersistedUser()
       setCurrentUser(null)
       setClosetItems([])
+      analyticsReset()
       if (window.location.pathname !== '/login') window.location.assign('/login')
     }
     window.addEventListener('ch:unauthenticated', handler)
     return () => window.removeEventListener('ch:unauthenticated', handler)
+  }, [])
+
+  // Re-identify a user restored from localStorage on page load (login() only
+  // fires on a fresh sign-in). analyticsIdentify buffers until PostHog is ready.
+  useEffect(() => {
+    const user = currentUser
+    if (!user) return
+    analyticsIdentify(user.id, {
+      email: user.email,
+      username: user.username,
+      role: user.role,
+      auth_provider: user.auth_provider,
+    })
+    // Run once on mount for the initially-restored user; login() handles the rest.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // ── Closet ─────────────────────────────────────────────────────────────────

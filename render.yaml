@@ -313,5 +313,19 @@ services:
       # leave unset — observability.ts no-ops without it.
       - key: VITE_SENTRY_DSN
         sync: false
+      # Source-map upload at build time (de-minifies prod stack traces). All
+      # three must be set or the upload is skipped (build still succeeds).
+      - key: SENTRY_AUTH_TOKEN
+        sync: false
+      - key: SENTRY_ORG
+        sync: false
+      - key: SENTRY_PROJECT
+        value: clozehive-frontend
+      # Product analytics (PostHog). Paste the project API key, or leave unset —
+      # observability.ts no-ops without it. Host defaults to US cloud.
+      - key: VITE_POSTHOG_KEY
+        sync: false
+      - key: VITE_POSTHOG_HOST
+        value: https://us.i.posthog.com
       - key: VITE_ENVIRONMENT
         value: production

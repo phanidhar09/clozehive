@@ -160,7 +160,7 @@ export default function Profile() {
           ) : (
             <div className="flex gap-6">
               {[
-                { label: 'Items',     value: profile?.item_count ?? 0,      tab: 'overview' as Tab },
+                { label: 'Items',     value: profile?.item_count ?? insight.totalItems, tab: 'overview' as Tab },
                 ...(hideNonMvpUi()
                   ? []
                   : [

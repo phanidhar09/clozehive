@@ -325,6 +325,13 @@ services:
         # Empty = browser calls same origin; frontend container nginx proxies `/api` + `/uploads` → api-gateway.
         # Set a full URL only if you build a static bundle meant for a separate API host.
         VITE_API_URL: ${VITE_API_URL:-}
+        # Observability (inlined at build time). All optional — empty = disabled.
+        VITE_SENTRY_DSN: ${VITE_SENTRY_DSN:-}
+        VITE_SENTRY_TRACES_SAMPLE_RATE: ${VITE_SENTRY_TRACES_SAMPLE_RATE:-}
+        VITE_POSTHOG_KEY: ${VITE_POSTHOG_KEY:-}
+        VITE_POSTHOG_HOST: ${VITE_POSTHOG_HOST:-}
+        VITE_ENVIRONMENT: ${VITE_ENVIRONMENT:-}
+        VITE_APP_VERSION: ${VITE_APP_VERSION:-}
     <<: [*restart, *logging]
     ports:
       - "${FRONTEND_HOST_PORT:-3001}:3000"
