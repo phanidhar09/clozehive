@@ -477,9 +477,7 @@ def compute_style_alignment(
     # Avoidances can also reference whole garment types ("crop tops") — let an
     # explicit avoidance on name/category drag the score down even when fit was
     # unreadable, so we never call an avoided piece a great personal match.
-    name_blob = " ".join(
-        str(analysis.get(k) or "").lower() for k in ("name", "subcategory", "category")
-    )
+    name_blob = " ".join(str(analysis.get(k) or "").lower() for k in ("name", "subcategory", "category"))
     if avoidances and any(tok in name_blob for tok in avoidances if len(tok) >= 4):
         components.append(0.1)
         reasons.append("Matches something on your avoid list.")
