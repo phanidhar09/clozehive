@@ -56,24 +56,63 @@ def rating_tier(score: float) -> str:
     return "Risky"
 
 
+class ScoreCache:
+    """Request-scoped memo for the O(n²)·combos inner loops.
+
+    A single ``build_outfits`` call scores the same item against the same partners
+    thousands of times (once per combo it appears in). Without memoization each of
+    those calls re-parses both items' attributes and re-runs the styling math.
+    This caches each item's parsed features (by object identity) and each pairwise
+    result, so repeat work collapses to a dict lookup. Scoped per request — the
+    item dicts it keys on stay alive for the request, so ``id()`` is stable.
+
+    Pass one instance into ``build_outfits`` / ``count_completable_outfits`` (and
+    use ``score`` directly) to also dedupe the same anchor-vs-closet scoring across
+    several calls in one request, e.g. the shopping-check flow.
+    """
+
+    __slots__ = ("_features", "_pairs")
+
+    def __init__(self) -> None:
+        self._features: dict[int, compat.ItemFeatures] = {}
+        self._pairs: dict[tuple[int, int], dict[str, Any]] = {}
+
+    def features(self, item: dict[str, Any]) -> compat.ItemFeatures:
+        key = id(item)
+        feat = self._features.get(key)
+        if feat is None:
+            feat = compat.prepare(item)
+            self._features[key] = feat
+        return feat
+
+    def score(self, a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any]:
+        key = (id(a), id(b))
+        res = self._pairs.get(key)
+        if res is None:
+            res = compat.score_prepared(self.features(a), self.features(b))
+            self._pairs[key] = res
+        return res
+
+
 def _item_view(item: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(item.get("id", "")),
         "name": item.get("name", ""),
         "category": item.get("category", ""),
         "color": item.get("color") or item.get("primary_color") or "",
+        "pattern": item.get("pattern") or "",
         "image_url": item.get("processed_image_url") or item.get("image_url"),
         "role": compat.category_role(item.get("category")),
         "wear_count": int(item.get("wear_count") or 0),
     }
 
 
-def _mean_pairwise(items: list[dict[str, Any]]) -> float:
+def _mean_pairwise(items: list[dict[str, Any]], cache: ScoreCache) -> float:
     """Mean compatibility over every unordered pair — internal coherence."""
     pairs = list(combinations(items, 2))
     if not pairs:
         return 0.0
-    total = sum(compat.score_compatibility(a, b)["score"] for a, b in pairs)
+    total = sum(cache.score(a, b)["score"] for a, b in pairs)
     return total / len(pairs)
 
 
@@ -117,6 +156,7 @@ def _add_best_optional_layers(
     items: list[dict[str, Any]],
     plan: dict[str, tuple[str, ...]],
     buckets: dict[str, list[tuple[dict[str, Any], float]]],
+    cache: ScoreCache,
 ) -> list[dict[str, Any]]:
     """Greedily add optional roles that raise the outfit's mean pairwise score."""
     result = list(items)
@@ -124,7 +164,7 @@ def _add_best_optional_layers(
         best: tuple[dict[str, Any], float] | None = None
         for cand, _anchor_score in buckets.get(opt_role, []):
             trial = result + [cand]
-            score = _mean_pairwise(trial)
+            score = _mean_pairwise(trial, cache)
             if score >= _WEARABLE and (best is None or score > best[1]):
                 best = (cand, score)
         if best is not None:
@@ -137,20 +177,25 @@ def build_outfits(
     closet: list[dict[str, Any]],
     *,
     max_outfits: int = _MAX_OUTFITS,
+    cache: ScoreCache | None = None,
 ) -> dict[str, Any]:
     """Build the top complete outfits around ``anchor``.
 
     Returns ``{anchor_role, outfits, missing_roles}`` where each outfit is
     ``{score, tier, items, missing_roles, forgotten_item_ids, note_seed}``.
     ``missing_roles`` (top level) are required roles the closet can't fill at all.
+
+    Pass a shared ``cache`` to reuse anchor-vs-closet scoring already done by a
+    sibling call (e.g. an explicit pairing loop) on the same anchor and items.
     """
     anchor_role = compat.category_role(anchor.get("category"))
     plan = _ROLE_PLAN.get(anchor_role, _ROLE_PLAN["top"])
+    cache = cache or ScoreCache()
 
     # Bucket closet items by role, scored against the anchor.
     buckets: dict[str, list[tuple[dict[str, Any], float]]] = {}
     for item in closet:
-        res = compat.score_compatibility(anchor, item)
+        res = cache.score(anchor, item)
         if not res["role_compatible"] or res["score"] < _CANDIDATE_FLOOR:
             continue
         role = compat.category_role(item.get("category"))
@@ -174,7 +219,7 @@ def build_outfits(
 
     combos = list(product(*candidate_lists)) if candidate_lists else [()]
     for combo in combos:
-        items = _add_best_optional_layers([anchor, *combo], plan, buckets)
+        items = _add_best_optional_layers([anchor, *combo], plan, buckets, cache)
 
         owned_items = [it for it in items if it is not anchor]
         key = frozenset(str(it.get("id", "")) for it in owned_items)
@@ -182,7 +227,7 @@ def build_outfits(
             continue
         seen.add(key)
 
-        score = _mean_pairwise(items)
+        score = _mean_pairwise(items, cache)
         forgotten = [str(it.get("id", "")) for it in owned_items if int(it.get("wear_count") or 0) == 0]
         outfits.append(
             {
@@ -237,6 +282,7 @@ def best_pairings_from_build(
                 "category": item_view.get("category", ""),
                 "color": item_view.get("color", ""),
                 "primary_color": item_view.get("color", ""),
+                "pattern": item_view.get("pattern", ""),
             }
             compat_result = compat.score_compatibility(anchor, owned)
             reasons = compat_result.get("reasons") or []
@@ -267,11 +313,12 @@ def suggest_complementary_pairings(
     if not selected or not remaining:
         return []
 
+    cache = ScoreCache()
     scored: list[tuple[dict[str, Any], float, list[str]]] = []
     for item in remaining:
         hits: list[tuple[float, list[str]]] = []
         for sel in selected:
-            res = compat.score_compatibility(sel, item)
+            res = cache.score(sel, item)
             if res["pairs"]:
                 hits.append((res["score"], res["reasons"]))
         if not hits:
@@ -308,25 +355,32 @@ _ROLE_SHOP_LABEL = {
 }
 
 
-def _candidates_by_role(anchor: dict[str, Any], closet: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+def _candidates_by_role(
+    anchor: dict[str, Any], closet: list[dict[str, Any]], cache: ScoreCache | None = None
+) -> dict[str, list[dict[str, Any]]]:
+    cache = cache or ScoreCache()
     out: dict[str, list[dict[str, Any]]] = {}
     for item in closet:
-        res = compat.score_compatibility(anchor, item)
+        res = cache.score(anchor, item)
         if res["role_compatible"] and res["score"] >= _CANDIDATE_FLOOR:
             out.setdefault(compat.category_role(item.get("category")), []).append(item)
     return out
 
 
-def count_completable_outfits(anchor: dict[str, Any], closet: list[dict[str, Any]]) -> tuple[int, bool]:
+def count_completable_outfits(
+    anchor: dict[str, Any], closet: list[dict[str, Any]], *, cache: ScoreCache | None = None
+) -> tuple[int, bool]:
     """How many DISTINCT complete outfits this anchor unlocks from owned items —
     the "buying this completes N outfits" buy-signal. Counts coherent combinations
     (one item per required role, all pieces pairing with each other), capped.
 
-    Returns ``(count, capped)``.
+    Returns ``(count, capped)``. Pass a shared ``cache`` to reuse anchor-vs-closet
+    scoring from a sibling call on the same anchor and items.
     """
     anchor_role = compat.category_role(anchor.get("category"))
     plan = _ROLE_PLAN.get(anchor_role, _ROLE_PLAN["top"])
-    buckets = _candidates_by_role(anchor, closet)
+    cache = cache or ScoreCache()
+    buckets = _candidates_by_role(anchor, closet, cache)
 
     required = plan["required"]
     if any(not buckets.get(r) for r in required):
@@ -339,7 +393,7 @@ def count_completable_outfits(anchor: dict[str, Any], closet: list[dict[str, Any
     capped = False
     for combo in product(*lists):
         items = [anchor, *combo]
-        if _mean_pairwise(items) >= _WEARABLE:
+        if _mean_pairwise(items, cache) >= _WEARABLE:
             count += 1
             if count >= _COMPLETES_CAP:
                 capped = True

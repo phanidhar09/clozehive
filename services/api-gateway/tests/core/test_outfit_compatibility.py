@@ -34,6 +34,43 @@ def test_unknown_color_is_neutralish():
     assert oc.color_harmony("chartreuse-ish", "blah")[0] == 0.6
 
 
+# ── Pattern harmony ───────────────────────────────────────────────────────────
+
+
+def test_solid_pairs_with_any_pattern():
+    assert oc.pattern_harmony("solid", "floral")[0] == 1.0
+    assert oc.pattern_harmony("plaid", None)[0] == 1.0  # missing pattern is no-risk
+    assert oc.pattern_harmony("", "leopard")[0] == 1.0
+
+
+def test_two_bold_patterns_clash():
+    score, reason = oc.pattern_harmony("floral", "plaid")
+    assert score <= 0.5
+    assert reason == "two busy patterns compete"
+
+
+def test_bold_with_subtle_is_fine():
+    assert oc.pattern_harmony("floral shirt", "pinstripe")[0] >= 0.85
+    assert oc.pattern_harmony("striped", "leopard print")[1] is None
+
+
+def test_clashing_patterns_sink_an_otherwise_perfect_pairing():
+    """Two neutral, same-occasion pieces that would score 'perfect' on color and
+    formality must still be dragged down when both carry a loud print."""
+    floral_top = {"name": "floral shirt", "category": "tops", "color": "white",
+                  "pattern": "floral", "occasion": ["casual"], "season": ["summer"]}
+    plaid_pants = {"name": "plaid trousers", "category": "bottoms", "color": "black",
+                   "pattern": "plaid", "occasion": ["casual"], "season": ["summer"]}
+    clashing = oc.score_compatibility(floral_top, plaid_pants)
+
+    solid_pants = {**plaid_pants, "pattern": "solid"}
+    clean = oc.score_compatibility(floral_top, solid_pants)
+
+    assert clashing["breakdown"]["pattern"] < clean["breakdown"]["pattern"]
+    assert clashing["score"] < clean["score"]
+    assert "two busy patterns compete" in clashing["reasons"]
+
+
 # ── Formality ─────────────────────────────────────────────────────────────────
 
 

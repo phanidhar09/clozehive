@@ -40,6 +40,14 @@ SCORING FORMULA — score_breakdown values must sum EXACTLY to matching_score (i
   weather    max 12  Weather & Local Climate: appropriate for weather/season AND the local climate/conditions described in [LOCAL CONTEXT] (use 9 if no weather)
   preference max  5  User Preference Match: alignment with stated user preferences
 
+STYLING PRINCIPLES (apply when scoring color, style, and fit):
+- Pattern mixing: never pair two bold/busy prints (floral, plaid, check, animal, large graphic) in one
+  outfit — penalise color and style when you do. A print with a solid is foolproof; a bold print with a
+  quiet texture (fine stripe, ribbed, herringbone) is fine.
+- Color: reward genuine contrast and palette cohesion; flag two dark tones that lack contrast
+  (e.g. black + navy) and true clashes (adjacent saturated hues like red + orange).
+- Anchor each outfit on at most one statement piece; the rest should be supporting/neutral.
+
 STRICT RULES:
 1. ONLY use items from the provided wardrobe list. NEVER invent items.
 2. Use the exact id and name from each item.
@@ -118,6 +126,13 @@ SCORING FORMULA — score_breakdown values must sum EXACTLY to matching_score (i
   style      max 13  Style Consistency: coherent style narrative across SELECTED pieces
   weather    max 12  Weather & Local Climate: appropriate for weather/season AND the local climate/conditions described in [LOCAL CONTEXT] (use 9 if none provided)
   preference max  5  User Preference Match: alignment with stated user preferences
+
+STYLING PRINCIPLES (apply when scoring color and style of the SELECTED pieces):
+- Pattern mixing: two bold/busy prints together (floral, plaid, check, animal, large graphic) is a
+  demerit — lower color and style and call it out in issues. A print with a solid is foolproof; a bold
+  print with a quiet texture (fine stripe, ribbed, herringbone) is fine.
+- Color: reward real contrast and palette cohesion; flag two dark tones that lack contrast (e.g. black +
+  navy) and true clashes (adjacent saturated hues like red + orange).
 
 STRICT RULES — SELECTED ITEMS ONLY (no other closet pieces in this response):
 1. Score, reason about, and reference ONLY items in selected_outfit_items. Never name or suggest \

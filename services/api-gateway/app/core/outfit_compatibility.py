@@ -10,6 +10,7 @@ function entirely, scored on human styling signals:
   The single biggest driver of "does this go".
 - **Formality match** — don't pair joggers with a silk blazer. Derived from
   occasion tags + fabric + name cues (closet items don't store a formality field).
+- **Pattern harmony** — never two loud prints together; print + solid is foolproof.
 - **Season / occasion overlap** — flag heavy wool against a summer closet.
 - **Category role** — a top pairs with a bottom/shoe/layer, never with another
   top. Same-role items compete; they don't complete an outfit.
@@ -23,6 +24,8 @@ schema (``category``, ``color``/``primary_color``, ``pattern``, ``fabric``/
 
 from __future__ import annotations
 
+from collections.abc import Set as AbstractSet
+from dataclasses import dataclass
 from typing import Any
 
 # ── Color ─────────────────────────────────────────────────────────────────────
@@ -120,11 +123,10 @@ def _hue_distance(a: float, b: float) -> float:
     return min(d, 360 - d)
 
 
-def color_harmony(color_a: str | None, color_b: str | None) -> tuple[float, str | None]:
-    """Score colour pairing 0–1 with a short human reason for notable cases."""
-    kind_a, hue_a = color_profile(color_a)
-    kind_b, hue_b = color_profile(color_b)
-
+def _color_harmony(
+    kind_a: str, hue_a: float | None, kind_b: str, hue_b: float | None
+) -> tuple[float, str | None]:
+    """Score colour pairing from already-classified profiles (see ``color_harmony``)."""
     if kind_a == "unknown" or kind_b == "unknown":
         return (0.6, None)  # don't reward or punish what we can't read
     if kind_a == "neutral" or kind_b == "neutral":
@@ -142,6 +144,112 @@ def color_harmony(color_a: str | None, color_b: str | None) -> tuple[float, str 
     if 100 <= d < 150:
         return (0.65, "triadic colors")
     return (0.35, "colors clash")
+
+
+def color_harmony(color_a: str | None, color_b: str | None) -> tuple[float, str | None]:
+    """Score colour pairing 0–1 with a short human reason for notable cases."""
+    kind_a, hue_a = color_profile(color_a)
+    kind_b, hue_b = color_profile(color_b)
+    return _color_harmony(kind_a, hue_a, kind_b, hue_b)
+
+
+# ── Pattern ───────────────────────────────────────────────────────────────────
+
+# Tokens that mean "no print" — these pair cleanly with any pattern.
+_PATTERN_SOLID_TOKENS = ("solid", "plain", "none", "block", "block color", "block colour")
+
+# Loud, high-visual-weight prints. Two of these in one outfit fight for attention.
+_PATTERN_BOLD_TOKENS = (
+    "floral",
+    "plaid",
+    "tartan",
+    "check",
+    "checked",
+    "gingham",
+    "paisley",
+    "animal",
+    "leopard",
+    "cheetah",
+    "zebra",
+    "snake",
+    "camo",
+    "camouflage",
+    "graphic",
+    "logo",
+    "tropical",
+    "geometric",
+    "polka",
+    "polka dot",
+    "polka-dot",
+    "dot",
+    "tie-dye",
+    "tie dye",
+    "argyle",
+    "houndstooth",
+    "abstract",
+    "printed",
+    "print",
+)
+
+# Quiet, low-contrast textures/prints — generally safe alongside a bold print and
+# tolerable (with care) alongside another subtle one.
+_PATTERN_SUBTLE_TOKENS = (
+    "stripe",
+    "striped",
+    "pinstripe",
+    "ribbed",
+    "rib",
+    "melange",
+    "heather",
+    "heathered",
+    "herringbone",
+    "marl",
+    "textured",
+    "knit",
+    "cable",
+    "windowpane",
+)
+
+
+def pattern_class(pattern: str | None) -> str:
+    """Classify a pattern string → "solid" | "subtle" | "bold" | "unknown".
+
+    "solid" and "unknown" both behave as "no clash risk" — we never punish what we
+    can't read, and a solid pairs with anything.
+    """
+    if not pattern:
+        return "solid"
+    s = pattern.strip().lower()
+    if not s or any(tok in s for tok in _PATTERN_SOLID_TOKENS):
+        return "solid"
+    if any(tok in s for tok in _PATTERN_BOLD_TOKENS):
+        return "bold"
+    if any(tok in s for tok in _PATTERN_SUBTLE_TOKENS):
+        return "subtle"
+    return "unknown"
+
+
+def _pattern_harmony(ca: str, cb: str) -> tuple[float, str | None]:
+    """Score how well two already-classified patterns mix (see ``pattern_harmony``)."""
+    # A solid (or an unreadable pattern on either side) carries no clash risk.
+    if ca in ("solid", "unknown") or cb in ("solid", "unknown"):
+        return (1.0, None)
+    if ca == "bold" and cb == "bold":
+        return (0.4, "two busy patterns compete")
+    if ca == "subtle" and cb == "subtle":
+        return (0.85, None)
+    # One bold, one subtle — a deliberate, low-risk pairing.
+    return (0.92, None)
+
+
+def pattern_harmony(pattern_a: str | None, pattern_b: str | None) -> tuple[float, str | None]:
+    """Score how well two patterns mix, 0–1, with a short reason for clashes.
+
+    The classic rule: never put two loud prints together; a print + solid is
+    foolproof; mixing a bold print with a quiet texture works; two quiet patterns
+    are usually fine but can fight, so they take a small penalty.
+    """
+    return _pattern_harmony(pattern_class(pattern_a), pattern_class(pattern_b))
 
 
 # ── Formality ─────────────────────────────────────────────────────────────────
@@ -254,27 +362,29 @@ def formality_level(item: dict[str, Any]) -> float:
     return max(0.0, min(4.0, base + fabric_adj + name_adj))
 
 
-def formality_match(item_a: dict[str, Any], item_b: dict[str, Any]) -> tuple[float, str | None]:
-    """Score how close two items sit in formality (1 = same, 0 = ≥3 levels apart)."""
-    fa, fb = formality_level(item_a), formality_level(item_b)
+def _formality_match(fa: float, fb: float) -> tuple[float, str | None]:
+    """Score formality proximity from two already-computed levels."""
     dist = abs(fa - fb)
     score = 1.0 - min(dist / 3.0, 1.0)
     reason = "formality mismatch" if dist >= 2.0 else None
     return (score, reason)
 
 
+def formality_match(item_a: dict[str, Any], item_b: dict[str, Any]) -> tuple[float, str | None]:
+    """Score how close two items sit in formality (1 = same, 0 = ≥3 levels apart)."""
+    return _formality_match(formality_level(item_a), formality_level(item_b))
+
+
 # ── Season / occasion overlap ─────────────────────────────────────────────────
 
 
-def _jaccard(a: set[str], b: set[str]) -> float:
+def _jaccard(a: AbstractSet[str], b: AbstractSet[str]) -> float:
     if not a or not b:
         return 0.0
     return len(a & b) / len(a | b)
 
 
-def season_overlap(item_a: dict[str, Any], item_b: dict[str, Any]) -> tuple[float, str | None]:
-    sa = set(_as_list(_resolve(item_a, "season_tags", "season")))
-    sb = set(_as_list(_resolve(item_b, "season_tags", "season")))
+def _season_overlap(sa: AbstractSet[str], sb: AbstractSet[str]) -> tuple[float, str | None]:
     if not sa or not sb or "all-season" in sa or "all-season" in sb:
         return (1.0, None)
     if sa & sb:
@@ -282,12 +392,22 @@ def season_overlap(item_a: dict[str, Any], item_b: dict[str, Any]) -> tuple[floa
     return (0.3, "season mismatch")
 
 
-def occasion_overlap(item_a: dict[str, Any], item_b: dict[str, Any]) -> tuple[float, str | None]:
-    oa = set(_as_list(_resolve(item_a, "occasion_tags", "occasion")))
-    ob = set(_as_list(_resolve(item_b, "occasion_tags", "occasion")))
+def season_overlap(item_a: dict[str, Any], item_b: dict[str, Any]) -> tuple[float, str | None]:
+    sa = frozenset(_as_list(_resolve(item_a, "season_tags", "season")))
+    sb = frozenset(_as_list(_resolve(item_b, "season_tags", "season")))
+    return _season_overlap(sa, sb)
+
+
+def _occasion_overlap(oa: AbstractSet[str], ob: AbstractSet[str]) -> tuple[float, str | None]:
     if not oa or not ob:
         return (0.7, None)
     return (0.4 + 0.6 * _jaccard(oa, ob), None)
+
+
+def occasion_overlap(item_a: dict[str, Any], item_b: dict[str, Any]) -> tuple[float, str | None]:
+    oa = frozenset(_as_list(_resolve(item_a, "occasion_tags", "occasion")))
+    ob = frozenset(_as_list(_resolve(item_b, "occasion_tags", "occasion")))
+    return _occasion_overlap(oa, ob)
 
 
 # ── Category role ─────────────────────────────────────────────────────────────
@@ -358,8 +478,87 @@ _WEIGHTS = {
 }
 assert abs(sum(_WEIGHTS.values()) - 1.0) < 1e-9
 
+# Pattern is a penalty, not a reward dimension: a plain outfit isn't *better* for
+# having no print, but two loud prints together is a real demerit. So it scales
+# the fused score down on a clash and leaves everything else untouched. This
+# fraction caps how much a total pattern clash can cut the score.
+_PATTERN_PENALTY_WEIGHT = 0.30
+
 # A pairing at/above this fused score is considered a genuine "this goes".
 PAIR_THRESHOLD = 0.62
+
+
+@dataclass(frozen=True)
+class ItemFeatures:
+    """An item's styling attributes, parsed once for reuse across many pairings.
+
+    Building outfits scores the same item against many partners in tight loops, so
+    deriving role / colour / formality / pattern / season / occasion here once —
+    instead of re-parsing the raw dict on every ``score_compatibility`` call — is
+    the single biggest per-request CPU saving in the builder. Call ``prepare`` once
+    per item, then ``score_prepared`` for each pairing.
+    """
+
+    role: str
+    color_kind: str
+    color_hue: float | None
+    formality: float
+    pattern: str
+    seasons: frozenset[str]
+    occasions: frozenset[str]
+
+
+def prepare(item: dict[str, Any]) -> ItemFeatures:
+    """Parse an item's styling attributes once so pairwise scoring stays cheap."""
+    kind, hue = color_profile(_resolve(item, "primary_color", "color"))
+    return ItemFeatures(
+        role=category_role(_resolve(item, "category")),
+        color_kind=kind,
+        color_hue=hue,
+        formality=formality_level(item),
+        pattern=pattern_class(_resolve(item, "pattern")),
+        seasons=frozenset(_as_list(_resolve(item, "season_tags", "season"))),
+        occasions=frozenset(_as_list(_resolve(item, "occasion_tags", "occasion"))),
+    )
+
+
+def score_prepared(fa: ItemFeatures, fb: ItemFeatures) -> dict[str, Any]:
+    """Score two already-prepared items — the cheap inner core of ``score_compatibility``."""
+    role_ok = roles_pair(fa.role, fb.role)
+
+    color_s, color_r = _color_harmony(fa.color_kind, fa.color_hue, fb.color_kind, fb.color_hue)
+    form_s, form_r = _formality_match(fa.formality, fb.formality)
+    patt_s, patt_r = _pattern_harmony(fa.pattern, fb.pattern)
+    seas_s, seas_r = _season_overlap(fa.seasons, fb.seasons)
+    occ_s, occ_r = _occasion_overlap(fa.occasions, fb.occasions)
+
+    base_score = (
+        _WEIGHTS["color"] * color_s
+        + _WEIGHTS["formality"] * form_s
+        + _WEIGHTS["season"] * seas_s
+        + _WEIGHTS["occasion"] * occ_s
+    )
+    # Apply pattern as a multiplicative penalty: a clash drags the whole pairing
+    # down, a clean/solid combination passes through unchanged.
+    pattern_penalty = 1.0 - _PATTERN_PENALTY_WEIGHT * (1.0 - patt_s)
+    score = base_score * pattern_penalty
+
+    reasons = [r for r in (color_r, form_r, patt_r, seas_r, occ_r) if r]
+
+    return {
+        "role_compatible": role_ok,
+        "pairs": role_ok and score >= PAIR_THRESHOLD,
+        "score": round(score, 3),
+        "breakdown": {
+            "color": round(color_s, 3),
+            "formality": round(form_s, 3),
+            "pattern": round(patt_s, 3),
+            "season": round(seas_s, 3),
+            "occasion": round(occ_s, 3),
+        },
+        "reasons": reasons,
+        "roles": [fa.role, fb.role],
+    }
 
 
 def score_compatibility(item_a: dict[str, Any], item_b: dict[str, Any]) -> dict[str, Any]:
@@ -370,37 +569,8 @@ def score_compatibility(item_a: dict[str, Any], item_b: dict[str, Any]) -> dict[
       (a top + a bottom, not two tops).
     - ``score``: fused 0–1 styling compatibility.
     - ``pairs``: role_compatible AND score ≥ PAIR_THRESHOLD — a real match.
+
+    Convenience wrapper over ``prepare`` + ``score_prepared``. In tight loops over
+    a closet, call ``prepare`` once per item and reuse the result instead.
     """
-    role_a = category_role(_resolve(item_a, "category"))
-    role_b = category_role(_resolve(item_b, "category"))
-    role_ok = roles_pair(role_a, role_b)
-
-    color_a = _resolve(item_a, "primary_color", "color")
-    color_b = _resolve(item_b, "primary_color", "color")
-    color_s, color_r = color_harmony(color_a, color_b)
-    form_s, form_r = formality_match(item_a, item_b)
-    seas_s, seas_r = season_overlap(item_a, item_b)
-    occ_s, occ_r = occasion_overlap(item_a, item_b)
-
-    score = (
-        _WEIGHTS["color"] * color_s
-        + _WEIGHTS["formality"] * form_s
-        + _WEIGHTS["season"] * seas_s
-        + _WEIGHTS["occasion"] * occ_s
-    )
-
-    reasons = [r for r in (color_r, form_r, seas_r, occ_r) if r]
-
-    return {
-        "role_compatible": role_ok,
-        "pairs": role_ok and score >= PAIR_THRESHOLD,
-        "score": round(score, 3),
-        "breakdown": {
-            "color": round(color_s, 3),
-            "formality": round(form_s, 3),
-            "season": round(seas_s, 3),
-            "occasion": round(occ_s, 3),
-        },
-        "reasons": reasons,
-        "roles": [role_a, role_b],
-    }
+    return score_prepared(prepare(item_a), prepare(item_b))

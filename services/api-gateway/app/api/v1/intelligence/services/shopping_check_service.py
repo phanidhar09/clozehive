@@ -31,7 +31,6 @@ from app.api.v1.intelligence.services.fashion_rag_service import (
     search_fashion_knowledge,
 )
 from app.api.v1.wardrobe.services.vision_service import analyze_for_bulk
-from app.core import outfit_compatibility as compat
 from app.core.embedding_service import (
     generate_text_embedding,
     item_to_embedding_text,
@@ -715,11 +714,17 @@ async def analyze_shopping_item(
     #     can never surface. A blazer is scored against bottoms/shoes/layers,
     #     not against other blazers.
     closet = await _fetch_closet_for_compat(session, user_id)
+    # One cache shared across every anchor-vs-closet scoring in this request: the
+    # pairing loop below plus build_outfits and count_completable_outfits all score
+    # the same analysis against the same items, so they should compute each pair once.
+    from app.core.outfit_builder import ScoreCache
+
+    score_cache = ScoreCache()
     pairings: list[dict[str, Any]] = []
     for owned in closet:
         if str(owned.get("id", "")) in dupe_ids:
             continue  # a duplicate isn't a "pairing"
-        result = compat.score_compatibility(analysis, owned)
+        result = score_cache.score(analysis, owned)
         if result["pairs"]:
             pairings.append(
                 {
@@ -739,7 +744,7 @@ async def analyze_shopping_item(
     # Re-rank pairings toward items that appear in the best complete outfits.
     from app.core import outfit_builder
 
-    built_preview = outfit_builder.build_outfits(analysis, closet)
+    built_preview = outfit_builder.build_outfits(analysis, closet, cache=score_cache)
     best_ids = outfit_builder.best_pairing_ids(built_preview)
     if best_ids:
         pairings.sort(
@@ -826,7 +831,7 @@ async def analyze_shopping_item(
     from app.core import outfit_builder
 
     dupe_count = len(dupe_items)
-    completes_outfits, _capped = outfit_builder.count_completable_outfits(analysis, closet)
+    completes_outfits, _capped = outfit_builder.count_completable_outfits(analysis, closet, cache=score_cache)
 
     # 9. Persist to DB
     record_id = str(uuid.uuid4())
@@ -1079,7 +1084,10 @@ async def build_outfits_for_check(
         analysis = _json.loads(analysis)
 
     closet = await _fetch_closet_for_compat(session, user_id)
-    built = outfit_builder.build_outfits(analysis, closet)
+    # Share one cache so build_outfits and count_completable_outfits below don't
+    # each re-score the same anchor against the same closet.
+    score_cache = outfit_builder.ScoreCache()
+    built = outfit_builder.build_outfits(analysis, closet, cache=score_cache)
 
     # Attach a stylist note to each outfit.
     for outfit in built["outfits"]:
@@ -1091,7 +1099,7 @@ async def build_outfits_for_check(
         )
 
     # Ask 3: the buy-signal + actionable gap completers.
-    completes_outfits, _capped = outfit_builder.count_completable_outfits(analysis, closet)
+    completes_outfits, _capped = outfit_builder.count_completable_outfits(analysis, closet, cache=score_cache)
     gap_suggestions = outfit_builder.suggest_for_gaps(analysis, built["missing_roles"], closet)
 
     await record_shopping_event(
