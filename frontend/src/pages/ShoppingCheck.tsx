@@ -15,21 +15,36 @@ import { shoppingCheckApi, type ShoppingCheckResult, type ShoppingHistoryEntry,
 import { resolveUploadUrl } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
+// ── Rating colours ────────────────────────────────────────────────────────────
+
+// The verdict is a 0–10 rating + a colour band — never a buy/skip word.
+type RatingColor = 'green' | 'amber' | 'red'
+
+const RATING_HEX: Record<RatingColor, string> = {
+  green: '#10b981',
+  amber: '#f59e0b',
+  red: '#ef4444',
+}
+
+// Map a backend colour (preferred) or fall back to the 0–10 rating.
+function ratingColorOf(color: RatingColor | undefined, rating: number): RatingColor {
+  if (color) return color
+  return rating >= 7 ? 'green' : rating >= 4.5 ? 'amber' : 'red'
+}
+
 // ── Score ring ────────────────────────────────────────────────────────────────
 
-function ScoreRing({ score }: { score: number }) {
+function ScoreRing({ rating, color }: { rating: number; color: RatingColor }) {
   const r = 42
   const circ = 2 * Math.PI * r
-  const fill = (score / 100) * circ
-  const color =
-    score >= 75 ? '#10b981' :
-    score >= 50 ? '#f59e0b' : '#ef4444'
+  const fill = (rating / 10) * circ
+  const hex = RATING_HEX[color]
 
   return (
     <svg width={110} height={110} className="rotate-[-90deg]">
       <circle cx={55} cy={55} r={r} fill="none" stroke="currentColor"
         strokeWidth={9} className="text-slate-200 dark:text-white/10" />
-      <circle cx={55} cy={55} r={r} fill="none" stroke={color}
+      <circle cx={55} cy={55} r={r} fill="none" stroke={hex}
         strokeWidth={9} strokeLinecap="round"
         strokeDasharray={`${fill} ${circ}`}
         style={{ transition: 'stroke-dasharray 0.8s ease' }} />
@@ -40,31 +55,38 @@ function ScoreRing({ score }: { score: number }) {
           transformOrigin: '55px 55px',
           fontSize: 22,
           fontWeight: 700,
-          fill: color,
+          fill: hex,
         }}>
-        {Math.round(score)}
+        {rating.toFixed(1)}
       </text>
     </svg>
   )
 }
 
-// ── Recommendation badge ──────────────────────────────────────────────────────
+// ── Rating badge ──────────────────────────────────────────────────────────────
 
-const REC_CONFIG = {
-  buy: {
-    label: 'Buy it!',
+// Keyed by colour band, not a buy/skip word. Labels describe the *fit*, never an
+// instruction to purchase or pass.
+const RATING_CONFIG: Record<RatingColor, {
+  label: string
+  icon: typeof CheckCircle
+  classes: string
+  border: string
+}> = {
+  green: {
+    label: 'Strong match',
     icon: CheckCircle,
     classes: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
     border: 'border-emerald-200 dark:border-emerald-700/40',
   },
-  consider: {
-    label: 'Think about it',
+  amber: {
+    label: 'Fair match',
     icon: AlertCircle,
     classes: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
     border: 'border-amber-200 dark:border-amber-700/40',
   },
-  skip: {
-    label: 'Skip it',
+  red: {
+    label: 'Weak match',
     icon: XCircle,
     classes: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
     border: 'border-red-200 dark:border-red-700/40',
@@ -420,7 +442,8 @@ function ResultCard({
   onReset: () => void
 }) {
   const [bought, setBought] = useState<boolean | null>(null)
-  const rec = REC_CONFIG[result.buy_recommendation]
+  const ratingColor = ratingColorOf(result.rating_color, result.rating)
+  const rec = RATING_CONFIG[ratingColor]
   const RecIcon = rec.icon
 
   // Instrument: the user actually saw a verdict (funnel step after check_created).
@@ -450,7 +473,7 @@ function ResultCard({
           {/* Score + recommendation */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-3 flex-wrap">
-              <ScoreRing score={result.buy_score} />
+              <ScoreRing rating={result.rating} color={ratingColor} />
               <div>
                 <div className={cn(
                   'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-bold border',
@@ -460,7 +483,7 @@ function ResultCard({
                   {rec.label}
                 </div>
                 <p className="mt-2 text-[11px] text-slate-500 dark:text-white/40 uppercase tracking-wider font-semibold">
-                  Buy Score
+                  {result.rating.toFixed(1)} / 10 Rating
                 </p>
               </div>
             </div>
@@ -686,7 +709,8 @@ function HistoryCard({
   const [confirming, setConfirming] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
-  const rec = REC_CONFIG[entry.buy_recommendation] ?? REC_CONFIG.consider
+  const ratingColor = ratingColorOf(entry.rating_color, entry.rating)
+  const rec = RATING_CONFIG[ratingColor]
   const RecIcon = rec.icon
   const analysis = entry.item_analysis as Record<string, unknown>
 
@@ -725,7 +749,7 @@ function HistoryCard({
               {rec.label}
             </span>
             <span className="text-[11px] text-slate-400 dark:text-white/40">
-              Score: {Math.round(entry.buy_score)}
+              Rating: {entry.rating.toFixed(1)} / 10
             </span>
             {entry.purchase_decision !== null && (
               <span className={cn(
@@ -734,19 +758,17 @@ function HistoryCard({
                   ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400'
                   : 'bg-slate-100 text-slate-500 dark:bg-white/[0.06] dark:text-white/40',
               )}>
-                {entry.purchase_decision ? 'Bought' : 'Skipped'}
+                {entry.purchase_decision ? 'Bought' : 'Not bought'}
               </span>
             )}
           </div>
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
           <div className="text-right">
-            <p className="text-lg font-bold" style={{
-              color: entry.buy_score >= 75 ? '#10b981' : entry.buy_score >= 50 ? '#f59e0b' : '#ef4444',
-            }}>
-              {Math.round(entry.buy_score)}
+            <p className="text-lg font-bold" style={{ color: RATING_HEX[ratingColor] }}>
+              {entry.rating.toFixed(1)}
             </p>
-            <p className="text-[10px] text-slate-400 dark:text-white/30">/ 100</p>
+            <p className="text-[10px] text-slate-400 dark:text-white/30">/ 10</p>
           </div>
           {checkId && (
             <button
@@ -847,7 +869,7 @@ function UploadZone({ onFile }: { onFile: (f: File) => void }) {
           Take a photo or upload from gallery
         </p>
         <p className="text-sm text-slate-500 dark:text-white/50">
-          Point your camera at any store item to get an instant buy recommendation
+          Point your camera at any store item to get an instant fit rating
         </p>
       </div>
 
@@ -1009,7 +1031,7 @@ export default function ShoppingCheck() {
         <div className="grid grid-cols-3 gap-3">
           {[
             { icon: Camera, label: 'Snap a photo', desc: 'Point at any item you like' },
-            { icon: Star, label: 'Get a score', desc: '0–100 buy recommendation' },
+            { icon: Star, label: 'Get a rating', desc: '0–10 fit rating with colour' },
             { icon: TrendingUp, label: 'See the impact', desc: 'How it completes your closet' },
           ].map(({ icon: Icon, label, desc }) => (
             <GlassCard key={label} className="p-3 text-center space-y-1.5">

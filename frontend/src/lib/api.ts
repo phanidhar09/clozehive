@@ -1234,7 +1234,16 @@ export interface ShoppingCheckResult {
   item_analysis: Record<string, unknown>
   matched_items: ShoppingMatchedItem[]
   buy_score: number
+  /** Headline verdict on a 0–10 scale (buy_score / 10). Shown to the user. */
+  rating: number
+  /** Verdict colour band: green (strong), amber (middling), red (weak). */
+  rating_color: 'green' | 'amber' | 'red'
+  /** Same 0–10 value as `rating`; kept as an alias. */
+  buy_score_10?: number
+  /** Internal analytics band only — do NOT surface (it's a buy/skip word). */
   buy_recommendation: 'buy' | 'consider' | 'skip'
+  /** Personal-fit sub-signal (coloring/fit/taste), 0–1; null when no profile. */
+  style_match?: number | null
   closet_boost_pct: number
   /** Per-factor % contributions to buy_score (weights sum to 100). */
   score_breakdown?: Record<string, number>

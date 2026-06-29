@@ -22,7 +22,6 @@ import pytest
 
 from app.api.v1.intelligence.services import shopping_check_service as svc
 
-
 # ── 1. Pure scoring engine ──────────────────────────────────────────────────────
 
 
@@ -30,45 +29,97 @@ def test_weights_sum_to_100():
     assert round(sum(svc._WEIGHTS.values())) == 100
 
 
+def test_ten_point_scale_is_derived_and_clamped():
+    assert svc.to_ten_point(82) == 8.2
+    assert svc.to_ten_point(100) == 10.0
+    assert svc.to_ten_point(0) == 0.0
+    assert svc.to_ten_point(35) == 3.5
+    # Never escapes 0–10 even on out-of-range input.
+    assert svc.to_ten_point(120) == 10.0
+    assert svc.to_ten_point(-5) == 0.0
+
+
+def test_rating_color_bands():
+    """The verdict is a rating + colour, never a buy/skip word."""
+    assert svc.rating_color(85) == "green"
+    assert svc.rating_color(70) == "green"
+    assert svc.rating_color(69) == "amber"
+    assert svc.rating_color(45) == "amber"
+    assert svc.rating_color(44) == "red"
+    assert svc.rating_color(0) == "red"
+
+
+def test_effective_weights_redistribute_without_profile():
+    """No profile → style_match's weight folds into the closet-evidence factors,
+    and the effective weights still sum to 100."""
+    w = svc.effective_weights(has_profile=False)
+    assert "style_match" not in w
+    assert round(sum(w.values())) == 100
+    # The closet factors each absorb a share of the 25 points.
+    assert w["compatibility"] > svc._WEIGHTS["compatibility"]
+    assert w["uniqueness"] > svc._WEIGHTS["uniqueness"]
+    # Non-closet factors are untouched.
+    assert w["gap_fill"] == svc._WEIGHTS["gap_fill"]
+
+
 def test_breakdown_always_sums_to_score():
-    """Whatever the inputs, the per-factor contributions sum to the buy score."""
+    """Whatever the inputs, the per-factor contributions sum to the buy score, and
+    the returned weights sum to 100 — with or without a profile."""
     import itertools
 
     for has_dupe, fills_gap, occ, sea in itertools.product([True, False], repeat=4):
         for count in (0, 1, 4, 10):
-            score, breakdown, _ = svc.compute_buy_score(
-                has_duplicate=has_dupe,
-                compatible_count=count,
-                fills_gap=fills_gap,
-                has_new_occasions=occ,
-                has_new_seasons=sea,
-            )
-            assert score == round(sum(breakdown.values()))
-            assert 0 <= score <= 100
+            for style in (None, 0.0, 0.5, 1.0):
+                score, breakdown, _, weights = svc.compute_buy_score(
+                    has_duplicate=has_dupe,
+                    compatible_count=count,
+                    fills_gap=fills_gap,
+                    has_new_occasions=occ,
+                    has_new_seasons=sea,
+                    style_match=style,
+                )
+                assert score == round(sum(breakdown.values()))
+                assert 0 <= score <= 100
+                assert round(sum(weights.values())) == 100
+                assert set(breakdown) == set(weights)
 
 
-def test_strong_unique_compatible_item_is_a_buy():
-    score, breakdown, rec = svc.compute_buy_score(
+def test_strong_unique_compatible_on_taste_item_is_a_buy():
+    score, breakdown, rec, _ = svc.compute_buy_score(
         has_duplicate=False,
         compatible_count=4,  # saturates compatibility
         fills_gap=True,
         has_new_occasions=True,
         has_new_seasons=True,
+        style_match=1.0,  # perfect personal fit
     )
     assert score == 100
     assert rec == "buy"
     assert breakdown["compatibility"] == 35.0
-    assert breakdown["uniqueness"] == 30.0
+    assert breakdown["style_match"] == 25.0
+    assert breakdown["uniqueness"] == 20.0
+
+
+def test_off_taste_item_scores_a_full_25_lower():
+    """Identical closet fit; only the personal-style match differs by its weight."""
+    common = dict(
+        has_duplicate=False, compatible_count=4, fills_gap=False,
+        has_new_occasions=False, has_new_seasons=False,
+    )
+    loved = svc.compute_buy_score(**common, style_match=1.0)[0]
+    hated = svc.compute_buy_score(**common, style_match=0.0)[0]
+    assert loved - hated == 25
 
 
 def test_duplicate_suppresses_uniqueness_and_novelty():
     """A duplicate zeroes uniqueness AND the novelty factors (no double credit)."""
-    score, breakdown, rec = svc.compute_buy_score(
+    score, breakdown, rec, _ = svc.compute_buy_score(
         has_duplicate=True,
         compatible_count=4,
         fills_gap=False,
         has_new_occasions=True,  # must NOT count while it's a duplicate
         has_new_seasons=True,
+        style_match=0.0,
     )
     assert breakdown["uniqueness"] == 0.0
     assert breakdown["occasion_new"] == 0.0
@@ -79,21 +130,53 @@ def test_duplicate_suppresses_uniqueness_and_novelty():
 
 
 def test_recommendation_bands():
-    # skip: lone gap-fill = 15
+    # skip: lone gap-fill = 10
     assert svc.compute_buy_score(
         has_duplicate=True, compatible_count=0, fills_gap=True,
         has_new_occasions=False, has_new_seasons=False,
     )[2] == "skip"
-    # consider: uniqueness(30) + ~half compatibility(2/4*35=17.5) = 47.5 → 48
+    # consider (no profile): not a dupe + half compatibility, weights redistributed
     assert svc.compute_buy_score(
         has_duplicate=False, compatible_count=2, fills_gap=False,
         has_new_occasions=False, has_new_seasons=False,
     )[2] == "consider"
-    # buy: uniqueness(30) + full compatibility(35) + gap(15) = 80
+    # buy: uniqueness(20) + full compatibility(35) + gap(10) + full style(25) = 90
     assert svc.compute_buy_score(
         has_duplicate=False, compatible_count=4, fills_gap=True,
-        has_new_occasions=False, has_new_seasons=False,
+        has_new_occasions=False, has_new_seasons=False, style_match=1.0,
     )[2] == "buy"
+
+
+# ── Personal-fit alignment (coloring / fit / taste) ──────────────────────────────
+
+
+def test_style_alignment_is_none_without_usable_profile():
+    assert svc.compute_style_alignment({"primary_color": "navy"}, None) == (None, [])
+    empty = {"favorite_colors": [], "avoided_colors": [], "fit_preferences": [], "avoidances": []}
+    assert svc.compute_style_alignment({"primary_color": "navy"}, empty)[0] is None
+
+
+def test_style_alignment_favorite_color_scores_high():
+    score, reasons = svc.compute_style_alignment(
+        {"primary_color": "navy blue"}, {"favorite_colors": ["navy"]}
+    )
+    assert score == 1.0
+    assert any("favorite" in r.lower() for r in reasons)
+
+
+def test_style_alignment_avoided_color_scores_low():
+    score, _ = svc.compute_style_alignment(
+        {"primary_color": "neon green"}, {"avoided_colors": ["neon green"]}
+    )
+    assert score == 0.1
+
+
+def test_style_alignment_averages_avoided_fit_with_loved_taste():
+    score, _ = svc.compute_style_alignment(
+        {"fit": "oversized", "style_tags": ["minimalist"]},
+        {"fit_preferences": ["slim"], "avoidances": ["oversized"], "style_preferences": ["minimalist"]},
+    )
+    assert score == pytest.approx(0.55)  # avoided fit (0.1) + on-taste (1.0) → mean
 
 
 # ── 2. RAG-grounded take ────────────────────────────────────────────────────────
@@ -118,7 +201,6 @@ async def _call_take(chat_return: str, docs: list[dict]):
         result = await svc._generate_grounded_take(
             session,
             analysis=_analysis(),
-            recommendation="buy",
             score=82,
             dupe_count=0,
             pairing_names=["Grey Chinos", "Brown Loafers"],
@@ -160,7 +242,8 @@ async def test_take_is_generated_in_grounded_mode():
     assert kwargs["temperature"] <= 0.3
     user_msg = kwargs["messages"][0]["content"]
     assert "[VERDICT FACTS]" in user_msg
-    assert "BUY (buy score 82/100)" in user_msg  # the authoritative verdict is pinned
+    assert "Rating: 8.2/10 (green)" in user_msg  # rating + colour, not a buy/skip word
+    assert "BUY" not in user_msg and "skip" not in user_msg.lower()
     assert "Do not invent" in user_msg
 
 

@@ -4,11 +4,15 @@ Flow:
 1. Vision AI analyses the photo → extracts item attributes
 2. Embedding generated for the new item description
 3. pgvector similarity search against user's closet_items
-4. Scoring engine computes buy_score (0–100) based on:
-   - Duplicate penalty  (very similar item already owned)
-   - Outfit compatibility boost (pairs with many existing items)
-   - Gap fill boost  (fills a detected purchase_gap)
-   - Occasion/season coverage boost
+4. Scoring engine computes buy_score (0–100) — weighted %, closet-fit first,
+   then personal fit, then coverage (cost is NOT a factor; it's a side signal):
+   - Compatibility (35%)  — pairs with items already owned
+   - Style match (25%)    — coloring / fit / taste vs the user's style profile
+   - Uniqueness (20%)     — not a near-duplicate (a veto on re-buying)
+   - Gap fill (10%)       — fills a detected purchase_gap
+   - Occasion/season coverage (5% each)
+   When the user has no style profile, the style_match weight folds back into
+   the closet-evidence factors (see effective_weights).
 5. Recommendation + reasoning returned
 """
 
@@ -96,14 +100,24 @@ _SCREENSHOT_VISION_HINT = (
 # Percentage-weighted scoring: each factor weight is the % it can contribute, and
 # the weights SUM TO 100. buy_score = Σ(weight × factor_subscore) where each
 # subscore is 0–1, so the result is a true 0–100% with no clamping needed.
+#
+# Ordering of intent: closet-fit FIRST (does it pair with what you own, without
+# being a re-buy), then PERSONAL fit (your coloring / fit / taste), then the
+# coverage extras. Cost is deliberately NOT a factor here — it's surfaced as a
+# separate side signal so a taste/closet verdict is never driven by price.
 _WEIGHTS: dict[str, float] = {
-    "uniqueness": 30.0,  # not a near-duplicate of something already owned
     "compatibility": 35.0,  # genuinely *pairs* with items already in the closet
-    "gap_fill": 15.0,  # fills a detected category gap
-    "occasion_new": 12.0,  # adds new occasion coverage
-    "season_new": 8.0,  # adds new season coverage
+    "style_match": 25.0,  # matches your stated coloring / fit / taste (profile)
+    "uniqueness": 20.0,  # not a near-duplicate — still a strong veto on re-buying
+    "gap_fill": 10.0,  # fills a detected category gap
+    "occasion_new": 5.0,  # adds new occasion coverage
+    "season_new": 5.0,  # adds new season coverage
 }
 assert round(sum(_WEIGHTS.values())) == 100, "buy_score weights must sum to 100%"
+# When the user has no usable style profile (skipped onboarding), we can't judge
+# personal fit — so style_match's weight is folded back into the closet-evidence
+# factors (these), proportional to their weight, rather than silently zeroing 25%.
+_CLOSET_EVIDENCE_FACTORS = ("compatibility", "uniqueness")
 _COMPAT_SATURATION = 4  # this many genuine pairings = full compatibility credit
 # Embedding-similarity cutoff for the dupe-check (a near-identical item). This is
 # ONLY used for "do you already own this" — never for "does this match".
@@ -254,6 +268,51 @@ async def _fetch_closet_for_compat(session: AsyncSession, user_id: str) -> list[
 # ── Scoring engine (pure) ──────────────────────────────────────────────────────
 
 
+def to_ten_point(score_100: float) -> float:
+    """Headline buy score on a 0–10 scale (one decimal), derived from the 0–100
+    score. The 0–100 form stays canonical — DB column, per-factor breakdown, and
+    the recommendation bands all use it — so this is purely the display number
+    (e.g. 82 → 8.2). Keeping one source of truth means stored history and the
+    "earned / max" bars never disagree with the headline."""
+    return round(max(0.0, min(100.0, float(score_100))) / 10.0, 1)
+
+
+# The verdict is communicated as a 0–10 RATING plus a colour — never as a
+# "buy / skip / consider" instruction. The colour bands mirror the score bands:
+#   green  → strong fit   (score ≥ 70 / rating ≥ 7.0)
+#   amber  → middling fit  (45–69 / 4.5–6.9)
+#   red    → weak fit      (< 45 / < 4.5)
+_RATING_COLORS = ("red", "amber", "green")
+
+
+def rating_color(score_100: float) -> str:
+    """Colour token for a score's band — the user sees a rating + this colour
+    instead of a buy/skip word."""
+    if score_100 >= 70:
+        return "green"
+    if score_100 >= 45:
+        return "amber"
+    return "red"
+
+
+def effective_weights(*, has_profile: bool) -> dict[str, float]:
+    """The weight map actually used for a given user.
+
+    With a profile, the canonical :data:`_WEIGHTS` apply. Without one we can't
+    judge personal fit, so ``style_match``'s weight is folded into the closet-
+    evidence factors (proportional to their weight) — the score still sums to 100
+    and leans harder on closet signal instead of punishing a missing profile.
+    """
+    if has_profile:
+        return dict(_WEIGHTS)
+    weights = dict(_WEIGHTS)
+    style_w = weights.pop("style_match")
+    base = sum(weights[k] for k in _CLOSET_EVIDENCE_FACTORS)
+    for k in _CLOSET_EVIDENCE_FACTORS:
+        weights[k] += style_w * weights[k] / base
+    return weights
+
+
 def compute_buy_score(
     *,
     has_duplicate: bool,
@@ -261,13 +320,22 @@ def compute_buy_score(
     fills_gap: bool,
     has_new_occasions: bool,
     has_new_seasons: bool,
-) -> tuple[int, dict[str, float], str]:
-    """Pure scoring core — given the closet-derived signals, return the 0–100 buy
-    score, its per-factor % breakdown, and the recommendation band.
+    style_match: float | None = None,
+) -> tuple[int, dict[str, float], str, dict[str, float]]:
+    """Pure scoring core — given the closet- and profile-derived signals, return
+    the 0–100 buy score, its per-factor % breakdown, the recommendation band, and
+    the effective weights used (so the UI can render "earned / max" bars).
+
+    ``style_match`` is the 0–1 personal-fit subscore (coloring / fit / taste).
+    Pass ``None`` when the user has no usable profile — its weight is then folded
+    into the closet-evidence factors via :func:`effective_weights`.
 
     Extracted from :func:`analyze_shopping_item` so the product's most important
     number is unit-testable in isolation (no vision/embeddings/DB needed).
     """
+    has_profile = style_match is not None
+    weights = effective_weights(has_profile=has_profile)
+
     subscores: dict[str, float] = {
         "uniqueness": 0.0 if has_duplicate else 1.0,
         "compatibility": min(compatible_count / _COMPAT_SATURATION, 1.0),
@@ -276,7 +344,10 @@ def compute_buy_score(
         "occasion_new": 1.0 if (has_new_occasions and not has_duplicate) else 0.0,
         "season_new": 1.0 if (has_new_seasons and not has_duplicate) else 0.0,
     }
-    score_breakdown = {k: round(_WEIGHTS[k] * subscores[k], 1) for k in _WEIGHTS}
+    if has_profile:
+        subscores["style_match"] = max(0.0, min(1.0, style_match))
+
+    score_breakdown = {k: round(weights[k] * subscores[k], 1) for k in weights}
     score = max(0, min(100, round(sum(score_breakdown.values()))))
 
     if score >= 70:
@@ -285,7 +356,164 @@ def compute_buy_score(
         recommendation = "consider"
     else:
         recommendation = "skip"
-    return score, score_breakdown, recommendation
+    return score, score_breakdown, recommendation, weights
+
+
+# ── Personal-fit alignment (profile-driven) ────────────────────────────────────
+
+# Undertone → the chromatic warmth (in compat's hue space, 0–360) it flatters.
+# A coarse but honest nudge: warm undertones suit warm hues (reds→yellows),
+# cool undertones suit cool hues (greens→purples). Neutrals/unknowns are skipped.
+_WARM_HUE_RANGE = (0.0, 70.0)  # red, orange, amber, mustard, olive-ish
+_COOL_HUE_RANGE = (120.0, 300.0)  # green, teal, blue, indigo, purple
+
+
+def _profile_tokens(values: Any) -> set[str]:
+    """Lowercased, stripped token set from a JSON list/str profile field."""
+    out: set[str] = set()
+    if isinstance(values, list):
+        for v in values:
+            s = str(v).strip().lower()
+            if s:
+                out.add(s)
+    elif isinstance(values, str) and values.strip():
+        out.add(values.strip().lower())
+    return out
+
+
+def _matches_any(needle: str, tokens: set[str]) -> bool:
+    """Loose membership: ``needle`` matches a token if either contains the other
+    (so "navy" matches a "navy blue" item color, and vice-versa)."""
+    needle = needle.strip().lower()
+    if not needle:
+        return False
+    return any(needle in t or t in needle for t in tokens)
+
+
+def compute_style_alignment(
+    analysis: dict[str, Any],
+    profile: dict[str, Any] | None,
+) -> tuple[float | None, list[str]]:
+    """Score how well a candidate item matches the user's *personal* preferences —
+    coloring, fit, and taste — independent of their closet. Pure & unit-testable.
+
+    Returns ``(subscore, reasons)`` where subscore is 0–1, or ``(None, [])`` when
+    the profile carries no usable signal (empty / skipped onboarding) so the
+    caller can redistribute the weight instead of scoring a phantom 0.
+
+    Honesty boundary: this is preference & coloring alignment, NOT a physical-fit
+    prediction — a product photo can't tell us whether a garment will fit a body.
+    We score declared ``fit_preferences`` against the item's detected ``fit`` and
+    flag explicit ``avoidances``; we never claim a size will fit.
+    """
+    if not profile:
+        return None, []
+
+    components: list[float] = []
+    reasons: list[str] = []
+
+    from app.core import outfit_compatibility as _compat
+
+    # ── Colour: favourites (+), avoided (−), undertone nudge ──────────────────
+    item_colors = [
+        str(analysis.get("primary_color") or analysis.get("color") or "").strip().lower(),
+        *[str(c).strip().lower() for c in (analysis.get("secondary_colors") or [])],
+    ]
+    item_colors = [c for c in item_colors if c]
+    fav = _profile_tokens(profile.get("favorite_colors"))
+    avoid = _profile_tokens(profile.get("avoided_colors"))
+    if item_colors and (fav or avoid):
+        if any(_matches_any(c, avoid) for c in item_colors):
+            components.append(0.1)
+            reasons.append("In a color you usually avoid.")
+        elif any(_matches_any(c, fav) for c in item_colors):
+            components.append(1.0)
+            reasons.append("In one of your favorite colors.")
+        else:
+            # Not loved, not hated — let undertone break the tie if we can read it.
+            undertone = str(profile.get("undertone") or "").strip().lower()
+            primary = item_colors[0]
+            kind, hue = _compat.color_profile(primary)
+            if undertone in ("warm", "cool") and kind == "chromatic" and hue is not None:
+                warm = _WARM_HUE_RANGE[0] <= hue <= _WARM_HUE_RANGE[1]
+                cool = _COOL_HUE_RANGE[0] <= hue <= _COOL_HUE_RANGE[1]
+                if (undertone == "warm" and warm) or (undertone == "cool" and cool):
+                    components.append(0.85)
+                    reasons.append(f"Flatters your {undertone} undertone.")
+                elif (undertone == "warm" and cool) or (undertone == "cool" and warm):
+                    components.append(0.45)
+                else:
+                    components.append(0.6)
+            else:
+                components.append(0.6)
+
+    # ── Fit: declared preferences (+) vs avoidances (−). Preference, not size. ──
+    item_fit = str(analysis.get("fit") or "").strip().lower()
+    fit_prefs = _profile_tokens(profile.get("fit_preferences"))
+    avoidances = _profile_tokens(profile.get("avoidances"))
+    if item_fit and (fit_prefs or avoidances):
+        if _matches_any(item_fit, avoidances):
+            components.append(0.1)
+            reasons.append(f"A {item_fit} fit, which you've said you avoid.")
+        elif _matches_any(item_fit, fit_prefs):
+            components.append(1.0)
+            reasons.append(f"A {item_fit} fit, just how you like it.")
+        else:
+            components.append(0.5)
+
+    # ── Taste: item style tags vs preferred styles / archetype ────────────────
+    item_styles = _profile_tokens(analysis.get("style_tags"))
+    pref_styles = _profile_tokens(profile.get("style_preferences"))
+    archetype = str(profile.get("style_archetype") or "").strip().lower()
+    if archetype:
+        pref_styles.add(archetype)
+    if item_styles and pref_styles:
+        if item_styles & pref_styles or any(_matches_any(s, pref_styles) for s in item_styles):
+            components.append(1.0)
+            reasons.append("Fits your usual style.")
+        else:
+            components.append(0.5)
+
+    # Avoidances can also reference whole garment types ("crop tops") — let an
+    # explicit avoidance on name/category drag the score down even when fit was
+    # unreadable, so we never call an avoided piece a great personal match.
+    name_blob = " ".join(
+        str(analysis.get(k) or "").lower() for k in ("name", "subcategory", "category")
+    )
+    if avoidances and any(tok in name_blob for tok in avoidances if len(tok) >= 4):
+        components.append(0.1)
+        reasons.append("Matches something on your avoid list.")
+
+    if not components:
+        return None, []
+    return sum(components) / len(components), reasons
+
+
+def _profile_to_match_dict(row: Any) -> dict[str, Any]:
+    """Extract just the fields :func:`compute_style_alignment` needs from a
+    ``UserStyleProfile`` row, as a plain dict (keeps scoring pure & testable)."""
+    return {
+        "favorite_colors": row.favorite_colors or [],
+        "avoided_colors": row.avoided_colors or [],
+        "undertone": row.undertone,
+        "fit_preferences": row.fit_preferences or [],
+        "avoidances": row.avoidances or [],
+        "style_preferences": row.style_preferences or [],
+        "style_archetype": row.style_archetype,
+    }
+
+
+async def _load_style_match_profile(session: AsyncSession, user_id: str) -> dict[str, Any] | None:
+    """Best-effort load of the user's style profile for personal-fit scoring.
+    Returns None (→ weight redistributes to closet factors) on any miss/error."""
+    from app.api.v1.identity.repositories.style_profile_repo import UserStyleProfileRepository
+
+    try:
+        row = await UserStyleProfileRepository(session).get_by_user_id(uuid.UUID(user_id))
+    except Exception as exc:  # noqa: BLE001 — scoring must survive a profile miss
+        logger.warning("shopping_profile_load_failed", error=str(exc))
+        return None
+    return _profile_to_match_dict(row) if row else None
 
 
 # ── RAG-grounded verdict ("FANI's Take") ───────────────────────────────────────
@@ -294,13 +522,21 @@ def compute_buy_score(
 # retrieved, cited fashion knowledge — it is structurally prevented from inventing
 # items/brands/numbers because every fact it's allowed to use is supplied below and
 # out-of-range citations are dropped after parsing.
-_SHOPPING_TAKE_SYSTEM = """You are FANI, a professional AI fashion stylist giving a buy/skip verdict.
+_SHOPPING_TAKE_SYSTEM = """You are FANI, a professional AI fashion stylist. You give the user an honest
+RATING of how well an item fits their wardrobe and taste — a 0–10 score with a colour
+(green = strong fit, amber = middling, red = weak fit).
 
 You receive two things:
 1. [VERDICT FACTS] — computed from the user's REAL closet. These are AUTHORITATIVE and final.
 2. [FASHION KNOWLEDGE] — retrieved styling rules, each tagged [SOURCE-N].
 
-Write a short, confident verdict (2-3 sentences, second person) that EXPLAINS the facts.
+Write a short, confident take (2-3 sentences, second person) that EXPLAINS what the rating means.
+
+WORDING RULE — mandatory:
+- NEVER tell the user to "buy", "skip", "consider", "purchase", "get it", "pass", or "add to cart".
+  Do not give a purchase instruction at all.
+- Always frame your take around the RATING and its COLOUR (e.g. "a strong 8.2/10 — green").
+  Explain *why* the rating is what it is using the facts; let the user decide.
 
 GROUNDING RULES — mandatory; they override any styling intuition:
 - The VERDICT FACTS are true. Never contradict them, and never state a number that isn't given.
@@ -318,7 +554,6 @@ async def _generate_grounded_take(
     session: AsyncSession,
     *,
     analysis: dict[str, Any],
-    recommendation: str,
     score: int,
     dupe_count: int,
     pairing_names: list[str],
@@ -354,7 +589,7 @@ async def _generate_grounded_take(
     facts = (
         "[VERDICT FACTS]\n"
         f"- Item: {name} ({color} {category}).\n"
-        f"- Verdict: {recommendation.upper()} (buy score {round(score)}/100).\n"
+        f"- Rating: {to_ten_point(score)}/10 ({rating_color(score)}).\n"
         f"- {('You already own ' + str(dupe_count) + ' near-identical item(s).') if dupe_count else 'Not a duplicate of anything you own.'}\n"
         f"- {pairs_fact}\n"
         f"- {('Fills a gap in your ' + category + ' collection.') if fills_gap else 'Does not fill a flagged wardrobe gap.'}\n"
@@ -516,13 +751,19 @@ async def analyze_shopping_item(
     new_seasons = item_seasons - owned_seasons
     fills_gap = bool(category and await _has_open_gap_for_category(session, user_id, category))
 
+    # Personal-fit signal: coloring / fit / taste vs the user's style profile.
+    # None when there's no usable profile → its weight folds into closet factors.
+    profile = await _load_style_match_profile(session, user_id)
+    style_match, style_reasons = compute_style_alignment(analysis, profile)
+
     # Pure scoring core — see compute_buy_score (unit-tested in isolation).
-    score, score_breakdown, recommendation = compute_buy_score(
+    score, score_breakdown, recommendation, weights_used = compute_buy_score(
         has_duplicate=has_duplicate,
         compatible_count=compatible_count,
         fills_gap=fills_gap,
         has_new_occasions=bool(new_occasions),
         has_new_seasons=bool(new_seasons),
+        style_match=style_match,
     )
 
     # Human-readable reasons mirror the factors that contributed.
@@ -540,6 +781,8 @@ async def analyze_shopping_item(
         reasons.append(f"Adds new occasion coverage: {', '.join(new_occasions)}.")
     if new_seasons and not has_duplicate:
         reasons.append(f"Extends your wardrobe into: {', '.join(new_seasons)}.")
+    # Personal-fit reasons (coloring / fit / taste) when we have a profile to judge.
+    reasons.extend(style_reasons)
 
     # 7. Closet boost % — how much this raises wardrobe completeness
     #    Simple heuristic: gap fill = 5%, novel occasions = 3%, novel seasons = 2%
@@ -623,7 +866,6 @@ async def analyze_shopping_item(
         fani_take = await _generate_grounded_take(
             session,
             analysis=analysis,
-            recommendation=recommendation,
             score=score,
             dupe_count=dupe_count,
             pairing_names=[p["name"] for p in pairings[:5] if p.get("name")],
@@ -658,12 +900,24 @@ async def analyze_shopping_item(
         "item_analysis": analysis,
         "matched_items": matched_summary,
         "buy_score": round(score, 1),
+        # The verdict is shown as a RATING + COLOUR, never a buy/skip word.
+        # 0–10 rating for display (82 → 8.2); 0–100 above stays canonical for the
+        # breakdown bars and history. ``rating_color`` is green/amber/red.
+        "buy_score_10": to_ten_point(score),
+        "rating": to_ten_point(score),
+        "rating_color": rating_color(score),
+        # Kept for internal analytics only — NOT for display (it's a buy/skip band).
         "buy_recommendation": recommendation,
         "closet_boost_pct": round(boost_pct, 1),
         "score_breakdown": score_breakdown,
         # Max % each factor can contribute — lets the UI render "earned / max" bars
-        # without hardcoding the weights (they stay in sync with the backend).
-        "score_weights": {k: round(v, 1) for k, v in _WEIGHTS.items()},
+        # without hardcoding the weights. These are the EFFECTIVE weights actually
+        # used (style_match is folded into closet factors when no profile exists),
+        # so the bars always match the breakdown above.
+        "score_weights": {k: round(v, 1) for k, v in weights_used.items()},
+        # Personal-fit (coloring / fit / taste) sub-signal. null when the user has
+        # no usable style profile — the UI can prompt them to complete onboarding.
+        "style_match": round(style_match, 3) if style_match is not None else None,
         "reasoning": reasoning_text,
         "fani_take": fani_take,
         "image_url": image_url,
@@ -910,10 +1164,14 @@ async def get_shopping_history(
 
 
 def _shopping_check_row(row: dict[str, Any]) -> dict[str, Any]:
-    """Normalize DB row for API responses (id → check_id)."""
+    """Normalize DB row for API responses (id → check_id, + 0–10 display score)."""
     out = dict(row)
     if "id" in out:
         out["check_id"] = str(out.pop("id"))
+    if out.get("buy_score") is not None:
+        out["buy_score_10"] = to_ten_point(out["buy_score"])
+        out["rating"] = to_ten_point(out["buy_score"])
+        out["rating_color"] = rating_color(out["buy_score"])
     return out
 
 
