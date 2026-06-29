@@ -693,7 +693,7 @@ export function AIAnalysisPanel({ analysis, onClose }: {
 
         {what_to_improve && what_to_improve.length > 0 && (
           <div className="mt-3">
-            <div className="mb-1 text-xs font-semibold text-slate-500 dark:text-slate-400">What to improve</div>
+            <div className="mb-1 text-xs font-semibold text-slate-500 dark:text-slate-400">Style this combination</div>
             <ul className="list-inside list-disc text-sm text-slate-600 dark:text-slate-300">
               {what_to_improve.map((w, i) => <li key={i}>{w}</li>)}
             </ul>
@@ -709,7 +709,7 @@ export function AIAnalysisPanel({ analysis, onClose }: {
           />
           <RecommendationSection
             icon={<TrendingUp size={15} />}
-            title="Improvements"
+            title="Style this look"
             items={recommendations.improvements}
             colorClass="text-amber-500"
           />
@@ -778,8 +778,8 @@ function SuggestedPairingsShelf({ pairings, alreadyAddedIds, onAdd }: SuggestedP
           <Sparkles size={14} className="text-brand-600 dark:text-brand-400" />
         </div>
         <div>
-          <p className="font-display text-sm font-bold text-slate-800 dark:text-white">AI-Suggested Pairings</p>
-          <p className="text-[11px] text-slate-400">Closet items that complement this outfit</p>
+          <p className="font-display text-sm font-bold text-slate-800 dark:text-white">Enhance from your closet</p>
+          <p className="text-[11px] text-slate-400">Other items that could elevate this look</p>
         </div>
       </div>
       <div className="p-4">
@@ -1669,12 +1669,12 @@ export default function OutfitBuilder() {
                 <FaniLoader
                   size="md"
                   messages={[
-                    'Looking at your outfit…',
+                    'Scoring your selected pieces…',
                     'Checking colors & balance…',
-                    'Rating the combination…',
+                    'Rating this combination…',
                     'Almost there…',
                   ]}
-                  subline="FANI is styling your look"
+                  subline="FANI is analysing what you picked"
                 />
               </div>
             )}

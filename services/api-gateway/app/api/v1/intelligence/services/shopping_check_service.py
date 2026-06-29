@@ -736,6 +736,17 @@ async def analyze_shopping_item(
     pairings.sort(key=lambda p: p["similarity_score"], reverse=True)
     compatible_count = len(pairings)
 
+    # Re-rank pairings toward items that appear in the best complete outfits.
+    from app.core import outfit_builder
+
+    built_preview = outfit_builder.build_outfits(analysis, closet)
+    best_ids = outfit_builder.best_pairing_ids(built_preview)
+    if best_ids:
+        pairings.sort(
+            key=lambda p: p["similarity_score"] + (0.12 if p["id"] in best_ids else 0.0),
+            reverse=True,
+        )
+
     # 4. Existing coverage
     owned_occasions, owned_seasons = await _fetch_existing_occasions_seasons(session, user_id)
 
@@ -1296,7 +1307,8 @@ async def get_closet_match_suggestions(
 
     # 2. Fetch full closet inventory (excluding the selected item) as matching context
     inv_sql = text("""
-        SELECT id, name, category, color, occasion, image_url, processed_image_url
+        SELECT id, name, category, color, occasion, season, wear_count,
+               image_url, processed_image_url
         FROM closet_items
         WHERE user_id = CAST(:uid AS uuid)
           AND is_archived = false
@@ -1405,6 +1417,56 @@ async def get_closet_match_suggestions(
                 "reason": str(p.get("reason", "")),
             }
         )
+
+    # 6b. Layer deterministic best-combination pairings from the compatibility
+    #     engine — always surfaces the highest-scoring complete-look pieces even
+    #     when the model omits or mis-ranks them.
+    from app.core import outfit_builder
+
+    anchor_compat = {
+        "name": item.get("name", ""),
+        "category": item.get("category", ""),
+        "primary_color": item.get("color", ""),
+        "color": item.get("color", ""),
+        "occasion_tags": item.get("occasion") or [],
+        "season_tags": item.get("season") or [],
+    }
+    closet_compat = [
+        {
+            "id": r.get("id"),
+            "name": r.get("name", ""),
+            "category": r.get("category", ""),
+            "color": r.get("color", ""),
+            "primary_color": r.get("color", ""),
+            "occasion_tags": r.get("occasion") or [],
+            "season_tags": r.get("season") or [],
+            "image_url": r.get("image_url"),
+            "processed_image_url": r.get("processed_image_url"),
+            "wear_count": r.get("wear_count") or 0,
+        }
+        for r in inventory
+    ]
+    built = outfit_builder.build_outfits(anchor_compat, closet_compat)
+    det_pairings = outfit_builder.best_pairings_from_build(anchor_compat, built)
+    ai_by_id = {p["id"]: p for p in closet_pairings}
+    merged_pairings: list[dict[str, Any]] = []
+    merged_seen: set[str] = set()
+    for p in det_pairings:
+        merged_pairings.append(
+            {
+                "id": p["id"],
+                "name": p["name"],
+                "category": p["category"],
+                "image_url": p.get("image_url"),
+                "role": p.get("role") or ai_by_id.get(p["id"], {}).get("role", ""),
+                "reason": ai_by_id.get(p["id"], {}).get("reason") or p.get("reason", ""),
+            }
+        )
+        merged_seen.add(p["id"])
+    for p in closet_pairings:
+        if p["id"] not in merged_seen:
+            merged_pairings.append(p)
+    closet_pairings = merged_pairings[:6]
 
     # 7. Build response
     image_url = item.get("processed_image_url") or item.get("image_url")

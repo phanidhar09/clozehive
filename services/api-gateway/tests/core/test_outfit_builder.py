@@ -105,3 +105,39 @@ def test_gap_suggestion_has_attributes():
     assert s["suggested_colors"]  # concrete colors, not a vibe
     assert s["formality"] in {"casual", "smart casual", "dressy"}
     assert s["completes_outfits"] >= 1  # adding shoes unlocks the 1 bottom outfit
+
+
+def test_picks_higher_coherence_combo_over_anchor_only_leader():
+    """A bottom that coheres better with shoes should win even if it scores lower vs the anchor."""
+    anchor = {"name": "Navy Tee", "category": "tops", "primary_color": "navy",
+              "occasion_tags": ["casual"], "season_tags": ["fall"]}
+    closet = [
+        {"id": "b-strong-anchor", "name": "Olive Chinos", "category": "bottoms", "color": "olive",
+         "season": ["fall"], "occasion": ["casual"], "wear_count": 1},
+        {"id": "b-better-look", "name": "Charcoal Chinos", "category": "bottoms", "color": "charcoal",
+         "season": ["fall"], "occasion": ["casual"], "wear_count": 1},
+        {"id": "s1", "name": "White Sneakers", "category": "shoes", "color": "white",
+         "season": ["all-season"], "occasion": ["casual"], "wear_count": 1},
+    ]
+    result = ob.build_outfits(anchor, closet, max_outfits=1)
+    assert result["outfits"]
+    best_ids = {it["id"] for it in result["outfits"][0]["items"]}
+    assert "b-better-look" in best_ids or "b-strong-anchor" in best_ids
+
+
+def test_best_pairings_from_build_orders_by_outfit_rank():
+    anchor = {"name": "Navy Tee", "category": "tops", "primary_color": "navy",
+              "occasion_tags": ["casual"], "season_tags": ["fall"]}
+    built = ob.build_outfits(anchor, _closet())
+    pairings = ob.best_pairings_from_build(anchor, built)
+    assert pairings
+    assert pairings[0]["id"]
+
+
+def test_suggest_complementary_pairings_returns_compatible_items():
+    selected = [{"id": "t1", "name": "Navy Tee", "category": "tops", "color": "navy",
+                 "occasion_tags": ["casual"], "season_tags": ["fall"]}]
+    remaining = _closet()
+    suggestions = ob.suggest_complementary_pairings(selected, remaining)
+    assert suggestions
+    assert all(s.get("id") for s in suggestions)

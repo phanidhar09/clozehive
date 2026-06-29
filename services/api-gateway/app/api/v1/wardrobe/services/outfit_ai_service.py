@@ -45,12 +45,14 @@ STRICT RULES:
 2. Use the exact id and name from each item.
 3. matching_score MUST equal color + occasion + fit + style + weather + preference exactly.
 4. Generate exactly 3 outfits with clearly different aesthetics (e.g., casual / smart-casual / bold).
-5. improvements: actionable swaps with specific reasons ("Replace black sneakers with white for better contrast").
-6. issues: specific problems only ("Navy and black lack contrast — both dark tones compete").
-7. styling_tips: 3–5 practical, occasion-specific tips per outfit.
-8. For each unused item provide a concrete why_not_selected reason.
-9. confidence: float 0.0–1.0 reflecting wardrobe adequacy for this occasion.
-10. Return ONLY valid JSON — no markdown fences, no prose outside JSON.
+5. Each outfit MUST be the highest-quality combination possible for its aesthetic — maximize color harmony, \
+occasion fit, and internal coherence. Never suggest a weaker combo when a stronger one exists in the wardrobe.
+6. improvements: actionable swaps with specific reasons ("Replace black sneakers with white for better contrast").
+7. issues: specific problems only ("Navy and black lack contrast — both dark tones compete").
+8. styling_tips: 3–5 practical, occasion-specific tips per outfit.
+9. For each unused item provide a concrete why_not_selected reason.
+10. confidence: float 0.0–1.0 reflecting wardrobe adequacy for this occasion.
+11. Return ONLY valid JSON — no markdown fences, no prose outside JSON.
 
 EXACT RESPONSE SCHEMA:
 {
@@ -87,7 +89,8 @@ _ANALYZE_SYSTEM_PROMPT = """\
 You are ClozeHive AI, an expert fashion AI.
 
 The user has hand-picked specific items and placed them together as an outfit. \
-Analyse this exact combination, score it rigorously, and provide actionable feedback.
+Score and analyse ONLY this exact combination — the items in selected_outfit_items. \
+Do not reference, recommend, or score against any other closet items in this response.
 
 USER STYLE PROFILE:
 The JSON payload includes user_profile which may contain style_profile_context_text (a natural-language \
@@ -104,32 +107,36 @@ outfit building with no specific occasion or mood), the user's style profile Sum
 intent — judge how well the outfit expresses their stated style identity, preferred aesthetics, colours \
 and fits. In this mode, score the "occasion" dimension as alignment with the user's EVERYDAY PERSONAL \
 STYLE (from the profile Summary), not a specific event, set occasion_match relative to that, and let the \
-profile drive your reasoning, improvements and styling_tips. When styling_mode is "occasion_based", score \
+profile drive your reasoning and styling_tips. When styling_mode is "occasion_based", score \
 "occasion" against the stated occasion as usual while still respecting the profile. If no profile Summary \
 exists in either mode, fall back to general style principles.
 
 SCORING FORMULA — score_breakdown values must sum EXACTLY to matching_score (integer 0–100):
-  color      max 25  Color Compatibility: harmony, contrast, palette cohesion
+  color      max 25  Color Compatibility: harmony, contrast, palette cohesion AMONG SELECTED ITEMS ONLY
   occasion   max 25  Occasion Match: suitability for stated occasion
-  fit        max 20  Fit & Size Alignment: size/fit compatibility across pieces
-  style      max 13  Style Consistency: coherent style narrative
+  fit        max 20  Fit & Size Alignment: size/fit compatibility across SELECTED pieces
+  style      max 13  Style Consistency: coherent style narrative across SELECTED pieces
   weather    max 12  Weather & Local Climate: appropriate for weather/season AND the local climate/conditions described in [LOCAL CONTEXT] (use 9 if none provided)
   preference max  5  User Preference Match: alignment with stated user preferences
 
-STRICT RULES:
-1. Only reference items in the provided selected_outfit_items list. Do NOT add items.
+STRICT RULES — SELECTED ITEMS ONLY (no other closet pieces in this response):
+1. Score, reason about, and reference ONLY items in selected_outfit_items. Never name or suggest \
+specific items from outside that list.
 2. matching_score MUST equal color + occasion + fit + style + weather + preference exactly.
-3. improvements: specific actionable swaps ("Try white sneakers instead of black for visual lift").
-4. issues: concrete problems only, not vague ("The olive jacket clashes with the burgundy trousers").
-5. styling_tips: 3–5 practical tips for exactly this combination (tuck, belt, layer, accessorise).
-6. missing_pieces: list category names that would complete the look (e.g. "outerwear", "belt").
+3. improvements / what_to_improve: styling adjustments for the SELECTED pieces only — tuck, roll sleeves, \
+belt, layer order, proportions, how to wear what is already chosen. Do NOT suggest swapping to or \
+adding other closet items; a separate step handles closet enhancements.
+4. issues: concrete problems among the SELECTED pieces only ("The olive jacket clashes with the burgundy trousers").
+5. styling_tips: 3–5 practical tips for wearing THIS exact combination (tuck, belt, layer, accessorise what is selected).
+6. missing_pieces: category names for slots still empty on the canvas (e.g. "footwear", "outerwear") — \
+categories only, never specific item names from the wider closet.
 7. confidence: 0.0–1.0 — how certain the AI is about the scoring.
 8. fit_confidence: integer 0–100 — confidence that silhouettes and sizes work for this user's profile.
 9. occasion_match, style_match: one of "High", "Medium", "Low".
 10. size_profile_match: one of "High", "Medium", "Low", "Unknown".
 11. body_profile_notes: short positive note on why silhouettes work for this user's stated preferences.
-12. why_it_works: one succinct sentence; may overlap reasoning.
-13. what_to_improve: 0–4 bullet strings for quick wins (can duplicate improvements).
+12. why_it_works: one succinct sentence about the SELECTED combination; may overlap reasoning.
+13. reasoning: one paragraph on strengths and weaknesses of the SELECTED pieces together only.
 14. Return ONLY valid JSON — no markdown fences, no prose outside JSON.
 
 EXACT RESPONSE SCHEMA:
@@ -342,7 +349,7 @@ def _mock_analyze(selected_items: list[dict[str, Any]], occasion: str) -> dict[s
                 "style_match": "Medium",
                 "size_profile_match": "Unknown",
                 "recommendations": {
-                    "improvements": ["Review the color palette for better tonal harmony."],
+                    "improvements": ["Tuck the shirt for a cleaner silhouette with these trousers."],
                     "issues": [],
                     "styling_tips": ["Ensure the outfit matches the occasion you have in mind."],
                 },
@@ -363,18 +370,20 @@ def _mock_analyze(selected_items: list[dict[str, Any]], occasion: str) -> dict[s
 _SUGGEST_PAIRINGS_PROMPT = """\
 You are ClozeHive AI, an expert fashion stylist.
 
-The user has already built an outfit (listed under "selected_outfit"). Your job is to scan their \
-remaining closet items (listed under "remaining_closet") and suggest pieces that would COMPLEMENT or \
-COMPLETE this specific outfit — not replace existing pieces, but genuinely ADD value to it.
+The user's outfit has ALREADY been scored using only the items they selected on the canvas. \
+Your job is the ENHANCEMENT step: scan remaining_closet and suggest specific pieces that would \
+elevate or complete this look — items NOT already in selected_outfit.
 
 RULES:
-1. Only suggest items from the provided remaining_closet list. Use exact IDs and names.
-2. Suggest 3–6 items maximum — only those that truly enhance the outfit.
-3. Prioritise missing categories first (e.g. shoes if no footwear in outfit, outerwear if outfit has \
-   no layer), then enhancing accessories, then optional layering pieces.
-4. Reason must be specific (20–50 words): reference color harmony, style echo, occasion fit, or \
-   fabric pairing — never generic phrases like "goes well with".
-5. Return ONLY valid JSON — no markdown fences, no prose outside JSON.
+1. Only suggest items from remaining_closet. Use exact IDs and names. Never repeat items from selected_outfit.
+2. Suggest 3–6 items maximum — only those that genuinely improve the outfit when added.
+3. Rank by best combination quality: highest overall harmony with the selected pieces, not random closet picks.
+4. Prioritise missing categories first (e.g. shoes if no footwear selected, outerwear if no layer), \
+then accessories and optional layers that raise the score.
+5. Reason must be specific (20–50 words): explain how THIS closet item enhances the already-selected \
+combination — color harmony, style echo, occasion fit, or fabric pairing. Never generic "goes well with".
+6. This is where other closet items belong — do not re-analyse the selected outfit; only recommend additions.
+7. Return ONLY valid JSON — no markdown fences, no prose outside JSON.
 
 EXACT RESPONSE SCHEMA:
 {
@@ -495,7 +504,8 @@ Given the current outfit items and the user's full available closet, suggest 1-2
 RULES:
 1. Use ONLY items from available_closet. Use exact IDs and names.
 2. You may keep some items from current_outfit if they are strong anchors.
-3. Each alternative should feel clearly different from the current outfit (different vibe, color story, or category emphasis).
+3. Each alternative MUST score higher than the current outfit when possible, or explore a clearly \
+different high-quality direction — always pick the best available combination, not a random swap.
 4. If a "seed_category" is provided, make sure one alternative starts with an item of that category.
 5. matching_score must equal color + occasion + fit + style + weather + preference (max 100).
 6. Provide 2–3 specific improvement_tips explaining why this alternative scores better.

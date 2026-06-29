@@ -30,9 +30,11 @@ _ROLE_PLAN: dict[str, dict[str, tuple[str, ...]]] = {
     "other": {"required": ("top", "bottom", "shoe"), "optional": ("layer", "accessory")},
 }
 
-# Per required/optional role, how many top candidates to consider. Keeps the
-# combinatorial search bounded (≤ 3^3 = 27 base combos).
-_CANDIDATES_PER_ROLE = 3
+# Combinatorial search bounds — evaluate enough combos to surface globally best
+# looks, not just items that score highest against the anchor alone.
+_MAX_COMBO_EVALUATIONS = 512
+_MIN_CANDIDATES_PER_ROLE = 3
+_MAX_CANDIDATES_PER_ROLE = 8
 # A closet item must clear this anchor-compatibility floor to be a candidate.
 _CANDIDATE_FLOOR = 0.55
 _MAX_OUTFITS = 3
@@ -75,6 +77,61 @@ def _mean_pairwise(items: list[dict[str, Any]]) -> float:
     return total / len(pairs)
 
 
+def _per_role_candidate_limit(num_fillable_roles: int) -> int:
+    """How many candidates per required role while staying within the combo cap."""
+    if num_fillable_roles <= 0:
+        return 0
+    per = max(_MIN_CANDIDATES_PER_ROLE, int(_MAX_COMBO_EVALUATIONS ** (1 / num_fillable_roles)))
+    return min(_MAX_CANDIDATES_PER_ROLE, per)
+
+
+def _overlap_ratio(a: frozenset[str], b: frozenset[str]) -> float:
+    if not a or not b:
+        return 0.0
+    return len(a & b) / min(len(a), len(b))
+
+
+def _select_diverse_outfits(outfits: list[dict[str, Any]], max_outfits: int) -> list[dict[str, Any]]:
+    """Pick the highest-scoring looks with distinct core pieces when possible."""
+    if not outfits or max_outfits <= 0:
+        return []
+    selected: list[dict[str, Any]] = []
+    for outfit in outfits:
+        if len(selected) >= max_outfits:
+            break
+        outfit_ids = frozenset(it["id"] for it in outfit["items"])
+        if any(_overlap_ratio(outfit_ids, frozenset(it["id"] for it in s["items"])) > 0.66 for s in selected):
+            continue
+        selected.append(outfit)
+    if len(selected) < max_outfits:
+        for outfit in outfits:
+            if outfit in selected:
+                continue
+            selected.append(outfit)
+            if len(selected) >= max_outfits:
+                break
+    return selected[:max_outfits]
+
+
+def _add_best_optional_layers(
+    items: list[dict[str, Any]],
+    plan: dict[str, tuple[str, ...]],
+    buckets: dict[str, list[tuple[dict[str, Any], float]]],
+) -> list[dict[str, Any]]:
+    """Greedily add optional roles that raise the outfit's mean pairwise score."""
+    result = list(items)
+    for opt_role in plan["optional"]:
+        best: tuple[dict[str, Any], float] | None = None
+        for cand, _anchor_score in buckets.get(opt_role, []):
+            trial = result + [cand]
+            score = _mean_pairwise(trial)
+            if score >= _WEARABLE and (best is None or score > best[1]):
+                best = (cand, score)
+        if best is not None:
+            result.append(best[0])
+    return result
+
+
 def build_outfits(
     anchor: dict[str, Any],
     closet: list[dict[str, Any]],
@@ -105,25 +162,19 @@ def build_outfits(
     missing_required = [r for r in plan["required"] if not buckets.get(r)]
     fillable_required = [r for r in plan["required"] if buckets.get(r)]
 
-    # Candidate sets for the cartesian product (top N per fillable required role).
-    candidate_lists = [[item for item, _ in buckets[r][:_CANDIDATES_PER_ROLE]] for r in fillable_required]
+    # Candidate sets for the cartesian product — top-N per role, bounded so the
+    # full product stays ≤ _MAX_COMBO_EVALUATIONS. Scoring uses mean pairwise
+    # coherence so a piece that pairs better with shoes than with the anchor alone
+    # can still win.
+    per_role = _per_role_candidate_limit(len(fillable_required))
+    candidate_lists = [[item for item, _ in buckets[r][:per_role]] for r in fillable_required]
 
     outfits: list[dict[str, Any]] = []
     seen: set[frozenset[str]] = set()
 
     combos = list(product(*candidate_lists)) if candidate_lists else [()]
     for combo in combos:
-        items = [anchor, *combo]
-
-        # Greedily add optional roles that genuinely cohere with the look so far.
-        for opt_role in plan["optional"]:
-            best: tuple[dict[str, Any], float] | None = None
-            for cand, _anchor_score in buckets.get(opt_role, []):
-                coherence = sum(compat.score_compatibility(cand, existing)["score"] for existing in items) / len(items)
-                if coherence >= compat.PAIR_THRESHOLD and (best is None or coherence > best[1]):
-                    best = (cand, coherence)
-            if best is not None:
-                items.append(best[0])
+        items = _add_best_optional_layers([anchor, *combo], plan, buckets)
 
         owned_items = [it for it in items if it is not anchor]
         key = frozenset(str(it.get("id", "")) for it in owned_items)
@@ -146,9 +197,97 @@ def build_outfits(
     outfits.sort(key=lambda o: o["score"], reverse=True)
     return {
         "anchor_role": anchor_role,
-        "outfits": outfits[:max_outfits],
+        "outfits": _select_diverse_outfits(outfits, max_outfits),
         "missing_roles": missing_required,
     }
+
+
+def best_pairing_ids(build_result: dict[str, Any], *, max_ids: int = 12) -> set[str]:
+    """IDs from the highest-scoring complete outfits — for ranking individual pairings."""
+    ids: list[str] = []
+    for outfit in build_result.get("outfits", []):
+        for item in outfit.get("items", []):
+            iid = str(item.get("id", ""))
+            if iid and iid not in ids:
+                ids.append(iid)
+            if len(ids) >= max_ids:
+                return set(ids)
+    return set(ids)
+
+
+def best_pairings_from_build(
+    anchor: dict[str, Any],
+    build_result: dict[str, Any],
+    *,
+    max_pairings: int = 6,
+) -> list[dict[str, Any]]:
+    """Extract the best complementary items from top complete outfits."""
+    pairings: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+
+    for outfit in build_result.get("outfits", []):
+        for item_view in outfit["items"]:
+            iid = str(item_view.get("id", ""))
+            if not iid or iid in seen_ids:
+                continue
+            seen_ids.add(iid)
+            owned = {
+                "id": iid,
+                "name": item_view.get("name", ""),
+                "category": item_view.get("category", ""),
+                "color": item_view.get("color", ""),
+                "primary_color": item_view.get("color", ""),
+            }
+            compat_result = compat.score_compatibility(anchor, owned)
+            reasons = compat_result.get("reasons") or []
+            pairings.append(
+                {
+                    "id": iid,
+                    "name": item_view.get("name", ""),
+                    "category": item_view.get("category", ""),
+                    "image_url": item_view.get("image_url"),
+                    "role": item_view.get("role", ""),
+                    "reason": reasons[0] if reasons else "Best match from your highest-scoring complete look.",
+                    "similarity_score": compat_result["score"],
+                    "outfit_score": outfit.get("score"),
+                }
+            )
+            if len(pairings) >= max_pairings:
+                return pairings
+    return pairings
+
+
+def suggest_complementary_pairings(
+    selected: list[dict[str, Any]],
+    remaining: list[dict[str, Any]],
+    *,
+    max_pairings: int = 6,
+) -> list[dict[str, Any]]:
+    """Best closet items to complement a partial outfit by mean pairwise compatibility."""
+    if not selected or not remaining:
+        return []
+
+    scored: list[tuple[dict[str, Any], float, list[str]]] = []
+    for item in remaining:
+        hits: list[tuple[float, list[str]]] = []
+        for sel in selected:
+            res = compat.score_compatibility(sel, item)
+            if res["pairs"]:
+                hits.append((res["score"], res["reasons"]))
+        if not hits:
+            continue
+        mean_score = sum(s for s, _ in hits) / len(hits)
+        reasons = [r for _, rs in hits for r in rs]
+        scored.append((item, mean_score, reasons))
+
+    scored.sort(key=lambda t: t[1], reverse=True)
+    return [
+        {
+            "id": str(item.get("id", "")),
+            "reason": reasons[0] if reasons else "Pairs well with your selected pieces.",
+        }
+        for item, _, reasons in scored[:max_pairings]
+    ]
 
 
 # ── Ask 3: "completes N outfits" + gap suggestions ────────────────────────────

@@ -139,8 +139,10 @@ async def test_hallucinated_owned_item_numbers_are_dropped():
         out = await svc.get_closet_match_suggestions(ITEM_ID, USER, session)
 
     pairings = out["closet_pairings"]
-    assert len(pairings) == 1  # #99 dropped, #1 de-duped
-    assert pairings[0]["id"] == PANTS_ID
+    pairing_ids = {p["id"] for p in pairings}
+    assert PANTS_ID in pairing_ids  # valid AI reference kept
+    assert len(pairing_ids) == len(pairings)  # AI duplicate #1 de-duped
+    assert all(pid in {PANTS_ID, SHOES_ID} for pid in pairing_ids)  # #99 never appears
     assert out["grounded_in_knowledge"] is False  # empty RAG context
 
 
@@ -153,6 +155,7 @@ async def test_unparseable_model_output_falls_back_safely():
     ):
         out = await svc.get_closet_match_suggestions(ITEM_ID, USER, session)
 
-    assert out["closet_pairings"] == []
+    # Deterministic best-combination pairings still surface when the model fails.
+    assert len(out["closet_pairings"]) >= 1
     assert out["suggestions"] == []
     assert out["outfit_potential"] in {"low", "medium", "high"}

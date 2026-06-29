@@ -271,7 +271,8 @@ async def analyze_outfit(
             oldest = min(_analyze_cache, key=lambda k: _analyze_cache[k][1])
             del _analyze_cache[oldest]
 
-    # ── Suggest complementary pairings from the rest of the user's closet ────
+    # ── Enhancement step: other closet items that could elevate the selected look ─
+    # Analysis above scores ONLY selected items; pairings are a separate follow-up.
     # Fetch all non-archived items the user owns, excluding the ones already on
     # the canvas, capped at 50 rows so the AI prompt stays compact.
     try:
@@ -309,6 +310,11 @@ async def analyze_outfit(
             body.occasion,
             effective_weather or "",
         )
+
+        if not raw_suggestions:
+            from app.core.outfit_builder import suggest_complementary_pairings
+
+            raw_suggestions = suggest_complementary_pairings(items_for_ai, remaining_for_ai)
 
         hydrated: list[dict] = []
         for s in raw_suggestions:
