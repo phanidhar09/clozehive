@@ -15,7 +15,7 @@
 type ClozehiveSentryBridge = {
   captureException: (
     error: unknown,
-    context?: import('@sentry/react').CaptureContext,
+    context?: Parameters<typeof import('@sentry/react').captureException>[1],
   ) => string;
   captureTestError: () => string;
 };
