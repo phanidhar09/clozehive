@@ -123,9 +123,7 @@ def _hue_distance(a: float, b: float) -> float:
     return min(d, 360 - d)
 
 
-def _color_harmony(
-    kind_a: str, hue_a: float | None, kind_b: str, hue_b: float | None
-) -> tuple[float, str | None]:
+def _color_harmony(kind_a: str, hue_a: float | None, kind_b: str, hue_b: float | None) -> tuple[float, str | None]:
     """Score colour pairing from already-classified profiles (see ``color_harmony``)."""
     if kind_a == "unknown" or kind_b == "unknown":
         return (0.6, None)  # don't reward or punish what we can't read
