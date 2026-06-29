@@ -344,7 +344,7 @@ def compute_buy_score(
         "occasion_new": 1.0 if (has_new_occasions and not has_duplicate) else 0.0,
         "season_new": 1.0 if (has_new_seasons and not has_duplicate) else 0.0,
     }
-    if has_profile:
+    if style_match is not None:
         subscores["style_match"] = max(0.0, min(1.0, style_match))
 
     score_breakdown = {k: round(weights[k] * subscores[k], 1) for k in weights}
