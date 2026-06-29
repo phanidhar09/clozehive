@@ -1,0 +1,77 @@
+name: Auto-fix
+
+# Runs on every push and auto-applies the *mechanically fixable* CI failures —
+# Python formatting/lint (ruff) on api-gateway and ESLint on the frontend —
+# then commits the result back to the same branch.
+#
+# IMPORTANT: this only fixes formatting and auto-fixable lint rules. It cannot
+# fix mypy type errors, failing tests, frontend `tsc` typecheck, or the docker
+# build — those are real code problems and will still fail CI until fixed by hand.
+#
+# Re-running CI on the fixed commit: a push made with the default GITHUB_TOKEN
+# does NOT trigger new workflow runs (GitHub anti-recursion). So by default the
+# auto-fix commit lands but doesn't get its own CI run. To have the fixed commit
+# re-run CI and show a green check, add a repo secret named CI_PAT (a fine-grained
+# PAT with "Contents: read & write" on this repo); the workflow uses it if present.
+
+on:
+  push:
+    branches: ['**']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: autofix-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  autofix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          # Prefer a user PAT so the fix commit re-triggers CI; fall back to the
+          # built-in token (fix still applied, but no automatic CI re-run).
+          token: ${{ secrets.CI_PAT || secrets.GITHUB_TOKEN }}
+
+      # ── Python (api-gateway) — ruff is the only Python linter CI gates on ──
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ruff (pinned to match CI)
+        run: pip install ruff==0.15.16
+      - name: Ruff auto-fix + format (api-gateway)
+        working-directory: services/api-gateway
+        run: |
+          ruff check app --fix
+          ruff format app
+
+      # ── Frontend — ESLint --fix ──
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: ESLint auto-fix (frontend)
+        working-directory: frontend
+        run: npx eslint . --fix
+
+      # ── Commit any fixes back to the branch ──
+      - name: Commit & push fixes
+        run: |
+          if [[ -z "$(git status --porcelain)" ]]; then
+            echo "Nothing to auto-fix — branch is already clean."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "style: auto-fix lint & formatting
+
+          Applied by the Auto-fix workflow (ruff --fix/format, eslint --fix)."
+          git push origin HEAD:${{ github.ref_name }}
