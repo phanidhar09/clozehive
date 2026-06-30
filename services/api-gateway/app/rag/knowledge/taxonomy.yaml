@@ -1,0 +1,83 @@
+# Fashion knowledge — TOPIC TAXONOMY (not seeded; the loader skips this file).
+#
+# This is the outline to grow the corpus against. Workflow:
+#   1. Pick a topic below that has no doc yet (✗) or thin coverage.
+#   2. Draft a doc with a strong LLM from an authoritative prompt.
+#   3. Human-review for accuracy, dedupe against existing titles, then add it to the
+#      matching <category>.yaml file with full metadata (gender/formality_level/region/source).
+#   4. Restart the service (or hit any RAG path) — ensure_seeded embeds the new docs idempotently.
+#
+# source values: curated (hand-written) | generated (LLM draft, reviewed) | user_data (mined from
+#   wear_events / saved outfits / feedback) | licensed (from a licensed dataset).
+#
+# Status legend in comments:  ✓ covered   ~ thin   ✗ missing
+
+taxonomy:
+  color:
+    - color matching fundamentals        # ✓
+    - skin tone & undertone              # ✓
+    - color season analysis              # ✓
+    - color blocking & contrast theory   # ~
+    - cultural color symbolism           # ✗ (red/white meanings differ by region — ties to regional/)
+  occasion:
+    - business casual                    # ✓
+    - business formal / power dressing   # ✓
+    - smart casual                       # ✓
+    - formal / black tie                 # ✓
+    - wedding guest                      # ✓
+    - festive / cultural celebrations    # ✓ (regional/)
+    - funeral / mourning dress codes     # ✗
+    - cocktail vs semi-formal            # ~
+    - interview dressing by industry     # ~
+    - date night                         # ✗
+  styling:
+    - layering principles                # ✓
+    - shoe matching                      # ✓
+    - accessory coordination             # ✓
+    - pattern mixing                     # ✓
+    - denim styling                      # ✓
+    - monochrome & tonal                 # ✓
+    - proportion & silhouette balance    # ~
+    - tucking / cuffing / draping techniques  # ✗
+    - transitional day-to-night styling  # ✗
+  fit:
+    - body fit & proportion              # ✓
+    - body type dressing                 # ✓
+    - tailoring & alterations basics     # ✗
+    - fit by garment (shirt/trouser/jacket/dress)  # ~
+  seasonal:
+    - summer dressing                    # ✓
+    - winter layering                    # ✓
+    - spring transitional                # ✗
+    - autumn transitional                # ✗
+  weather:
+    - rainy weather                      # ✓
+    - hot & humid                        # ~
+    - wind & cold-snap                   # ✗
+  wardrobe:
+    - capsule wardrobe building          # ✓
+    - cost-per-wear & investment pieces  # ~ (ties to wear_value_analytics)
+    - decluttering & seasonal rotation   # ✗
+    - building a starter wardrobe        # ✗
+  travel:
+    - travel capsule principles          # ✓
+    - beach & resort packing             # ✓
+    - business-trip packing              # ✗
+    - multi-climate trip packing         # ✗
+  regional:
+    - south asian festive & ethnic       # ✓
+    - modest dressing (cross-cultural)   # ✓
+    - middle eastern & gulf              # ✓
+    - east asian formal & minimalist     # ✓
+    - west african print & occasion      # ✓
+    - latin american occasion wear       # ✗
+    - mediterranean / european resort    # ✗
+  fabric:
+    - natural fibers (cotton/linen/wool/silk)   # ✓
+    - synthetic & performance fabrics    # ✓
+    - fabric by weather & season         # ✓
+    - fabric care & longevity            # ✓
+    - sustainable & natural fibers       # ✓
+    - fabric weight & drape by garment   # ~ (which fabric suits which silhouette)
+  trend:                                 # ✗ time-sensitive lane — refresh seasonally, keep apart from evergreen
+    - current season trend summary       # ✗ (regenerate each season; source: generated, with web search)

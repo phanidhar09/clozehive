@@ -7,7 +7,8 @@ from pathlib import Path
 
 from fastapi import APIRouter
 
-from app.core.deps import AdminUser
+from app.api.v1.intelligence.services.knowledge_mining_service import refresh_learned_knowledge
+from app.core.deps import AdminUser, DbSession
 from app.core.exceptions import NotFoundError
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -37,3 +38,15 @@ async def backup_status(_: AdminUser):
         "backup_size_mb": round(stat.st_size / (1024 * 1024), 2),
         "status": status,
     }
+
+
+@router.post("/knowledge/refresh-learned")
+async def refresh_learned_knowledge_endpoint(_: AdminUser, session: DbSession):
+    """Rebuild the community "learned" fashion-knowledge doc from current usage.
+
+    Point a scheduler (cron / Render job / k8s CronJob) at this endpoint to keep the
+    learned knowledge fresh. Returns 0 documents when there isn't enough data yet.
+    The request-scoped session commits on success — no explicit commit here.
+    """
+    written = await refresh_learned_knowledge(session)
+    return {"status": "ok", "documents_written": written}

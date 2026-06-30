@@ -1,0 +1,42 @@
+# Fashion knowledge — category: seasonal
+# Edit/extend freely; the loader validates and seeds these idempotently by title.
+category: seasonal
+documents:
+- title: Summer Packing & Dressing
+  occasion: travel
+  season: summer
+  tags:
+  - summer
+  - hot weather
+  - packing
+  - breathable
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    Summer dressing prioritizes breathability and sun protection. Choose natural fabrics: linen, cotton,
+    chambray, and lightweight rayon. Colors: whites, pastels, and bright colors reflect heat better than
+    dark tones. Key summer items: light-wash jeans or chinos, breezy blouses and tanks, dresses and shorts,
+    sandals and lightweight sneakers. Packing for summer travel: pack light colors to mix and match; include
+    sun hat, sunglasses, and sunscreen SPF 50+. For a week trip: 5 tops, 3 bottoms, 2 dresses, 2 pairs
+    of shoes, 1 light layer for air-conditioned spaces, swimwear if relevant.
+- title: Winter Dressing & Layering
+  occasion: travel
+  season: winter
+  tags:
+  - winter
+  - cold weather
+  - layering
+  - thermal
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    Winter dressing is about strategic layering. The three-layer system: base layer (thermal or moisture-wicking),
+    mid layer (fleece, sweater, or cardigan for insulation), outer layer (waterproof/windproof coat).
+    Key winter fabrics: wool, cashmere, fleece, and down. Cold-weather essentials: thermal leggings, chunky-knit
+    sweaters, waterproof boots, wool coat or puffer jacket, beanie, gloves, and scarf. Packing for winter
+    travel: pack in neutrals (black, grey, camel) so everything coordinates. One pair of waterproof boots
+    works for most activities. Compress bulky items with packing cubes.

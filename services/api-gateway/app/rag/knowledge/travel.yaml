@@ -1,0 +1,43 @@
+# Fashion knowledge — category: travel
+# Edit/extend freely; the loader validates and seeds these idempotently by title.
+category: travel
+documents:
+- title: Travel Capsule Wardrobe Principles
+  occasion: travel
+  season: null
+  tags:
+  - capsule
+  - travel
+  - versatile
+  - minimalist
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    A travel capsule wardrobe maximizes outfits from minimal items. Core rules: choose a neutral base
+    (black, white, navy, grey) and add 2–3 accent colors. Every item should pair with at least 3 others.
+    Prioritize versatile pieces: dark jeans work for day and evening, a blazer dresses up any outfit,
+    a white shirt is infinitely remixable. For one week: 4 tops, 2 bottoms, 1 dress/jumpsuit, 2 pairs
+    of shoes (one casual, one smart), 1 jacket. Fabrics: wrinkle-resistant fabrics (jersey, synthetic
+    blends) save space. Roll clothes instead of folding to minimize creasing.
+- title: Beach and Resort Packing
+  occasion: beach
+  season: summer
+  tags:
+  - beach
+  - resort
+  - swimwear
+  - tropical
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    Beach and resort packing prioritizes lightness and versatility. Essentials: swimwear (2 pieces minimum
+    for alternating), cover-ups (sarong or kaftan), sun hat, sandals, sunglasses, sunscreen SPF 50+. Clothing:
+    light linen or cotton shirts, shorts, casual dresses, lightweight trousers for evening. Evening at
+    resort: one smart casual outfit for dinner (linen shirt + chinos for men; sundress + wedges for women).
+    Shoes: flip-flops for beach, sandals for exploring, one pair of smart-casual shoes for evening. Pack
+    a small crossbody or tote bag. Fabrics: quick-dry synthetics for activewear and swimwear; linen and
+    cotton for all-day wear.

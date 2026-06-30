@@ -1,0 +1,102 @@
+# Fashion knowledge — category: occasion
+# Edit/extend freely; the loader validates and seeds these idempotently by title.
+category: occasion
+documents:
+- title: Business Casual Dressing Guide
+  occasion: business casual
+  season: null
+  tags:
+  - work
+  - office
+  - smart casual
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    Business casual sits between formal business and casual wear. For men: chinos or tailored trousers
+    (no jeans), a button-down shirt or polo (no tie required), loafers or Oxford shoes, and an optional
+    blazer. For women: blouses, fitted trousers, midi skirts, dresses with a blazer, or tailored jumpsuits.
+    Avoid: ripped clothing, graphic tees, athletic wear, flip-flops, and overly revealing styles. Colors:
+    navy, grey, burgundy, camel, and white are safe choices. Add personality through accessories — a quality
+    watch, belt, or structured bag elevates the look instantly.
+- title: Formal Outfit Rules
+  occasion: formal
+  season: null
+  tags:
+  - black tie
+  - gala
+  - formal
+  - evening
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    Formal dress codes require precision. Black tie: tuxedo or dark suit with bow tie for men; floor-length
+    gown or formal midi dress for women. Cocktail attire: knee-length dress or chic separates for women;
+    dark suit with tie for men. Key formal rules: ensure garments are well-fitted and wrinkle-free; shoes
+    must be polished leather (men) or elegant heels/formal flats (women); accessories should be minimal
+    and high-quality. Avoid: casual fabrics like denim or cotton, bright logos, sneakers. Dark colors
+    (black, navy, charcoal) are classic; jewel tones (emerald, sapphire) add personality without breaking
+    formality.
+- title: Wedding Guest Outfit Guide
+  occasion: wedding
+  season: null
+  tags:
+  - wedding
+  - guest
+  - ceremony
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    As a wedding guest, dress to celebrate without outshining the couple. Avoid white, ivory, and cream
+    (reserved for the bride). Avoid all-black unless it is an evening wedding. Smart-casual weddings:
+    midi dresses, floral prints, tailored blazer with trousers. Formal weddings: floor-length or tea-length
+    dress, dark suit or tuxedo. Beach/garden weddings: light fabrics (chiffon, linen), wedge heels or
+    flats (avoid stilettos on grass), floral or pastel tones. Indoor evening weddings: deeper, richer
+    colors work well. Always check the venue for footwear suitability.
+- title: Smart Casual Style Guide
+  occasion: smart casual
+  season: null
+  tags:
+  - smart casual
+  - elevated casual
+  - dinner
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    Smart casual is the most versatile dress code — elevated but not formal. Key formula: one elevated
+    piece (blazer, tailored trouser, structured dress) paired with one casual piece (dark jeans, a simple
+    tee). For men: dark slim-fit jeans + button-down or knit sweater + leather shoes or smart sneakers.
+    For women: tailored trousers + silk blouse, or a midi dress + denim jacket, or a jumpsuit with heeled
+    mules. Avoid: athletic wear, overly casual graphics, flip-flops. Footwear is key: Chelsea boots, loafers,
+    or clean white sneakers elevate a smart casual look instantly.
+- title: Business Formal and Power Dressing Guide
+  occasion: business formal
+  season: null
+  tags:
+  - business formal
+  - power dressing
+  - corporate
+  - interview
+  - boardroom
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    Business formal requires precision and authority. Men: tailored suit (navy, charcoal, or grey), white
+    or pale blue dress shirt, conservative tie, Oxford or Derby shoes, matching belt. Women: tailored
+    trouser suit, pencil skirt + blazer, structured shift dress, or a formal pantsuit. Colors: navy, charcoal,
+    black, and grey project authority. Power dressing principles: ensure perfect fit — tailoring is non-negotiable;
+    choose structured fabrics (wool, wool-blend, crepe); avoid overly trendy silhouettes; quality accessories
+    elevate (leather portfolio, structured bag, quality watch). Interview dressing: mirror the company
+    dress code one level up — business casual company means wear business formal for the interview. Grooming
+    is as important as the outfit. Women's power colors: navy (trust), red (authority/confidence), black
+    (sharp/serious), grey (neutral/analytical). Men's suit color guide: navy = approachable authority;
+    charcoal = serious/formal; mid-grey = versatile everyday; black = most formal only.

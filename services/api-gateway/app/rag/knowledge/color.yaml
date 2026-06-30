@@ -1,0 +1,72 @@
+# Fashion knowledge — category: color
+# Edit/extend freely; the loader validates and seeds these idempotently by title.
+category: color
+documents:
+- title: Color Matching Fundamentals
+  occasion: null
+  season: null
+  tags:
+  - color theory
+  - palette
+  - contrast
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    Color matching is the foundation of great outfits. Complementary colors (opposite on the color wheel,
+    e.g. blue and orange) create bold contrast. Analogous colors (adjacent, e.g. navy, teal, and green)
+    create harmonious, sophisticated looks. Neutral colors (black, white, grey, beige, navy) pair with
+    almost anything. When in doubt, build a monochromatic outfit in one color family — different shades
+    of blue always work together. Avoid mixing more than three colors in one outfit. Warm tones (red,
+    orange, yellow) energize; cool tones (blue, green, purple) calm. A pop of color works best when the
+    rest of the outfit is neutral.
+- title: Skin Tone Color Matching Guide
+  occasion: null
+  season: null
+  tags:
+  - skin tone
+  - undertone
+  - color matching
+  - warm cool neutral
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    Skin tone and undertone are the most personal factor in color selection. Warm undertones (golden,
+    peachy, yellow-based skin): best colors are earth tones — camel, terracotta, rust, olive, mustard
+    yellow, warm browns, off-white/cream, warm reds like tomato red or coral. Avoid: cool icy tones, pastel
+    lavender, cool pinks. Cool undertones (pink, rosy, blue-based skin): best colors are jewel tones —
+    sapphire blue, emerald green, true white, burgundy, plum, cool greys, silver accents, lavender, icy
+    pastels. Avoid: warm oranges, warm yellows, strong earth tones. Neutral undertones: versatile — almost
+    all colors work; use contrast level to guide. Deep/rich skin tones carry vivid saturated colors beautifully
+    — jewel tones, rich mustard, coral, bright white all pop. Avoid low-contrast beige near the face.
+    Fair/light skin tones look striking with high-contrast combinations (navy + white, black + white)
+    and soft pastels; avoid very pale tones that wash out. Olive/medium skin with warm undertone: warm
+    earthy tones and jewel tones both work well. Always match clothing color to undertone, not just skin
+    darkness level.
+- title: Color Season Analysis (Spring Summer Autumn Winter)
+  occasion: null
+  season: null
+  tags:
+  - color season
+  - seasonal palette
+  - spring summer autumn winter
+  - personal color analysis
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    Color season analysis matches personal coloring to a seasonal palette. SPRING (warm, light, clear):
+    warm skin with peachy/golden undertone, light or hazel eyes, golden/strawberry blonde or light auburn
+    hair. Best colors: coral, peach, warm yellow, light warm greens, turquoise, ivory, camel. Avoid: icy
+    pastels, cool greys, black near face. SUMMER (cool, light, muted): cool skin with pinkish undertone,
+    blue/grey/cool eyes, ash blonde or light cool brown hair. Best colors: dusty rose, lavender, powder
+    blue, soft grey, taupe, muted navy, soft white. Avoid: warm oranges, earth tones, pure black. AUTUMN
+    (warm, deep, muted): golden/olive/warm skin, amber/hazel/brown/green eyes, chestnut/auburn/warm brown
+    hair. Best colors: rust, burnt orange, olive, dark camel, forest green, warm brown, teal, gold. Avoid:
+    cool icy pastels, pure black, cool reds. WINTER (cool, deep, clear): cool or neutral skin, dark/intense
+    eyes, dark brown/black or starkly contrasted hair. Best colors: true white, jet black, navy, royal
+    blue, emerald, ruby red, fuchsia, icy pastels for contrast. Avoid: earth tones, warm yellows.

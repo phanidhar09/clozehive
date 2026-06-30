@@ -1,0 +1,23 @@
+# Fashion knowledge — category: wardrobe
+# Edit/extend freely; the loader validates and seeds these idempotently by title.
+category: wardrobe
+documents:
+- title: Capsule Wardrobe Building Rules
+  occasion: null
+  season: null
+  tags:
+  - capsule wardrobe
+  - minimalist
+  - essentials
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    A capsule wardrobe is a curated collection where every item works together. The 10 essential pieces:
+    white shirt, dark jeans, black trousers, little black dress or equivalent, white tee, cashmere/knit
+    sweater, blazer, trench coat, tailored chinos, and versatile mid-layer. Color strategy: 70% neutrals,
+    20% accent colors, 10% pattern/print. Quality over quantity: invest in well-constructed basics and
+    save on trendy pieces. Care rule: items with more versatility (worn 30+ times per year) justify higher
+    investment. Review your capsule seasonally: archive items not worn in 12 months. The goal is 37 items
+    that create 100+ outfit combinations.

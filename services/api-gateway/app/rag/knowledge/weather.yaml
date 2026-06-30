@@ -1,0 +1,22 @@
+# Fashion knowledge — category: weather
+# Edit/extend freely; the loader validates and seeds these idempotently by title.
+category: weather
+documents:
+- title: Rainy Weather Outfit Strategies
+  occasion: travel
+  season: null
+  tags:
+  - rain
+  - waterproof
+  - wet weather
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    Dressing for rain requires both practicality and style. Key pieces: waterproof jacket or trench coat,
+    water-resistant boots (ankle or knee-high), and an umbrella. Avoid: suede shoes (water-damaged easily),
+    white jeans (can become see-through), and very wide-leg trousers (absorb puddle splashes). Best fabrics
+    in rain: synthetic blends, treated cotton, and nylon. Style tip: a belted trench coat looks polished
+    in rain. For extended rainy destinations, pack rubber boots for heavy downpours and keep a compact
+    umbrella in your bag at all times.

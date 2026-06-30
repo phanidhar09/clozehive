@@ -1,0 +1,123 @@
+# Fashion knowledge — category: regional
+# Cultural & regional dress guidance. Ties into festival_calendar / festival_discovery
+# and location_intel so the stylist can respect local norms and festive occasions.
+# Keep factual and respectful — garments, occasions, and styling, not stereotypes.
+category: regional
+documents:
+- title: South Asian Festive & Ethnic Wear Guide
+  occasion: festive
+  season: null
+  tags:
+  - south asian
+  - indian
+  - diwali
+  - wedding
+  - saree
+  - kurta
+  - lehenga
+  gender: unisex
+  formality_level: 3.0
+  region: south asia
+  source: curated
+  content: >-
+    South Asian festive dressing centres on rich fabrics, embellishment, and occasion-appropriate
+    formality. Women: the saree (draped), salwar kameez or anarkali (everyday-to-festive), and the
+    lehenga choli (most formal, for weddings and big festivals). Men: the kurta with pyjama or churidar
+    (everyday-to-festive), and the sherwani or bandhgala (most formal). Festival cues — Diwali favours
+    jewel tones, gold accents, and silk or brocade; Holi favours light cottons you don't mind staining,
+    often white. Wedding guests should dress vividly but avoid red and heavy bridal gold (reserved for
+    the bride) and avoid pure black/white at many traditional ceremonies. Fabrics: silk, brocade, and
+    chiffon for formal; cotton and linen for daywear. Layer statement jewellery for festive looks; keep
+    it minimal for daytime functions.
+- title: Modest Dressing Principles (Cross-Cultural)
+  occasion: null
+  season: null
+  tags:
+  - modest
+  - coverage
+  - layering
+  - hijab
+  - conservative
+  gender: unisex
+  formality_level: null
+  region: global
+  source: curated
+  content: >-
+    Modest dressing prioritises coverage while staying stylish and comfortable. Core principles: choose
+    looser, fluid silhouettes (wide-leg trousers, A-line and maxi skirts, relaxed shirts) over clingy
+    cuts; favour higher necklines and longer sleeves; use length to create elegance (maxi dresses,
+    longline layers). Layering is the key tool — a long-line cardigan, duster, or kimono adds coverage
+    without bulk; a fine roll-neck under a pinafore or slip dress extends a wardrobe modestly. Fabrics
+    with body (crepe, ponte, twill) drape well without revealing. For hijab styling, coordinate the
+    scarf either tonally with the outfit or as the single accent colour against neutrals. Modest does
+    not mean shapeless — define the waist with a belt over layers, and use proportion (fitted-over-loose
+    or loose-over-fitted) to keep the look intentional.
+- title: Middle Eastern & Gulf Occasion Dressing
+  occasion: formal
+  season: null
+  tags:
+  - middle east
+  - gulf
+  - abaya
+  - kaftan
+  - modest
+  - eid
+  gender: unisex
+  formality_level: 3.0
+  region: middle east
+  source: curated
+  content: >-
+    Gulf and Middle Eastern dressing blends modest coverage with luxurious detail. Women: the abaya
+    (flowing over-layer, from minimalist black to embellished and colourful for occasions) and the
+    kaftan (relaxed, often richly patterned, for festive gatherings). Men: the thobe/kandura (long
+    tunic) with a bisht over it for the most formal events. Eid and celebration dressing leans into
+    fine fabrics, subtle shimmer, and fresh, well-pressed garments. As a visitor or guest: opt for
+    covered shoulders and knees, lightweight breathable fabrics for heat (linen, cotton, fine crepe),
+    and elegant rather than flashy. Evening events skew dressier and more embellished; daytime stays
+    understated.
+- title: East Asian Formal & Modern Minimalist Style
+  occasion: smart casual
+  season: null
+  tags:
+  - east asian
+  - qipao
+  - hanbok
+  - minimalist
+  - tailored
+  gender: unisex
+  formality_level: 2.5
+  region: east asia
+  source: curated
+  content: >-
+    East Asian style spans heritage occasion wear and a strong contemporary minimalist tradition.
+    Heritage: the qipao/cheongsam (fitted, for formal occasions), the hanbok (worn for Korean holidays
+    and weddings), and the kimono/yukata (the yukata being the casual summer-festival version). Modern
+    everyday style across the region favours clean lines, neutral and muted palettes, quality basics,
+    and precise tailoring over loud branding — an aesthetic of restraint and proportion. Build it with
+    a crisp shirt, well-cut trousers, fine knitwear, and one considered accessory. Layering is subtle
+    and tonal. For festival or holiday contexts, lean to traditional pieces; for daily wear, the
+    minimalist capsule approach reads as effortlessly put-together.
+- title: West African Print & Occasion Wear
+  occasion: festive
+  season: null
+  tags:
+  - west african
+  - ankara
+  - agbada
+  - kente
+  - print
+  - wedding
+  gender: unisex
+  formality_level: 3.0
+  region: west africa
+  source: curated
+  content: >-
+    West African occasion dressing celebrates bold print, colour, and craftsmanship. Ankara (vibrant
+    wax-print cotton) is tailored into dresses, skirt-and-top sets, and men's shirts for events from
+    everyday-festive to wedding. Men's formal wear includes the agbada (a flowing wide-sleeved robe,
+    often over a matching tunic and trousers) and the dashiki for less formal occasions. Kente cloth
+    (woven, historically prestigious) signals high ceremony. Styling: let one bold print dominate and
+    keep accessories and footwear in a solid colour drawn from the print (your pattern-mixing safety
+    rule). Coordinated family or couple looks (aso ebi — guests in a shared fabric) are common at
+    weddings — match the requested colour scheme when invited. Headwraps (gele) are a sculptural
+    statement for the most formal events.

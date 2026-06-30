@@ -1,0 +1,135 @@
+# Fashion knowledge — category: styling
+# Edit/extend freely; the loader validates and seeds these idempotently by title.
+category: styling
+documents:
+- title: Layering Principles for All Seasons
+  occasion: null
+  season: null
+  tags:
+  - layering
+  - styling
+  - versatile
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    Layering adds dimension and adaptability to any outfit. Rule of odd numbers: layer in 3 pieces for
+    visual interest (e.g., tee + shirt + jacket). Proportion matters: pair slim base layers with voluminous
+    outer layers and vice versa. Tuck in a shirt to define the waist when layering. Color layering: keep
+    layers in the same tonal family or use the outer layer as a neutral frame for a colorful inner layer.
+    Texture layering: mix smooth and textured fabrics (silk under tweed, cotton under leather) for richness.
+    Light layering (spring/fall): denim jacket + light scarf; Heavy layering (winter): thermal + chunky
+    knit + structured coat.
+- title: Shoe Matching Rules
+  occasion: null
+  season: null
+  tags:
+  - shoes
+  - footwear
+  - coordination
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    Shoes make or break an outfit. Classic rules: match shoe color to belt color (men). Nude shoes elongate
+    the leg and pair with almost any outfit. White sneakers are the most versatile casual shoe — wear
+    with jeans, chinos, dresses, or shorts. Brown shoes work best with earth tones, navy, and grey — avoid
+    with black trousers for formal looks. Black shoes pair with most colors except brown. Shoe-to-occasion
+    matching: Oxford/Derby for formal/business; loafers for smart casual; sneakers for casual; boots for
+    casual to smart casual; sandals for casual and beach. Heel height: higher heels dress up an outfit;
+    flat or low block heels keep it grounded.
+- title: Accessory Coordination Guide
+  occasion: null
+  season: null
+  tags:
+  - accessories
+  - jewelry
+  - bags
+  - belts
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    Accessories complete and elevate any look. Metal matching rule: mix warm metals (gold, bronze) or
+    cool metals (silver, gunmetal) — avoid mixing both in one outfit. Belt rule: match belt to shoes in
+    formal settings; contrast is acceptable casually. Bag coordination: structured bags dress up; slouchy
+    bags dress down. Jewelry: less is more for formal occasions; layer and experiment for casual looks.
+    Scarves are versatile: wear as neck scarf, hair accessory, or bag charm. Sunglasses should complement
+    face shape: aviators for oval faces, wayfarer for square faces, cat-eye for round faces. Hats: wide-brim
+    for summer/resort; beanies for winter casual; fedoras for smart casual or travel.
+- title: Pattern Mixing Rules
+  occasion: null
+  season: null
+  tags:
+  - patterns
+  - prints
+  - mixing
+  - stripes
+  - florals
+  - checks
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    Mixing patterns adds personality but requires rules to avoid clashing. Rule 1 — Scale contrast: always
+    pair a large-scale pattern with a small-scale pattern (e.g. large floral + thin stripe). Never mix
+    two equally-sized patterns. Rule 2 — Colour connection: at least one colour must appear in both patterns;
+    this creates visual harmony (e.g. a blue stripe top + a blue/white floral skirt). Rule 3 — Pattern
+    hierarchy: let one pattern dominate (wear it on the larger body area) and keep the second pattern
+    as an accent. Safe combinations: stripes + florals; stripes + checks (different scales); animal print
+    + geometric (animal print acts as a neutral). Difficult combinations: two large florals; two plaids;
+    two different animal prints. Solids as anchors: a solid-colored third piece (blazer, shoes, bag) ties
+    mixed patterns together instantly. When in doubt: mix one pattern with one texture (e.g. floral blouse
+    + textured tweed skirt) — texture acts like a second pattern without the risk of clashing.
+- title: Denim Styling and Versatility Guide
+  occasion: null
+  season: null
+  tags:
+  - denim
+  - jeans
+  - denim jacket
+  - smart casual
+  - casual
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    Denim is the most versatile fabric in any wardrobe. Wash guide: dark wash denim is most formal and
+    can dress up for smart-casual evenings; medium wash is truly everyday versatile; light wash is casual
+    and summery; distressed/ripped is very casual only. Slim-fit jeans: the most universal cut — dress
+    up with loafers and a blazer for smart casual; dress down with sneakers and a hoodie for weekend.
+    Wide-leg jeans: fashion-forward; balance with a fitted or cropped top tucked in at the waist. Straight-leg:
+    combines classic with modern; works with everything. Skinny jeans: best elongated with pointed toe
+    footwear; pair with chunky knit or oversized blazer for balance. Canadian Tuxedo rule: head-to-toe
+    denim works only when the washes are clearly different (e.g. dark jacket + light jeans). Avoid matching
+    washes — it reads as matchy. Denim jacket: the perfect third piece for casual to smart-casual; wear
+    over a dress for unexpected contrast; over a white tee and chinos for a classic look.
+- title: Monochrome and Tonal Dressing Guide
+  occasion: null
+  season: null
+  tags:
+  - monochrome
+  - tonal
+  - one color
+  - color blocking
+  - head to toe
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    Monochrome (head-to-toe one color) is sophisticated and elongating. Key rules: vary the texture and
+    fabric weight to avoid flatness — pair a satin blouse with structured trousers in the same color;
+    matte + shiny works well. Tonal dressing (different shades of the same color family): even easier
+    to execute; combine cream + beige + camel for an elevated neutral look; or navy + cobalt + sky blue.
+    All-white: clean and powerful in summer; ensure pieces are the same shade of white or deliberately
+    contrast warm white vs pure white for intentional effect. All-black: the most universally flattering
+    monochrome; vary textures (velvet, leather, knit, jersey) to create depth. Color blocking (two or
+    more distinct bold colors): keep to 2-3 colors maximum; use complementary colors (opposite on the
+    color wheel) for drama; use analogous colors for a more wearable look. Neutral breaks between blocks
+    (a white belt, nude shoes) prevent the look from becoming overwhelming.
