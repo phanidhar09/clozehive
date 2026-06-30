@@ -169,7 +169,9 @@ class NormalizedVisionAIOutput(BaseModel):
     style_tags: list[str] = Field(default_factory=list)
     eco_score: float | None = Field(None, ge=0, le=10)
 
-    @field_validator("name", "subcategory", "color", "brand", "material", "pattern", "fit", "description", mode="before")
+    @field_validator(
+        "name", "subcategory", "color", "brand", "material", "pattern", "fit", "description", mode="before"
+    )
     @classmethod
     def strip_opt(cls, v: Any) -> Any:
         if v is None:

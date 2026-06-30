@@ -45,6 +45,7 @@ def is_successful_history(was_saved: bool, was_worn: bool, matching_score: int |
     """Whether an OutfitHistory row is a positive signal worth mining."""
     return bool(was_saved) or bool(was_worn) or (matching_score is not None and matching_score >= _GOOD_SCORE)
 
+
 _LEARNED_CATEGORY = "learned"
 _LEARNED_TITLE = "Learned Wardrobe Patterns (Community Usage)"
 
