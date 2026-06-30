@@ -138,6 +138,7 @@ class ClosetItemCreate(BaseModel):
     notes: str | None = Field(None, max_length=1000)
     brand: str | None = Field(None, max_length=100)
     size: str | None = Field(None, max_length=20)
+    fit: str | None = Field(None, max_length=30)
     price: float | None = Field(None, ge=0, le=99999.99)
 
     original_image_url: str | None = None
@@ -159,6 +160,7 @@ class ClosetItemCreate(BaseModel):
         "notes",
         "brand",
         "size",
+        "fit",
         mode="before",
     )
     @classmethod
@@ -199,11 +201,12 @@ class ClosetItemUpdate(BaseModel):
     notes: str | None = Field(None, max_length=1000)
     brand: str | None = Field(None, max_length=100)
     size: str | None = Field(None, max_length=20)
+    fit: str | None = Field(None, max_length=30)
     price: float | None = Field(None, ge=0, le=99999.99)
     is_archived: bool | None = None
     availability: AvailabilityStatus | None = None
 
-    @field_validator("name", "color", "fabric", "pattern", "image_url", "notes", "brand", "size", mode="before")
+    @field_validator("name", "color", "fabric", "pattern", "image_url", "notes", "brand", "size", "fit", mode="before")
     @classmethod
     def strip_strings(cls, v: str | None) -> str | None:
         return strip_string(v) if v is not None else v
@@ -247,6 +250,8 @@ class ClosetItemResponse(BaseModel):
     notes: str | None
     brand: str | None
     size: str | None
+    fit: str | None = None
+    measurements: dict[str, Any] | None = None
     price: float | None
     wear_count: int
     last_worn: date | None
@@ -308,6 +313,7 @@ class ClosetPreviewItem(BaseModel):
     brand: str | None = None
     material: str | None = None
     pattern: str | None = None
+    fit: str | None = None
     season: list[str] = Field(default_factory=list)
     occasions: list[str] = Field(default_factory=list)
     description: str | None = None
@@ -320,7 +326,7 @@ class ClosetPreviewItem(BaseModel):
     style_tags: list[str] = Field(default_factory=list)
 
     @field_validator(
-        "name", "category", "subcategory", "color", "brand", "material", "pattern", "description", mode="before"
+        "name", "category", "subcategory", "color", "brand", "material", "pattern", "fit", "description", mode="before"
     )
     @classmethod
     def strip_prev_strings(cls, v: str | None) -> str | None:
@@ -380,11 +386,12 @@ class ClosetConfirmItemPayload(BaseModel):
     notes: str | None = Field(None, max_length=1000)
     brand: str | None = Field(None, max_length=100)
     size: str | None = Field(None, max_length=20)
+    fit: str | None = Field(None, max_length=30)
     price: float | None = Field(None, ge=0, le=99999.99)
     tags: list[str] | None = Field(None, max_length=20)
     eco_score: float | None = Field(None, ge=0, le=10)
 
-    @field_validator("name", "color", "fabric", "material", "pattern", "notes", "brand", "size", mode="before")
+    @field_validator("name", "color", "fabric", "material", "pattern", "notes", "brand", "size", "fit", mode="before")
     @classmethod
     def strip_strings(cls, v: str | None) -> str | None:
         return strip_string(v) if v is not None else v

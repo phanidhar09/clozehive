@@ -288,6 +288,7 @@ function mapClosetItem(raw: Record<string, unknown>): ClosetItem {
     pattern: raw.pattern as string | undefined,
     brand: raw.brand as string | undefined,
     size: raw.size as string | undefined,
+    fit: raw.fit as string | undefined,
     price: raw.price != null ? Number(raw.price) : undefined,
     image_url,
     tags: Array.isArray(raw.tags) ? (raw.tags as string[]) : [],
@@ -535,6 +536,7 @@ export type ClosetConfirmItemPayload = {
   notes?: string
   brand?: string
   size?: string
+  fit?: string
   price?: number
   tags?: string[]
   eco_score?: number

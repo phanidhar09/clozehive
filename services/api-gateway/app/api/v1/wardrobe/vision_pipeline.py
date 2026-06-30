@@ -279,6 +279,7 @@ async def save_analyzed_items(
                 image_url=primary_url,
                 notes=req.description or None,
                 brand=req.brand or None,
+                fit=req.fit or None,
                 # Vision pipeline fields
                 original_image_url=req.original_image_url or None,
                 processed_image_url=processed_url,

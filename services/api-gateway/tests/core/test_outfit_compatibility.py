@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from app.core import outfit_compatibility as oc
 
-
 # ── Color harmony ─────────────────────────────────────────────────────────────
 
 
@@ -148,3 +147,61 @@ def test_silk_blazer_and_gym_shorts_do_not_pair():
     # Role-compatible (top+bottom) but formality gulf should sink the pairing.
     assert result["role_compatible"] is True
     assert result["pairs"] is False
+
+
+# ── Fit / silhouette ──────────────────────────────────────────────────────────
+
+
+def test_fit_volume_classification():
+    assert oc.fit_volume("Oversized") == 2
+    assert oc.fit_volume("wide-leg") == 2
+    assert oc.fit_volume("slim") == 0
+    assert oc.fit_volume("tailored") == 0
+    assert oc.fit_volume("regular") == 1
+    assert oc.fit_volume("relaxed straight") == 2  # relaxed wins over straight
+    assert oc.fit_volume(None) is None
+    assert oc.fit_volume("whatever") is None  # unreadable → neutral
+
+
+def test_relaxed_top_with_slim_bottom_is_balanced():
+    # The user's example: balance theory says contrast is *good*, not penalized.
+    top = {"category": "tops", "fit": "relaxed"}
+    jeans = {"category": "bottoms", "fit": "slim"}
+    score, reason = oc.silhouette_harmony(top, jeans)
+    assert score == 1.0
+    assert reason is None
+
+
+def test_volume_on_volume_is_penalized():
+    top = {"category": "tops", "fit": "oversized"}
+    bottom = {"category": "bottoms", "fit": "baggy"}
+    score, reason = oc.silhouette_harmony(top, bottom)
+    assert score < 1.0
+    assert reason is not None
+
+
+def test_silhouette_neutral_when_not_top_and_bottom():
+    # Proportion has no bearing on a top + its shoes.
+    top = {"category": "tops", "fit": "oversized"}
+    shoes = {"category": "shoes", "fit": "slim"}
+    assert oc.silhouette_harmony(top, shoes) == (1.0, None)
+
+
+def test_silhouette_neutral_when_fit_unknown():
+    # Most legacy items have no fit — must not be punished.
+    top = {"category": "tops", "color": "white"}
+    jeans = {"category": "bottoms", "fit": "oversized"}
+    assert oc.silhouette_harmony(top, jeans) == (1.0, None)
+
+
+def test_double_volume_clash_drags_a_pairing_down():
+    # Same item, two fits: the volume-on-volume version must score lower.
+    top = {"name": "tee", "category": "tops", "color": "white", "occasion": ["casual"]}
+    relaxed_bottom = {"name": "trousers", "category": "bottoms", "color": "black",
+                      "occasion": ["casual"], "fit": "baggy"}
+    slim_bottom = {**relaxed_bottom, "fit": "slim"}
+    oversized_top = {**top, "fit": "oversized"}
+    clash = oc.score_compatibility(oversized_top, relaxed_bottom)
+    balanced = oc.score_compatibility(oversized_top, slim_bottom)
+    assert clash["score"] < balanced["score"]
+    assert "silhouette" in clash["breakdown"]
