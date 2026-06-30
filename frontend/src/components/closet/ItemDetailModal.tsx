@@ -86,6 +86,7 @@ export default function ItemDetailModal({ item, open, onClose, onDelete, onSaved
     { icon: <Tag size={12} />, label: 'Pattern', value: current.pattern },
     { icon: <Calendar size={12} />, label: 'Season', value: current.season?.join(', ') },
     { icon: <Tag size={12} />, label: 'Size', value: current.size },
+    { icon: <Tag size={12} />, label: 'Fit', value: current.fit },
     { icon: <Tag size={12} />, label: 'Brand', value: current.brand },
   ].filter(a => a.value)
 

@@ -109,6 +109,7 @@ def normalize_vision_ai_dict(raw: dict[str, Any]) -> dict[str, Any]:
     brand = _first_str(raw.get("brand"))
     material = _first_str(raw.get("material"), raw.get("fabric"))
     pattern = _first_str(raw.get("pattern"))
+    fit = _first_str(raw.get("fit"))
 
     description = _first_str(
         raw.get("description"),
@@ -128,6 +129,7 @@ def normalize_vision_ai_dict(raw: dict[str, Any]) -> dict[str, Any]:
         "brand": brand,
         "material": material,
         "pattern": pattern,
+        "fit": fit,
         "season": _merge_season_fields(raw),
         "occasions": _merge_occasion_fields(raw),
         "description": description,
@@ -159,6 +161,7 @@ class NormalizedVisionAIOutput(BaseModel):
     brand: str | None = Field(None, max_length=100)
     material: str | None = Field(None, max_length=100)
     pattern: str | None = Field(None, max_length=100)
+    fit: str | None = Field(None, max_length=30)
     season: list[str] = Field(default_factory=list)
     occasions: list[str] = Field(default_factory=list)
     description: str | None = Field(None, max_length=1000)
@@ -166,7 +169,9 @@ class NormalizedVisionAIOutput(BaseModel):
     style_tags: list[str] = Field(default_factory=list)
     eco_score: float | None = Field(None, ge=0, le=10)
 
-    @field_validator("name", "subcategory", "color", "brand", "material", "pattern", "description", mode="before")
+    @field_validator(
+        "name", "subcategory", "color", "brand", "material", "pattern", "fit", "description", mode="before"
+    )
     @classmethod
     def strip_opt(cls, v: Any) -> Any:
         if v is None:

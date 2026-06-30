@@ -456,6 +456,7 @@ async def approve_items(
                 image_url=item_create.image_url,
                 notes=item_create.notes,
                 brand=item_create.brand,
+                fit=review_item.get("fit") or None,
             )
             session.add(new_item)
             await session.flush()  # get the DB-assigned id

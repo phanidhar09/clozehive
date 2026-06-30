@@ -13,6 +13,9 @@ const CATEGORIES = [
 
 const SEASONS = ['spring', 'summer', 'fall', 'winter'] as const
 const OCCASIONS = ['casual', 'formal', 'work', 'sport', 'evening', 'travel'] as const
+// Fit drives outfit proportion matching (see outfit_compatibility.fit_volume).
+// '' = unspecified; the rest map onto the engine's slim/regular/relaxed volume scale.
+const FITS = ['slim', 'tailored', 'regular', 'relaxed', 'oversized'] as const
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -78,6 +81,7 @@ export default function EditItemModal({ item, open, onClose, onSaved }: Props) {
     fabric:   item.fabric    ?? '',
     pattern:  item.pattern   ?? '',
     size:     item.size      ?? '',
+    fit:      item.fit       ?? '',
     price:    item.price != null ? String(item.price) : '',
     notes:      item.notes       ?? '',
     seasons:    parseSeason(item.season),
@@ -105,6 +109,7 @@ export default function EditItemModal({ item, open, onClose, onSaved }: Props) {
         fabric:   form.fabric.trim()  || undefined,
         pattern:  form.pattern.trim() || undefined,
         size:     form.size.trim()    || undefined,
+        fit:      form.fit            || undefined,
         price:    form.price !== '' ? Number(form.price) : undefined,
         notes:    form.notes.trim()   || undefined,
         season:      form.seasons.length > 0 ? form.seasons : undefined,
@@ -204,6 +209,21 @@ export default function EditItemModal({ item, open, onClose, onSaved }: Props) {
               onChange={e => set('size', e.target.value)}
               placeholder="e.g. M, 32, UK 10…"
             />
+          </Field>
+
+          <Field label="Fit">
+            <select
+              className={cn(inputCls, 'appearance-none capitalize')}
+              value={form.fit}
+              onChange={e => set('fit', e.target.value)}
+            >
+              <option value="">Unspecified</option>
+              {FITS.map(f => (
+                <option key={f} value={f} className="capitalize">
+                  {f.charAt(0).toUpperCase() + f.slice(1)}
+                </option>
+              ))}
+            </select>
           </Field>
 
           <Field label="Purchase Price ($)">

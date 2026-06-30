@@ -20,7 +20,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import ARRAY, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 try:
@@ -61,6 +61,12 @@ class ClosetItem(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     brand: Mapped[str | None] = mapped_column(String(100), nullable=True)
     size: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Garment fit (slim/regular/relaxed/oversized/tailored). Detected by the
+    # vision pipeline; combined with brand+size to resolve true measurements.
+    fit: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    # Canonical measurements in cm (chest/waist/inseam/length), null until
+    # resolved from a brand size chart or user input. See migration 036.
+    measurements: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     section: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
     price: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(1536), nullable=True, index=False)

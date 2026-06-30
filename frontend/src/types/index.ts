@@ -13,6 +13,8 @@ export interface ClosetItem {
   pattern?: string
   brand?: string
   size?: string
+  /** Garment fit (slim/regular/relaxed/oversized/tailored) — drives outfit proportion matching. */
+  fit?: string
   price?: number
   image_url?: string
   tags: string[]
@@ -50,6 +52,8 @@ export interface VisionPreviewItem {
   brand?: string | null
   material?: string | null
   pattern?: string | null
+  /** Garment fit detected by the vision pipeline — pre-fills the review editor. */
+  fit?: string | null
   season: string[]
   occasions: string[]
   description?: string | null

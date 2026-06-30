@@ -466,6 +466,87 @@ def roles_pair(role_a: str, role_b: str) -> bool:
     return frozenset((role_a, role_b)) in _PAIRABLE_ROLES
 
 
+# ── Fit / silhouette ────────────────────────────────────────────────────────
+
+# Fit maps onto a 3-point *volume* scale. Proportion styling is about balancing
+# volume against fit: pair a voluminous piece with a slim one. The combination
+# that reads as sloppy is volume + volume (an oversized top AND a baggy bottom),
+# never volume + slim — a relaxed top over slim jeans is a textbook balanced look.
+_FIT_RELAXED = (
+    "relaxed",
+    "loose",
+    "baggy",
+    "wide",
+    "wide-leg",
+    "wide leg",
+    "oversized",
+    "oversize",
+    "boxy",
+    "flowy",
+    "billowy",
+    "balloon",
+)
+_FIT_SLIM = (
+    "slim",
+    "skinny",
+    "fitted",
+    "tailored",
+    "compression",
+    "bodycon",
+    "tight",
+    "cropped",
+)
+_FIT_REGULAR = ("regular", "straight", "classic", "standard", "true to size")
+
+
+def fit_volume(fit: str | None) -> int | None:
+    """Map a free-text fit onto a volume scale: 0 slim, 1 regular, 2 relaxed, None unknown.
+
+    Relaxed is checked first so "relaxed straight" reads as relaxed; we never
+    punish what we can't read (unknown → None → neutral downstream).
+    """
+    if not fit:
+        return None
+    s = fit.strip().lower()
+    if not s:
+        return None
+    if any(tok in s for tok in _FIT_RELAXED):
+        return 2
+    if any(tok in s for tok in _FIT_SLIM):
+        return 0
+    if any(tok in s for tok in _FIT_REGULAR):
+        return 1
+    return None
+
+
+def _silhouette_harmony(vol_a: int | None, vol_b: int | None) -> tuple[float, str | None]:
+    """Score the proportion of two volumes (see ``silhouette_harmony``).
+
+    Balance theory: contrast is the goal. Volume + volume is the only real demerit;
+    head-to-toe slim is clean but can read severe, so it takes a tiny nudge.
+    """
+    if vol_a is None or vol_b is None:
+        return (1.0, None)  # unknown fit on either side → neutral
+    hi, lo = max(vol_a, vol_b), min(vol_a, vol_b)
+    if lo == 2:  # both relaxed/oversized
+        return (0.6, "both pieces oversized — shapeless silhouette")
+    if hi == 0:  # both slim
+        return (0.95, None)
+    return (1.0, None)  # any contrast (incl. relaxed + slim) is balanced
+
+
+def silhouette_harmony(item_a: dict[str, Any], item_b: dict[str, Any]) -> tuple[float, str | None]:
+    """Score the fit proportion of two items, 0–1, with a reason for a clash.
+
+    Only meaningful for a top + bottom pairing — proportion balance has no bearing
+    on, say, a top and its shoes — so every other role combination is neutral (1.0).
+    """
+    fa, fb = prepare(item_a), prepare(item_b)
+    if {fa.role, fb.role} != {"top", "bottom"}:
+        return (1.0, None)
+    return _silhouette_harmony(fa.fit_volume, fb.fit_volume)
+
+
 # ── Fused compatibility ───────────────────────────────────────────────────────
 
 _WEIGHTS = {
@@ -481,6 +562,12 @@ assert abs(sum(_WEIGHTS.values()) - 1.0) < 1e-9
 # the fused score down on a clash and leaves everything else untouched. This
 # fraction caps how much a total pattern clash can cut the score.
 _PATTERN_PENALTY_WEIGHT = 0.30
+
+# Silhouette/fit is also a penalty, not a reward dimension (same rationale as
+# pattern): a balanced proportion isn't *better*, but a volume-on-volume top+bottom
+# is a real demerit. Soft by design — it nudges, never excludes — so a bad-fit pair
+# can still surface when color/formality are strong. Caps the worst-case cut.
+_SILHOUETTE_PENALTY_WEIGHT = 0.30
 
 # A pairing at/above this fused score is considered a genuine "this goes".
 PAIR_THRESHOLD = 0.62
@@ -504,6 +591,7 @@ class ItemFeatures:
     pattern: str
     seasons: frozenset[str]
     occasions: frozenset[str]
+    fit_volume: int | None
 
 
 def prepare(item: dict[str, Any]) -> ItemFeatures:
@@ -517,6 +605,7 @@ def prepare(item: dict[str, Any]) -> ItemFeatures:
         pattern=pattern_class(_resolve(item, "pattern")),
         seasons=frozenset(_as_list(_resolve(item, "season_tags", "season"))),
         occasions=frozenset(_as_list(_resolve(item, "occasion_tags", "occasion"))),
+        fit_volume=fit_volume(_resolve(item, "fit")),
     )
 
 
@@ -529,6 +618,11 @@ def score_prepared(fa: ItemFeatures, fb: ItemFeatures) -> dict[str, Any]:
     patt_s, patt_r = _pattern_harmony(fa.pattern, fb.pattern)
     seas_s, seas_r = _season_overlap(fa.seasons, fb.seasons)
     occ_s, occ_r = _occasion_overlap(fa.occasions, fb.occasions)
+    # Proportion only applies to a top + bottom pairing; neutral elsewhere.
+    if {fa.role, fb.role} == {"top", "bottom"}:
+        sil_s, sil_r = _silhouette_harmony(fa.fit_volume, fb.fit_volume)
+    else:
+        sil_s, sil_r = 1.0, None
 
     base_score = (
         _WEIGHTS["color"] * color_s
@@ -536,12 +630,13 @@ def score_prepared(fa: ItemFeatures, fb: ItemFeatures) -> dict[str, Any]:
         + _WEIGHTS["season"] * seas_s
         + _WEIGHTS["occasion"] * occ_s
     )
-    # Apply pattern as a multiplicative penalty: a clash drags the whole pairing
-    # down, a clean/solid combination passes through unchanged.
+    # Apply pattern and silhouette as multiplicative penalties: a clash drags the
+    # whole pairing down, a clean combination passes through unchanged.
     pattern_penalty = 1.0 - _PATTERN_PENALTY_WEIGHT * (1.0 - patt_s)
-    score = base_score * pattern_penalty
+    silhouette_penalty = 1.0 - _SILHOUETTE_PENALTY_WEIGHT * (1.0 - sil_s)
+    score = base_score * pattern_penalty * silhouette_penalty
 
-    reasons = [r for r in (color_r, form_r, patt_r, seas_r, occ_r) if r]
+    reasons = [r for r in (color_r, form_r, patt_r, seas_r, occ_r, sil_r) if r]
 
     return {
         "role_compatible": role_ok,
@@ -553,6 +648,7 @@ def score_prepared(fa: ItemFeatures, fb: ItemFeatures) -> dict[str, Any]:
             "pattern": round(patt_s, 3),
             "season": round(seas_s, 3),
             "occasion": round(occ_s, 3),
+            "silhouette": round(sil_s, 3),
         },
         "reasons": reasons,
         "roles": [fa.role, fb.role],

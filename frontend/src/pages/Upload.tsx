@@ -170,6 +170,14 @@ const CATEGORY_OPTIONS = [
   { value: 'other', label: 'Other' },
 ]
 
+// Garment fit — drives outfit proportion matching (outfit_compatibility.fit_volume).
+// '' = unspecified; values map onto the engine's slim/regular/relaxed volume scale.
+const FIT_OPTIONS = ['slim', 'tailored', 'regular', 'relaxed', 'oversized'] as const
+const FIT_OPTIONS_SELECT = [
+  { value: '', label: 'Unspecified' },
+  ...FIT_OPTIONS.map(f => ({ value: f, label: f.charAt(0).toUpperCase() + f.slice(1) })),
+]
+
 // Below this AI detection confidence we visually flag the item for manual review.
 // Mirrors the backend's bulk-vision low-confidence threshold (vision_service.py).
 const LOW_CONFIDENCE_THRESHOLD = 0.5
@@ -200,6 +208,7 @@ function draftsFromPreviewItems(items: ClosetPreviewItem[] | null | undefined): 
       subcategory: it.subcategory ?? '',
       brand: it.brand ?? '',
       size: '',
+      fit: it.fit ?? '',
       priceStr: '',
       preview_image_url: it.preview_image_url,
       confidence: it.confidence,
@@ -227,6 +236,7 @@ type ItemDraft = {
   notes: string
   brand: string
   size: string
+  fit: string
   priceStr: string
   preview_image_url: string
   confidence: number
@@ -533,6 +543,7 @@ export default function Upload() {
         notes: d.notes.trim() || undefined,
         brand: d.brand.trim() || undefined,
         size: d.size.trim() || undefined,
+        fit: d.fit || undefined,
         price: priceNum(d.priceStr),
       })),
     })
@@ -1095,7 +1106,7 @@ export default function Upload() {
 
                       {/* Secondary fields — progressive disclosure keeps the card light */}
                       {(() => {
-                        const moreKeys = ['material', 'pattern', 'brand', 'size', 'priceStr'] as const
+                        const moreKeys = ['material', 'pattern', 'brand', 'size', 'fit', 'priceStr'] as const
                         const filledCount = moreKeys.filter(k => (d[k] as string).trim()).length
                         return (
                           <div>
@@ -1146,6 +1157,14 @@ export default function Upload() {
                                     onChange={e => updateDraft(currentWizardItem.sessionId, d.slot_index, { size: e.target.value })}
                                   />
                                 </div>
+                                <Select
+                                  label="Fit"
+                                  id={`f-${d.detected_item_id}-fit`}
+                                  className="capitalize"
+                                  value={d.fit}
+                                  onChange={e => updateDraft(currentWizardItem.sessionId, d.slot_index, { fit: e.target.value })}
+                                  options={FIT_OPTIONS_SELECT}
+                                />
                                 <div className="w-full">
                                   <label htmlFor={`f-${d.detected_item_id}-price`} className="label">Price</label>
                                   <Input
