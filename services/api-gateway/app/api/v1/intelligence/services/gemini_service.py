@@ -78,6 +78,7 @@ def _is_quota_error(exc: Exception) -> bool:
     # that happen to contain those digits.
     return "RESOURCE_EXHAUSTED" in str(exc).upper()
 
+
 # ── Lazy client singleton (google-genai SDK) ──────────────────────────────────
 
 _client: Any = None

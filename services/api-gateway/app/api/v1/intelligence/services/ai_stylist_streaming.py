@@ -29,7 +29,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.identity.services.style_profile_context import load_merged_user_profile_for_ai
 from app.api.v1.intelligence.services import ai_service, model_router, trend_grounding
-from app.api.v1.intelligence.services.model_router import RouteSignals
 from app.api.v1.intelligence.services.ai_stylist_chat_service import (
     _CHAT_MAX_TOKENS,
     _SYSTEM_PROMPT_TEMPLATE,
@@ -48,6 +47,7 @@ from app.api.v1.intelligence.services.ai_stylist_chat_service import (
 )
 from app.api.v1.intelligence.services.fashion_rag_service import get_fashion_context_for_prompt
 from app.api.v1.intelligence.services.fashion_rules import build_fashion_rules_prompt_block
+from app.api.v1.intelligence.services.model_router import RouteSignals
 from app.api.v1.wardrobe.services.outfit_history_service import get_outfit_history_for_prompt
 from app.core.ai_output_validator import score_response_quality, validate_chat_response
 from app.core.embedding_service import generate_text_embedding

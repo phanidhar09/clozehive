@@ -23,7 +23,7 @@ Design notes:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
@@ -32,7 +32,7 @@ settings = get_settings()
 logger = get_logger("model_router")
 
 
-class Tier(str, Enum):
+class Tier(StrEnum):
     """Capability/cost tiers the router can select."""
 
     SMALL = "small"  # cheap/fast: chit-chat, factual Q&A, single simple outfit
