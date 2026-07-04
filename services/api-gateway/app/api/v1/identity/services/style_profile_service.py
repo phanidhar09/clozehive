@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from uuid import UUID, uuid4
 
@@ -17,6 +16,7 @@ from app.api.v1.identity.schemas.style_profile import (
     StyleProfileResponse,
     StyleProfileUpdate,
 )
+from app.core.background import spawn
 from app.core.config import get_settings
 from app.core.exceptions import ConflictError
 from app.core.logging import get_logger
@@ -246,7 +246,10 @@ async def _background_generate_style_summary(user_id: UUID, profile_data: dict) 
 def _schedule_style_summary(row: UserStyleProfile) -> None:
     """Fire-and-forget: schedule summary generation without blocking the caller."""
     profile_data = _extract_profile_data(row)
-    asyncio.create_task(_background_generate_style_summary(row.user_id, profile_data))
+    spawn(
+        _background_generate_style_summary(row.user_id, profile_data),
+        name="style_summary",
+    )
 
 
 async def get_onboarding_status(session: AsyncSession, user_id: UUID) -> OnboardingStatusResponse:

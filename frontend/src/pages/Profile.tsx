@@ -15,6 +15,9 @@ import type {
 } from '@/types'
 import UserCard from '@/components/ui/UserCard'
 import GlassCard from '@/components/ui/GlassCard'
+import Container from '@/components/ui/Container'
+import LazyImage from '@/components/ui/LazyImage'
+import Tabs from '@/components/ui/Tabs'
 import { FaniLoader } from '@/components/system/FaniLoader'
 import AvatarEditor, { withAvatarDefaults } from '@/components/profile/AvatarEditor'
 import { analyzeCloset } from '@/lib/closetInsights'
@@ -99,7 +102,7 @@ export default function Profile() {
   }
 
   return (
-    <div className="max-w-5xl space-y-6">
+    <Container size="lg" className="space-y-6">
       <BackButton fallback="/dashboard" label="Back to Dashboard" />
 
       {searchParams.get('onboarding') === '1' && (
@@ -134,7 +137,7 @@ export default function Profile() {
                             flex items-center justify-center text-2xl font-bold text-white
                             shadow-glow-md overflow-hidden">
               {currentUser.avatar_url
-                ? <img src={currentUser.avatar_url} alt="" className="w-full h-full rounded-full object-cover" />
+                ? <LazyImage src={currentUser.avatar_url} alt="Your profile photo" aspect="aspect-square" rounded="rounded-full" wrapperClassName="w-full h-full" eager />
                 : initials}
             </div>
             <button
@@ -179,24 +182,21 @@ export default function Profile() {
       </GlassCard>
 
       {/* ── Tabs ─────────────────────────────────────────────── */}
-      <div className="flex gap-1 bg-cream-100 dark:bg-white/[0.04] p-1 rounded-xl overflow-x-auto">
-        {TABS.map(t => (
-          <button
-            key={t.id}
-            onClick={() => setActiveTab(t.id)}
-            className={cn(
-              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap flex-shrink-0',
-              activeTab === t.id
-                ? 'bg-white dark:bg-white/[0.10] text-slate-800 dark:text-white shadow-sm'
-                : 'text-slate-500 dark:text-white/50 hover:text-slate-700 dark:hover:text-white/80',
-            )}
-          >
-            {t.icon}{t.label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        label="Profile sections"
+        idPrefix="profile"
+        value={activeTab}
+        onChange={(v) => setActiveTab(v as Tab)}
+        items={TABS.map(t => ({ value: t.id, label: t.label, icon: t.icon }))}
+      />
 
       {/* ── Tab content ──────────────────────────────────────── */}
+      <div
+        role="tabpanel"
+        id={`profile-panel-${activeTab}`}
+        aria-labelledby={`profile-tab-${activeTab}`}
+        className="space-y-6"
+      >
 
       {activeTab === 'overview' && (
         <OverviewTab profile={profile} closetItems={closetItems} insight={insight} onJump={setActiveTab} currentUser={currentUser} />
@@ -275,7 +275,8 @@ export default function Profile() {
           }}
         />
       )}
-    </div>
+      </div>
+    </Container>
   )
 }
 
@@ -358,10 +359,15 @@ function OverviewTab({
         ) : (
           <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2">
             {closetItems.slice(0, 6).map(item => (
-              <button key={item.id} onClick={() => navigate('/closet')} className="aspect-square rounded-xl overflow-hidden bg-cream-100 dark:bg-white/[0.04] border border-cream-200 dark:border-white/[0.06]">
-                {item.image_url
-                  ? <img src={item.image_url} alt={item.name} className="w-full h-full object-cover hover:scale-105 transition-transform" />
-                  : <div className="w-full h-full flex items-center justify-center text-2xl">👕</div>}
+              <button key={item.id} onClick={() => navigate('/closet')} aria-label={`View ${item.name} in closet`} className="aspect-square rounded-xl overflow-hidden bg-cream-100 dark:bg-white/[0.04] border border-cream-200 dark:border-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50">
+                <LazyImage
+                  src={item.image_url}
+                  alt={item.name}
+                  aspect="aspect-square"
+                  rounded="rounded-none"
+                  className="hover:scale-105"
+                  fallback={<span className="text-2xl">👕</span>}
+                />
               </button>
             ))}
           </div>
@@ -1118,7 +1124,7 @@ function SettingsTab({
                               flex items-center justify-center text-xl font-bold text-white
                               flex-shrink-0 ring-4 ring-white dark:ring-slate-900 shadow-lg overflow-hidden">
                 {avatarUrl
-                  ? <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
+                  ? <LazyImage src={avatarUrl} alt="Your profile photo" aspect="aspect-square" rounded="rounded-2xl" wrapperClassName="w-full h-full" eager />
                   : initials}
               </div>
               <div>
@@ -1648,8 +1654,10 @@ function PremiumToggle({
         disabled={loading}
         role="switch"
         aria-checked={checked}
+        aria-label={title}
         className={cn(
           'relative w-11 h-6 rounded-full flex-shrink-0 transition-colors duration-200 disabled:opacity-50',
+          'focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-cream-100 dark:focus-visible:ring-offset-slate-950',
           checked
             ? 'bg-gradient-to-r from-brand-600 to-brand-700 shadow-glow-sm'
             : 'bg-slate-200 dark:bg-white/[0.10]',

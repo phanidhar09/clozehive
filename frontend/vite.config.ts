@@ -36,6 +36,19 @@ export default defineConfig(async ({ mode }) => {
       // Generate source maps but don't reference them in the bundle; uploaded to
       // Sentry for symbolication, never served to users.
       sourcemap: 'hidden',
+      rollupOptions: {
+        output: {
+          // Split large, stable vendor libs into their own long-cacheable chunks
+          // so an app-code change doesn't bust the whole vendor bundle, and so
+          // heavy libs load in parallel / only where used.
+          manualChunks: {
+            'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+            'motion-vendor': ['framer-motion'],
+            'charts-vendor': ['recharts'],
+            'dnd-vendor': ['@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities'],
+          },
+        },
+      },
     },
     plugins: [
       react(),

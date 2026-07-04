@@ -27,7 +27,18 @@
     <title>ClozéHive — AI Wardrobe & Personal Stylist</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Sora:wght@400;600;700&display=swap" rel="stylesheet" />
+    <!-- Load fonts without blocking first paint: preload the stylesheet, then
+         promote it to a real stylesheet once fetched. `display=swap` keeps text
+         visible with a fallback font while webfonts download. -->
+    <link
+      rel="preload"
+      as="style"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Sora:wght@400;600;700&display=swap"
+      onload="this.onload=null;this.rel='stylesheet'"
+    />
+    <noscript>
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Sora:wght@400;600;700&display=swap" rel="stylesheet" />
+    </noscript>
   </head>
   <body class="bg-cream-100 dark:bg-slate-950 text-slate-800 dark:text-slate-100 antialiased">
     <div id="root"></div>

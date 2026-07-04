@@ -38,8 +38,8 @@ SOURCE_FASHION_KNOWLEDGE  → fashion_knowledge_documents table
 from __future__ import annotations
 
 import asyncio
-import pickle
-from dataclasses import dataclass, field
+import json
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
@@ -189,15 +189,19 @@ class FAISSVectorStore:
         if not self._index_dir:
             return False
         idx_path = self._index_dir / f"{source_type}.index"
-        meta_path = self._index_dir / f"{source_type}.pkl"
+        meta_path = self._index_dir / f"{source_type}.json"
         if not idx_path.exists() or not meta_path.exists():
             return False
         try:
             import faiss  # noqa: PLC0415
 
             self._indexes[source_type] = faiss.read_index(str(idx_path))
-            with meta_path.open("rb") as fh:
-                self._meta[source_type] = pickle.load(fh)  # noqa: S301
+            # Meta is stored as JSON (not pickle) so loading an index can never
+            # execute arbitrary code — important if the index dir is ever
+            # hydrated from shared/object storage rather than written locally.
+            with meta_path.open("r", encoding="utf-8") as fh:
+                raw_meta = json.load(fh)
+            self._meta[source_type] = [EmbeddingMeta(**m) for m in raw_meta]
             self._id_map[source_type] = {m.record_id: i for i, m in enumerate(self._meta[source_type])}
             logger.info(
                 "faiss_index_loaded",
@@ -215,14 +219,14 @@ class FAISSVectorStore:
             return
         self._index_dir.mkdir(parents=True, exist_ok=True)
         idx_path = self._index_dir / f"{source_type}.index"
-        meta_path = self._index_dir / f"{source_type}.pkl"
+        meta_path = self._index_dir / f"{source_type}.json"
         try:
             import faiss  # noqa: PLC0415
 
             faiss.write_index(self._indexes[source_type], str(idx_path))
-            tmp = meta_path.with_suffix(".tmp.pkl")
-            with tmp.open("wb") as fh:
-                pickle.dump(self._meta[source_type], fh)
+            tmp = meta_path.with_suffix(".tmp.json")
+            with tmp.open("w", encoding="utf-8") as fh:
+                json.dump([asdict(m) for m in self._meta[source_type]], fh)
             tmp.replace(meta_path)
         except Exception as exc:
             logger.warning("faiss_persist_failed", source_type=source_type, error=str(exc))

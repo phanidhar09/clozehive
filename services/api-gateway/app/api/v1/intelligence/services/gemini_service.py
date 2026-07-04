@@ -56,10 +56,27 @@ from app.core.logging import get_logger
 settings = get_settings()
 logger = get_logger("gemini_service")
 
-# Transient-error retry: Gemini occasionally returns 429/503 or an empty body
-# under load. One quick retry recovers most of these before we fall back to OpenAI.
+# Transient-error retry: Gemini occasionally returns 503 or an empty body under
+# load. One quick retry recovers most of these before we fall back to OpenAI.
 _MAX_ATTEMPTS = 2
 _RETRY_BACKOFF_S = 0.6
+
+
+def _is_quota_error(exc: Exception) -> bool:
+    """True for 429 / RESOURCE_EXHAUSTED quota errors.
+
+    These are not transient: the free-tier per-minute/day quota won't reset
+    inside our sub-second backoff (the API's own ``retryDelay`` is ~17s), so a
+    local retry just burns latency on every upload before we fall back to
+    OpenAI. Detect them so we can fail fast to the fallback instead.
+    """
+    code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+    if code == 429:
+        return True
+    # Fall back to the structured status name only — matching a bare "429"
+    # substring risks false-positives on trace ids, byte counts, or timestamps
+    # that happen to contain those digits.
+    return "RESOURCE_EXHAUSTED" in str(exc).upper()
 
 # ── Lazy client singleton (google-genai SDK) ──────────────────────────────────
 
@@ -154,8 +171,14 @@ async def detect_and_classify(image_bytes: bytes, media_type: str) -> dict[str, 
         except (ValueError, json.JSONDecodeError):
             # Bad/empty model output — re-prompting rarely helps; fail fast to fallback.
             raise
-        except Exception as exc:  # transient API errors (429/503/timeouts)
+        except Exception as exc:  # transient API errors (503/timeouts) + quota 429s
             last_exc = exc
+            # Quota exhaustion won't clear inside our sub-second backoff — don't
+            # waste a retry, fail straight to the OpenAI fallback. Logged at
+            # warning (not error) because the caller recovers gracefully.
+            if _is_quota_error(exc):
+                logger.warning("gemini_quota_exhausted", model=settings.gemini_model, error=str(exc))
+                raise
             if attempt < _MAX_ATTEMPTS:
                 logger.warning("gemini_api_retry", attempt=attempt, error=str(exc))
                 await asyncio.sleep(_RETRY_BACKOFF_S * attempt)

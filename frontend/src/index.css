@@ -139,6 +139,17 @@
            transition-all duration-200;
   }
 
+  /* Consistent keyboard focus ring for all button variants */
+  .btn-primary,
+  .btn-secondary,
+  .btn-ghost,
+  .btn-danger {
+    @apply focus:outline-none
+           focus-visible:ring-2 focus-visible:ring-brand-500/60
+           focus-visible:ring-offset-2
+           focus-visible:ring-offset-cream-100 dark:focus-visible:ring-offset-slate-950;
+  }
+
   /* ── INPUTS ────────────────────────────────────────────────────────────── */
 
   .input {
@@ -226,6 +237,28 @@
   .border-glow {
     box-shadow: 0 0 0 1px rgba(13,148,136,0.40),
                 0 0 12px rgba(13,148,136,0.20);
+  }
+
+  /* Hide scrollbars while keeping scroll — used by horizontal chip/thumbnail rows */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Screen-reader-only content (visually hidden, still announced) */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
   }
 }
 

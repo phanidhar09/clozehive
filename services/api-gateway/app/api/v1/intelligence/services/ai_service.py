@@ -62,6 +62,7 @@ async def stream_chat(
     use_json_mode: bool = False,
     max_tokens: int | None = None,
     temperature: float = 0.7,
+    model: str | None = None,
 ) -> AsyncIterator[str]:
     """Yield OpenAI response text chunks for SSE streaming.
 
@@ -70,13 +71,15 @@ async def stream_chat(
             prompt MUST contain the word "json" for this to work (OpenAI requirement).
         max_tokens: Override the default token budget from settings.
         temperature: Sampling temperature (0=deterministic, 1=creative).
+        model: Override the model. Defaults to ``settings.openai_model``; the
+            model router (``model_router.py``) supplies this per turn.
     """
     if not settings.openai_api_key:
         yield "OpenAI API key is not configured. Please set OPENAI_API_KEY."
         return
 
     request_params: dict[str, Any] = {
-        "model": settings.openai_model,
+        "model": model or settings.openai_model,
         "max_tokens": max_tokens or settings.openai_max_tokens,
         "temperature": temperature,
         "messages": _chat_messages(system_prompt, messages),
@@ -126,6 +129,7 @@ async def chat(
     use_json_mode: bool = False,
     max_tokens: int | None = None,
     temperature: float = 0.7,
+    model: str | None = None,
 ) -> str:
     """Return a complete model response, collecting all streaming chunks.
 
@@ -134,6 +138,7 @@ async def chat(
             The system prompt must contain the word "json".
         max_tokens: Override the default token budget.
         temperature: Sampling temperature.
+        model: Override the model (supplied per turn by the model router).
     """
     parts: list[str] = []
     async for chunk in stream_chat(
@@ -142,6 +147,7 @@ async def chat(
         use_json_mode=use_json_mode,
         max_tokens=max_tokens,
         temperature=temperature,
+        model=model,
     ):
         parts.append(chunk)
     return "".join(parts)

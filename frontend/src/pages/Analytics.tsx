@@ -222,7 +222,7 @@ export default function Analytics() {
   const thumb = (id: string, name: string) => {
     const src = imageById.get(id)
     return src
-      ? <img src={src} alt={name} className="w-10 h-10 rounded-lg object-cover shrink-0 ring-1 ring-black/5 dark:ring-white/10" />
+      ? <img src={src} alt={name} loading="lazy" decoding="async" className="w-10 h-10 rounded-lg object-cover shrink-0 ring-1 ring-black/5 dark:ring-white/10" />
       : (
         <div className="w-10 h-10 rounded-lg bg-slate-100 dark:bg-white/10 flex items-center justify-center shrink-0">
           <Shirt size={16} className="text-slate-300 dark:text-white/30" />

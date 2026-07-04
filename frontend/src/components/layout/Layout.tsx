@@ -49,10 +49,13 @@ export default function Layout() {
 
       {/* ── Layer 2 & 3: Shell ─────────────────────────────────────────────── */}
       <Sidebar />
-      <div className="flex flex-col flex-1 min-w-0 lg:ml-[260px]">
+      <div className="flex flex-col flex-1 min-w-0 md:ml-20 lg:ml-[260px]">
         <Navbar />
-        <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-24 lg:p-6 animate-fade-in">
-          <Outlet />
+        <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 pb-24 md:p-6 md:pb-6 animate-fade-in">
+          {/* Global content bound — keeps pages centered and readable on ultra-wide displays */}
+          <div className="mx-auto w-full max-w-[1600px]">
+            <Outlet />
+          </div>
         </main>
       </div>
 

@@ -207,7 +207,8 @@ export default function Navbar() {
       <div className="flex items-center gap-3">
         <button
           onClick={() => setSidebarOpen(true)}
-          className="lg:hidden p-2 min-h-[44px] min-w-[44px] rounded-xl
+          aria-label="Open menu"
+          className="md:hidden p-2 min-h-[44px] min-w-[44px] rounded-xl
                      text-slate-500 dark:text-white/50
                      hover:text-slate-800 dark:hover:text-white
                      hover:bg-slate-100 dark:hover:bg-white/[0.08]

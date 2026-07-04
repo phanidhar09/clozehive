@@ -28,7 +28,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.identity.services.style_profile_context import load_merged_user_profile_for_ai
-from app.api.v1.intelligence.services import ai_service, trend_grounding
+from app.api.v1.intelligence.services import ai_service, model_router, trend_grounding
+from app.api.v1.intelligence.services.model_router import RouteSignals
 from app.api.v1.intelligence.services.ai_stylist_chat_service import (
     _CHAT_MAX_TOKENS,
     _SYSTEM_PROMPT_TEMPLATE,
@@ -401,6 +402,19 @@ async def stream_chat_message(
     else:
         messages.append({"role": "user", "content": augmented})
 
+    # ── Routing decision (before generation) ─────────────────────────────────
+    decision = await model_router.route_async(
+        RouteSignals(
+            message=message,
+            has_images=bool(user_images),
+            closet_item_count=len(closet_items),
+            expects_outfits=bool(occasion) or model_router.looks_like_outfit_request(message),
+            weather_required=bool(weather),
+            history_depth=len(recent_history),
+            constraint_count=sum(bool(x) for x in (occasion, weather, mood, user_profile)),
+        )
+    )
+
     # ── Stream ──────────────────────────────────────────────────────────────
     extractor = _ReplyExtractor()
     try:
@@ -408,8 +422,9 @@ async def stream_chat_message(
             messages,
             system_prompt,
             use_json_mode=True,
-            max_tokens=_CHAT_MAX_TOKENS,
-            temperature=0.5,
+            model=decision.model,
+            max_tokens=min(_CHAT_MAX_TOKENS, decision.max_tokens),
+            temperature=decision.temperature,
         ):
             decoded = extractor.feed(chunk)
             if decoded:

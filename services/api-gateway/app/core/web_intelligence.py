@@ -26,6 +26,7 @@ import httpx
 
 from app.core import cache_service
 from app.core.config import get_settings
+from app.core.llm_safety import sanitize_user_text
 from app.core.logging import get_logger
 
 logger = get_logger("web_intelligence")
@@ -33,6 +34,13 @@ logger = get_logger("web_intelligence")
 _TAVILY_SEARCH_URL = "https://api.tavily.com/search"
 _REQUEST_TIMEOUT_S = 12
 _MAX_SOURCES = 3
+# Third-party web content is UNTRUSTED — an attacker can plant prompt-injection
+# payloads on any page the search engine might retrieve. Every answer/title is
+# run through the same sanitiser as user input BEFORE it is cached or injected
+# into a prompt, so the boundary is enforced once, at the single chokepoint,
+# for every consumer (trends, festivals, dress guidelines, venue rules).
+_ANSWER_MAX_LEN = 2000
+_TITLE_MAX_LEN = 120
 # Negative-cache window after a failed fetch — protects request latency during
 # a Tavily outage without hiding it for long.
 _FAILURE_TTL_S = 15 * 60
@@ -71,13 +79,17 @@ async def _tavily_search(query: str, *, max_results: int) -> dict[str, Any] | No
         logger.warning("tavily_search_failed", error=str(exc), query=query[:80])
         return None
 
-    answer = (data.get("answer") or "").strip()
+    # Sanitise the model-facing answer at the source: strip injection openers,
+    # role-prefix overrides, HTML/code fences, and bidi/control chars planted in
+    # the retrieved web content. This is the security boundary for indirect
+    # prompt injection — every caller receives already-defanged text.
+    answer = sanitize_user_text(data.get("answer"), field="description", max_len=_ANSWER_MAX_LEN)
     if not answer:
         logger.info("tavily_empty_answer", query=query[:80])
         return None
 
     sources = [
-        {"title": (r.get("title") or "")[:120], "url": r.get("url") or ""}
+        {"title": sanitize_user_text(r.get("title"), field="name", max_len=_TITLE_MAX_LEN), "url": r.get("url") or ""}
         for r in (data.get("results") or [])[:_MAX_SOURCES]
         if r.get("url")
     ]

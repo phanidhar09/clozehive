@@ -1,8 +1,14 @@
 import clsx, { type ClassValue } from 'clsx'
+import { twMerge } from 'tailwind-merge'
 
-/** Merge class names (clsx). */
+/**
+ * Merge class names with clsx, then de-duplicate conflicting Tailwind
+ * utilities with tailwind-merge so later classes reliably win. This lets
+ * consumers override primitive styles via `className` without specificity
+ * surprises (e.g. passing `p-6` over a component's default `p-4`).
+ */
 export function cn(...inputs: ClassValue[]): string {
-  return clsx(inputs)
+  return twMerge(clsx(inputs))
 }
 
 /** Tailwind-friendly background for eco score pills. */

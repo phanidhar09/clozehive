@@ -77,18 +77,26 @@ class ConnectionManager:
         await self.publish_all(data)
 
     async def publish_user(self, user_id: str, data: dict[str, Any]) -> None:
-        client = await cache_service.get_redis()
-        await client.publish(
-            cache_service.websocket_user_channel(user_id),
-            json.dumps({"user_id": user_id, "data": data}, default=str),
-        )
+        # Best-effort delivery: a Redis outage must not take down the caller
+        # (these run fire-and-forget), so swallow-and-log rather than propagate.
+        try:
+            client = await cache_service.get_redis()
+            await client.publish(
+                cache_service.websocket_user_channel(user_id),
+                json.dumps({"user_id": user_id, "data": data}, default=str),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("ws_publish_user_failed", user_id=user_id, error=str(exc))
 
     async def publish_all(self, data: dict[str, Any]) -> None:
-        client = await cache_service.get_redis()
-        await client.publish(
-            cache_service.websocket_broadcast_channel(),
-            json.dumps({"data": data}, default=str),
-        )
+        try:
+            client = await cache_service.get_redis()
+            await client.publish(
+                cache_service.websocket_broadcast_channel(),
+                json.dumps({"data": data}, default=str),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("ws_publish_all_failed", error=str(exc))
 
     async def _deliver_to_user(self, user_id: str, data: dict[str, Any]) -> None:
         for ws in list(self._connections.get(user_id, [])):

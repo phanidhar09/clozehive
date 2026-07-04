@@ -133,7 +133,7 @@ function DayCard({
               title={`${item.name}${item.color ? ` · ${item.color}` : ''}`}
             >
               {item.image_url ? (
-                <img src={item.image_url} alt={item.name} className="h-full w-full object-cover" />
+                <img src={item.image_url} alt={item.name} loading="lazy" decoding="async" className="h-full w-full object-cover" />
               ) : (
                 <div className="h-full w-full flex items-center justify-center text-slate-300 dark:text-white/20">
                   <Shirt size={20} />

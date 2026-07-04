@@ -46,6 +46,15 @@ STYLING PRINCIPLES (apply when scoring color, style, and fit):
   quiet texture (fine stripe, ribbed, herringbone) is fine.
 - Color: reward genuine contrast and palette cohesion; flag two dark tones that lack contrast
   (e.g. black + navy) and true clashes (adjacent saturated hues like red + orange).
+- Silhouette / proportion (score under "fit", using each item's fit field): balance volume with fit —
+  a relaxed/oversized piece pairs well with a slim/fitted one (e.g. oversized top + slim jeans). Penalise
+  volume-on-volume (a relaxed/oversized top with a baggy/wide bottom) as it reads shapeless. When an item's
+  fit is unknown, infer proportion from its name/category rather than assuming.
+- Women / feminine silhouettes: prioritise WAIST DEFINITION (a tuck, belt, high-rise bottom, or fit-and-flare
+  cut). Canonical balanced pairings: a fitted/tucked top with an A-line, full, pleated, or wide/flowy skirt;
+  a fitted bodice with a flared bottom; high-rise bottoms to elongate. Volume-on-volume is acceptable for women
+  when a belt/tuck marks the waist (don't penalise a belted oversized knit over a full skirt). Dresses: bodycon
+  dress + structured/cropped layer; flowy dress + fitted layer or a defined waist.
 - Anchor each outfit on at most one statement piece; the rest should be supporting/neutral.
 
 STRICT RULES:
@@ -306,6 +315,7 @@ def _item_for_ai(item: dict[str, Any]) -> dict[str, Any]:
         "season": item.get("season", "") or "",
         "occasion": item.get("occasion", []) or [],
         "size": item.get("size", "") or "",
+        "fit": item.get("fit", "") or "",
         "brand": item.get("brand", "") or "",
         "tags": item.get("tags", []) or [],
         "wear_count": item.get("wear_count", 0),

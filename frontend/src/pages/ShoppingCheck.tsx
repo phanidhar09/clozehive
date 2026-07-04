@@ -8,12 +8,17 @@ import {
 import BackButton from '@/components/ui/BackButton'
 import GlassCard from '@/components/ui/GlassCard'
 import PageHeader from '@/components/ui/PageHeader'
+import Container from '@/components/ui/Container'
+import LazyImage from '@/components/ui/LazyImage'
 import { FaniLoader } from '@/components/system/FaniLoader'
 import Badge from '@/components/ui/Badge'
+import { useCachedQuery, invalidateQuery } from '@/hooks/useCachedQuery'
 import { shoppingCheckApi, type ShoppingCheckResult, type ShoppingHistoryEntry,
   type BuiltOutfit, type GapSuggestion } from '@/lib/api'
 import { resolveUploadUrl } from '@/lib/api'
 import { cn } from '@/lib/utils'
+
+const HISTORY_KEY = 'shopping:history'
 
 // ── Rating colours ────────────────────────────────────────────────────────────
 
@@ -308,21 +313,26 @@ function OutfitCardMini({ outfit, anchorImg }: { outfit: BuiltOutfit; anchorImg:
       <div className="flex gap-2 overflow-x-auto pb-1">
         {/* Anchor (the new item) leads the look */}
         <div className="flex-shrink-0 w-16 text-center space-y-1">
-          <div className="w-16 h-16 rounded-xl overflow-hidden bg-slate-100 dark:bg-white/[0.06] ring-2 ring-brand-400 flex items-center justify-center">
-            {anchorImg
-              ? <img src={anchorImg} alt="" className="w-full h-full object-cover" />
-              : <ShoppingCart size={18} className="text-brand-400" />}
-          </div>
+          <LazyImage
+            src={anchorImg}
+            alt="New item"
+            aspect="aspect-square"
+            rounded="rounded-xl"
+            wrapperClassName="w-16 ring-2 ring-brand-400"
+            fallback={<ShoppingCart size={18} className="text-brand-400" />}
+          />
           <p className="text-[9px] text-brand-500 font-semibold">NEW</p>
         </div>
         {outfit.items.map(it => (
           <div key={it.id} className="flex-shrink-0 w-16 text-center space-y-1">
-            <div className={cn('w-16 h-16 rounded-xl overflow-hidden bg-slate-100 dark:bg-white/[0.06] flex items-center justify-center',
-              forgotten.has(it.id) && 'ring-2 ring-amber-300')}>
-              {it.image_url
-                ? <img src={resolveUploadUrl(it.image_url)} alt={it.name} className="w-full h-full object-cover" />
-                : <Package size={18} className="text-slate-300 dark:text-white/20" />}
-            </div>
+            <LazyImage
+              src={it.image_url ? resolveUploadUrl(it.image_url) : null}
+              alt={it.name}
+              aspect="aspect-square"
+              rounded="rounded-xl"
+              wrapperClassName={cn('w-16', forgotten.has(it.id) && 'ring-2 ring-amber-300')}
+              fallback={<Package size={18} className="text-slate-300 dark:text-white/20" />}
+            />
             <p className="text-[9px] text-slate-500 dark:text-white/50 truncate leading-tight">{it.name}</p>
           </div>
         ))}
@@ -461,14 +471,17 @@ function ResultCard({
   return (
     <div className="space-y-5">
       {/* Header strip */}
-      <GlassCard className="p-5">
-        <div className="flex gap-5 items-start">
+      <GlassCard className="p-4 sm:p-5">
+        <div className="flex gap-4 sm:gap-5 items-start">
           {/* Item photo */}
-          <div className="w-28 h-28 rounded-2xl overflow-hidden bg-slate-100 dark:bg-white/[0.06] flex-shrink-0 shadow-md flex items-center justify-center">
-            {previewUrl
-              ? <img src={previewUrl} alt="Shopping item" className="w-full h-full object-cover" />
-              : <ShoppingCart size={28} className="text-slate-300 dark:text-white/20" />}
-          </div>
+          <LazyImage
+            src={previewUrl}
+            alt="Item you're checking"
+            aspect="aspect-square"
+            rounded="rounded-2xl"
+            wrapperClassName="w-24 h-24 sm:w-28 sm:h-28 flex-shrink-0 shadow-md"
+            fallback={<ShoppingCart size={28} className="text-slate-300 dark:text-white/20" />}
+          />
 
           {/* Score + recommendation */}
           <div className="flex-1 min-w-0">
@@ -605,11 +618,16 @@ function ResultCard({
           <div className="flex gap-3 overflow-x-auto pb-1">
             {dupes.map(item => (
               <div key={item.id} className="flex-shrink-0 w-20 space-y-1">
-                <div className="w-20 h-20 rounded-xl overflow-hidden bg-slate-100 dark:bg-white/[0.06] relative ring-2 ring-red-400">
-                  {item.image_url
-                    ? <img src={resolveUploadUrl(item.image_url)} alt={item.name} className="w-full h-full object-cover" />
-                    : <div className="w-full h-full flex items-center justify-center"><Package size={22} className="text-slate-300 dark:text-white/20" /></div>}
-                  <div className="absolute inset-0 bg-red-500/20 flex items-center justify-center rounded-xl">
+                <div className="relative">
+                  <LazyImage
+                    src={item.image_url ? resolveUploadUrl(item.image_url) : null}
+                    alt={item.name}
+                    aspect="aspect-square"
+                    rounded="rounded-xl"
+                    wrapperClassName="w-20 ring-2 ring-red-400"
+                    fallback={<Package size={22} className="text-slate-300 dark:text-white/20" />}
+                  />
+                  <div className="absolute inset-0 bg-red-500/20 flex items-center justify-center rounded-xl pointer-events-none">
                     <span className="text-[9px] font-bold text-red-600 dark:text-red-400 bg-white dark:bg-slate-900 px-1 rounded">OWNED</span>
                   </div>
                 </div>
@@ -632,11 +650,14 @@ function ResultCard({
           <div className="flex gap-3 overflow-x-auto pb-1">
             {pairings.map(item => (
               <div key={item.id} className="flex-shrink-0 w-20 space-y-1">
-                <div className="w-20 h-20 rounded-xl overflow-hidden bg-slate-100 dark:bg-white/[0.06]">
-                  {item.image_url
-                    ? <img src={resolveUploadUrl(item.image_url)} alt={item.name} className="w-full h-full object-cover" />
-                    : <div className="w-full h-full flex items-center justify-center"><Package size={22} className="text-slate-300 dark:text-white/20" /></div>}
-                </div>
+                <LazyImage
+                  src={item.image_url ? resolveUploadUrl(item.image_url) : null}
+                  alt={item.name}
+                  aspect="aspect-square"
+                  rounded="rounded-xl"
+                  wrapperClassName="w-20"
+                  fallback={<Package size={22} className="text-slate-300 dark:text-white/20" />}
+                />
                 <p className="text-[10px] text-slate-600 dark:text-white/60 truncate text-center leading-tight">{item.name}</p>
                 <p className="text-[10px] text-emerald-500/80 text-center">
                   {Math.round(item.similarity_score * 100)}% match
@@ -731,9 +752,13 @@ function HistoryCard({
     <GlassCard className="overflow-hidden">
       <div className="p-3 flex items-center gap-3 group">
         {entry.image_url && (
-          <div className="w-14 h-14 rounded-xl overflow-hidden bg-slate-100 dark:bg-white/[0.06] flex-shrink-0">
-            <img src={resolveUploadUrl(entry.image_url)} alt="" className="w-full h-full object-cover" />
-          </div>
+          <LazyImage
+            src={resolveUploadUrl(entry.image_url)}
+            alt={String(analysis.name || analysis.category || 'Checked item')}
+            aspect="aspect-square"
+            rounded="rounded-xl"
+            wrapperClassName="w-14 h-14 flex-shrink-0"
+          />
         )}
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-slate-800 dark:text-white capitalize truncate">
@@ -776,11 +801,14 @@ function HistoryCard({
               onClick={() => setConfirming(c => !c)}
               disabled={deleting}
               title="Delete this check"
+              aria-label={`Delete check for ${String(analysis.name || analysis.category || 'item')}`}
               className={cn(
-                'p-2 rounded-lg transition-all',
+                'p-2 min-h-[40px] min-w-[40px] flex items-center justify-center rounded-lg transition-all',
+                'focus:outline-none focus-visible:ring-2 focus-visible:ring-red-400/60',
+                // Visible on touch; emphasised on hover/focus for pointer users
                 confirming
                   ? 'text-red-500 bg-red-50 dark:bg-red-900/20'
-                  : 'text-slate-400 opacity-0 group-hover:opacity-100 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20',
+                  : 'text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 md:opacity-60 md:group-hover:opacity-100 md:focus-visible:opacity-100',
               )}
             >
               {deleting
@@ -833,14 +861,24 @@ function UploadZone({ onFile }: { onFile: (f: File) => void }) {
 
   return (
     <GlassCard
+      role="button"
+      tabIndex={0}
+      aria-label="Upload or take a photo of an item to check"
       className={cn(
-        'p-10 flex flex-col items-center justify-center gap-4 cursor-pointer',
+        'p-6 sm:p-10 flex flex-col items-center justify-center gap-4 cursor-pointer',
         'border-2 border-dashed transition-colors',
+        'focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/60 focus-visible:ring-offset-2 focus-visible:ring-offset-cream-100 dark:focus-visible:ring-offset-slate-950',
         dragging
           ? 'border-brand-400 bg-brand-50/50 dark:bg-brand-900/10'
           : 'border-slate-300 dark:border-white/20 hover:border-brand-400',
       )}
       onClick={() => inputRef.current?.click()}
+      onKeyDown={e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          inputRef.current?.click()
+        }
+      }}
       onDragOver={e => { e.preventDefault(); setDragging(true) }}
       onDragLeave={() => setDragging(false)}
       onDrop={e => {
@@ -900,8 +938,10 @@ function UrlPasteBar({ onSubmit, disabled }: { onSubmit: (url: string) => void; 
         <Link2 size={15} className="text-brand-500" />
         <h3 className="text-sm font-semibold text-slate-800 dark:text-white">Paste a product link</h3>
       </div>
+      <label htmlFor="shopping-url" className="sr-only">Product link to check</label>
       <div className="flex gap-2">
         <input
+          id="shopping-url"
           type="url"
           inputMode="url"
           value={url}
@@ -938,19 +978,18 @@ export default function ShoppingCheck() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<ShoppingCheckResult | null>(null)
-  const [history, setHistory] = useState<ShoppingHistoryEntry[] | null>(null)
-  const [historyLoading, setHistoryLoading] = useState(false)
 
-  const loadHistory = async () => {
-    setHistoryLoading(true)
-    try {
-      setHistory(await shoppingCheckApi.getHistory(10))
-    } catch {
-      /* silently ignore */
-    } finally {
-      setHistoryLoading(false)
-    }
-  }
+  // Cached, de-duped history — served instantly across visits, refreshed after a check.
+  const {
+    data: history,
+    loading: historyLoading,
+    refetch: refetchHistory,
+    mutate: mutateHistory,
+  } = useCachedQuery<ShoppingHistoryEntry[]>(
+    HISTORY_KEY,
+    () => shoppingCheckApi.getHistory(10),
+    { ttl: 60_000 },
+  )
 
   const handleFile = async (file: File) => {
     setPreview(URL.createObjectURL(file))
@@ -961,7 +1000,7 @@ export default function ShoppingCheck() {
       const res = await shoppingCheckApi.checkItem(file)
       setResult(res)
       // Refresh history after a new check
-      loadHistory()
+      void refetchHistory()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Analysis failed. Please try again.')
     } finally {
@@ -978,7 +1017,7 @@ export default function ShoppingCheck() {
       const res = await shoppingCheckApi.checkUrl(url)
       setPreview(res.image_url ? (resolveUploadUrl(res.image_url) ?? null) : null)
       setResult(res)
-      loadHistory()
+      void refetchHistory()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Couldn’t read that link. Try a direct product page.')
     } finally {
@@ -993,16 +1032,13 @@ export default function ShoppingCheck() {
   }
 
   const handleHistoryDeleted = (checkId: string) => {
-    setHistory(prev => prev?.filter(e => historyCheckId(e) !== checkId) ?? prev)
-  }
-
-  // Load history on first render
-  if (history === null && !historyLoading) {
-    loadHistory()
+    const next = (history ?? []).filter(e => historyCheckId(e) !== checkId)
+    mutateHistory(next)
+    invalidateQuery(HISTORY_KEY)
   }
 
   return (
-    <div className="max-w-2xl space-y-6">
+    <Container size="sm" className="space-y-6">
       <BackButton fallback="/dashboard" label="Back to Dashboard" />
 
       {/* Page header */}
@@ -1028,16 +1064,21 @@ export default function ShoppingCheck() {
 
       {/* How it works strip */}
       {!result && !loading && (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {[
             { icon: Camera, label: 'Snap a photo', desc: 'Point at any item you like' },
             { icon: Star, label: 'Get a rating', desc: '0–10 fit rating with colour' },
             { icon: TrendingUp, label: 'See the impact', desc: 'How it completes your closet' },
           ].map(({ icon: Icon, label, desc }) => (
-            <GlassCard key={label} className="p-3 text-center space-y-1.5">
-              <Icon size={20} className="mx-auto text-brand-500 dark:text-brand-400" />
-              <p className="text-xs font-semibold text-slate-800 dark:text-white">{label}</p>
-              <p className="text-[11px] text-slate-500 dark:text-white/45">{desc}</p>
+            <GlassCard
+              key={label}
+              className="p-3 flex items-center gap-3 text-left sm:flex-col sm:items-center sm:gap-1.5 sm:text-center"
+            >
+              <Icon size={20} className="flex-shrink-0 sm:mx-auto text-brand-500 dark:text-brand-400" />
+              <div className="sm:contents">
+                <p className="text-sm sm:text-xs font-semibold text-slate-800 dark:text-white">{label}</p>
+                <p className="text-xs sm:text-[11px] text-slate-500 dark:text-white/45">{desc}</p>
+              </div>
             </GlassCard>
           ))}
         </div>
@@ -1058,12 +1099,16 @@ export default function ShoppingCheck() {
 
       {/* Loading state */}
       {loading && (
-        <GlassCard className="p-8 flex flex-col items-center gap-5">
-          <div className="w-24 h-24 rounded-2xl overflow-hidden flex items-center justify-center bg-slate-100 dark:bg-white/[0.06]">
-            {preview
-              ? <img src={preview} alt="" className="w-full h-full object-cover" />
-              : <Link2 size={26} className="text-slate-300 dark:text-white/20" />}
-          </div>
+        <GlassCard className="p-6 sm:p-8 flex flex-col items-center gap-5">
+          <LazyImage
+            src={preview}
+            alt="Item being analysed"
+            aspect="aspect-square"
+            rounded="rounded-2xl"
+            wrapperClassName="w-24 h-24"
+            eager
+            fallback={<Link2 size={26} className="text-slate-300 dark:text-white/20" />}
+          />
           <FaniLoader
             size="md"
             messages={[preview ? 'Analysing your item…' : 'Reading the product page…']}
@@ -1113,6 +1158,6 @@ export default function ShoppingCheck() {
           ))}
         </div>
       )}
-    </div>
+    </Container>
   )
 }

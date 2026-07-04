@@ -72,8 +72,17 @@ function ClosetListRow({
 
   return (
     <div
-      className="flex items-center gap-3 px-3 py-2.5 rounded-2xl bg-white dark:bg-white/[0.03] border border-cream-200 dark:border-white/[0.07] hover:border-brand-200 dark:hover:border-brand-500/30 hover:shadow-sm transition-all group cursor-pointer"
+      role="button"
+      tabIndex={0}
+      aria-label={`View details for ${item.name}`}
+      className="flex items-center gap-3 px-3 py-2.5 rounded-2xl bg-white dark:bg-white/[0.03] border border-cream-200 dark:border-white/[0.07] hover:border-brand-200 dark:hover:border-brand-500/30 hover:shadow-sm transition-all group cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50"
       onClick={() => onOpen(item)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onOpen(item)
+        }
+      }}
     >
       {/* Thumbnail */}
       <div className="w-11 h-14 rounded-xl overflow-hidden flex-shrink-0 bg-slate-100 dark:bg-slate-800">
@@ -562,12 +571,22 @@ export default function Closet() {
       await closetApi.delete(item.id)
       removeClosetItem(item.id)
       if (selected?.id === item.id) setSelected(null)
-    } catch {
-      toastStore.add({
-        title: 'Delete failed',
-        body: `Couldn't delete "${item.name}". Please try again.`,
-        variant: 'error',
-      })
+    } catch (err: unknown) {
+      // A 404 means the item is already gone on the server (e.g. a double-click,
+      // a stale list, or a second tab). That's the desired end state of a delete,
+      // so treat it as success and drop it from the list rather than alarming the
+      // user with a "couldn't delete" error.
+      const status = (err as { response?: { status?: number } })?.response?.status
+      if (status === 404) {
+        removeClosetItem(item.id)
+        if (selected?.id === item.id) setSelected(null)
+      } else {
+        toastStore.add({
+          title: 'Delete failed',
+          body: `Couldn't delete "${item.name}". Please try again.`,
+          variant: 'error',
+        })
+      }
     } finally {
       setDeleting(null)
     }
