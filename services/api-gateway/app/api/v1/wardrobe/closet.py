@@ -56,10 +56,11 @@ def _ws_push(user_id: str, data: dict) -> None:
         import asyncio
 
         from app.api.v1.platform.ws import manager as _ws_manager
+        from app.core.background import spawn
 
         loop = asyncio.get_event_loop()
         if loop.is_running():
-            asyncio.ensure_future(_ws_manager.broadcast_to_user(user_id, data))
+            spawn(_ws_manager.broadcast_to_user(user_id, data), name="ws_push")
     except Exception as exc:  # noqa: BLE001
         # NB: "event" is reserved by structlog for the message itself.
         _log.warning("ws_push_failed", user_id=user_id, event_type=data.get("type"), error=str(exc))

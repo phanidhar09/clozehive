@@ -24,9 +24,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.identity.repositories.user_repo import UserRepository
 from app.api.v1.identity.services.style_profile_context import load_merged_user_profile_for_ai
-from app.api.v1.intelligence.services import ai_service, trend_grounding
+from app.api.v1.intelligence.services import ai_service, model_router, trend_grounding
 from app.api.v1.intelligence.services.fashion_rag_service import get_fashion_context_for_prompt
 from app.api.v1.intelligence.services.fashion_rules import build_fashion_rules_prompt_block
+from app.api.v1.intelligence.services.model_router import RouteSignals
 from app.api.v1.travel.services import weather_service
 from app.api.v1.wardrobe.services.outfit_history_service import get_outfit_history_for_prompt
 from app.core.ai_output_validator import (
@@ -86,6 +87,8 @@ STRICT RULES FOR OUTFIT RECOMMENDATIONS:
 5. List 1–3 actionable "improvement_tips" — reference specific closet items where possible.
 6. List "fashion_rules_used" as short strings (e.g. "color harmony", "60-30-10 rule").
 7. If wardrobe has <3 suitable items, fill "purchase_gaps" with what is missing.
+8. SILHOUETTE / PROPORTION (use each item's fit= field): balance volume with fit. Pair a relaxed/oversized piece with a slim/fitted one (e.g. an oversized top over slim jeans is a classic balanced look). AVOID pairing a relaxed/oversized top WITH a baggy/wide bottom — volume-on-volume reads shapeless. Head-to-toe slim is clean but can read severe; vary it when you can. When fit= is "?" (unknown), don't assume — judge proportion from the item name/category instead.
+9. WOMEN / FEMININE SILHOUETTES (apply when the user's gender is female or they want a feminine look): the organising principle is WAIST DEFINITION, not just volume balance. A marked waist — a tuck/half-tuck, a belt, a high-rise bottom, or a fit-and-flare cut — is what makes a look read as intentional rather than frumpy. Canonical balanced pairings: a fitted or tucked top with an A-line, full, pleated, or wide/flowy skirt; a fitted bodice with a flared bottom; high-rise bottoms to elongate the legs. IMPORTANT NUANCE: volume-on-volume CAN work for women when the waist is defined (e.g. an oversized knit belted over a full midi skirt, or a billowy blouse tucked into wide-leg trousers) — do NOT reject it outright if a belt or tuck marks the waist; suggest the belt/tuck instead. DRESSES (onepiece): pair a fitted/bodycon dress with a structured or cropped layer; pair a flowy/voluminous dress with a fitted layer or a belt to define the waist. When recommending, name the waist-defining move (e.g. "tuck the front", "add a thin belt") in the reasoning.
 
 STYLING SUGGESTIONS:
 • When asked to improve styling or "how can I look better", provide "styling_suggestions" — an array of specific, actionable tips.
@@ -175,6 +178,7 @@ def _row_to_item(row: dict[str, Any]) -> dict[str, Any]:
         "color": row.get("color") or "",
         "fabric": row.get("fabric") or "",
         "pattern": row.get("pattern") or "",
+        "fit": row.get("fit") or "",
         "season": row.get("season") or [],
         "occasion": row.get("occasion") or [],
         "wear_count": row.get("wear_count") or 0,
@@ -191,6 +195,7 @@ def _orm_to_item(item: ClosetItem) -> dict[str, Any]:
         "color": item.color or "",
         "fabric": item.fabric or "",
         "pattern": item.pattern or "",
+        "fit": item.fit or "",
         "season": item.season or [],
         "occasion": item.occasion or [],
         "wear_count": item.wear_count,
@@ -335,6 +340,7 @@ def _build_wardrobe_block(items: list[dict[str, Any]]) -> str:
             f"{sanitize_user_text(it.get('category', ''), field='category')} | "
             f"color={sanitize_user_text(it.get('color') or '?', field='color', max_len=40)} | "
             f"fabric={sanitize_user_text(it.get('fabric') or '?', field='material', max_len=60)} | "
+            f"fit={sanitize_user_text(it.get('fit') or '?', field='fit', max_len=30)} | "
             f"occasion={occ} | season={season} | worn={it.get('wear_count', 0)}x"
         )
     lines.append("[END WARDROBE CONTEXT]")
@@ -658,14 +664,29 @@ async def process_chat_message(
         logger.info("ai_chat_empty_wardrobe", user_id=str(user_id))
         return _empty_wardrobe_response()
 
+    # ── Routing decision (before generation) ──────────────────────────────────
+    # Score the task from signals already computed — not raw message length.
+    decision = await model_router.route_async(
+        RouteSignals(
+            message=message,
+            has_images=bool(user_images),
+            closet_item_count=len(closet_items),
+            expects_outfits=bool(occasion) or model_router.looks_like_outfit_request(message),
+            weather_required=bool(weather),
+            history_depth=len(history_for_prompt),
+            constraint_count=sum(bool(x) for x in (occasion, weather, mood, user_profile)),
+        )
+    )
+
     # ── Call AI ───────────────────────────────────────────────────────────────
     try:
         raw = await ai_service.chat(
             messages,
             system_prompt,
             use_json_mode=True,
-            max_tokens=_CHAT_MAX_TOKENS,
-            temperature=0.5,
+            model=decision.model,
+            max_tokens=min(_CHAT_MAX_TOKENS, decision.max_tokens),
+            temperature=decision.temperature,
         )
         data = json.loads(_clean_json(raw))
     except json.JSONDecodeError:

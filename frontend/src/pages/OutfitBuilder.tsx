@@ -302,7 +302,7 @@ const SCORE_FACTORS: { key: keyof ScoreBreakdown; label: string; max: number }[]
 
 function itemImage(item: ClosetItem, className = 'h-full w-full object-cover') {
   return item.image_url
-    ? <img src={item.image_url} alt={item.name} className={className} />
+    ? <img src={item.image_url} alt={item.name} loading="lazy" decoding="async" className={className} />
     : <div className="flex h-full w-full items-center justify-center text-2xl">👕</div>
 }
 
@@ -793,7 +793,7 @@ function SuggestedPairingsShelf({ pairings, alreadyAddedIds, onAdd }: SuggestedP
               >
                 <div className="relative aspect-[3/4] bg-cream-100 dark:bg-slate-700 overflow-hidden">
                   {item.image_url ? (
-                    <img src={item.image_url} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                    <img src={item.image_url} alt={item.name} loading="lazy" decoding="async" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-3xl">
                       {item.category === 'shoes' ? '👟' : item.category === 'accessories' ? '👜' : item.category === 'outerwear' ? '🧥' : '👕'}
@@ -925,7 +925,7 @@ function ShuffleAlternativesShelf({ alternatives, onApply, onClose }: ShuffleShe
                 <div key={i} className="flex-shrink-0 flex flex-col items-center gap-1 w-14">
                   <div className="w-14 h-14 rounded-xl overflow-hidden bg-cream-100 dark:bg-slate-700 border border-cream-200 dark:border-slate-700 flex items-center justify-center">
                     {item.image_url ? (
-                      <img src={item.image_url} alt={item.name} className="w-full h-full object-cover" />
+                      <img src={item.image_url} alt={item.name} loading="lazy" decoding="async" className="w-full h-full object-cover" />
                     ) : (
                       <span className="text-[10px] text-slate-400 text-center px-1 leading-tight">{item.category}</span>
                     )}
@@ -1406,7 +1406,7 @@ export default function OutfitBuilder() {
               {showContext && (<>
               <div>
                 <label className="mb-1.5 block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Time of Day</label>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {TIME_OPTIONS.map(t => (
                     <button
                       key={t.value}

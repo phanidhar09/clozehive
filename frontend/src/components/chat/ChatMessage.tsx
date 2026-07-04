@@ -1,6 +1,7 @@
 import { Sparkles } from 'lucide-react'
 import type { ChatMessage as ChatMsg } from '@/types'
 import OutfitCard from '@/components/outfit/OutfitCard'
+import FormattedMessage from '@/components/ai-chat/FormattedMessage'
 import { cn } from '@/lib/utils'
 
 interface Props { message: ChatMsg; streaming?: boolean }
@@ -28,8 +29,12 @@ export default function ChatMessage({ message, streaming = false }: Props) {
             ? 'bg-gradient-brand text-white rounded-tr-sm'
             : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 shadow-card rounded-tl-sm border border-cream-300 dark:border-slate-700',
         )}>
-          {/* Render text with whitespace preserved */}
-          <span style={{ whiteSpace: 'pre-wrap' }}>{message.content}</span>
+          {/* User text stays literal; FANI's replies render as light markdown */}
+          {isUser ? (
+            <span style={{ whiteSpace: 'pre-wrap' }}>{message.content}</span>
+          ) : (
+            <FormattedMessage content={message.content} />
+          )}
           {/* Blinking cursor while streaming */}
           {streaming && (
             <span className="inline-block w-0.5 h-4 bg-brand-500 ml-0.5 animate-pulse align-middle" />

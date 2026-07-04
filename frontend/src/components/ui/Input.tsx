@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils'
-import { forwardRef } from 'react'
+import { forwardRef, useId } from 'react'
 
 interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string
@@ -9,30 +9,50 @@ interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
 }
 
 const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ label, error, hint, leftIcon, className, ...rest }, ref) => (
-    <div className="w-full">
-      {label && <label className="label">{label}</label>}
-      <div className="relative">
-        {leftIcon && (
-          <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
-            {leftIcon}
-          </div>
+  ({ label, error, hint, leftIcon, className, id, ...rest }, ref) => {
+    const autoId = useId()
+    const fieldId = id ?? autoId
+    const describedBy = error ? `${fieldId}-error` : hint ? `${fieldId}-hint` : undefined
+    return (
+      <div className="w-full">
+        {label && (
+          <label htmlFor={fieldId} className="label">
+            {label}
+          </label>
         )}
-        <input
-          ref={ref}
-          className={cn(
-            'input',
-            leftIcon && 'pl-10',
-            error && 'border-red-400 focus:ring-red-400',
-            className,
+        <div className="relative">
+          {leftIcon && (
+            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+              {leftIcon}
+            </div>
           )}
-          {...rest}
-        />
+          <input
+            ref={ref}
+            id={fieldId}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={describedBy}
+            className={cn(
+              'input',
+              leftIcon && 'pl-10',
+              error && 'border-red-400 focus:ring-red-400',
+              className,
+            )}
+            {...rest}
+          />
+        </div>
+        {error && (
+          <p id={`${fieldId}-error`} className="mt-1.5 text-xs text-red-500">
+            {error}
+          </p>
+        )}
+        {hint && !error && (
+          <p id={`${fieldId}-hint`} className="mt-1.5 text-xs text-slate-400">
+            {hint}
+          </p>
+        )}
       </div>
-      {error && <p className="mt-1.5 text-xs text-red-500">{error}</p>}
-      {hint && !error && <p className="mt-1.5 text-xs text-slate-400">{hint}</p>}
-    </div>
-  )
+    )
+  },
 )
 
 Input.displayName = 'Input'
@@ -43,11 +63,21 @@ interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
   options: { value: string; label: string }[]
 }
 
-export function Select({ label, options, className, ...rest }: SelectProps) {
+export function Select({ label, options, className, id, ...rest }: SelectProps) {
+  const autoId = useId()
+  const fieldId = id ?? autoId
   return (
     <div className="w-full">
-      {label && <label className="label">{label}</label>}
-      <select className={cn('input appearance-none bg-white dark:bg-slate-800', className)} {...rest}>
+      {label && (
+        <label htmlFor={fieldId} className="label">
+          {label}
+        </label>
+      )}
+      <select
+        id={fieldId}
+        className={cn('input appearance-none bg-white dark:bg-slate-800', className)}
+        {...rest}
+      >
         {options.map(o => (
           <option key={o.value} value={o.value}>{o.label}</option>
         ))}

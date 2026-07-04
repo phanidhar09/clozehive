@@ -291,7 +291,7 @@ function GroupDetail({ group, onClose, onUpdate }: {
                   return (
                     <div key={member.id} className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-cream-50 dark:hover:bg-slate-700/50 transition-colors">
                       <div className="w-9 h-9 rounded-full bg-gradient-brand flex items-center justify-center text-sm font-bold text-white flex-shrink-0">
-                        {member.avatar_url ? <img src={member.avatar_url} alt="" className="w-full h-full rounded-full object-cover" /> : initials}
+                        {member.avatar_url ? <img src={member.avatar_url} alt="" loading="lazy" decoding="async" className="w-full h-full rounded-full object-cover" /> : initials}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">
@@ -359,7 +359,7 @@ function GroupDetail({ group, onClose, onUpdate }: {
                 return (
                   <div key={u.id} className="flex items-center gap-3 p-2.5 rounded-xl bg-cream-50 dark:bg-slate-700/50">
                     <div className="w-8 h-8 rounded-full bg-gradient-brand flex items-center justify-center text-xs font-bold text-white flex-shrink-0">
-                      {u.avatar_url ? <img src={u.avatar_url} alt="" className="w-full h-full rounded-full object-cover" /> : initials}
+                      {u.avatar_url ? <img src={u.avatar_url} alt="" loading="lazy" decoding="async" className="w-full h-full rounded-full object-cover" /> : initials}
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">{displayName}</p>

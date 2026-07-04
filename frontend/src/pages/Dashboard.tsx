@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Shirt, ArrowRight, Sparkles, RefreshCw, Loader2, Check,
@@ -7,6 +7,9 @@ import {
 } from 'lucide-react'
 import { useApp } from '@/store'
 import { outfitsApi, type OutfitOfDayResponse } from '@/lib/api'
+import { useCachedQuery } from '@/hooks/useCachedQuery'
+import Container from '@/components/ui/Container'
+import LazyImage from '@/components/ui/LazyImage'
 import SectionHeader from '@/components/ui/SectionHeader'
 import OnboardingChecklist from '@/components/dashboard/OnboardingChecklist'
 import FaniNudge from '@/components/dashboard/FaniNudge'
@@ -141,26 +144,32 @@ function StyleTipCard() {
 // ── Today's Look (Outfit of the Day) ─────────────────────────────────────────
 
 function TodaysLookCard({ closetItems }: { closetItems: ClosetItem[] }) {
-  const [data, setData]     = useState<OutfitOfDayResponse | null>(null)
-  const [loading, setLoading] = useState(true)
   const [saving, setSaving]   = useState(false)
   const [saved, setSaved]     = useState(false)
-  const [error, setError]     = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
 
   // No point asking FANI for a look when there's nothing in the closet —
   // the API returns a generic outfit with zero matched items, which renders
   // as a nonsense "Excellent" card. Show the add-items state instead.
   const hasItems = closetItems.length > 0
 
-  const load = useCallback(async () => {
-    if (!hasItems) { setData(null); setLoading(false); return }
-    setLoading(true); setError(null); setSaved(false)
-    try   { setData(await outfitsApi.getOutfitOfDay()) }
-    catch { setError("Couldn't generate today's look. Try again.") }
-    finally { setLoading(false) }
-  }, [hasItems])
+  // Cached so returning to the dashboard doesn't re-generate a new look each
+  // visit; the refresh button forces a fresh one. Fresh for 10 minutes.
+  const { data, loading, error, refetch } = useCachedQuery<OutfitOfDayResponse>(
+    hasItems ? 'dashboard:ootd' : null,
+    () => outfitsApi.getOutfitOfDay(),
+    { ttl: 10 * 60_000 },
+  )
 
-  useEffect(() => { load() }, [load])
+  const load = async () => {
+    setRefreshing(true)
+    setSaved(false)
+    try {
+      await refetch()
+    } finally {
+      setRefreshing(false)
+    }
+  }
 
   const resolvedItems = (data?.outfit?.items ?? []).map(oi => {
     const full = closetItems.find(ci => ci.id === oi.id)
@@ -217,15 +226,17 @@ function TodaysLookCard({ closetItems }: { closetItems: ClosetItem[] }) {
           )}
           <button
             onClick={load}
-            disabled={loading}
+            disabled={loading || refreshing}
             title="Regenerate outfit"
+            aria-label="Regenerate today's look"
             className="w-8 h-8 flex items-center justify-center rounded-xl
                        border border-cream-200 dark:border-white/[0.09]
                        text-slate-400 hover:text-brand-600 dark:hover:text-brand-400
                        hover:bg-slate-50 dark:hover:bg-white/[0.06]
+                       focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50
                        disabled:opacity-40 transition-colors"
           >
-            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+            <RefreshCw size={13} className={(loading || refreshing) ? 'animate-spin' : ''} />
           </button>
         </div>
       </div>
@@ -238,12 +249,12 @@ function TodaysLookCard({ closetItems }: { closetItems: ClosetItem[] }) {
           </div>
         )}
 
-        {!loading && error && (
+        {!loading && Boolean(error) && (
           <div className="flex items-center gap-2 rounded-xl border border-red-200
                           bg-red-50 px-4 py-3 text-sm text-red-700
                           dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
             <AlertCircle size={14} className="flex-shrink-0" />
-            {error}
+            Couldn&apos;t generate today&apos;s look. Try again.
           </div>
         )}
 
@@ -287,14 +298,14 @@ function TodaysLookCard({ closetItems }: { closetItems: ClosetItem[] }) {
                        className="flex-shrink-0 w-[90px] rounded-xl overflow-hidden
                                   border border-cream-200 dark:border-white/[0.08]
                                   bg-slate-50 dark:bg-slate-900 group">
-                    <div className="w-full aspect-square overflow-hidden bg-slate-100 dark:bg-slate-800">
-                      {item.image_url ? (
-                        <img src={item.image_url} alt={item.name ?? ''}
-                             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center text-2xl">👕</div>
-                      )}
-                    </div>
+                    <LazyImage
+                      src={item.image_url}
+                      alt={item.name ?? 'Wardrobe item'}
+                      aspect="aspect-square"
+                      rounded="rounded-none"
+                      className="group-hover:scale-105"
+                      fallback={<span className="text-2xl">👕</span>}
+                    />
                     <div className="px-2 py-1.5">
                       <p className="truncate text-[11px] font-semibold text-slate-700 dark:text-white">
                         {item.name}
@@ -492,7 +503,7 @@ export default function Dashboard() {
   const dateLabel  = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
 
   return (
-    <div className="space-y-7 max-w-6xl">
+    <Container size="xl" className="space-y-7">
 
       <OnboardingChecklist />
 
@@ -599,14 +610,14 @@ export default function Dashboard() {
                                bg-white dark:bg-white/[0.03] overflow-hidden
                                hover:border-slate-300 dark:hover:border-white/[0.14]
                                hover:shadow-md transition-all duration-200">
-                <div className="relative w-full aspect-square bg-slate-100 dark:bg-slate-800 overflow-hidden">
-                  {item.image_url ? (
-                    <img src={item.image_url} alt={item.name}
-                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-3xl">👕</div>
-                  )}
-                </div>
+                <LazyImage
+                  src={item.image_url}
+                  alt={item.name}
+                  aspect="aspect-square"
+                  rounded="rounded-none"
+                  className="group-hover:scale-105"
+                  fallback={<span className="text-3xl">👕</span>}
+                />
                 <div className="p-3">
                   <p className="font-semibold text-sm text-slate-800 dark:text-white line-clamp-1">
                     {item.name}
@@ -625,6 +636,6 @@ export default function Dashboard() {
       {totalItems === 0 && !closetLoading && (
         <GuidedEmptyState />
       )}
-    </div>
+    </Container>
   )
 }

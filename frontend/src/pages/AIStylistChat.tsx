@@ -28,6 +28,7 @@ import { generateId } from '@/lib/utils'
 import { sendMessage, aiChatSessionsApi } from '@/services/aiChatApi'
 import { cn } from '@/lib/utils'
 import ChatInput from '@/components/ai-chat/ChatInput'
+import FormattedMessage from '@/components/ai-chat/FormattedMessage'
 import OutfitRecommendationCard from '@/components/ai-chat/OutfitRecommendationCard'
 import { FaniLoader } from '@/components/system/FaniLoader'
 import type { StylistChatMessage, AIChatContext, StylingHint, AIChatSession } from '@/types'
@@ -137,10 +138,10 @@ function AssistantBubble({
       </div>
 
       <div className="flex flex-col gap-3 max-w-[80%] min-w-0 flex-1">
-        {/* Text reply */}
+        {/* Text reply — rendered as lightweight markdown for a polished output */}
         {msg.content && (
-          <div className="px-4 py-3 rounded-2xl rounded-tl-sm text-sm leading-relaxed bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 shadow-card border border-cream-300 dark:border-slate-700">
-            <span style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</span>
+          <div className="px-4 py-3 rounded-2xl rounded-tl-sm bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 shadow-card border border-cream-300 dark:border-slate-700">
+            <FormattedMessage content={msg.content} />
             {streaming && (
               <span className="inline-block w-0.5 h-4 bg-brand-500 ml-0.5 animate-pulse align-middle" />
             )}

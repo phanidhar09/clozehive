@@ -109,7 +109,7 @@ function ClosetPairingCard({ p, index }: { p: ClosetPairing; index: number }) {
         {/* Thumbnail */}
         <div className="w-14 h-14 rounded-xl overflow-hidden bg-slate-100 dark:bg-white/[0.06] flex-shrink-0 ring-2 ring-emerald-400/40">
           {p.image_url
-            ? <img src={resolveUploadUrl(p.image_url)} alt={p.name} className="w-full h-full object-cover" />
+            ? <img src={resolveUploadUrl(p.image_url)} alt={p.name} loading="lazy" decoding="async" className="w-full h-full object-cover" />
             : <div className="w-full h-full flex items-center justify-center">
                 <Package size={18} className="text-slate-300 dark:text-white/20" />
               </div>
@@ -155,8 +155,8 @@ function ResultPanel({ result, onClear }: { result: ClosetMatchResult; onClear: 
         <div className="flex items-center gap-4">
           <div className="w-16 h-16 rounded-2xl overflow-hidden bg-slate-100 dark:bg-white/[0.06] flex-shrink-0">
             {result.closet_item.image_url
-              ? <img src={resolveUploadUrl(result.closet_item.image_url)} alt=""
-                  className="w-full h-full object-cover" />
+              ? <img src={resolveUploadUrl(result.closet_item.image_url)} alt={result.closet_item.name || 'Matched closet item'}
+                  loading="lazy" decoding="async" className="w-full h-full object-cover" />
               : <div className="w-full h-full flex items-center justify-center">
                   <Package size={22} className="text-slate-300 dark:text-white/20" />
                 </div>
@@ -346,7 +346,7 @@ function ClosetItemGrid({
                 <div className="aspect-square bg-slate-100 dark:bg-white/[0.06]">
                   {item.image_url
                     ? <img src={resolveUploadUrl(item.image_url)} alt={item.name}
-                        className="w-full h-full object-cover" />
+                        loading="lazy" decoding="async" className="w-full h-full object-cover" />
                     : <div className="w-full h-full flex items-center justify-center">
                         <Package size={22} className="text-slate-300 dark:text-white/20" />
                       </div>
@@ -455,7 +455,7 @@ export default function ClosetMatch() {
 
       {/* How it works — show only when nothing selected */}
       {!result && !loading && !selectedItemId && (
-        <div className="grid grid-cols-3 gap-3 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
           {[
             { icon: Shirt,       step: '1', label: 'Pick an item',    desc: 'Choose any piece from your closet' },
             { icon: Sparkles,    step: '2', label: 'AI analyses gaps', desc: 'FANI checks outfit compatibility' },

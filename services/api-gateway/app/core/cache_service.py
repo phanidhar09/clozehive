@@ -17,6 +17,7 @@ from typing import Any, cast
 
 import redis.asyncio as aioredis
 
+from app.core.background import spawn
 from app.core.config import get_settings
 from app.core.logging import get_logger
 
@@ -206,7 +207,7 @@ async def get_or_compute(
             return value  # fresh
         # Stale — serve it, refresh in the background under single-flight.
         if await acquire_lock(key, lock_ttl):
-            asyncio.create_task(_refresh(key, soft, hard, compute, negative_ttl))
+            spawn(_refresh(key, soft, hard, compute, negative_ttl), name="cache_swr_refresh")
         return value
 
     # Cold miss — single-flight so only one caller computes.

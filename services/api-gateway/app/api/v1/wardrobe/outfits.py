@@ -40,10 +40,11 @@ def _ws_push(user_id: str, data: dict) -> None:
     """Fire-and-forget WebSocket push — never raises."""
     try:
         from app.api.v1.platform.ws import manager as _ws_manager
+        from app.core.background import spawn
 
         loop = asyncio.get_event_loop()
         if loop.is_running():
-            asyncio.ensure_future(_ws_manager.broadcast_to_user(user_id, data))
+            spawn(_ws_manager.broadcast_to_user(user_id, data), name="ws_push")
     except Exception as exc:
         logger.warning("ws_broadcast_failed", error=str(exc))
 
@@ -184,6 +185,7 @@ async def analyze_outfit(
             "color": item.color or "",
             "fabric": item.fabric or "",
             "pattern": item.pattern or "",
+            "fit": item.fit or "",
             "season": item.season or "",
             "occasion": item.occasion or [],
             "size": item.size or "",
@@ -296,6 +298,7 @@ async def analyze_outfit(
                 "color": it.color or "",
                 "fabric": it.fabric or "",
                 "pattern": it.pattern or "",
+                "fit": it.fit or "",
                 "season": it.season or "",
                 "occasion": it.occasion or [],
                 "brand": it.brand or "",
@@ -418,6 +421,7 @@ async def shuffle_outfit(
             "color": r.color or "",
             "fabric": r.fabric or "",
             "pattern": r.pattern or "",
+            "fit": r.fit or "",
             "occasion": r.occasion or [],
             "season": r.season or [],
             "tags": r.tags or [],
@@ -461,6 +465,7 @@ async def shuffle_outfit(
                 "color": r.get("color") or "",
                 "fabric": r.get("fabric") or "",
                 "pattern": r.get("pattern") or "",
+                "fit": r.get("fit") or "",
                 "occasion": r.get("occasion") or [],
                 "season": r.get("season") or [],
                 "tags": r.get("tags") or [],
@@ -490,6 +495,7 @@ async def shuffle_outfit(
                 "color": r.color or "",
                 "fabric": r.fabric or "",
                 "pattern": r.pattern or "",
+                "fit": r.fit or "",
                 "occasion": r.occasion or [],
                 "season": r.season or [],
                 "tags": r.tags or [],

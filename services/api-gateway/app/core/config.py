@@ -207,6 +207,12 @@ class Settings(BaseSettings):
     # Use for Azure/other OpenAI-compatible gateways; leave default for api.openai.com.
     openai_api_base_url: str = "https://api.openai.com/v1"
     openai_model: str = "gpt-4o"
+    # Cheap/fast tier used by the model router for low-complexity turns
+    # (chit-chat, factual Q&A, single simple outfit). See model_router.py.
+    openai_model_small: str = "gpt-4o-mini"
+    # When True, the model router runs a cheap LLM micro-classifier to break ties
+    # for turns whose deterministic complexity score lands in the ambiguous band.
+    model_router_arbiter_enabled: bool = True
     openai_max_tokens: int = 4096
     # ── Gemini AI ─────────────────────────────────────────────────────────────
     gemini_api_key: str = ""
