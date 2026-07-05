@@ -17,6 +17,7 @@ from app.core.embedding_service import (
     generate_text_embedding,
     pgvector_cosine_search,
 )
+from app.core.llm_safety import sanitize_user_text
 from app.core.logging import get_logger
 from app.db.session import AsyncSessionLocal
 from app.models.rag import OutfitHistory
@@ -174,9 +175,13 @@ async def get_outfit_history_for_prompt(
         saved = "✓ saved" if h.get("was_saved") else ""
         worn = "✓ worn" if h.get("was_worn") else ""
         flags = ", ".join(f for f in [saved, worn] if f)
-        tip = h.get("user_feedback") or ""
+        # user_feedback is free-text the user stored on a past outfit. It flows
+        # back into the system prompt here, so it must be sanitised to prevent
+        # stored (second-order) prompt injection — a user could otherwise save
+        # feedback like "ignore previous instructions" and replay it every turn.
+        tip = sanitize_user_text(h.get("user_feedback"), field="notes", max_len=100)
         lines.append(
-            f"• Occasion: {h.get('occasion')} | Score: {score} | {flags}" + (f" | Feedback: {tip[:100]}" if tip else "")
+            f"• Occasion: {h.get('occasion')} | Score: {score} | {flags}" + (f" | Feedback: {tip}" if tip else "")
         )
     return "\n".join(lines)
 
