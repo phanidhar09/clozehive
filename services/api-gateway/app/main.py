@@ -172,6 +172,11 @@ async def lifespan(app: FastAPI):
 
     logger.info("api_gateway_ready", port=settings.port)
 
+    # PostHog LLM analytics (token/cost/latency capture). No-op if unconfigured.
+    from app.core.analytics import init_analytics
+
+    init_analytics()
+
     if settings.sentry_dsn:
         try:
             import sentry_sdk
@@ -214,6 +219,10 @@ async def lifespan(app: FastAPI):
     task = getattr(app.state, "purge_reconcile_task", None)
     if task is not None:
         task.cancel()
+
+    from app.core.analytics import shutdown_analytics
+
+    shutdown_analytics()
 
     await db_disconnect()
     await cache_service.close()

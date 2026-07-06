@@ -311,6 +311,11 @@ class Settings(BaseSettings):
     # Sentry error tracking. Blank = disabled (logs a warning in production).
     sentry_dsn: str = ""
     sentry_traces_sample_rate: float = 0.1
+    # PostHog product + LLM analytics. Blank api key = disabled (no-op). Emits
+    # `$ai_generation` events (token/cost/latency per turn) — metadata only, no
+    # prompt content. Host defaults to PostHog Cloud US.
+    posthog_api_key: str = ""
+    posthog_host: str = "https://us.i.posthog.com"
     # Distributed tracing (OpenTelemetry). Enable + point OTEL_EXPORTER_OTLP_ENDPOINT
     # at a collector (Tempo/Jaeger/Honeycomb). Default off = no tracing overhead.
     otel_enabled: bool = False

@@ -50,6 +50,7 @@ from app.api.v1.intelligence.services.fashion_rules import build_fashion_rules_p
 from app.api.v1.intelligence.services.model_router import RouteSignals
 from app.api.v1.wardrobe.services.outfit_history_service import get_outfit_history_for_prompt
 from app.core.ai_output_validator import score_response_quality, validate_chat_response
+from app.core.analytics import LLMTelemetry
 from app.core.embedding_service import generate_text_embedding
 from app.core.llm_safety import sanitize_user_text
 from app.core.logging import get_logger
@@ -425,6 +426,13 @@ async def stream_chat_message(
             model=decision.model,
             max_tokens=min(_CHAT_MAX_TOKENS, decision.max_tokens),
             temperature=decision.temperature,
+            telemetry=LLMTelemetry(
+                operation="stylist_chat_stream",
+                user_id=str(user_id),
+                trace_id=str(chat_session.id) if chat_session else str(user_id),
+                tier=decision.tier.value,
+                route_reasons=decision.reasons,
+            ),
         ):
             decoded = extractor.feed(chunk)
             if decoded:
