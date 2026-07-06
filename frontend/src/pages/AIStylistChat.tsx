@@ -25,7 +25,7 @@ import {
 } from 'lucide-react'
 import { useApp } from '@/store'
 import { generateId } from '@/lib/utils'
-import { sendMessage, aiChatSessionsApi } from '@/services/aiChatApi'
+import { streamMessage, aiChatSessionsApi } from '@/services/aiChatApi'
 import { cn } from '@/lib/utils'
 import ChatInput from '@/components/ai-chat/ChatInput'
 import FormattedMessage from '@/components/ai-chat/FormattedMessage'
@@ -565,32 +565,64 @@ export default function AIStylistChat() {
         .slice(-12)
         .map(m => ({ role: m.role, content: m.content }))
 
-      const res = await sendMessage({ message: trimmed || '(see attached image)', sessionId, context: ctx, history, images })
-      if (cancelRef.current) return
-
-      setSessionId(res.session_id)
-      setMessages(m => m.map(msg =>
-        msg.id === aiMsgId
-          ? {
-              ...msg,
-              content: res.reply,
-              structured: {
-                reply: res.reply,
-                recommended_outfits: res.recommended_outfits,
-                styling_suggestions: res.styling_suggestions ?? [],
-                purchase_gaps: res.purchase_gaps,
-                follow_up_questions: res.follow_up_questions,
-              },
-            }
-          : msg,
-      ))
+      await streamMessage(
+        { message: trimmed || '(see attached image)', sessionId, context: ctx, history, images },
+        {
+          onSession: (sid) => { if (!cancelRef.current) setSessionId(sid) },
+          onToken: (content) => {
+            if (cancelRef.current) return
+            setMessages(m => m.map(msg =>
+              msg.id === aiMsgId ? { ...msg, content: msg.content + content } : msg,
+            ))
+          },
+          onCorrection: ({ reply, note }) => {
+            if (cancelRef.current) return
+            // Grounding gate flagged the streamed text — replace it with the
+            // grounded reply, or append the soft note.
+            setMessages(m => m.map(msg =>
+              msg.id === aiMsgId
+                ? { ...msg, content: reply ?? (note ? `${msg.content}\n\n_${note}_` : msg.content) }
+                : msg,
+            ))
+          },
+          onStructured: (payload) => {
+            if (cancelRef.current) return
+            setMessages(m => m.map(msg =>
+              msg.id === aiMsgId
+                ? {
+                    ...msg,
+                    // The structured event carries the authoritative grounded reply.
+                    content: payload.reply || msg.content,
+                    structured: {
+                      reply: payload.reply,
+                      recommended_outfits: payload.recommended_outfits,
+                      styling_suggestions: payload.styling_suggestions ?? [],
+                      purchase_gaps: payload.purchase_gaps,
+                      follow_up_questions: payload.follow_up_questions,
+                    },
+                  }
+                : msg,
+            ))
+          },
+          onDone: () => { /* streaming flag cleared in finally */ },
+          onError: (errMsg) => {
+            if (cancelRef.current) return
+            setError(errMsg)
+            setMessages(m => m.map(msg =>
+              msg.id === aiMsgId
+                ? { ...msg, content: msg.content || `I'm having trouble connecting right now. (${errMsg})` }
+                : msg,
+            ))
+          },
+        },
+      )
     } catch (e) {
       if (cancelRef.current) return
       const errMsg = e instanceof Error ? e.message : 'Network error'
       setError(errMsg)
       setMessages(m => m.map(msg =>
         msg.id === aiMsgId
-          ? { ...msg, content: `I'm having trouble connecting right now. (${errMsg})` }
+          ? { ...msg, content: msg.content || `I'm having trouble connecting right now. (${errMsg})` }
           : msg,
       ))
     } finally {
