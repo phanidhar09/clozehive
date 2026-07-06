@@ -47,6 +47,11 @@ if _PROM_AVAILABLE:
         "LLM tokens consumed.",
         labelnames=("model", "kind"),  # kind: prompt | completion
     )
+    AI_COST = Counter(
+        "clozehive_ai_cost_usd_total",
+        "Estimated LLM spend in USD (prompt + completion).",
+        labelnames=("model",),
+    )
     CACHE_OPS = Counter(
         "clozehive_cache_operations_total",
         "Cache get operations by result.",
@@ -114,6 +119,11 @@ def record_ai_tokens(model: str, prompt: int = 0, completion: int = 0) -> None:
             AI_TOKENS.labels(model=model, kind="prompt").inc(prompt)
         if completion:
             AI_TOKENS.labels(model=model, kind="completion").inc(completion)
+
+
+def record_ai_cost(model: str, usd: float) -> None:
+    if _PROM_AVAILABLE and usd > 0:
+        AI_COST.labels(model=model).inc(usd)
 
 
 def record_cache(result: str) -> None:

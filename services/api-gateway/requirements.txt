@@ -48,6 +48,9 @@ structlog==25.5.0
 prometheus-client==0.23.1
 prometheus-fastapi-instrumentator==7.1.0
 sentry-sdk[fastapi]==2.41.0
+# PostHog LLM analytics (token/cost/latency capture). Imported defensively and
+# gated by POSTHOG_API_KEY, so absence/misconfig degrades to a no-op.
+posthog==3.7.0
 opentelemetry-sdk==1.39.0
 opentelemetry-exporter-otlp-proto-http==1.39.0
 opentelemetry-instrumentation-fastapi==0.60b0

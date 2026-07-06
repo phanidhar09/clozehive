@@ -146,7 +146,8 @@ async def generate_text_embedding(text_input: str) -> list[float] | None:
         _lru_put(cache_key, cached)
         return cached
 
-    from app.core.metrics import record_ai_tokens, track_ai
+    from app.core.llm_pricing import cost_usd
+    from app.core.metrics import record_ai_cost, record_ai_tokens, track_ai
 
     try:
         with track_ai("embedding", settings.embedding_model):
@@ -156,7 +157,10 @@ async def generate_text_embedding(text_input: str) -> list[float] | None:
             )
         usage = getattr(response, "usage", None)
         if usage is not None:
-            record_ai_tokens(settings.embedding_model, prompt=getattr(usage, "prompt_tokens", 0) or 0)
+            prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
+            record_ai_tokens(settings.embedding_model, prompt=prompt_tokens)
+            _, _, total_cost = cost_usd(settings.embedding_model, prompt_tokens, 0)
+            record_ai_cost(settings.embedding_model, total_cost)
         embedding = response.data[0].embedding
         _lru_put(cache_key, embedding)
         await _redis_cache_set(cache_key, embedding)

@@ -248,6 +248,7 @@ async def _classify_complexity(message: str) -> str | None:
 
     # Lazy import avoids any import cycle and keeps the deterministic path import-light.
     from app.api.v1.intelligence.services import ai_service
+    from app.core.analytics import LLMTelemetry
 
     try:
         raw = await ai_service.chat(
@@ -257,6 +258,7 @@ async def _classify_complexity(message: str) -> str | None:
             model=settings.openai_model_small,
             max_tokens=16,
             temperature=0.0,
+            telemetry=LLMTelemetry(operation="router_arbiter", tier="small"),
         )
         verdict = str(json.loads(raw).get("complexity", "")).strip().lower()
         return verdict if verdict in ("low", "high") else None

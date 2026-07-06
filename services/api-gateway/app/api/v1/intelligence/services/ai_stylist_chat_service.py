@@ -35,6 +35,7 @@ from app.core.ai_output_validator import (
     score_response_quality,
     validate_chat_response,
 )
+from app.core.analytics import LLMTelemetry
 from app.core.embedding_service import (
     generate_text_embedding,
     pgvector_cosine_search,
@@ -687,6 +688,13 @@ async def process_chat_message(
             model=decision.model,
             max_tokens=min(_CHAT_MAX_TOKENS, decision.max_tokens),
             temperature=decision.temperature,
+            telemetry=LLMTelemetry(
+                operation="stylist_chat",
+                user_id=str(user_id),
+                trace_id=str(chat_session.id) if chat_session else str(user_id),
+                tier=decision.tier.value,
+                route_reasons=decision.reasons,
+            ),
         )
         data = json.loads(_clean_json(raw))
     except json.JSONDecodeError:
