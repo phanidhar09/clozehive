@@ -61,13 +61,6 @@ async def generate_outfit(payload: dict[str, Any]) -> dict[str, Any]:
     return response.json()
 
 
-@_retryable
-async def generate_packing(payload: dict[str, Any]) -> dict[str, Any]:
-    response = await client().post("/api/v1/agent/packing", json=payload)
-    response.raise_for_status()
-    return response.json()
-
-
 async def stream_chat(payload: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
     async with client().stream("POST", "/api/v1/agent/chat/stream", json=payload) as response:
         response.raise_for_status()

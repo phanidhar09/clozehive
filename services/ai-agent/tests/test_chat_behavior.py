@@ -418,9 +418,9 @@ class TestSystemPromptPersona:
         assert "wardrobe" in WARDROBE_AGENT_SYSTEM_PROMPT.lower()
 
     def test_system_prompt_covers_packing_two_step(self) -> None:
-        # Decision rule 1 requires get_weather_summary before generate_trip_packing_list
+        # Decision rule 1 requires get_weather_summary before the packing checklist
         assert "get_weather_summary" in WARDROBE_AGENT_SYSTEM_PROMPT
-        assert "generate_trip_packing_list" in WARDROBE_AGENT_SYSTEM_PROMPT
+        assert "get_packing_checklist" in WARDROBE_AGENT_SYSTEM_PROMPT
 
     def test_system_prompt_instructs_only_use_wardrobe_items(self) -> None:
         # "Flag missing wardrobe items clearly" tells the agent to surface gaps
@@ -433,8 +433,8 @@ class TestSystemPromptPersona:
 
 
 class TestToolInventory:
-    def test_six_tools_registered(self) -> None:
-        assert len(ALL_TOOLS) == 6
+    def test_five_tools_registered(self) -> None:
+        assert len(ALL_TOOLS) == 5
 
     def test_tool_names_are_unique(self) -> None:
         names = [t.name for t in ALL_TOOLS]
@@ -452,8 +452,10 @@ class TestToolInventory:
 
     def test_packing_tools_present(self) -> None:
         names = {t.name for t in ALL_TOOLS}
-        assert "generate_trip_packing_list" in names
         assert "get_packing_checklist" in names
+        # Wardrobe-matched packing now lives solely in the api-gateway
+        # packing_service — the agent no longer carries a duplicate.
+        assert "generate_trip_packing_list" not in names
 
     def test_all_tools_are_callable(self) -> None:
         # LangChain @tool objects expose __call__; async tools store the

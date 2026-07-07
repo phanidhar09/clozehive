@@ -80,17 +80,6 @@ class TestGenerateOutfitTask:
         assert recorded_metrics == [("generate_outfit", "failed", 1.5)]
 
 
-class TestGeneratePackingTask:
-    async def test_success_persists_agent_result(self, fake_db, fake_agent, recorded_metrics):
-        fake_agent.generate_packing.return_value = {"days": []}
-
-        result = await worker.generate_packing_task({"job_try": 1}, REQ_ID, {"destination": "Goa"})
-
-        assert result == {"days": []}
-        fake_db.complete_request.assert_awaited_once()
-        assert recorded_metrics == [("generate_packing", "completed", 1.5)]
-
-
 class TestFailOnLastTry:
     async def test_missing_job_try_defaults_to_first_attempt(self, fake_db):
         await worker._fail_on_last_try({}, uuid4(), RuntimeError("x"))
@@ -112,7 +101,6 @@ class TestWorkerSettings:
         assert names == {
             "analyze_image_task",
             "generate_outfit_task",
-            "generate_packing_task",
         }
 
     def test_max_tries_matches_settings(self):

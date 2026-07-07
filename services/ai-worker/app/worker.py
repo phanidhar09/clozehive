@@ -100,28 +100,6 @@ async def generate_outfit_task(
         raise
 
 
-async def generate_packing_task(
-    ctx: dict[str, Any],
-    request_id: str,
-    payload: dict[str, Any],
-) -> dict[str, Any]:
-    rid = UUID(request_id)
-    logger.info("generate_packing_started", request_id=request_id, attempt=ctx.get("job_try"))
-    await db.mark_processing(rid)
-    try:
-        result = await ai_agent_client.generate_packing(payload)
-        await db.complete_request(rid, result)
-        record_job_terminal("generate_packing", "completed", await db.request_age_seconds(rid))
-        logger.info("generate_packing_completed", request_id=request_id)
-        return result
-    except Exception as exc:  # noqa: BLE001 — re-raised below for ARQ retry
-        logger.error("generate_packing_failed", request_id=request_id, error=str(exc))
-        await _fail_on_last_try(ctx, rid, exc)
-        if ctx.get("job_try", 1) >= settings.max_attempts:
-            record_job_terminal("generate_packing", "failed", await db.request_age_seconds(rid))
-        raise
-
-
 # ── Worker lifecycle ────────────────────────────────────────────────────────
 
 async def on_startup(ctx: dict[str, Any]) -> None:
@@ -164,7 +142,7 @@ async def on_shutdown(ctx: dict[str, Any]) -> None:
 class WorkerSettings:
     """ARQ entrypoint: ``arq app.worker.WorkerSettings``."""
 
-    functions = [analyze_image_task, generate_outfit_task, generate_packing_task]
+    functions = [analyze_image_task, generate_outfit_task]
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
     on_startup = on_startup
     on_shutdown = on_shutdown

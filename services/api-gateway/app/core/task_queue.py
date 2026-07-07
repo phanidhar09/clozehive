@@ -32,7 +32,6 @@ settings = get_settings()
 # Task function names — must stay in sync with ai-worker/app/worker.py.
 TASK_ANALYZE_IMAGE = "analyze_image_task"
 TASK_GENERATE_OUTFIT = "generate_outfit_task"
-TASK_GENERATE_PACKING = "generate_packing_task"
 
 _pool: ArqRedis | None = None
 

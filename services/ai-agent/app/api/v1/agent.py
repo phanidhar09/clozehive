@@ -126,16 +126,6 @@ class OutfitRequest(BaseModel):
     user_profile: dict[str, Any] | None = None
 
 
-class PackingRequest(BaseModel):
-    destination: str
-    start_date: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
-    end_date: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
-    purpose: str = "general"
-    notes: str | None = None
-    closet_items: list[dict[str, Any]] = Field(default_factory=list)
-    user_style_profile: dict[str, Any] | None = None
-
-
 class VisionRequest(BaseModel):
     image_base64: str
     media_type: str = "image/jpeg"
@@ -287,62 +277,6 @@ async def outfit(body: OutfitRequest):
     except Exception as exc:
         logger.error("agent_outfit_failed", error=str(exc))
         raise HTTPException(status_code=500, detail="Outfit generation failed. Please try again.") from exc
-
-
-@router.post("/packing")
-async def packing(body: PackingRequest):
-    """Chain the inline weather tool then packing tool into a structured PackingResult JSON."""
-    agent = _require_agent()
-    weather_tool = next((t for t in agent.tools if "get_weather_summary" in t.name), None)
-    packing_tool = next((t for t in agent.tools if "generate_trip_packing_list" in t.name), None)
-    if not weather_tool or not packing_tool:
-        raise HTTPException(
-            status_code=503,
-            detail=TOOLS_UNAVAILABLE_DETAIL,
-        )
-
-    try:
-        wraw = await weather_tool.ainvoke({
-            "destination": body.destination,
-            "start_date": body.start_date,
-            "end_date": body.end_date,
-        })
-        weather_data = _parse_json_tool(wraw)
-        if isinstance(weather_data, dict) and weather_data.get("error"):
-            raise HTTPException(status_code=502, detail=str(weather_data["error"]))
-
-        weather_json = json.dumps(weather_data)
-        combined_notes = body.notes or ""
-        if body.user_style_profile:
-            ctx = body.user_style_profile.get("style_profile_context_text")
-            if isinstance(ctx, str) and ctx.strip():
-                combined_notes = f"{combined_notes}\n\n[USER STYLE PROFILE]\n{ctx.strip()}".strip()
-        praw = await packing_tool.ainvoke({
-            "destination": body.destination,
-            "start_date": body.start_date,
-            "end_date": body.end_date,
-            "purpose": body.purpose,
-            "notes": combined_notes,
-            "closet_items_json": json.dumps(body.closet_items),
-            "weather_summary_json": weather_json,
-        })
-        result = _parse_json_tool(praw)
-        if isinstance(result, dict) and result.get("error"):
-            raise HTTPException(status_code=502, detail=str(result["error"]))
-        if isinstance(result, dict) and isinstance(weather_data, dict) and not weather_data.get(
-            "error"
-        ):
-            # Match api-gateway packing_service shape for trips / TravelPlanner storage.
-            result.setdefault("weather_summary", weather_data)
-        return result
-    except HTTPException:
-        raise
-    except json.JSONDecodeError as exc:
-        logger.error("agent_packing_bad_json", error=str(exc))
-        raise HTTPException(status_code=502, detail="Packing tool returned malformed output.") from exc
-    except Exception as exc:
-        logger.error("agent_packing_failed", error=str(exc))
-        raise HTTPException(status_code=500, detail="Packing list generation failed. Please try again.") from exc
 
 
 @router.post("/vision/analyze")

@@ -23,7 +23,6 @@ from app.core.deps import CurrentUser, DbSession
 from app.core.exceptions import NotFoundError
 from app.core.task_queue import (
     TASK_GENERATE_OUTFIT,
-    TASK_GENERATE_PACKING,
     enqueue_ai_job,
 )
 
@@ -43,24 +42,6 @@ class OutfitJobRequest(BaseModel):
 
     def to_payload(self) -> dict[str, Any]:
         payload = {"occasion": self.occasion, "weather": self.weather, "notes": self.notes}
-        payload.update(self.extra)
-        return payload
-
-
-class PackingJobRequest(BaseModel):
-    """Free-form payload forwarded to the ai-agent's packing generator."""
-
-    destination: str = Field(..., max_length=200)
-    start_date: str | None = Field(default=None, max_length=40)
-    end_date: str | None = Field(default=None, max_length=40)
-    extra: dict[str, Any] = Field(default_factory=dict)
-
-    def to_payload(self) -> dict[str, Any]:
-        payload = {
-            "destination": self.destination,
-            "start_date": self.start_date,
-            "end_date": self.end_date,
-        }
         payload.update(self.extra)
         return payload
 
@@ -88,19 +69,6 @@ async def enqueue_outfit(body: OutfitJobRequest, user_id: CurrentUser, session: 
         user_id=UUID(user_id),
         request_type="outfit",
         task_name=TASK_GENERATE_OUTFIT,
-        task_args=[body.to_payload()],
-        input_payload=body.to_payload(),
-    )
-    return JobAccepted(request_id=request_id)
-
-
-@router.post("/packing", response_model=JobAccepted, status_code=status.HTTP_202_ACCEPTED)
-async def enqueue_packing(body: PackingJobRequest, user_id: CurrentUser, session: DbSession) -> JobAccepted:
-    request_id = await enqueue_ai_job(
-        session,
-        user_id=UUID(user_id),
-        request_type="packing",
-        task_name=TASK_GENERATE_PACKING,
         task_args=[body.to_payload()],
         input_payload=body.to_payload(),
     )
