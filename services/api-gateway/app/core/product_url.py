@@ -82,19 +82,28 @@ class ProductMetadata:
 # ── SSRF guard ────────────────────────────────────────────────────────────────
 
 
-def _is_blocked_ip(host: str) -> bool:
-    """True if any address ``host`` resolves to is private/loopback/reserved."""
+def _validated_public_ip(host: str) -> str:
+    """Resolve ``host`` once; return one validated public IP or raise.
+
+    The returned IP is the address the fetch MUST connect to. Validating here
+    and letting httpx re-resolve at connect time would be a TOCTOU hole: an
+    attacker-controlled resolver can answer the validation lookup with a public
+    IP and the connect lookup with 169.254.169.254 (DNS rebinding).
+    """
     try:
-        infos = socket.getaddrinfo(host, None)
+        infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
     except socket.gaierror:
-        # Unresolvable host — treat as blocked; the fetch would fail anyway.
-        return True
+        # Unresolvable host — the fetch would fail anyway.
+        raise BadRequestError("That URL points to a private or unreachable address.") from None
+    blocked = "That URL points to a private or unreachable address."
+    if not infos:
+        raise BadRequestError(blocked)
     for info in infos:
         addr = info[4][0]
         try:
             ip = ipaddress.ip_address(addr)
         except ValueError:
-            return True
+            raise BadRequestError(blocked) from None
         if (
             ip.is_private
             or ip.is_loopback
@@ -103,8 +112,8 @@ def _is_blocked_ip(host: str) -> bool:
             or ip.is_multicast
             or ip.is_unspecified
         ):
-            return True
-    return False
+            raise BadRequestError(blocked)
+    return infos[0][4][0]
 
 
 def _validate_url(url: str) -> str:
@@ -114,9 +123,33 @@ def _validate_url(url: str) -> str:
         raise BadRequestError("Only http(s) product URLs are supported.")
     if not parsed.hostname:
         raise BadRequestError("That doesn't look like a valid URL.")
-    if _is_blocked_ip(parsed.hostname):
-        raise BadRequestError("That URL points to a private or unreachable address.")
+    _validated_public_ip(parsed.hostname)
     return url
+
+
+def _pinned_request(url: str) -> tuple[str, dict[str, str], dict[str, Any]]:
+    """Validate ``url`` and pin the request to the resolved, validated IP.
+
+    Returns ``(request_url, extra_headers, extensions)``: the request URL has
+    the hostname replaced by the validated IP so httpx connects to exactly the
+    address that passed the SSRF check (no second DNS lookup an attacker's
+    resolver could answer differently). The Host header and TLS SNI keep the
+    original hostname so virtual hosts and certificate verification still work.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise BadRequestError("Only http(s) product URLs are supported.")
+    host = parsed.hostname
+    if not host:
+        raise BadRequestError("That doesn't look like a valid URL.")
+    ip = _validated_public_ip(host)
+    ip_netloc = f"[{ip}]" if ":" in ip else ip
+    if parsed.port:
+        ip_netloc += f":{parsed.port}"
+    request_url = parsed._replace(netloc=ip_netloc).geturl()
+    host_header = host if parsed.port is None else f"{host}:{parsed.port}"
+    extensions: dict[str, Any] = {"sni_hostname": host} if parsed.scheme == "https" else {}
+    return request_url, {"Host": host_header}, extensions
 
 
 # ── HTML metadata parsing ─────────────────────────────────────────────────────
@@ -265,21 +298,27 @@ def parse_product_html(url: str, html_text: str) -> ProductMetadata:
 # ── HTTP fetching ─────────────────────────────────────────────────────────────
 
 
-async def _get(url: str, *, accept: str) -> httpx.Response:
-    """SSRF-guarded GET that follows redirects manually, validating each hop."""
-    current = _validate_url(url)
-    headers = {"User-Agent": _USER_AGENT, "Accept": accept}
+async def _get(url: str, *, accept: str) -> tuple[httpx.Response, str]:
+    """SSRF-guarded GET: follows redirects manually, DNS-pinning every hop.
+
+    Returns ``(response, final_url)`` — ``final_url`` is the hostname form of
+    the last hop (``response.url`` is the IP-pinned form and must not be used
+    for anything user-facing or for resolving relative URLs).
+    """
+    current = url
     async with httpx.AsyncClient(timeout=_REQUEST_TIMEOUT_S, follow_redirects=False) as client:
         for _ in range(_MAX_REDIRECTS):
-            resp = await client.get(current, headers=headers)
+            request_url, extra_headers, extensions = _pinned_request(current)
+            headers = {"User-Agent": _USER_AGENT, "Accept": accept, **extra_headers}
+            resp = await client.get(request_url, headers=headers, extensions=extensions)
             if resp.is_redirect:
                 location = resp.headers.get("location")
                 if not location:
                     break
-                current = _validate_url(urljoin(current, location))
+                current = urljoin(current, location)
                 continue
             resp.raise_for_status()
-            return resp
+            return resp, current
     raise BadRequestError("That URL redirected too many times.")
 
 
@@ -287,7 +326,7 @@ async def fetch_product_metadata(url: str) -> ProductMetadata:
     """Fetch a product page and extract its image + metadata. Raises on bad URL."""
     url = _validate_url(url.strip())
     try:
-        resp = await _get(url, accept="text/html,application/xhtml+xml")
+        resp, final_url = await _get(url, accept="text/html,application/xhtml+xml")
     except BadRequestError:
         raise
     except httpx.HTTPStatusError as exc:
@@ -305,8 +344,8 @@ async def fetch_product_metadata(url: str) -> ProductMetadata:
     except (LookupError, UnicodeDecodeError):
         html_text = raw.decode("utf-8", errors="replace")
 
-    # Final landing URL (after redirects) is the canonical source for the user.
-    final_url = str(resp.url) if resp.url else url
+    # Final landing URL (after redirects) is the canonical source for the user;
+    # _get returns it in hostname form (resp.url is the IP-pinned request URL).
     meta = parse_product_html(final_url, html_text)
     meta.source_url = url  # keep what the user actually pasted
     return meta
@@ -319,7 +358,7 @@ async def fetch_image_bytes(image_url: str) -> tuple[bytes, str] | None:
     flow into the vision pipeline, and EXIF is stripped along the way.
     """
     try:
-        resp = await _get(image_url, accept="image/*")
+        resp, _ = await _get(image_url, accept="image/*")
     except Exception as exc:  # noqa: BLE001 — image is best-effort; caller may screenshot
         logger.info("product_image_fetch_failed", error=str(exc), url=image_url[:120])
         return None
