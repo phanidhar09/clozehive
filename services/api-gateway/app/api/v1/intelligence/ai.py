@@ -31,7 +31,6 @@ from app.core.deps import CurrentUser, DbSession
 from app.core.embedding_service import generate_text_embedding, pgvector_cosine_search
 from app.core.exceptions import AIServiceError, AppError, ServiceUnavailableError
 from app.core.logging import get_logger
-from app.core.redis import get_redis
 from app.core.upload_service import read_validated_image
 from app.models.closet import ClosetItem
 from app.models.trips import Trip
@@ -380,61 +379,12 @@ async def chat(body: ChatRequest, user_id: CurrentUser, session: DbSession):
         )
 
 
-@router.post("/chat/stream")
-async def chat_stream(body: ChatRequest, user_id: CurrentUser, session: DbSession):
-    """SSE stream of assistant tokens proxied from the AI agent."""
-
-    async def events():
-        try:
-            yield _sse({"type": "status", "message": "Thinking…"})
-            uid = UUID(user_id)
-            # RAG-aware: embed the message and retrieve relevant closet items —
-            # skip the embedding + pgvector call for trivial greetings/acks.
-            load_closet = body.include_closet and _message_needs_closet(body.message)
-            closet = await _get_closet_for_occasion(session, uid, body.message) if load_closet else []
-            weather, user_profile = await asyncio.gather(
-                _resolve_weather_context(session, uid),
-                _resolve_user_profile(session, uid, None),
-            )
-            fashion_ctx = ""
-            try:
-                fashion_ctx = await get_fashion_context_for_prompt(session, body.message)
-            except Exception as exc:
-                logger.warning("fashion_context_unavailable", error=str(exc))
-            messages = _chat_messages(body)
-            cache_key = cache_service.build_cache_key(
-                user_id,
-                messages,
-                cache_service.build_closet_hash(closet),
-                cache_service.build_profile_hash(user_profile),
-            )
-            if settings.ai_cache_enabled:
-                redis = await get_redis()
-                cached = await cache_service.get_cached_response(redis, cache_key)
-                if cached is not None:
-                    logger.info("AI cache hit", user_id=user_id, key=cache_key)
-                    yield _sse({"type": "token", "content": cached, "cache": "HIT"})
-                    yield _sse({"type": "done"})
-                    return
-                logger.info("AI cache miss", user_id=user_id, key=cache_key)
-            full_response = []
-            system_prompt = _build_stylist_system_prompt(closet, weather, user_profile)
-            if fashion_ctx.strip():
-                system_prompt += f"\n\n[FASHION KNOWLEDGE]\n{fashion_ctx.strip()}\n[END FASHION KNOWLEDGE]"
-            async for chunk in ai_service.stream_chat(messages, system_prompt):
-                full_response.append(chunk)
-                yield _sse({"type": "token", "content": chunk})
-            if settings.ai_cache_enabled:
-                await cache_service.cache_response(
-                    await get_redis(), cache_key, "".join(full_response), settings.ai_cache_ttl
-                )
-            yield _sse({"type": "done"})
-        except AppError as exc:
-            yield _sse({"type": "error", "message": exc.message})
-        except Exception as exc:
-            yield _sse({"type": "error", "message": str(exc)})
-
-    return StreamingResponse(events(), media_type="text/event-stream", headers=_STREAM_HEADERS)
+# NOTE: the legacy `POST /chat/stream` route was removed — it streamed plain
+# text with no model router, no structured-output validation, and none of the
+# grounding/claim-audit guards. All chat UIs now consume the gated
+# `POST /ai-chat/stream` (ai_stylist_streaming.stream_chat_message), which has
+# feature parity plus RAG, grounding, and cost telemetry. Do not resurrect this
+# path; extend the gated one instead.
 
 
 # ── Outfit ────────────────────────────────────────────────────────────────────
