@@ -162,7 +162,7 @@ def _format_closet_for_prompt(closet_items: list[dict[str, Any]]) -> str:
             "name": item.get("name"),
             "category": item.get("category"),
         }
-        for field in ("color", "brand", "fabric", "pattern", "season", "size", "notes"):
+        for field in ("color", "brand", "fabric", "pattern", "fit", "season", "size", "notes"):
             val = item.get(field)
             if val:
                 entry[field] = val
@@ -472,7 +472,10 @@ closet_item_id null instead. An invented closet item is a hard failure.
 MATCHING RULES: Match each outfit to the day's forecast (fabric weight and
 coverage to the temperature, waterproof/outer layers on rainy days), the
 activity's formality and footwear needs, and the user's style profile colours and
-fit. Prefer cohesive colour pairings; do not pair clashing colours.
+fit. Prefer cohesive colour pairings; do not pair clashing colours. Use each
+item's "fit" field to balance silhouettes within an outfit — pair a
+relaxed/oversized piece with a slim/fitted one rather than stacking volume on
+volume; when fit is absent, judge proportion from the item name/category.
 
 INSTRUCTIONS:
 1. ACTIVITIES ARE THE #1 PRIORITY. When the user has listed planned activities,

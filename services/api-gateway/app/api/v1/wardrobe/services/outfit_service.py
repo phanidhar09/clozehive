@@ -62,7 +62,8 @@ async def generate_outfits(
 Use positive, supportive language. Never criticise the user's body. Honour avoided colors and climate preferences when listed in the user profile context.
 Return ONLY valid JSON with shape:
 {{"outfits":[{{"name":"","items":[{{"id":"","name":"","category":""}}],"style_notes":"","occasion_fit":"","weather_suitability":"","style_score":8.5}}],"style_tips":[]}}
-Hard rules: only use items from the provided wardrobe, refer to exact item names, and do not invent missing items.{style_block}{rag_block}"""
+Hard rules: only use items from the provided wardrobe, refer to exact item names, and do not invent missing items.
+Silhouette: use each wardrobe item's "fit" field (slim/regular/relaxed/oversized/tailored) to balance proportions — pair a relaxed/oversized piece with a slim/fitted one; avoid volume-on-volume. When fit is missing, judge proportion from the item name/category.{style_block}{rag_block}"""
     user_prompt = json.dumps(
         {
             "occasion": occasion,
