@@ -168,11 +168,13 @@ class Settings(BaseSettings):
     cookie_domain: str = ""  # leave blank for same-origin (recommended)
 
     # ── AI Agent Service ──────────────────────────────────────────────────────
+    # NOTE: the gateway no longer calls the ai-agent over HTTP directly (chat,
+    # outfit, vision and packing are all served in-process). These two are kept
+    # for the ai-worker deployment config, which still reaches the ai-agent.
     ai_agent_url: str = "http://ai-agent:8001"
-    # Budget for a single ai-agent read. connect timeout is always 5 s (see ai_client.py).
     ai_timeout_seconds: int = 30
-    # Shared secret sent as X-Internal-Token on every api-gateway → ai-agent request,
-    # and on api-gateway → closet-service internal calls (e.g. user-data purge).
+    # Shared secret sent as X-Internal-Token on internal calls (e.g. user-data
+    # purge). Still used by internal-auth + account-purge.
     internal_service_token: str = ""
     # Legacy: base URL of the retired closet-service. Empty by default so the
     # account-purge fan-out is a clean no-op — the gateway owns closet data in

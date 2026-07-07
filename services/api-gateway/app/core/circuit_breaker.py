@@ -95,7 +95,3 @@ def _record_metric(name: str, state: str) -> None:
         record_circuit_state(name, state)
     except Exception as exc:
         logger.debug("circuit_metric_emit_failed", error=str(exc), breaker=name)
-
-
-# Shared breaker for the ai-agent dependency.
-ai_agent_breaker = CircuitBreaker("ai_agent", fail_max=5, reset_timeout=30.0)
