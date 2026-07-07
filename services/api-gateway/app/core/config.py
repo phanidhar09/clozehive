@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from pydantic import field_validator, model_validator
@@ -234,6 +235,17 @@ class Settings(BaseSettings):
     # Closet POST /closet/analyze-preview: skip per-item BG removal + second OpenAI pass on each crop.
     # Much faster; detection metadata still comes from the first vision call. Set false for max quality.
     vision_preview_fast: bool = True
+
+    # ── Vision model tiering ──────────────────────────────────────────────────
+    # Detection (bounding boxes + rough classify — Gemini Flash is primary, this
+    # is the OpenAI fallback) and quick single-item categorization don't need
+    # the flagship model; the rich enrichment pass (analyze_for_bulk: fit,
+    # material texture, product screenshots) stays on `openai_model`.
+    vision_detection_model: str = "gpt-4o-mini"
+    # Keep detection at high detail: bbox precision degrades hard at low
+    # resolution — the cost lever here is the model, not the tiles.
+    vision_detection_detail: Literal["auto", "low", "high"] = "high"
+    vision_analysis_model: str = "gpt-4o-mini"
 
     # ── File Upload ───────────────────────────────────────────────────────────
     upload_dir: str = "./uploads"

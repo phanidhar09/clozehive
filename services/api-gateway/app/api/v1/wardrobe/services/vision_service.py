@@ -103,7 +103,11 @@ async def analyze_image(image_bytes: bytes, media_type: str = "image/jpeg") -> d
     )
     try:
         response = await _get_client().chat.completions.create(
-            model=settings.openai_model,
+            # Categorization tier: name/category/color for a single clean item
+            # photo — the mini vision model handles this reliably at ~15x lower
+            # cost. Rich extraction (fit, material texture) lives in
+            # analyze_for_bulk on the flagship model.
+            model=settings.vision_analysis_model,
             max_tokens=800,
             timeout=30.0,
             response_format={"type": "json_object"},
@@ -201,6 +205,13 @@ async def analyze_for_bulk(
     prompt_text = f"{extra_instruction}\n\n{_BULK_PROMPT}" if extra_instruction else _BULK_PROMPT
     try:
         response = await _get_client().chat.completions.create(
+            # Enrichment tier — deliberately the flagship model + detail:high.
+            # This pass reads fabric texture, fit, and pattern (and picks the
+            # main garment out of product-page screenshots) — the tasks most
+            # sensitive to model quality. Do not downgrade in a cost pass
+            # without a vision golden set to measure the regression — tier the
+            # detection/categorization calls instead (see config
+            # vision_detection_model / vision_analysis_model).
             model=settings.openai_model,
             max_tokens=1500,
             timeout=45.0,
