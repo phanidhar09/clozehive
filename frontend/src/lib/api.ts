@@ -1456,3 +1456,13 @@ export const plannerApi = {
     return mapPlannedDay(data)
   },
 }
+
+// ── WebSocket auth ────────────────────────────────────────────────────────────
+
+export const wsApi = {
+  /** Exchange the bearer token for a short-lived single-use WS connect ticket. */
+  async ticket(): Promise<string> {
+    const { data } = await api.post<{ ticket: string }>('/ws/ticket')
+    return data.ticket
+  },
+}

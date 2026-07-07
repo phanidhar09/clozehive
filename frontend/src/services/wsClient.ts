@@ -2,13 +2,16 @@
  * wsClient — singleton WebSocket client with automatic reconnection.
  *
  * Usage:
- *   wsClient.connect(token)          // call once after login
+ *   wsClient.connect()               // call once after login
  *   wsClient.disconnect()            // call on logout
  *   wsClient.on('notification', cb)  // subscribe to a server message type
  *   wsClient.off('notification', cb) // unsubscribe
  *   wsClient.send({ type: 'ping' })  // send a message
  *
  * The client:
+ *   - Exchanges the session's bearer token for a single-use connect ticket
+ *     (POST /ws/ticket) before every (re)connect, so no JWT ever appears in
+ *     the WebSocket URL (query strings end up in access logs and history)
  *   - Converts http(s) → ws(s) automatically from VITE_API_URL
  *   - Reconnects with exponential back-off (1 s → 32 s max)
  *   - Sends a ping every 30 s so the server-side 5-min idle timeout never fires
@@ -16,6 +19,7 @@
  */
 
 import { apiOrigin } from '@/lib/apiOrigin'
+import { wsApi } from '@/lib/api'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -30,7 +34,7 @@ type MessageHandler = (msg: WsMessage) => void
 
 // ── URL builder ───────────────────────────────────────────────────────────────
 
-function buildWsUrl(token: string): string {
+function buildWsUrl(ticket: string): string {
   const origin = apiOrigin()
   let base: string
 
@@ -43,14 +47,14 @@ function buildWsUrl(token: string): string {
     base = `${proto}//${window.location.host}`
   }
 
-  return `${base}/api/v1/ws?token=${encodeURIComponent(token)}`
+  return `${base}/api/v1/ws?ticket=${encodeURIComponent(ticket)}`
 }
 
 // ── Client ────────────────────────────────────────────────────────────────────
 
 class WsClient {
   private socket: WebSocket | null = null
-  private token: string | null = null
+  private shouldConnect = false
   private listeners: Map<string, Set<MessageHandler>> = new Map()
   private _status: WsStatus = 'disconnected'
   private retryCount = 0
@@ -71,19 +75,19 @@ class WsClient {
 
   // ── Public API ──────────────────────────────────────────────────────────────
 
-  connect(token: string): void {
+  connect(): void {
     if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
       return
     }
-    this.token = token
+    this.shouldConnect = true
     this.intentionalClose = false
-    this._open()
+    void this._open()
   }
 
   disconnect(): void {
     this.intentionalClose = true
     this._clearTimers()
-    this.token = null
+    this.shouldConnect = false
     this.retryCount = 0
     if (this.socket) {
       this.socket.close(1000, 'logout')
@@ -109,13 +113,23 @@ class WsClient {
 
   // ── Internal ────────────────────────────────────────────────────────────────
 
-  private _open(): void {
-    if (!this.token) return
+  private async _open(): Promise<void> {
+    if (!this.shouldConnect) return
     this.setStatus('connecting')
 
+    // Every attempt needs a fresh ticket — they're single-use and expire fast.
+    let ticket: string
     try {
-      const url = buildWsUrl(this.token)
-      this.socket = new WebSocket(url)
+      ticket = await wsApi.ticket()
+    } catch {
+      this.setStatus('error')
+      this._scheduleRetry()
+      return
+    }
+    if (!this.shouldConnect) return // disconnected while fetching the ticket
+
+    try {
+      this.socket = new WebSocket(buildWsUrl(ticket))
     } catch {
       this.setStatus('error')
       this._scheduleRetry()
@@ -140,12 +154,14 @@ class WsClient {
     this.socket.onclose = (event) => {
       this._clearPing()
       if (this.intentionalClose) return
-      // 4001 = unauthorized — don't retry, token is bad
+      // 4001 = ticket didn't redeem (expired or already used). Unlike the old
+      // JWT-in-URL scheme this isn't fatal: a retry fetches a fresh ticket,
+      // and a genuinely dead session fails at POST /ws/ticket instead.
       if (event.code === 4001) {
         this.setStatus('error')
-        return
+      } else {
+        this.setStatus('disconnected')
       }
-      this.setStatus('disconnected')
       this._scheduleRetry()
     }
 
@@ -156,10 +172,10 @@ class WsClient {
   }
 
   private _scheduleRetry(): void {
-    if (this.intentionalClose || !this.token) return
+    if (this.intentionalClose || !this.shouldConnect) return
     const delay = Math.min(1000 * 2 ** this.retryCount, 32_000)
     this.retryCount++
-    this.retryTimer = setTimeout(() => this._open(), delay)
+    this.retryTimer = setTimeout(() => void this._open(), delay)
   }
 
   private _startPing(): void {

@@ -45,13 +45,14 @@ export function useWebSocket() {
   const { currentUser } = useApp()
 
   useEffect(() => {
-    const token = tokenStorage.getAccess()
-    if (!currentUser || !token) {
+    // The token itself never reaches the WS URL — wsClient exchanges it for a
+    // single-use ticket via the authenticated API client on each connect.
+    if (!currentUser || !tokenStorage.getAccess()) {
       wsClient.disconnect()
       return
     }
 
-    wsClient.connect(token)
+    wsClient.connect()
 
     // Handle incoming notification events from the server
     const onNotification = (msg: WsMessage) => {

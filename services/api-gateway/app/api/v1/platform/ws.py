@@ -19,16 +19,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import secrets
 import time
 from typing import Any
 
 import structlog
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from jose import JWTError
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
 from app.api.v1.intelligence.services.ai_client import stream_chat as ai_stream_chat
 from app.core import cache_service
-from app.core.security import decode_access_token
+from app.core.deps import CurrentUser
 
 logger = structlog.get_logger("ws")
 router = APIRouter(prefix="/ws", tags=["websocket"])
@@ -166,19 +166,39 @@ manager = ConnectionManager()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  Token auth helper
+#  Ticket auth
+#
+#  Browsers can't set headers on a WebSocket handshake, so the classic
+#  workaround is `?token=<jwt>` — which leaks the bearer token into access
+#  logs, proxy logs, browser history, and Referer headers. Instead the client
+#  exchanges its JWT (over a normal authenticated POST) for a short-lived
+#  single-use ticket and connects with `?ticket=`. A leaked ticket is worthless
+#  the moment the connection is made, and expires in seconds otherwise.
 # ─────────────────────────────────────────────────────────────────────────────
 
+_TICKET_TTL_S = 60
 
-def _authenticate(token: str | None) -> str | None:
-    """Return user_id from JWT token, or None if invalid."""
-    if not token:
+
+def _ticket_key(ticket: str) -> str:
+    return cache_service.namespaced_key("ws", "ticket", ticket)
+
+
+@router.post("/ticket")
+async def create_ws_ticket(user_id: CurrentUser) -> dict[str, Any]:
+    """Issue a single-use WebSocket connection ticket for the caller."""
+    ticket = secrets.token_urlsafe(32)
+    stored = await cache_service.set(_ticket_key(ticket), user_id, _TICKET_TTL_S)
+    if not stored:
+        raise HTTPException(status_code=503, detail="Realtime service unavailable, try again.")
+    return {"ticket": ticket, "expires_in": _TICKET_TTL_S}
+
+
+async def _consume_ticket(ticket: str | None) -> str | None:
+    """Redeem a ticket exactly once (atomic GETDEL). Returns user_id or None."""
+    if not ticket:
         return None
-    try:
-        payload = decode_access_token(token)
-        return payload.get("sub")
-    except (JWTError, Exception):
-        return None
+    user_id = await cache_service.getdel(_ticket_key(ticket))
+    return str(user_id) if user_id else None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -230,17 +250,17 @@ async def _handle_chat(ws: WebSocket, user_id: str, message: str) -> None:
 @router.websocket("")
 async def websocket_endpoint(
     ws: WebSocket,
-    token: str | None = None,
+    ticket: str | None = None,
 ) -> None:
     """
     Main WebSocket endpoint.
 
-    Connect: ws://host/ws?token=<access_token>
+    Connect: ws://host/ws?ticket=<ticket from POST /ws/ticket>
 
-    The token is validated on connect. If invalid, the connection is closed
-    with 4001 (unauthorized).
+    The single-use ticket is consumed on connect. If missing, expired, or
+    already used, the connection is closed with 4001 (unauthorized).
     """
-    user_id = _authenticate(token)
+    user_id = await _consume_ticket(ticket)
     if not user_id:
         await ws.close(code=4001, reason="Unauthorized")
         return
