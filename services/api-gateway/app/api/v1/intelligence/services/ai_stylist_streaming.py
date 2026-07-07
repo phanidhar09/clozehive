@@ -21,6 +21,7 @@ import asyncio
 import json
 import re
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -51,6 +52,13 @@ from app.api.v1.intelligence.services.model_router import RouteSignals
 from app.api.v1.wardrobe.services.outfit_history_service import get_outfit_history_for_prompt
 from app.core.ai_output_validator import score_response_quality, validate_chat_response
 from app.core.analytics import LLMTelemetry
+from app.core.claim_grounding import (
+    GroundingContext,
+    audit_outfit_seasons,
+    audit_reply_claims,
+    audit_suggestion_entries,
+    redact_ungrounded_claims,
+)
 from app.core.embedding_service import generate_text_embedding
 from app.core.llm_safety import sanitize_user_text
 from app.core.logging import get_logger
@@ -457,8 +465,9 @@ async def stream_chat_message(
         data = _fallback_response(message, closet_items)
 
     # Use the same strong validator as the non-streaming path: UUID-format check,
-    # closet-membership check, and score-breakdown correction — not just an ID strip.
-    validation = validate_chat_response(data, valid_ids)
+    # closet-membership check, within-outfit de-dupe, closet-record attribute
+    # grounding, and score-breakdown correction — not just an ID strip.
+    validation = validate_chat_response(data, valid_ids, closet_map=closet_map)
 
     # ── Grounding gate (parity with the non-streaming path) ─────────────────
     # The reply tokens have already streamed, so we can't retract them. Instead,
@@ -484,20 +493,78 @@ async def stream_chat_message(
     cleaned = validation.cleaned
     outfits = cleaned.get("recommended_outfits") or []
 
+    # ── Claim-grounding audit (prose + item seasons) ─────────────────────────
+    # Provenance checks (weather/memory/preference/image claims require the
+    # matching context this turn) + closet-record checks (colour/material/brand
+    # of *owned* items) + season sanity on recommended items. The streamed text
+    # already shipped, so ungrounded sentences are redacted from the *persisted*
+    # reply and the client gets a `correction` annotation.
+    grounding_ctx = GroundingContext(
+        weather_provided=bool(weather),
+        history_depth=len(full_history),
+        profile_provided=bool(user_profile),
+        images_provided=bool(user_images),
+        current_month=datetime.now(UTC).month,
+    )
+    reply_violations = audit_reply_claims(cleaned.get("reply"), closet_map, grounding_ctx)
+    season_violations = audit_outfit_seasons(outfits, closet_map, grounding_ctx.current_month)
+    # Suggestion side channels get the same audit; flagged entries are dropped
+    # whole (they ship in this structured event, so containment is total here).
+    cleaned["styling_suggestions"], suggestion_violations = audit_suggestion_entries(
+        cleaned.get("styling_suggestions"), closet_map, grounding_ctx, valid_item_ids=valid_ids
+    )
+    cleaned["purchase_gaps"], gap_violations = audit_suggestion_entries(
+        cleaned.get("purchase_gaps"), closet_map, grounding_ctx, valid_item_ids=valid_ids
+    )
+    if suggestion_violations or gap_violations:
+        logger.warning(
+            "stream_suggestions_dropped",
+            user_id=str(user_id),
+            dropped=len(suggestion_violations) + len(gap_violations),
+            kinds=sorted({v.kind for v in suggestion_violations + gap_violations}),
+        )
+    claim_violations = reply_violations + suggestion_violations + gap_violations
+    if reply_violations:
+        redacted_reply, removed_sentences = redact_ungrounded_claims(cleaned.get("reply"), reply_violations)
+        cleaned["reply"] = redacted_reply
+        logger.warning(
+            "stream_reply_claims_redacted",
+            user_id=str(user_id),
+            removed_sentences=removed_sentences,
+            kinds=sorted({v.kind for v in reply_violations}),
+        )
+        yield {
+            "type": "correction",
+            "reason": "ungrounded_claims",
+            "note": "I've removed a couple of details I couldn't verify against your closet or this conversation.",
+            "reply": redacted_reply,
+        }
+    if season_violations:
+        logger.info(
+            "stream_outfit_season_mismatch",
+            user_id=str(user_id),
+            details=[v.detail for v in season_violations],
+        )
+
     quality = score_response_quality(validation, len(valid_ids))
     logger.info(
         "stream_response_quality",
         user_id=str(user_id),
         quality_overall=quality.overall,
         hallucination_risk=quality.hallucination_risk,
+        ungrounded_claims=len(claim_violations),
+        season_mismatches=len(season_violations),
+        attributes_corrected=validation.attributes_corrected,
         outfits=len(outfits),
     )
 
     # The validator removed hallucinated items/outfits. When a meaningful share
     # was removed, the already-streamed reply text may reference them — flag it so
     # the client can annotate (the text itself cannot be un-sent).
-    corrected = validation.outfits_removed > 0 or validation.items_removed > 0
-    if corrected and quality.hallucination_risk >= _HALLUCINATION_NOTICE_THRESHOLD:
+    corrected = validation.outfits_removed > 0 or validation.items_removed > 0 or bool(claim_violations)
+    if (
+        validation.outfits_removed or validation.items_removed
+    ) and quality.hallucination_risk >= _HALLUCINATION_NOTICE_THRESHOLD:
         yield {
             "type": "correction",
             "reason": "adjusted",
@@ -521,5 +588,8 @@ async def stream_chat_message(
             "overall": quality.overall,
             "hallucination_risk": quality.hallucination_risk,
             "outfit_completeness": quality.outfit_completeness,
+            "ungrounded_claims": len(claim_violations),
+            "season_mismatches": len(season_violations),
+            "attributes_corrected": validation.attributes_corrected,
         },
     }
