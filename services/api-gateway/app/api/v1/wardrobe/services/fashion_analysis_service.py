@@ -251,7 +251,10 @@ async def detect_fashion_items(
 
     try:
         response = await _get_client().chat.completions.create(
-            model=settings.openai_model,
+            # Detection tier: bounding boxes + rough classification only — the
+            # per-item enrichment pass (analyze_for_bulk) refines attributes on
+            # the flagship model. Detail stays high for bbox precision.
+            model=settings.vision_detection_model,
             max_tokens=4096,
             # JSON mode — guarantees a parseable object, no markdown fences to strip.
             response_format={"type": "json_object"},
@@ -259,7 +262,10 @@ async def detect_fashion_items(
                 {
                     "role": "user",
                     "content": [
-                        {"type": "image_url", "image_url": {"url": data_url, "detail": "high"}},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": data_url, "detail": settings.vision_detection_detail},
+                        },
                         {"type": "text", "text": FASHION_DETECTION_PROMPT},
                     ],
                 }
