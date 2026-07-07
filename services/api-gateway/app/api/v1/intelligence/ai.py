@@ -26,6 +26,7 @@ from app.api.v1.travel.services.location_intel_service import build_location_con
 from app.api.v1.wardrobe.services import outfit_service, vision_service
 from app.api.v1.wardrobe.services.outfit_history_service import get_outfit_history_for_prompt
 from app.core import cache_service
+from app.core.analytics import LLMTelemetry
 from app.core.config import get_settings
 from app.core.deps import CurrentUser, DbSession
 from app.core.embedding_service import generate_text_embedding, pgvector_cosine_search
@@ -648,4 +649,8 @@ async def vision_analyze(user_id: CurrentUser, file: UploadFile = File(...)):
     """Analyse a garment image with Claude Vision."""
     logger.info("vision_analyze_request", user_id=user_id)
     image_bytes, content_type = await read_validated_image(file)
-    return await vision_service.analyze_image(image_bytes, content_type)
+    return await vision_service.analyze_image(
+        image_bytes,
+        content_type,
+        telemetry=LLMTelemetry(operation="vision_categorize", user_id=str(user_id)),
+    )

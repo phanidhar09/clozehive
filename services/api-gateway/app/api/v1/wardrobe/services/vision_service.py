@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import time
 from typing import Any
 
 from langsmith import traceable
@@ -14,6 +15,7 @@ from app.api.v1.wardrobe.schemas.vision_canonical import (
     normalized_to_legacy_upload_dict,
     parse_vision_ai_payload,
 )
+from app.core.analytics import LLMTelemetry
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.core.openai_tracing import make_openai_client, wrap_openai_client
@@ -29,6 +31,39 @@ def _get_client() -> AsyncOpenAI:
     if _client is None:
         _client = wrap_openai_client(make_openai_client(settings.openai_api_key, base_url=settings.openai_api_base_url))
     return _client
+
+
+def _capture_vision_generation(
+    *,
+    model: str,
+    messages: list[dict[str, Any]],
+    output_text: str,
+    usage: Any,
+    elapsed: float,
+    operation: str,
+    telemetry: LLMTelemetry | None,
+    is_error: bool = False,
+) -> None:
+    """Token/cost capture for vision calls — same $ai_generation plumbing as chat.
+
+    Lazy import: ai_service lives in the intelligence package, which imports
+    wardrobe modules at package level; importing it at module scope here would
+    create a cycle.
+    """
+    try:
+        from app.api.v1.intelligence.services.ai_service import _record_generation
+
+        _record_generation(
+            model=model,
+            messages=messages,
+            output_chars=len(output_text),
+            usage=usage,
+            elapsed=elapsed,
+            telemetry=telemetry or LLMTelemetry(operation=operation),
+            is_error=is_error,
+        )
+    except Exception as exc:  # noqa: BLE001 — telemetry must never break vision
+        logger.debug("vision_generation_capture_failed", error=str(exc))
 
 
 def _clean_json(text: str) -> str:
@@ -81,7 +116,12 @@ def _bulk_fallback_raw(reason: str) -> dict[str, Any]:
 
 
 @traceable(name="gateway_vision_analyze_image", run_type="chain")
-async def analyze_image(image_bytes: bytes, media_type: str = "image/jpeg") -> dict[str, Any]:
+async def analyze_image(
+    image_bytes: bytes,
+    media_type: str = "image/jpeg",
+    *,
+    telemetry: LLMTelemetry | None = None,
+) -> dict[str, Any]:
     if not settings.openai_api_key:
         return normalized_to_legacy_upload_dict(
             parse_vision_ai_payload(
@@ -101,8 +141,18 @@ async def analyze_image(image_bytes: bytes, media_type: str = "image/jpeg") -> d
         "confidence (0.0-1.0 float — set low when image quality is poor or item is partially visible), "
         "notes (any caveats about detection quality)."
     )
+    messages: list[dict[str, Any]] = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": data_url}},
+                {"type": "text", "text": prompt},
+            ],
+        }
+    ]
+    started = time.perf_counter()
     try:
-        response = await _get_client().chat.completions.create(
+        response = await _get_client().chat.completions.create(  # type: ignore[call-overload]
             # Categorization tier: name/category/color for a single clean item
             # photo — the mini vision model handles this reliably at ~15x lower
             # cost. Rich extraction (fit, material texture) lives in
@@ -111,18 +161,19 @@ async def analyze_image(image_bytes: bytes, media_type: str = "image/jpeg") -> d
             max_tokens=800,
             timeout=30.0,
             response_format={"type": "json_object"},
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image_url", "image_url": {"url": data_url}},
-                        {"type": "text", "text": prompt},
-                    ],
-                }
-            ],
+            messages=messages,
         )
         msg = response.choices[0].message
         text = (msg.content or "").strip()
+        _capture_vision_generation(
+            model=settings.vision_analysis_model,
+            messages=messages,
+            output_text=text,
+            usage=getattr(response, "usage", None),
+            elapsed=time.perf_counter() - started,
+            operation="vision_categorize",
+            telemetry=telemetry,
+        )
         raw = json.loads(_clean_json(text))
         if not isinstance(raw, dict):
             raise ValueError("Vision response is not a JSON object")
@@ -137,6 +188,16 @@ async def analyze_image(image_bytes: bytes, media_type: str = "image/jpeg") -> d
         return normalized_to_legacy_upload_dict(n)
     except BaseException as exc:
         logger.error("vision_analysis_failed", error=str(exc))
+        _capture_vision_generation(
+            model=settings.vision_analysis_model,
+            messages=messages,
+            output_text="",
+            usage=None,
+            elapsed=time.perf_counter() - started,
+            operation="vision_categorize",
+            telemetry=telemetry,
+            is_error=True,
+        )
         return normalized_to_legacy_upload_dict(parse_vision_ai_payload(_fallback_raw(str(exc)), source="fallback"))
 
 
@@ -182,6 +243,7 @@ async def analyze_for_bulk(
     media_type: str = "image/jpeg",
     *,
     extra_instruction: str | None = None,
+    telemetry: LLMTelemetry | None = None,
 ) -> dict[str, Any]:
     """
     Rich garment analysis for ingest and preview fallback.
@@ -203,8 +265,18 @@ async def analyze_for_bulk(
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
     data_url = f"data:{media_type};base64,{image_b64}"
     prompt_text = f"{extra_instruction}\n\n{_BULK_PROMPT}" if extra_instruction else _BULK_PROMPT
+    messages: list[dict[str, Any]] = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "image_url", "image_url": {"url": data_url, "detail": "high"}},
+                {"type": "text", "text": prompt_text},
+            ],
+        }
+    ]
+    started = time.perf_counter()
     try:
-        response = await _get_client().chat.completions.create(
+        response = await _get_client().chat.completions.create(  # type: ignore[call-overload]
             # Enrichment tier — deliberately the flagship model + detail:high.
             # This pass reads fabric texture, fit, and pattern (and picks the
             # main garment out of product-page screenshots) — the tasks most
@@ -216,18 +288,19 @@ async def analyze_for_bulk(
             max_tokens=1500,
             timeout=45.0,
             response_format={"type": "json_object"},
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "image_url", "image_url": {"url": data_url, "detail": "high"}},
-                        {"type": "text", "text": prompt_text},
-                    ],
-                }
-            ],
+            messages=messages,
         )
         msg = response.choices[0].message
         text = (msg.content or "").strip()
+        _capture_vision_generation(
+            model=settings.openai_model,
+            messages=messages,
+            output_text=text,
+            usage=getattr(response, "usage", None),
+            elapsed=time.perf_counter() - started,
+            operation="vision_enrich",
+            telemetry=telemetry,
+        )
         data = json.loads(_clean_json(text))
         if not isinstance(data, dict):
             raise ValueError("Response is not a JSON object")
@@ -250,6 +323,16 @@ async def analyze_for_bulk(
         return normalized_to_bulk_api_dict(n, raw=data)
     except BaseException as exc:
         logger.error("bulk_vision_analysis_failed", error=str(exc))
+        _capture_vision_generation(
+            model=settings.openai_model,
+            messages=messages,
+            output_text="",
+            usage=None,
+            elapsed=time.perf_counter() - started,
+            operation="vision_enrich",
+            telemetry=telemetry,
+            is_error=True,
+        )
         raw_fb = _bulk_fallback_raw(str(exc))
         n = parse_vision_ai_payload(raw_fb, source="fallback")
         return normalized_to_bulk_api_dict(n, raw=raw_fb)

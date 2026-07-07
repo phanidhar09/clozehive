@@ -84,6 +84,7 @@ def _record_generation(
     elapsed: float,
     telemetry: LLMTelemetry | None,
     is_error: bool = False,
+    provider: str = "openai",
 ) -> None:
     """Record token/cost metrics (Prometheus) and emit a PostHog $ai_generation event.
 
@@ -106,7 +107,7 @@ def _record_generation(
         record_ai_cost(model, input_cost + output_cost)
         capture_llm_generation(
             model=model,
-            provider="openai",
+            provider=provider,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             input_cost_usd=input_cost,

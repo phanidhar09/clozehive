@@ -34,6 +34,7 @@ import base64
 import io
 import json
 import math
+import time
 import uuid
 from typing import Any
 
@@ -249,8 +250,25 @@ async def detect_fashion_items(
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
     data_url = f"data:{media_type};base64,{image_b64}"
 
+    # Token/cost capture reuses the vision_service helper (same $ai_generation
+    # plumbing as the chat path).
+    from app.api.v1.wardrobe.services.vision_service import _capture_vision_generation
+
+    messages: list[dict[str, Any]] = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image_url",
+                    "image_url": {"url": data_url, "detail": settings.vision_detection_detail},
+                },
+                {"type": "text", "text": FASHION_DETECTION_PROMPT},
+            ],
+        }
+    ]
+    started = time.perf_counter()
     try:
-        response = await _get_client().chat.completions.create(
+        response = await _get_client().chat.completions.create(  # type: ignore[call-overload]
             # Detection tier: bounding boxes + rough classification only — the
             # per-item enrichment pass (analyze_for_bulk) refines attributes on
             # the flagship model. Detail stays high for bbox precision.
@@ -258,23 +276,31 @@ async def detect_fashion_items(
             max_tokens=4096,
             # JSON mode — guarantees a parseable object, no markdown fences to strip.
             response_format={"type": "json_object"},
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": data_url, "detail": settings.vision_detection_detail},
-                        },
-                        {"type": "text", "text": FASHION_DETECTION_PROMPT},
-                    ],
-                }
-            ],
+            messages=messages,
         )
         raw_text = (response.choices[0].message.content or "").strip()
+        _capture_vision_generation(
+            model=settings.vision_detection_model,
+            messages=messages,
+            output_text=raw_text,
+            usage=getattr(response, "usage", None),
+            elapsed=time.perf_counter() - started,
+            operation="vision_detection",
+            telemetry=None,
+        )
         vision_data: dict[str, Any] = json.loads(_clean_json(raw_text))
     except (APIError, json.JSONDecodeError, Exception) as exc:
         logger.error("fashion_vision_failed", error=str(exc))
+        _capture_vision_generation(
+            model=settings.vision_detection_model,
+            messages=messages,
+            output_text="",
+            usage=None,
+            elapsed=time.perf_counter() - started,
+            operation="vision_detection",
+            telemetry=None,
+            is_error=True,
+        )
         return {"total_items_detected": 1, "items": [_fallback_item(str(exc))]}
 
     raw_items = vision_data.get("items") or []
