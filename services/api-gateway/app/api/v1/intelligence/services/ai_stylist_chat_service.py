@@ -16,6 +16,7 @@ purchase gaps explicitly instead of hallucinating items.
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -36,6 +37,13 @@ from app.core.ai_output_validator import (
     validate_chat_response,
 )
 from app.core.analytics import LLMTelemetry
+from app.core.claim_grounding import (
+    GroundingContext,
+    audit_outfit_seasons,
+    audit_reply_claims,
+    audit_suggestion_entries,
+    redact_ungrounded_claims,
+)
 from app.core.embedding_service import (
     generate_text_embedding,
     pgvector_cosine_search,
@@ -705,7 +713,9 @@ async def process_chat_message(
         data = _fallback_response(message, closet_items)
 
     # ── Validate & enrich ─────────────────────────────────────────────────────
-    validation = validate_chat_response(data, valid_ids)
+    # closet_map makes the closet record authoritative for item attributes and
+    # de-duplicates repeated items within an outfit.
+    validation = validate_chat_response(data, valid_ids, closet_map=closet_map)
     if validation.errors and not validation.cleaned.get("reply"):
         # Hard error with no usable reply — cannot recover
         logger.error("ai_chat_response_invalid", errors=validation.errors, user_id=str(user_id))
@@ -724,6 +734,50 @@ async def process_chat_message(
 
     outfits = validation.cleaned.get("recommended_outfits") or []
 
+    # ── Claim-grounding audit ─────────────────────────────────────────────────
+    # Unlike the streaming path, nothing has shipped yet — ungrounded sentences
+    # (fabricated weather/memory/preference/ownership claims, wrong colour/
+    # material/brand on owned items) are redacted from the reply outright.
+    grounding_ctx = GroundingContext(
+        weather_provided=bool(weather),
+        history_depth=len(history_for_prompt),
+        profile_provided=bool(user_profile),
+        images_provided=bool(user_images),
+        current_month=datetime.now(UTC).month,
+    )
+    reply_violations = audit_reply_claims(validation.cleaned.get("reply"), closet_map, grounding_ctx)
+    season_violations = audit_outfit_seasons(outfits, closet_map, grounding_ctx.current_month)
+    # Suggestion side channels get the same audit; flagged entries are dropped whole.
+    validation.cleaned["styling_suggestions"], suggestion_violations = audit_suggestion_entries(
+        validation.cleaned.get("styling_suggestions"), closet_map, grounding_ctx, valid_item_ids=valid_ids
+    )
+    validation.cleaned["purchase_gaps"], gap_violations = audit_suggestion_entries(
+        validation.cleaned.get("purchase_gaps"), closet_map, grounding_ctx, valid_item_ids=valid_ids
+    )
+    if suggestion_violations or gap_violations:
+        logger.warning(
+            "ai_chat_suggestions_dropped",
+            user_id=str(user_id),
+            dropped=len(suggestion_violations) + len(gap_violations),
+            kinds=sorted({v.kind for v in suggestion_violations + gap_violations}),
+        )
+    claim_violations = reply_violations + suggestion_violations + gap_violations
+    if reply_violations:
+        redacted_reply, removed_sentences = redact_ungrounded_claims(validation.cleaned.get("reply"), reply_violations)
+        validation.cleaned["reply"] = redacted_reply
+        logger.warning(
+            "ai_chat_reply_claims_redacted",
+            user_id=str(user_id),
+            removed_sentences=removed_sentences,
+            kinds=sorted({v.kind for v in reply_violations}),
+        )
+    if season_violations:
+        logger.info(
+            "ai_chat_outfit_season_mismatch",
+            user_id=str(user_id),
+            details=[v.detail for v in season_violations],
+        )
+
     # Quality score — logged for monitoring; not returned to client
     quality = score_response_quality(validation, len(valid_ids))
     logger.info(
@@ -732,6 +786,9 @@ async def process_chat_message(
         quality_overall=quality.overall,
         hallucination_risk=quality.hallucination_risk,
         outfit_completeness=quality.outfit_completeness,
+        ungrounded_claims=len(claim_violations),
+        season_mismatches=len(season_violations),
+        attributes_corrected=validation.attributes_corrected,
         outfits=len(outfits),
     )
 

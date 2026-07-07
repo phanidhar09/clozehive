@@ -48,6 +48,7 @@ class ValidationResult:
     errors: list[str] = field(default_factory=list)
     outfits_removed: int = 0
     items_removed: int = 0
+    attributes_corrected: int = 0
 
     @property
     def is_valid(self) -> bool:
@@ -71,12 +72,17 @@ class ResponseQualityScore:
 def validate_chat_response(
     data: dict[str, Any],
     valid_item_ids: set[str],
+    closet_map: dict[str, dict[str, Any]] | None = None,
 ) -> ValidationResult:
     """Validate and clean an AI chat response dict.
 
     Checks:
     - Required top-level keys are present and correctly typed.
     - ``recommended_outfits`` items reference only IDs in ``valid_item_ids``.
+    - The same item id repeated within one outfit is de-duplicated.
+    - When ``closet_map`` is given, item-level attributes (name/color/fabric/
+      pattern/category) are overwritten from the authoritative closet record —
+      the model cannot relabel an owned item.
     - ``matching_score`` equals the sum of ``score_breakdown`` components (±1 rounding).
     - ``score_breakdown`` values are non-negative integers summing to ≤ 100.
     - Outfits with zero valid items after filtering are dropped.
@@ -116,6 +122,7 @@ def validate_chat_response(
         # Item ID validation
         raw_items = outfit.get("items") or []
         valid_items = []
+        seen_ids: set[str] = set()
         for item in raw_items:
             if not isinstance(item, dict):
                 continue
@@ -126,7 +133,27 @@ def validate_chat_response(
             elif item_id not in valid_item_ids:
                 outfit_warnings.append(f"item id '{item_id}' not in user's closet — removed")
                 result.items_removed += 1
+            elif item_id in seen_ids:
+                # The same garment cannot appear twice in one outfit.
+                outfit_warnings.append(f"item id '{item_id}' duplicated within outfit — removed")
+                result.items_removed += 1
             else:
+                seen_ids.add(item_id)
+                # Attribute grounding: the closet record is authoritative — the
+                # model may not relabel an owned item's name/colour/fabric/etc.
+                record = (closet_map or {}).get(item_id)
+                if record:
+                    for attr in ("name", "color", "fabric", "pattern", "category"):
+                        recorded = record.get(attr)
+                        claimed = item.get(attr)
+                        if recorded and claimed and str(claimed).strip().lower() != str(recorded).strip().lower():
+                            outfit_warnings.append(
+                                f"item '{item_id}' {attr} '{claimed}' ≠ closet record '{recorded}' — corrected"
+                            )
+                            item[attr] = recorded
+                            result.attributes_corrected += 1
+                        elif recorded and not claimed and attr in item:
+                            item[attr] = recorded
                 valid_items.append(item)
 
         if not valid_items:

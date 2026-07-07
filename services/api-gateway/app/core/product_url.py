@@ -113,7 +113,7 @@ def _validated_public_ip(host: str) -> str:
             or ip.is_unspecified
         ):
             raise BadRequestError(blocked)
-    return infos[0][4][0]
+    return str(infos[0][4][0])
 
 
 def _validate_url(url: str) -> str:
