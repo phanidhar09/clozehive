@@ -193,15 +193,25 @@ async def get_trip(
     return await _get_svc(session).get_trip(trip_id, UUID(user_id))
 
 
-@router.get("/{trip_id}/packing-list")
+@router.get("/{trip_id}/packing-list", response_model=PackingPlanResponse)
 async def get_packing_list(
     user_id: CurrentUser,
     trip_id: UUID,
     session: AsyncSession = Depends(get_session),
 ):
+    """
+    Return the trip's packing plan, serving the saved plan when one exists.
+    Generation (LLM calls) only happens for a trip that has no plan yet;
+    explicit regeneration goes through POST /regenerate-packing.
+    """
     svc = _get_svc(session)
-    trip_resp = await svc.get_trip(trip_id, UUID(user_id))
-    # Fetch raw trip for activities/bag_size
+    trip_resp = await svc.get_trip(trip_id, UUID(user_id))  # 404 if not owned
+
+    saved = await svc.get_packing_plan(trip_id, UUID(user_id))
+    if saved is not None:
+        return saved
+
+    # No plan yet — generate once and persist so subsequent GETs are free.
     from sqlalchemy import select as sa_select
 
     from app.models.trips import Trip as TripModel
@@ -215,7 +225,7 @@ async def get_packing_list(
     rag_context = await _build_packing_rag_context(
         session, UUID(user_id), trip_resp.destination, trip_resp.purpose, acts
     )
-    return await _generate_trip_packing(
+    packing_result = await _generate_trip_packing(
         session,
         UUID(user_id),
         trip_resp.destination,
@@ -229,6 +239,7 @@ async def get_packing_list(
         bag_size=trip_resp.bag_size,
         rag_context=rag_context,
     )
+    return await svc.save_packing_plan(trip_id, UUID(user_id), packing_result)
 
 
 # ── Create ────────────────────────────────────────────────────────────────────
