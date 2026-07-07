@@ -18,6 +18,10 @@ _PRICING: dict[str, tuple[float, float]] = {
     # Embedding models have no completion tokens; completion rate is 0.
     "text-embedding-3-small": (0.02, 0.0),
     "text-embedding-3-large": (0.13, 0.0),
+    # Gemini (Google public pricing) — used by the vision detection pass.
+    # Without these, Gemini calls would be over-counted at the gpt-4o fallback rate.
+    "gemini-2.5-flash": (0.30, 2.50),
+    "gemini-1.5-flash": (0.075, 0.30),
 }
 
 # Fallback for unrecognised models — bias toward the strong model so cost is

@@ -41,6 +41,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 from typing import Any
 
 from langsmith import traceable
@@ -50,8 +51,11 @@ from app.api.v1.wardrobe.services.fashion_detection_prompt import (
     FashionDetection,
     to_detection_dict,
 )
+from app.core.analytics import LLMTelemetry, capture_llm_generation
 from app.core.config import get_settings
+from app.core.llm_pricing import cost_usd
 from app.core.logging import get_logger
+from app.core.metrics import record_ai_cost, record_ai_tokens
 
 settings = get_settings()
 logger = get_logger("gemini_service")
@@ -127,6 +131,39 @@ def is_available() -> bool:
 
 
 @traceable(name="gemini_detect_and_classify", run_type="llm")
+def _capture_generation(response: Any, elapsed: float, *, is_error: bool = False) -> None:
+    """Token/cost capture for Gemini vision — same $ai_generation schema as the
+    OpenAI paths, with provider="gemini". Uses the SDK's ``usage_metadata``
+    (prompt_token_count / candidates_token_count); a rough image-proxy estimate
+    when absent, so dashboards never show a silent zero. Never raises.
+    """
+    try:
+        meta = getattr(response, "usage_metadata", None)
+        if meta is not None:
+            prompt_tokens = int(getattr(meta, "prompt_token_count", 0) or 0)
+            completion_tokens = int(getattr(meta, "candidates_token_count", 0) or 0)
+            token_source = "api"
+        else:
+            prompt_tokens, completion_tokens, token_source = 1000, 0, "estimated"
+        input_cost, output_cost, _ = cost_usd(settings.gemini_model, prompt_tokens, completion_tokens)
+        record_ai_tokens(settings.gemini_model, prompt=prompt_tokens, completion=completion_tokens)
+        record_ai_cost(settings.gemini_model, input_cost + output_cost)
+        capture_llm_generation(
+            model=settings.gemini_model,
+            provider="gemini",
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            input_cost_usd=input_cost,
+            output_cost_usd=output_cost,
+            latency_seconds=elapsed,
+            token_source=token_source,
+            telemetry=LLMTelemetry(operation="vision_detection"),
+            is_error=is_error,
+        )
+    except Exception as exc:  # noqa: BLE001 — telemetry must never break detection
+        logger.debug("gemini_generation_capture_failed", error=str(exc))
+
+
 async def detect_and_classify(image_bytes: bytes, media_type: str) -> dict[str, Any]:
     """
     Send image to Gemini for combined detection + metadata.
@@ -159,6 +196,7 @@ async def detect_and_classify(image_bytes: bytes, media_type: str) -> dict[str, 
 
     last_exc: Exception | None = None
     for attempt in range(1, _MAX_ATTEMPTS + 1):
+        started = time.perf_counter()
         try:
             response = await client.aio.models.generate_content(
                 model=settings.gemini_model,
@@ -168,6 +206,7 @@ async def detect_and_classify(image_bytes: bytes, media_type: str) -> dict[str, 
                 ],
                 config=config,
             )
+            _capture_generation(response, time.perf_counter() - started)
             return _parse_response(response)
         except (ValueError, json.JSONDecodeError):
             # Bad/empty model output — re-prompting rarely helps; fail fast to fallback.
