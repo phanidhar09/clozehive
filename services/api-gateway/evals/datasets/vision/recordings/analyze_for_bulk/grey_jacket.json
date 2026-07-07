@@ -1,0 +1,29 @@
+{
+  "name": "Charcoal Bomber Jacket",
+  "category": "outerwear",
+  "subcategory": "Bomber Jacket",
+  "description": "A charcoal bomber jacket with contrasting lighter sections and a solid pattern.",
+  "primary_color": "charcoal",
+  "secondary_colors": [
+    "light gray"
+  ],
+  "pattern": "Solid",
+  "material": "Unknown",
+  "occasion_tags": [
+    "Casual",
+    "Travel"
+  ],
+  "season_tags": [
+    "Fall",
+    "Winter"
+  ],
+  "style_tags": [
+    "Minimal",
+    "Streetwear"
+  ],
+  "fit": "Regular",
+  "eco_score": null,
+  "brand": "",
+  "confidence_score": 0.95,
+  "warnings": []
+}

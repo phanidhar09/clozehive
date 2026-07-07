@@ -1,0 +1,27 @@
+{
+  "name": "Forest Green Midi Dress",
+  "category": "dresses",
+  "subcategory": "Midi Dress",
+  "description": "A forest green midi dress with a simple and structured silhouette",
+  "primary_color": "forest green",
+  "secondary_colors": [],
+  "pattern": "Solid",
+  "material": "Unknown",
+  "occasion_tags": [
+    "Formal",
+    "Date Night"
+  ],
+  "season_tags": [
+    "Fall",
+    "Winter"
+  ],
+  "style_tags": [
+    "Elegant",
+    "Classic"
+  ],
+  "fit": "Tailored",
+  "eco_score": null,
+  "brand": "",
+  "confidence_score": 0.9,
+  "warnings": []
+}

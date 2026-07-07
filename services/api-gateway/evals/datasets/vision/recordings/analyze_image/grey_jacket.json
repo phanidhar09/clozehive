@@ -1,0 +1,22 @@
+{
+  "name": "Cardigan",
+  "category": "outerwear",
+  "color": "charcoal grey",
+  "brand": "",
+  "material": "unknown",
+  "pattern": "solid",
+  "occasion": [],
+  "occasions": [],
+  "season": [],
+  "tags": [
+    "cardigan",
+    "sweater",
+    "outerwear"
+  ],
+  "eco_score": null,
+  "confidence": 0.8,
+  "confidence_score": 0.8,
+  "notes": "The item is depicted in a simplistic format, details such as texture and brand are not visible.",
+  "description": "The item is depicted in a simplistic format, details such as texture and brand are not visible.",
+  "subcategory": null
+}

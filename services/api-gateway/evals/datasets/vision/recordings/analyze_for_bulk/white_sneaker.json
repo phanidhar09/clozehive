@@ -1,0 +1,24 @@
+{
+  "name": "Ivory Open-Toe Slip-On Slippers",
+  "category": "shoes",
+  "subcategory": "Slippers",
+  "description": "Ivory open-toe slippers with a matte surface and a simple design.",
+  "primary_color": "ivory",
+  "secondary_colors": [],
+  "pattern": "Solid",
+  "material": "Unknown",
+  "occasion_tags": [
+    "Casual"
+  ],
+  "season_tags": [
+    "All-season"
+  ],
+  "style_tags": [
+    "Minimal"
+  ],
+  "fit": "Regular",
+  "eco_score": null,
+  "brand": "",
+  "confidence_score": 0.9,
+  "warnings": []
+}

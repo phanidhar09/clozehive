@@ -1,0 +1,28 @@
+{
+  "name": "Trousers",
+  "category": "bottoms",
+  "color": "brown",
+  "brand": "",
+  "material": "unknown",
+  "pattern": "solid",
+  "occasion": [
+    "casual",
+    "formal"
+  ],
+  "occasions": [
+    "casual",
+    "formal"
+  ],
+  "season": [],
+  "tags": [
+    "pants",
+    "trousers",
+    "bottoms"
+  ],
+  "eco_score": null,
+  "confidence": 0.9,
+  "confidence_score": 0.9,
+  "notes": "Item is clearly visible but lacks specific details on material.",
+  "description": "Item is clearly visible but lacks specific details on material.",
+  "subcategory": null
+}

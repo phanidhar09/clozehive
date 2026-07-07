@@ -1,0 +1,27 @@
+{
+  "name": "Mustard A-Line Dress",
+  "category": "dresses",
+  "subcategory": "A-Line Dress",
+  "description": "A mustard A-line dress with a minimal design.",
+  "primary_color": "mustard",
+  "secondary_colors": [],
+  "pattern": "Solid",
+  "material": "Unknown",
+  "occasion_tags": [
+    "Casual",
+    "Date Night"
+  ],
+  "season_tags": [
+    "Spring",
+    "Summer"
+  ],
+  "style_tags": [
+    "Minimal",
+    "Elegant"
+  ],
+  "fit": "Regular",
+  "eco_score": null,
+  "brand": "",
+  "confidence_score": 0.95,
+  "warnings": []
+}

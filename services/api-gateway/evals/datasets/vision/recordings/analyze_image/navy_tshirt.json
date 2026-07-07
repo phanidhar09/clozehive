@@ -1,0 +1,28 @@
+{
+  "name": "T-Shirt",
+  "category": "tops",
+  "color": "navy blue",
+  "brand": "",
+  "material": "cotton",
+  "pattern": "solid",
+  "occasion": [
+    "casual",
+    "everyday"
+  ],
+  "occasions": [
+    "casual",
+    "everyday"
+  ],
+  "season": [],
+  "tags": [
+    "t-shirt",
+    "short sleeves",
+    "basic"
+  ],
+  "eco_score": null,
+  "confidence": 0.9,
+  "confidence_score": 0.9,
+  "notes": "Item is clearly recognizable as a t-shirt but lacks visible branding.",
+  "description": "Item is clearly recognizable as a t-shirt but lacks visible branding.",
+  "subcategory": null
+}
