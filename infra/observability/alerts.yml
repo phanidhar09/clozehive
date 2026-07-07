@@ -51,7 +51,7 @@ groups:
           severity: warning
         annotations:
           summary: "AI operation {{ $labels.operation }} p95 > 20s"
-          description: "LLM/AI call p95 latency is degraded; check provider + ai-agent."
+          description: "LLM/AI call p95 latency is degraded; check the AI provider."
 
   # ── SLO burn-rate (availability SLO: 99.5% → 0.5% error budget) ─────────────
   # Multi-window multi-burn-rate: page fast on a steep burn, ticket on a slow one.
@@ -105,15 +105,6 @@ groups:
           summary: "DB connection pool near exhaustion"
           description: "Primary pool checked-out connections >25 (size 10 + overflow 20)."
 
-      - alert: CircuitBreakerOpen
-        expr: max(clozehive_circuit_breaker_state) by (breaker) >= 2
-        for: 2m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Circuit breaker '{{ $labels.breaker }}' is open"
-          description: "The {{ $labels.breaker }} dependency is failing fast; check ai-agent health + latency."
-
       - alert: AccountPurgeFailing
         expr: increase(clozehive_account_purge_failed_total[1h]) > 0
         for: 5m
@@ -133,21 +124,3 @@ groups:
         annotations:
           summary: "Cache hit ratio < 50%"
           description: "Redis cache hit ratio degraded — check TTLs / eviction / Redis health."
-
-      - alert: AIQueueBacklogHigh
-        expr: max(clozehive_arq_queue_depth{queue="arq:queue"}) > 25
-        for: 10m
-        labels:
-          severity: warning
-        annotations:
-          summary: "AI queue backlog > 25 jobs"
-          description: "ARQ queue depth has been above 25 for 10m; worker throughput is below enqueue rate."
-
-      - alert: AIWorkerSlaBreaches
-        expr: sum(increase(clozehive_ai_worker_sla_breaches_total[15m])) > 5
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "AI worker SLA breaches are rising"
-          description: "More than 5 AI jobs exceeded SLA in 15m. Check ai-worker, Redis queue, and ai-agent latency."

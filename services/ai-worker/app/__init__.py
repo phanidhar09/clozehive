@@ -1,1 +1,0 @@
-"""ClozeHive AI worker."""

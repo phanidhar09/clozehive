@@ -123,11 +123,6 @@ async def _generate_trip_packing(
     full-featured packing implementation (RAG-grounded, honours activities /
     trip_style / bag_size, returns a graceful mock on AI failure). 50s hard
     timeout; packing_service supplies its own per-step fallbacks within it.
-
-    (Previously this raced the ai-agent /packing endpoint first, but that path
-    silently dropped activities/trip_style/bag_size/rag_context and needed
-    output-shape glue, so trip packing diverged from the /ai/packing route.
-    The agent endpoint still exists for the async ai-worker path.)
     """
     prof = await load_merged_user_profile_for_ai(session, user_id, None)
 

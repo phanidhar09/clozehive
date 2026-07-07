@@ -22,20 +22,6 @@ scrape_configs:
         labels:
           service: api-gateway
 
-  - job_name: ai-agent
-    metrics_path: /metrics
-    static_configs:
-      - targets: ["ai-agent:8001"]
-        labels:
-          service: ai-agent
-
-  - job_name: ai-worker
-    metrics_path: /metrics
-    static_configs:
-      - targets: ["ai-worker:9104"]
-        labels:
-          service: ai-worker
-
   # Prometheus self-monitoring
   - job_name: prometheus
     static_configs:

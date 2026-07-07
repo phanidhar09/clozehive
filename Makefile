@@ -37,12 +37,6 @@ logs: ## Tail logs for all services
 logs-api: ## Tail API gateway logs
 	docker compose logs -f api-gateway
 
-logs-agent: ## Tail AI agent logs
-	docker compose logs -f ai-agent
-
-logs-worker: ## Tail AI worker logs
-	docker compose logs -f ai-worker
-
 logs-kafka: ## Tail Redpanda logs
 	docker compose logs -f redpanda kafka-topics
 
@@ -85,17 +79,12 @@ test-frontend: ## Run frontend unit tests (Vitest)
 
 lint: ## Lint all Python services
 	cd services/api-gateway && ruff check app/
-	cd services/ai-agent && ruff check app/
-	cd services/ai-worker && ruff check app/
 	cd services/mcp && ruff check .
 
 # ── Local dev (without Docker) ────────────────────────────────────────────────
 
 dev-api: ## Start API gateway locally
 	cd services/api-gateway && uvicorn app.main:app --reload --port 8000
-
-dev-agent: ## Start AI agent locally
-	cd services/ai-agent && uvicorn app.main:app --reload --port 8001
 
 dev-frontend: ## Start frontend dev server
 	cd frontend && npm run dev

@@ -10,9 +10,8 @@
 #   - ALLOWED_ORIGINS = https://<cloze-hive-frontend-host>,https://<clozehive-api-host>
 #   - GCS_* if you want persistent uploads (Render disk is ephemeral)
 #
-# Note: MCP tool servers (mcp-weather/outfit/packing) are not in this blueprint.
-#       ai-agent runs with ENABLE_MCP_TOOLS=false (LLM-only). Enable MCP only if you
-#       add those services separately.
+# Note: all AI (stylist chat, outfit, vision, packing) runs in-process in the
+#       api-gateway. There is no separate ai-agent / ai-worker service.
 
 databases:
   - name: clozehive-db
@@ -31,10 +30,10 @@ services:
     ipAllowList: []
 
   # ── State Redis (NON-evictable) — OAuth CSRF/code, refresh tokens, rate
-  #    limits, ARQ queue. These must never be evicted under memory pressure.
+  #    limits. These must never be evicted under memory pressure.
   #    NOTE: Render allows one free Redis per account; this second instance may
   #    require a paid plan. If you cannot provision it, delete this service and
-  #    the REDIS_STATE_URL / ARQ_REDIS_URL entries below — the app falls back to
+  #    the REDIS_STATE_URL entry below — the app falls back to
   #    clozehive-redis automatically (effective_redis_state_url → redis_url).
   - type: redis
     name: clozehive-redis-state
@@ -84,9 +83,8 @@ services:
       # Primary database = Neon (set the Neon connection string as a Dashboard
       # secret on this service). Paste it as-is — the app strips Neon's
       # ?sslmode=require and applies SSL via connect_args (see normalise_db_url /
-      # db/session.py). The ai-agent service MUST use the SAME DATABASE_URL (they
-      # share one Postgres for the vector store / style memory). On first boot set
-      # RUN_MIGRATIONS_ON_STARTUP=true so the schema is created in the empty Neon DB.
+      # db/session.py). On first boot set RUN_MIGRATIONS_ON_STARTUP=true so the
+      # schema is created in the empty Neon DB.
       - key: DATABASE_URL
         sync: false
       # Optional read replica for read-only endpoints (closet list/get/similar).
@@ -106,16 +104,6 @@ services:
           type: redis
           name: clozehive-redis-state
           property: connectionString
-      # ARQ task queue lives on the non-evictable state Redis. Must match
-      # clozehive-ai-worker if/when the worker is re-added to the blueprint.
-      - key: ARQ_REDIS_URL
-        fromService:
-          type: redis
-          name: clozehive-redis-state
-          property: connectionString
-      # Free-tier mode: keep heavy post-write work in-process (no paid worker).
-      - key: HEAVY_WORK_ASYNC
-        value: "false"
       - key: JWT_SECRET
         generateValue: true
       - key: INTERNAL_SERVICE_TOKEN
@@ -174,14 +162,6 @@ services:
         value: "true"
       - key: RAG_VECTOR_STORE
         value: pgvector
-      # AI agent (public Render URL — gateway calls over HTTPS)
-      - key: AI_AGENT_URL
-        fromService:
-          type: web
-          name: clozehive-ai-agent
-          envVarKey: RENDER_EXTERNAL_URL
-      - key: AI_TIMEOUT_SECONDS
-        value: "90"
       # Frontend origin for OAuth redirects and emails
       - key: FRONTEND_URL
         fromService:
@@ -211,65 +191,6 @@ services:
         sync: false
       - key: SENTRY_DSN
         sync: false
-
-  # ── AI Agent (stylist chat, packing, outfit tools — LLM-only on Render) ─────
-  - type: web
-    name: clozehive-ai-agent
-    runtime: docker
-    plan: free
-    region: oregon
-    dockerfilePath: services/ai-agent/Dockerfile
-    dockerContext: services/ai-agent
-    healthCheckPath: /health
-    dockerCommand: >-
-      uvicorn app.main:app
-      --host 0.0.0.0
-      --port $PORT
-      --loop asyncio
-      --no-access-log
-      --proxy-headers
-      --forwarded-allow-ips=*
-    envVars:
-      # Same Neon connection string as clozehive-api (shared Postgres / vector
-      # store). Set as a Dashboard secret on this service too.
-      - key: DATABASE_URL
-        sync: false
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: clozehive-redis
-          property: connectionString
-      - key: INTERNAL_SERVICE_TOKEN
-        fromService:
-          type: web
-          name: clozehive-api
-          envVarKey: INTERNAL_SERVICE_TOKEN
-      - key: ENVIRONMENT
-        value: production
-      - key: DEBUG
-        value: "false"
-      - key: LOG_LEVEL
-        value: INFO
-      - key: OPENAI_MODEL
-        value: gpt-4o
-      - key: OPENAI_EMBEDDING_MODEL
-        value: text-embedding-3-small
-      - key: OPENAI_API_BASE_URL
-        value: https://api.openai.com/v1
-      - key: VECTOR_STORE
-        value: pgvector
-      # No mcp-* containers on Render — LLM-only agent
-      - key: ENABLE_MCP_TOOLS
-        value: "false"
-      - key: ENABLE_MCP_VISION
-        value: "false"
-      - key: OPENAI_API_KEY
-        sync: false
-      - key: OPENWEATHER_API_KEY
-        sync: false
-
-  # ── AI Worker (ARQ async jobs) — disabled in free-tier mode ─────────────────
-  # Render workers require a paid plan. Keep this disabled until you upgrade.
 
   # ── Frontend (static SPA) ───────────────────────────────────────────────────
   - type: web

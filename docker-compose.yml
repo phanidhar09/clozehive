@@ -2,19 +2,13 @@
 #  CLOZEHIVE — Simplified Architecture
 #
 #  ── Default stack ──────────────────────────────────────────────────────────────
-#  Starts: postgres, redis, redis-state, api-gateway, ai-agent, frontend, nginx, migrate
+#  Starts: postgres, redis, redis-state, api-gateway, frontend, nginx, migrate
 #  Command:
 #    docker compose up --build
 #
 #  Architecture:
-#    Frontend → nginx → api-gateway (auth/CRUD)
-#                    └→ api-gateway /ai/* → ai-agent (inline tools: weather/outfit/packing)
-#
-#  ai-agent runs weather, outfit, and packing logic in-process — no external MCP servers.
-#
-#  ── Optional: Vision MCP (GPU / high-memory) ──────────────────────────────────
-#  Command:
-#    docker compose --profile vision up --build
+#    Frontend → nginx → api-gateway (auth/CRUD + all AI: chat/outfit/vision/packing
+#                       run in-process — there is no separate ai-agent service)
 #
 #  Stop / reset volumes:
 #    docker compose down -v
@@ -85,7 +79,7 @@ services:
       retries: 5
 
   # State Redis — NON-evictable (noeviction). Holds OAuth CSRF/code state,
-  # refresh tokens, ARQ jobs, and rate-limit counters: data that must survive
+  # refresh tokens, and rate-limit counters: data that must survive
   # memory pressure. Evicting these silently breaks logins and rate limiting.
   redis-state:
     image: redis:7-alpine
@@ -120,95 +114,6 @@ services:
       timeout: 3s
       retries: 5
 
-  # ── Vision MCP (optional — higher resource usage) ───────────────────────────
-  mcp-vision:
-    profiles: ["vision", "legacy-mcp"]
-    build:
-      context: ./services/mcp
-      dockerfile: vision/Dockerfile
-    <<: [*restart, *logging]
-    environment:
-      <<: *python-env
-      VISION_PORT: "8011"
-      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
-    ports:
-      - "8011:8011"
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import socket,sys; s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1',8011)); s.close()\""]
-      interval: 20s
-      timeout: 5s
-      start_period: 15s
-      retries: 3
-
-  # ── AI Agent (default — tools run in-process) ────────────────────────────────
-
-  ai-agent:
-    build:
-      context: ./services/ai-agent
-      dockerfile: Dockerfile
-    <<: [*restart, *logging]
-    environment:
-      <<: *python-env
-      PORT: "8001"
-      REDIS_URL: redis://redis:6379/1
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      VECTOR_STORE: pgvector
-      OPENAI_MODEL: gpt-4o
-      # Live trip-forecast weather tool; falls back to static climate profiles when unset.
-      OPENWEATHER_API_KEY: ${OPENWEATHER_API_KEY:-}
-      ENABLE_METRICS: ${ENABLE_METRICS:-true}
-      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
-      OPENAI_API_BASE_URL: https://api.openai.com/v1
-    ports:
-      - "8001:8001"
-    depends_on:
-      redis:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health')\""]
-      interval: 30s
-      timeout: 15s
-      start_period: 30s
-      retries: 3
-
-  # ── AI Worker (MVP default — ARQ async jobs over Redis) ──────────────────────
-  #
-  # Consumes jobs enqueued by api-gateway (outfit/packing/vision) from Redis db /3
-  # and writes results back to the ai_requests table.
-
-  ai-worker:
-    build:
-      context: ./services/ai-worker
-      dockerfile: Dockerfile
-    <<: [*restart, *logging]
-    environment:
-      <<: *python-env
-      # ARQ queue lives on the non-evictable state Redis (matches api-gateway).
-      REDIS_URL: redis://redis-state:6379/3
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      AI_AGENT_URL: http://ai-agent:8001
-      # Durable embedding task (HEAVY_WORK_ASYNC) calls back into the gateway.
-      GATEWAY_INTERNAL_URL: http://api-gateway:8000
-      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
-      ENVIRONMENT: ${ENVIRONMENT:-development}
-      SENTRY_DSN: ${SENTRY_DSN:-}
-      ENABLE_METRICS: ${ENABLE_METRICS:-true}
-      METRICS_PORT: "9104"
-      ARQ_QUEUE_NAME: ${ARQ_QUEUE_NAME:-arq:queue}
-      QUEUE_DEPTH_POLL_SECONDS: ${QUEUE_DEPTH_POLL_SECONDS:-15}
-      AI_JOB_SLA_SECONDS: ${AI_JOB_SLA_SECONDS:-120}
-    expose:
-      - "9104"
-    depends_on:
-      redis-state:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-      ai-agent:
-        condition: service_started
-
   # ── API Gateway (MVP default) ────────────────────────────────────────────────
 
   api-gateway:
@@ -230,20 +135,12 @@ services:
       # State Redis (non-evictable): OAuth CSRF/code, refresh tokens, rate limits.
       REDIS_STATE_URL: redis://redis-state:6379/0
       REDIS_CHECK_ON_READY: ${REDIS_CHECK_ON_READY:-true}
-      # ARQ task queue lives on the non-evictable state Redis — must match the
-      # ai-worker's ARQ_REDIS_URL (db index /3).
-      ARQ_REDIS_URL: redis://redis-state:6379/3
-      # Offload closet embedding generation to the durable ARQ queue (needs ai-worker).
-      # Default false → in-process BackgroundTasks (no worker required).
-      HEAVY_WORK_ASYNC: ${HEAVY_WORK_ASYNC:-false}
       # ── Observability ───────────────────────────────────────────────────────
       ENABLE_METRICS: ${ENABLE_METRICS:-true}
       SENTRY_DSN: ${SENTRY_DSN:-}
       OTEL_ENABLED: ${OTEL_ENABLED:-false}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_SERVICE_NAME: api-gateway
-      # Must be the Compose service name, not localhost from .env (host dev uses localhost).
-      AI_AGENT_URL: http://ai-agent:8001
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:-}
       # Override stale OPENAI_* proxy URLs from .env for predictable behavior in Compose.
       OPENAI_API_BASE_URL: https://api.openai.com/v1
@@ -279,8 +176,6 @@ services:
         condition: service_healthy
       redis-state:
         condition: service_healthy
-      ai-agent:
-        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/live')\""]
       interval: 30s
@@ -296,8 +191,7 @@ services:
   # Vision (image analysis, background removal) runs in-process inside
   # api-gateway (the `vision_pipeline` / `smart_ingest` routers), matching
   # production — dev and prod share one wardrobe DB. The standalone
-  # vision-service has been retired; the optional `--profile vision` path now
-  # refers to the `mcp-vision` container above.
+  # vision-service and the optional mcp-vision container have both been retired.
 
   # ── DB Migrations (MVP default — run-once container) ───────────────────────
 

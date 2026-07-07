@@ -117,54 +117,9 @@ jobs:
           name: api-gateway-coverage
           path: coverage-api-gateway.xml
 
-  ai-agent-tests:
-    runs-on: ubuntu-latest
-    env:
-      OPENAI_API_KEY: sk-ci-placeholder
-      OPENAI_API_BASE_URL: https://api.openai.com/v1
-      LOG_LEVEL: INFO
-      ENVIRONMENT: test
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Install ai-agent dependencies
-        run: |
-          pip install -r services/ai-agent/requirements.txt
-          pip install pytest pytest-asyncio pytest-cov
-      - name: Run ai-agent tests
-        working-directory: services/ai-agent
-        # Coverage gate set just below current coverage (~38%) so it ratchets:
-        # raise it as tests are added, never lower it.
-        run: pytest tests -v --maxfail=1 --cov=app --cov-report=xml:../../coverage-ai-agent.xml --cov-fail-under=35
-      - name: Upload coverage report
-        uses: actions/upload-artifact@v4
-        with:
-          name: ai-agent-coverage
-          path: coverage-ai-agent.xml
-
-  ai-worker-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Install ai-worker dependencies
-        run: pip install -r services/ai-worker/requirements-dev.txt
-      - name: Run ai-worker tests
-        working-directory: services/ai-worker
-        run: pytest tests -v --maxfail=1 --cov=app --cov-report=xml:../../coverage-ai-worker.xml --cov-fail-under=50
-      - name: Upload coverage report
-        uses: actions/upload-artifact@v4
-        with:
-          name: ai-worker-coverage
-          path: coverage-ai-worker.xml
-
   docker-build:
     runs-on: ubuntu-latest
-    needs: [backend-lint, frontend-ci, backend-tests, ai-agent-tests, ai-worker-tests]
+    needs: [backend-lint, frontend-ci, backend-tests]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Docker Buildx
