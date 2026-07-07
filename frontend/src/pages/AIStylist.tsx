@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { Send, Sparkles, RefreshCw, AlertTriangle, Square } from 'lucide-react'
 import PageHeader from '@/components/ui/PageHeader'
 import { useApp } from '@/store'
-import { streamChat } from '@/lib/api'
+import { streamMessage } from '@/services/aiChatApi'
 import ChatMessage from '@/components/chat/ChatMessage'
 import type { ChatMessage as ChatMsg } from '@/types'
 import { generateId } from '@/lib/utils'
@@ -27,6 +27,8 @@ export default function AIStylist() {
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Gated FANI path keeps conversation state server-side per session.
+  const [sessionId, setSessionId] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   // Ref to abort streaming by marking it cancelled
   const cancelledRef = useRef(false)
@@ -57,36 +59,71 @@ export default function AIStylist() {
       { id: aiMsgId, role: 'assistant', content: '', timestamp: new Date() },
     ])
 
-    await streamChat(text, {
-      onToken: (token: string) => {
-        if (cancelledRef.current) return
-        setMessages(m =>
-          m.map(msg =>
-            msg.id === aiMsgId ? { ...msg, content: msg.content + token } : msg,
-          ),
-        )
-      },
-      onDone: () => {
-        setStreaming(false)
-      },
-      onError: (err: string) => {
-        if (cancelledRef.current) return
-        setError(err)
-        setMessages(m =>
-          m.map(msg =>
-            msg.id === aiMsgId
-              ? {
-                  ...msg,
-                  content:
-                    `I'm having trouble connecting right now. Make sure the backend and AI service are running. (${err})`,
-                }
-              : msg,
-          ),
-        )
-        setStreaming(false)
-      },
-    })
-  }, [streaming])
+    const history = messages
+      .filter(m => m.id !== 'welcome' && m.content)
+      .slice(-12)
+      .map(m => ({ role: m.role, content: m.content }))
+
+    try {
+      // Gated FANI path: model router, RAG, grounding gate + claim audit,
+      // cost telemetry — same endpoint AIStylistChat uses.
+      await streamMessage(
+        { message: text, sessionId, history },
+        {
+          onSession: (sid) => { if (!cancelledRef.current) setSessionId(sid) },
+          onToken: (token: string) => {
+            if (cancelledRef.current) return
+            setMessages(m =>
+              m.map(msg =>
+                msg.id === aiMsgId ? { ...msg, content: msg.content + token } : msg,
+              ),
+            )
+          },
+          onCorrection: ({ reply, note }) => {
+            if (cancelledRef.current) return
+            // Grounding gate flagged the streamed text — replace it with the
+            // grounded reply, or append the soft note.
+            setMessages(m => m.map(msg =>
+              msg.id === aiMsgId
+                ? { ...msg, content: reply ?? (note ? `${msg.content}\n\n_${note}_` : msg.content) }
+                : msg,
+            ))
+          },
+          onStructured: (payload) => {
+            if (cancelledRef.current) return
+            // The structured event carries the authoritative grounded reply.
+            setMessages(m => m.map(msg =>
+              msg.id === aiMsgId && payload.reply
+                ? { ...msg, content: payload.reply }
+                : msg,
+            ))
+          },
+          onDone: () => {
+            if (!cancelledRef.current) setStreaming(false)
+          },
+          onError: (err: string) => {
+            if (cancelledRef.current) return
+            setError(err)
+            setMessages(m =>
+              m.map(msg =>
+                msg.id === aiMsgId
+                  ? {
+                      ...msg,
+                      content:
+                        msg.content ||
+                        `I'm having trouble connecting right now. Make sure the backend and AI service are running. (${err})`,
+                    }
+                  : msg,
+              ),
+            )
+            setStreaming(false)
+          },
+        },
+      )
+    } finally {
+      if (!cancelledRef.current) setStreaming(false)
+    }
+  }, [streaming, messages, sessionId])
 
   const stopStreaming = () => {
     cancelledRef.current = true
@@ -97,6 +134,7 @@ export default function AIStylist() {
     cancelledRef.current = true
     setStreaming(false)
     setMessages([WELCOME_MSG])
+    setSessionId(null)
     setError(null)
   }
 
