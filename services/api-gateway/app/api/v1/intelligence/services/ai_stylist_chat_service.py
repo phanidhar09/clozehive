@@ -31,6 +31,7 @@ from app.api.v1.intelligence.services.fashion_rules import build_fashion_rules_p
 from app.api.v1.intelligence.services.model_router import RouteSignals
 from app.api.v1.travel.services import weather_service
 from app.api.v1.wardrobe.services.outfit_history_service import get_outfit_history_for_prompt
+from app.core import cache_service, semantic_cache
 from app.core.ai_output_validator import (
     check_context_sufficiency,
     score_response_quality,
@@ -571,6 +572,26 @@ async def process_chat_message(
 
     closet_map = {it["id"]: it for it in closet_items}
 
+    # ── Semantic cache lookup ─────────────────────────────────────────────────
+    # Reuses the RAG query embedding (no extra embedding call). Hash the FULL
+    # closet (valid_ids), not the RAG subset — retrieval order must not affect
+    # cache identity. Only context-light turns are eligible: no images, no deep
+    # conversation whose prior turns change the meaning of the message.
+    sem_closet_hash = cache_service.build_closet_hash([{"id": i} for i in sorted(valid_ids)])
+    sem_profile_hash = cache_service.build_profile_hash(user_profile)
+    sem_weather_key = (weather.get("condition") or "mild") if weather else ""
+    sem_eligible = not [img for img in (images or []) if img.startswith("data:image/")] and len(chat_history or []) <= 2
+    if sem_eligible:
+        cached_response = await semantic_cache.lookup(
+            str(user_id),
+            query_embedding,
+            closet_hash=sem_closet_hash,
+            profile_hash=sem_profile_hash,
+            weather_key=sem_weather_key,
+        )
+        if cached_response is not None:
+            return cached_response
+
     logger.info(
         "rag_context_built",
         user_id=str(user_id),
@@ -798,13 +819,36 @@ async def process_chat_message(
     image_lookup = await _fetch_image_lookup(session, suggested_ids)
     outfits = _enrich_items_with_images(outfits, image_lookup, closet_map)
 
-    return {
+    response = {
         "reply": str(validation.cleaned.get("reply") or ""),
         "recommended_outfits": outfits,
         "styling_suggestions": validation.cleaned.get("styling_suggestions") or [],
         "purchase_gaps": validation.cleaned.get("purchase_gaps") or [],
         "follow_up_questions": validation.cleaned.get("follow_up_questions") or [],
     }
+
+    # ── Semantic cache store ──────────────────────────────────────────────────
+    # Only replay responses that could not be wrong: fully valid, nothing
+    # removed by the grounding gate, no claim-audit violations, and a real reply.
+    if (
+        sem_eligible
+        and validation.is_valid
+        and validation.items_removed == 0
+        and validation.outfits_removed == 0
+        and not claim_violations
+        and not season_violations
+        and response["reply"]
+    ):
+        await semantic_cache.store(
+            str(user_id),
+            query_embedding,
+            response,
+            closet_hash=sem_closet_hash,
+            profile_hash=sem_profile_hash,
+            weather_key=sem_weather_key,
+        )
+
+    return response
 
 
 def _fallback_response(message: str, closet_items: list[dict[str, Any]]) -> dict[str, Any]:
