@@ -192,6 +192,17 @@ class Settings(BaseSettings):
     product_screenshot_url_template: str = ""
     ai_cache_enabled: bool = True
     ai_cache_ttl: int = 600
+    # Semantic response cache for the gated FANI chat paths: serves a prior
+    # grounded response when a new turn's RAG-query embedding is near-identical
+    # (cosine >= threshold) AND the closet/profile/weather context is unchanged.
+    # Only clean responses (no validation errors, no claim-audit violations,
+    # no images, shallow history) are ever stored — see app/core/semantic_cache.py.
+    semantic_cache_enabled: bool = True
+    # High-precision threshold: near-duplicate questions only. Lowering this
+    # trades correctness for hit-rate; measure with semantic_cache_hit logs first.
+    semantic_cache_threshold: float = 0.95
+    semantic_cache_ttl: int = 3600  # 1 h — weather/trends drift beyond that
+    semantic_cache_max_entries: int = 20  # per-user LRU window
     # When True, heavy post-write work (closet item embeddings) is handed to the
     # durable ARQ queue instead of in-process FastAPI BackgroundTasks. BackgroundTasks
     # run inside the web process and are lost if it restarts or scales in mid-flight;
