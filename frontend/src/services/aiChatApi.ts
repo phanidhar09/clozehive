@@ -5,6 +5,7 @@
 
 import axios from 'axios'
 import { apiOrigin } from '@/lib/api'
+import { refreshAccessToken } from '@/lib/refreshAccessToken'
 import { tokenStorage } from '@/lib/tokenStorage'
 import type {
   AIChatSession,
@@ -79,6 +80,149 @@ export async function sendMessage(opts: SendMessageOptions): Promise<SendMessage
     images: opts.images ?? [],
   })
   return data
+}
+
+// ── Streaming messaging (SSE) ───────────────────────────────────────────────
+//
+// Consumes POST /ai-chat/stream — the advanced FANI path (model router, RAG,
+// grounding gate, cost telemetry). Emits the reply token-by-token and delivers
+// the full structured payload (outfits, suggestions, gaps) once complete.
+
+export interface StreamStructuredPayload {
+  reply: string
+  recommended_outfits: AIChatStructuredResponse['recommended_outfits']
+  styling_suggestions: AIChatStructuredResponse['styling_suggestions']
+  purchase_gaps: AIChatStructuredResponse['purchase_gaps']
+  follow_up_questions: string[]
+  corrected?: boolean
+}
+
+export interface StreamMessageHandlers {
+  onSession?: (sessionId: string) => void
+  onToken: (content: string) => void
+  // Server grounding gate flagged the streamed reply: `reply` (when present)
+  // replaces the shown text; `note` is a soft annotation to append.
+  onCorrection?: (correction: { reason: string; reply?: string; note?: string }) => void
+  onStructured: (payload: StreamStructuredPayload) => void
+  onDone: (info: { messageId?: string; sessionId?: string }) => void
+  onError: (message: string) => void
+}
+
+export async function streamMessage(
+  opts: SendMessageOptions,
+  handlers: StreamMessageHandlers,
+): Promise<void> {
+  let accessToken = tokenStorage.getAccess()
+  if (!accessToken) {
+    handlers.onError('Not authenticated')
+    handlers.onDone({})
+    return
+  }
+
+  let finished = false
+  const finish = (info: { messageId?: string; sessionId?: string } = {}) => {
+    if (!finished) {
+      finished = true
+      handlers.onDone(info)
+    }
+  }
+
+  const payload = JSON.stringify({
+    message: opts.message,
+    session_id: opts.sessionId ?? null,
+    context: opts.context ?? {},
+    history: opts.history ?? [],
+    images: opts.images ?? [],
+  })
+
+  const open = (bearer: string) =>
+    fetch(`${apiOrigin()}/api/v1/ai-chat/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${bearer}` },
+      body: payload,
+    })
+
+  try {
+    let res = await open(accessToken)
+    if (res.status === 401) {
+      // Refresh token lives in an HttpOnly cookie — attempt refresh unconditionally.
+      try {
+        accessToken = await refreshAccessToken()
+        res = await open(accessToken)
+      } catch {
+        tokenStorage.clear()
+        window.dispatchEvent(new Event('ch:unauthenticated'))
+        handlers.onError('Session expired — please sign in again')
+        finish()
+        return
+      }
+    }
+
+    if (!res.ok || !res.body) {
+      handlers.onError(`Request failed (${res.status})`)
+      finish()
+      return
+    }
+
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    let doneInfo: { messageId?: string; sessionId?: string } = {}
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const blocks = buffer.split('\n\n')
+      buffer = blocks.pop() ?? ''
+
+      for (const block of blocks) {
+        const line = block
+          .split('\n')
+          .find(l => l.startsWith('data:'))
+          ?.replace(/^data:\s*/, '')
+          .trim()
+        if (!line) continue
+        try {
+          const evt = JSON.parse(line) as Record<string, unknown>
+          switch (evt.type) {
+            case 'session':
+              if (typeof evt.session_id === 'string') handlers.onSession?.(evt.session_id)
+              break
+            case 'token':
+              if (typeof evt.content === 'string') handlers.onToken(evt.content)
+              break
+            case 'correction':
+              handlers.onCorrection?.({
+                reason: String(evt.reason ?? ''),
+                reply: typeof evt.reply === 'string' ? evt.reply : undefined,
+                note: typeof evt.note === 'string' ? evt.note : undefined,
+              })
+              break
+            case 'structured':
+              handlers.onStructured(evt as unknown as StreamStructuredPayload)
+              break
+            case 'done':
+              doneInfo = {
+                messageId: typeof evt.message_id === 'string' ? evt.message_id : undefined,
+                sessionId: typeof evt.session_id === 'string' ? evt.session_id : undefined,
+              }
+              break
+            case 'error':
+              handlers.onError(String(evt.detail ?? 'Stream error'))
+              break
+          }
+        } catch {
+          /* malformed frame — skip */
+        }
+      }
+    }
+    finish(doneInfo)
+  } catch (e) {
+    handlers.onError(e instanceof Error ? e.message : 'Network error')
+  } finally {
+    finish()
+  }
 }
 
 // ── History ───────────────────────────────────────────────────────────────────

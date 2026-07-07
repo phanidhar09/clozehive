@@ -72,6 +72,11 @@ SUMMARY_TRIGGER_TURNS = 10
 # immediate context, so we never summarise them.
 SUMMARY_KEEP_RECENT = 4
 
+# Above this item-hallucination ratio the streamed reply text likely references
+# items the validator removed. Streamed tokens can't be un-sent, so we emit a
+# `correction` event and let the client annotate the already-shown text.
+_HALLUCINATION_NOTICE_THRESHOLD = 0.34
+
 _SUMMARY_SYSTEM_PROMPT = (
     "You are summarising a styling conversation between a user and FANI "
     "(an AI fashion assistant). Produce a dense, third-person memory note "
@@ -454,6 +459,20 @@ async def stream_chat_message(
     # Use the same strong validator as the non-streaming path: UUID-format check,
     # closet-membership check, and score-breakdown correction — not just an ID strip.
     validation = validate_chat_response(data, valid_ids)
+
+    # ── Grounding gate (parity with the non-streaming path) ─────────────────
+    # The reply tokens have already streamed, so we can't retract them. Instead,
+    # when validation finds the response ungrounded we (a) emit a `correction`
+    # event the client can act on and (b) persist the *grounded* payload rather
+    # than the raw model output.
+    if validation.errors and not validation.cleaned.get("reply"):
+        logger.error("stream_chat_response_invalid", errors=validation.errors, user_id=str(user_id))
+        fallback = _fallback_response(message, closet_items)
+        # `reply` replaces the (unusable) streamed text on the client.
+        yield {"type": "correction", "reason": "ungrounded", "reply": fallback["reply"]}
+        yield {"type": "structured", "corrected": True, **fallback}
+        return
+
     if validation.warnings:
         logger.info(
             "stream_chat_response_warnings",
@@ -474,6 +493,17 @@ async def stream_chat_message(
         outfits=len(outfits),
     )
 
+    # The validator removed hallucinated items/outfits. When a meaningful share
+    # was removed, the already-streamed reply text may reference them — flag it so
+    # the client can annotate (the text itself cannot be un-sent).
+    corrected = validation.outfits_removed > 0 or validation.items_removed > 0
+    if corrected and quality.hallucination_risk >= _HALLUCINATION_NOTICE_THRESHOLD:
+        yield {
+            "type": "correction",
+            "reason": "adjusted",
+            "note": "I refined a few suggestions to match items you actually own.",
+        }
+
     suggested_ids = {it.get("id") or "" for outfit in outfits for it in outfit.get("items") or [] if it.get("id")}
     image_lookup = await _fetch_image_lookup(session, suggested_ids)
     outfits = _enrich_items_with_images(outfits, image_lookup, closet_map)
@@ -485,4 +515,11 @@ async def stream_chat_message(
         "styling_suggestions": cleaned.get("styling_suggestions") or [],
         "purchase_gaps": cleaned.get("purchase_gaps") or [],
         "follow_up_questions": cleaned.get("follow_up_questions") or [],
+        # Grounding signals — surfaced to the client and persisted for later audit.
+        "corrected": corrected,
+        "quality": {
+            "overall": quality.overall,
+            "hallucination_risk": quality.hallucination_risk,
+            "outfit_completeness": quality.outfit_completeness,
+        },
     }

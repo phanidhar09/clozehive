@@ -1,0 +1,152 @@
+# Grounding golden set — scores validate_chat_response() + score_response_quality()
+# over a known model output and closet. Verifies the harness removes hallucinated
+# items, drops empty outfits, computes hallucination_risk correctly, and falls
+# back only when nothing usable remains.
+#
+# Run:  python -m evals.runner --suite grounding
+#
+# expect keys (all optional): should_fallback, min_outfits, max_outfits,
+# max_hallucination_risk, items_removed.
+
+cases:
+  - id: all_items_valid
+    valid_item_ids:
+      - "11111111-1111-1111-1111-111111111111"
+      - "22222222-2222-2222-2222-222222222222"
+    model_output:
+      reply: "Here's a clean smart-casual look from your closet."
+      recommended_outfits:
+        - title: "Smart casual"
+          items:
+            - id: "11111111-1111-1111-1111-111111111111"
+              name: "Navy chinos"
+            - id: "22222222-2222-2222-2222-222222222222"
+              name: "White oxford shirt"
+          score_breakdown: {color: 20, occasion: 20, fit: 15, style: 15, weather: 10, preference: 10}
+          matching_score: 90
+      styling_suggestions: []
+      purchase_gaps: []
+      follow_up_questions: []
+    expect:
+      should_fallback: false
+      min_outfits: 1
+      items_removed: 0
+      max_hallucination_risk: 0.0
+
+  - id: one_hallucinated_item_removed
+    valid_item_ids:
+      - "11111111-1111-1111-1111-111111111111"
+    model_output:
+      reply: "Try this pairing."
+      recommended_outfits:
+        - title: "Casual"
+          items:
+            - id: "11111111-1111-1111-1111-111111111111"
+              name: "Navy chinos"
+            - id: "99999999-9999-9999-9999-999999999999"
+              name: "Item you don't own"
+          score_breakdown: {color: 15, occasion: 15, fit: 10, style: 10, weather: 5, preference: 5}
+          matching_score: 60
+    expect:
+      should_fallback: false
+      min_outfits: 1
+      items_removed: 1
+      max_hallucination_risk: 0.5
+
+  - id: all_items_hallucinated_outfit_dropped
+    valid_item_ids:
+      - "11111111-1111-1111-1111-111111111111"
+    model_output:
+      reply: "Here's an idea."
+      recommended_outfits:
+        - title: "Invented"
+          items:
+            - id: "99999999-9999-9999-9999-999999999999"
+              name: "Invented jacket"
+            - id: "not-a-uuid"
+              name: "Malformed id"
+    expect:
+      should_fallback: false
+      max_outfits: 0
+      items_removed: 2
+      max_hallucination_risk: 1.0
+
+  - id: bad_uuid_format_removed
+    valid_item_ids:
+      - "11111111-1111-1111-1111-111111111111"
+    model_output:
+      reply: "Pairing suggestion."
+      recommended_outfits:
+        - title: "Casual"
+          items:
+            - id: "11111111-1111-1111-1111-111111111111"
+              name: "Navy chinos"
+            - id: "not-a-uuid"
+              name: "Malformed id"
+    expect:
+      min_outfits: 1
+      items_removed: 1
+      max_hallucination_risk: 0.5
+
+  - id: two_outfits_one_dropped
+    valid_item_ids:
+      - "11111111-1111-1111-1111-111111111111"
+      - "22222222-2222-2222-2222-222222222222"
+      - "33333333-3333-3333-3333-333333333333"
+    model_output:
+      reply: "Two options for you."
+      recommended_outfits:
+        - title: "Option A"
+          items:
+            - id: "11111111-1111-1111-1111-111111111111"
+              name: "Navy chinos"
+            - id: "22222222-2222-2222-2222-222222222222"
+              name: "White oxford shirt"
+          score_breakdown: {color: 20, occasion: 20, fit: 15, style: 15, weather: 10, preference: 10}
+          matching_score: 90
+        - title: "Option B (invented)"
+          items:
+            - id: "99999999-9999-9999-9999-999999999999"
+              name: "Item you don't own"
+    expect:
+      should_fallback: false
+      min_outfits: 1
+      max_outfits: 1
+      items_removed: 1
+      max_hallucination_risk: 0.34
+
+  - id: three_valid_items_clean
+    valid_item_ids:
+      - "11111111-1111-1111-1111-111111111111"
+      - "22222222-2222-2222-2222-222222222222"
+      - "33333333-3333-3333-3333-333333333333"
+    model_output:
+      reply: "A layered look."
+      recommended_outfits:
+        - title: "Layered"
+          items:
+            - id: "11111111-1111-1111-1111-111111111111"
+              name: "Navy chinos"
+            - id: "22222222-2222-2222-2222-222222222222"
+              name: "White oxford shirt"
+            - id: "33333333-3333-3333-3333-333333333333"
+              name: "Grey blazer"
+          score_breakdown: {color: 18, occasion: 18, fit: 16, style: 16, weather: 8, preference: 8}
+          matching_score: 84
+    expect:
+      should_fallback: false
+      min_outfits: 1
+      items_removed: 0
+      max_hallucination_risk: 0.0
+
+  - id: non_object_output_hard_fallback
+    valid_item_ids:
+      - "11111111-1111-1111-1111-111111111111"
+    # Model returned something that isn't a JSON object at all — the only path
+    # that trips the hard-error fallback gate.
+    model_output:
+      - "this is not"
+      - "a json object"
+    expect:
+      should_fallback: true
+      max_outfits: 0

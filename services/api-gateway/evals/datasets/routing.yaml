@@ -1,0 +1,112 @@
+# Routing golden set — scores model_router.route() against an expected tier.
+#
+# Each case supplies the same signals the chat pipeline computes per turn. After
+# changing _ESCALATE_THRESHOLD (or the signal weights) in model_router.py, run
+#   python -m evals.runner --suite routing
+# and watch accuracy move. Grow this toward 30–50 cases from real `model_route`
+# logs as traffic accumulates.
+#
+# Signals (all optional, sensible defaults): message, has_images,
+# closet_item_count, expects_outfits, weather_required, history_depth,
+# constraint_count. expected_tier ∈ {small, large, vision}.
+
+cases:
+  # ── SMALL: trivial / theoretical, no structured outfit expected ──────────
+  - id: trivial_color_qa
+    message: "is navy ok with brown?"
+    expects_outfits: false
+    closet_item_count: 20
+    expected_tier: small
+
+  - id: care_question
+    message: "how do I wash cashmere?"
+    expects_outfits: false
+    closet_item_count: 30
+    expected_tier: small
+
+  - id: color_theory_definition
+    message: "what is color theory?"
+    expects_outfits: false
+    closet_item_count: 0
+    expected_tier: small
+
+  - id: long_session_chitchat
+    message: "anyway, does navy go with brown?"
+    expects_outfits: false
+    closet_item_count: 20
+    history_depth: 10
+    expected_tier: small
+
+  - id: fall_trend_question
+    message: "what are the trends this fall?"
+    expects_outfits: false
+    closet_item_count: 10
+    expected_tier: small
+
+  - id: single_item_pairing
+    message: "does this shirt go with chinos?"
+    expects_outfits: false
+    closet_item_count: 20
+    expected_tier: small
+
+  # ── LARGE: structured multi-outfit / dense constraints / long context ────
+  - id: wedding_multi_constraint
+    message: "what should I wear to a Tuscan outdoor wedding in October?"
+    expects_outfits: true
+    closet_item_count: 40
+    weather_required: true
+    constraint_count: 3
+    expected_tier: large
+
+  - id: today_outfit_boundary
+    # Boundary case: expects_outfits alone == 0.45 == _ESCALATE_THRESHOLD.
+    message: "what should I wear today?"
+    expects_outfits: true
+    closet_item_count: 8
+    expected_tier: large
+
+  - id: gym_outfit
+    message: "what should I wear to the gym?"
+    expects_outfits: true
+    closet_item_count: 15
+    expected_tier: large
+
+  - id: interview_outfit
+    message: "help me put together an interview outfit"
+    expects_outfits: true
+    closet_item_count: 25
+    constraint_count: 1
+    expected_tier: large
+
+  - id: party_small_closet
+    message: "what should I wear to a party?"
+    expects_outfits: true
+    closet_item_count: 5
+    constraint_count: 2
+    expected_tier: large
+
+  - id: brunch_large_closet
+    message: "pick a brunch outfit for me"
+    expects_outfits: true
+    closet_item_count: 50
+    expected_tier: large
+
+  - id: history_heavy_outfit
+    message: "ok now what about a dinner outfit?"
+    expects_outfits: true
+    closet_item_count: 30
+    history_depth: 9
+    expected_tier: large
+
+  # ── VISION: any attached image overrides everything ──────────────────────
+  - id: image_jacket_opinion
+    message: "what do you think of this jacket?"
+    has_images: true
+    expected_tier: vision
+
+  - id: image_with_outfit_intent
+    message: "style an outfit around this bag"
+    has_images: true
+    expects_outfits: true
+    closet_item_count: 40
+    expected_tier: vision
