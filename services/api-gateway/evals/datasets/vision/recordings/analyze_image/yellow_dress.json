@@ -1,0 +1,27 @@
+{
+  "name": "Dress",
+  "category": "dresses",
+  "color": "yellow",
+  "brand": "",
+  "material": "unknown",
+  "pattern": "solid",
+  "occasion": [
+    "casual",
+    "formal"
+  ],
+  "occasions": [
+    "casual",
+    "formal"
+  ],
+  "season": [],
+  "tags": [
+    "summer",
+    "evening wear"
+  ],
+  "eco_score": null,
+  "confidence": 0.9,
+  "confidence_score": 0.9,
+  "notes": "Item is a simple dress shape; specific material and brand not identifiable.",
+  "description": "Item is a simple dress shape; specific material and brand not identifiable.",
+  "subcategory": null
+}

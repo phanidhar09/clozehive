@@ -1,0 +1,28 @@
+{
+  "name": "Red Striped T-Shirt",
+  "category": "tops",
+  "subcategory": "T-Shirt",
+  "description": "A classic short-sleeve T-shirt featuring horizontal burgundy and dark coral stripes.",
+  "primary_color": "burgundy",
+  "secondary_colors": [
+    "dark coral"
+  ],
+  "pattern": "Striped",
+  "material": "Cotton",
+  "occasion_tags": [
+    "Casual"
+  ],
+  "season_tags": [
+    "Spring",
+    "Summer"
+  ],
+  "style_tags": [
+    "Minimal",
+    "Streetwear"
+  ],
+  "fit": "Regular",
+  "eco_score": null,
+  "brand": "",
+  "confidence_score": 0.95,
+  "warnings": []
+}

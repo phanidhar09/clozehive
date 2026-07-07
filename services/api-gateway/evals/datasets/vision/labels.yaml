@@ -1,0 +1,107 @@
+# Vision golden set — labeled garment images for extraction-quality scoring.
+#
+# Run:  python -m evals.vision_golden --live          (calls the vision model)
+#       python -m evals.vision_golden --record        (live + snapshot responses)
+#       python -m evals.vision_golden                 (score saved recordings, no network)
+#
+# Label semantics per case:
+#   category    — exact match against the canonical closet category
+#                 (tops | bottoms | shoes | outerwear | dresses | accessories | other)
+#   color_any   — pass if ANY of these tokens appears in the predicted primary
+#                 colour (case-insensitive substring), so "navy blue" matches
+#                 ["navy", "blue"]
+#   pattern_any — same any-token semantics against the predicted pattern
+#   fit / material — exact token when labeled; ``null`` = NOT SCORED. All
+#                 starter images are synthetic (flat PIL renderings): colour,
+#                 category, and pattern are judgeable, fabric texture and fit
+#                 are not. As real garment photos are added, label these too —
+#                 they're exactly the fields the flagship-vs-mini model
+#                 decision (config vision_* tiering) hinges on.
+#
+# Growing the set: drop a photo into images/, add a case here. Prefer real
+# photos over more synthetics — 20–30 real labeled photos make this the
+# gate for any vision model/prompt change.
+
+cases:
+  - id: navy_tshirt
+    image: navy_tshirt.png
+    synthetic: true
+    expect:
+      category: tops
+      color_any: [navy, blue]
+      pattern_any: [solid]
+      fit: null
+      material: null
+
+  - id: red_striped_tshirt
+    image: red_striped_tshirt.png
+    synthetic: true
+    expect:
+      category: tops
+      # The rendered RGB (176,32,38) is a dark red — burgundy/maroon/crimson
+      # are defensible shade names for it, not extraction errors.
+      color_any: [red, burgundy, maroon, crimson]
+      pattern_any: [stripe]
+      fit: null
+      material: null
+
+  - id: black_trousers
+    image: black_trousers.png
+    synthetic: true
+    expect:
+      category: bottoms
+      color_any: [black]
+      pattern_any: [solid]
+      fit: null
+      material: null
+
+  - id: brown_trousers
+    image: brown_trousers.png
+    synthetic: true
+    expect:
+      category: bottoms
+      # (98,66,38) sits between brown and rust — both are correct families.
+      color_any: [brown, tan, camel, rust, chestnut]
+      pattern_any: [solid]
+      fit: null
+      material: null
+
+  - id: green_dress
+    image: green_dress.png
+    synthetic: true
+    expect:
+      category: dresses
+      color_any: [green]
+      pattern_any: [solid]
+      fit: null
+      material: null
+
+  - id: yellow_dress
+    image: yellow_dress.png
+    synthetic: true
+    expect:
+      category: dresses
+      color_any: [yellow, mustard, gold]
+      pattern_any: [solid]
+      fit: null
+      material: null
+
+  - id: grey_jacket
+    image: grey_jacket.png
+    synthetic: true
+    expect:
+      category: outerwear
+      color_any: [grey, gray, charcoal]
+      pattern_any: [solid]
+      fit: null
+      material: null
+
+  - id: white_sneaker
+    image: white_sneaker.png
+    synthetic: true
+    expect:
+      category: shoes
+      color_any: [white, ivory, cream]
+      pattern_any: [solid]
+      fit: null
+      material: null

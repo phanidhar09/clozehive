@@ -1,0 +1,26 @@
+{
+  "name": "Black Slim-Fit Pants",
+  "category": "bottoms",
+  "subcategory": "Pants",
+  "description": "Solid black slim-fit pants with a clean silhouette.",
+  "primary_color": "black",
+  "secondary_colors": [],
+  "pattern": "Solid",
+  "material": "Unknown",
+  "occasion_tags": [
+    "Casual",
+    "Business Casual"
+  ],
+  "season_tags": [
+    "All-season"
+  ],
+  "style_tags": [
+    "Minimal",
+    "Classic"
+  ],
+  "fit": "Slim",
+  "eco_score": null,
+  "brand": "",
+  "confidence_score": 0.9,
+  "warnings": []
+}

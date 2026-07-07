@@ -1,0 +1,30 @@
+{
+  "name": "Sundress",
+  "category": "dresses",
+  "color": "dark green",
+  "brand": "",
+  "material": "unknown",
+  "pattern": "solid",
+  "occasion": [
+    "casual",
+    "beach",
+    "summer"
+  ],
+  "occasions": [
+    "casual",
+    "beach",
+    "summer"
+  ],
+  "season": [],
+  "tags": [
+    "dress",
+    "sundress",
+    "summer wear"
+  ],
+  "eco_score": null,
+  "confidence": 0.8,
+  "confidence_score": 0.8,
+  "notes": "The image quality is good, but specific material details are not discernible.",
+  "description": "The image quality is good, but specific material details are not discernible.",
+  "subcategory": null
+}

@@ -1,0 +1,26 @@
+{
+  "name": "Striped T-Shirt",
+  "category": "tops",
+  "color": "red and pink",
+  "brand": "",
+  "material": "unknown",
+  "pattern": "striped",
+  "occasion": [
+    "casual"
+  ],
+  "occasions": [
+    "casual"
+  ],
+  "season": [],
+  "tags": [
+    "t-shirt",
+    "striped",
+    "red"
+  ],
+  "eco_score": null,
+  "confidence": 0.8,
+  "confidence_score": 0.8,
+  "notes": "The item is a simple design and partially visible, which affects material detection.",
+  "description": "The item is a simple design and partially visible, which affects material detection.",
+  "subcategory": null
+}

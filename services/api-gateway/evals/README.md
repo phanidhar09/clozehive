@@ -43,10 +43,34 @@ Plain YAML under `datasets/`. Each `cases:` entry is one labeled example.
   block (`should_fallback`, `min_outfits`, `max_outfits`, `max_hallucination_risk`,
   `items_removed`).
 
+## Vision golden set (`evals/vision_golden.py`)
+
+Extraction-quality scoring for the garment vision pipeline — the measurement
+gate for any vision model/prompt change (e.g. the `vision_*` tiering config).
+Unlike the suites above it *can* call the model:
+
+```bash
+python -m evals.vision_golden                    # score saved recordings (no network — CI-safe)
+python -m evals.vision_golden --live             # call the vision model now
+python -m evals.vision_golden --record           # live + snapshot responses for offline scoring
+python -m evals.vision_golden --fn analyze_image # score the mini categorization tier
+python -m evals.vision_golden --live --min-accuracy 0.8
+```
+
+Labeled cases live in `datasets/vision/labels.yaml` + `datasets/vision/images/`
+(starter set is synthetic PIL renderings — deterministic, regenerable via
+`python -m evals.datasets.vision.generate_starter_images`). Per-field scoring:
+category (exact), colour/pattern (any-token family match), fit/material (only
+when labeled — `null` on synthetic images since flat renderings can't ground
+texture). **Grow it with real garment photos**: drop an image in `images/`, add
+a case, and label fit/material — those are exactly the fields the
+flagship-vs-mini tiering decision hinges on. `tests/evals/test_vision_golden.py`
+guards dataset integrity and scorer logic in CI without network.
+
 ## Not covered yet (intentional)
 
-This harness scores the deterministic scaffolding. It does **not** call the LLM,
-so it can't judge answer *quality* (tone, correctness, styling taste). That needs
-an online eval with a labeled prompt→response set and either an LLM-judge or human
-grading — a good next step once the `$ai_generation` telemetry (already emitting
-tokens/cost/tier per turn) has accumulated real traffic to sample from.
+The chat harness scores the deterministic scaffolding. It does **not** call the
+LLM, so it can't judge answer *quality* (tone, correctness, styling taste). That
+needs an online eval with a labeled prompt→response set and either an LLM-judge
+or human grading — a good next step once the `$ai_generation` telemetry (already
+emitting tokens/cost/tier per turn) has accumulated real traffic to sample from.

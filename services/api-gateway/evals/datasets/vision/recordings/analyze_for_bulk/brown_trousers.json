@@ -1,0 +1,28 @@
+{
+  "name": "Rust Flat-Front Trousers",
+  "category": "bottoms",
+  "subcategory": "Trousers",
+  "description": "These trousers are solid rust color and have a matte flat weave texture.",
+  "primary_color": "rust",
+  "secondary_colors": [],
+  "pattern": "Solid",
+  "material": "cotton",
+  "occasion_tags": [
+    "Business Casual",
+    "Casual"
+  ],
+  "season_tags": [
+    "Fall",
+    "Winter",
+    "Spring"
+  ],
+  "style_tags": [
+    "Classic",
+    "Workwear"
+  ],
+  "fit": "Regular",
+  "eco_score": null,
+  "brand": "",
+  "confidence_score": 0.95,
+  "warnings": []
+}

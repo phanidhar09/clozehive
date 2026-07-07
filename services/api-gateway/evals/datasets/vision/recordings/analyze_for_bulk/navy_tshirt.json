@@ -1,0 +1,29 @@
+{
+  "name": "Navy Blue Basic Tee",
+  "category": "tops",
+  "subcategory": "T-Shirt",
+  "description": "A navy blue T-shirt with a matte flat weave texture.",
+  "primary_color": "navy blue",
+  "secondary_colors": [],
+  "pattern": "Solid",
+  "material": "Cotton",
+  "occasion_tags": [
+    "Casual",
+    "Travel"
+  ],
+  "season_tags": [
+    "Spring",
+    "Summer",
+    "Fall",
+    "All-season"
+  ],
+  "style_tags": [
+    "Minimal",
+    "Classic"
+  ],
+  "fit": "Regular",
+  "eco_score": null,
+  "brand": "",
+  "confidence_score": 0.95,
+  "warnings": []
+}
