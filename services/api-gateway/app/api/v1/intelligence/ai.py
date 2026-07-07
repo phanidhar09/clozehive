@@ -152,6 +152,7 @@ def _item_dict(item: ClosetItem) -> dict[str, Any]:
         "name": item.name,
         "category": item.category,
         "color": item.color or "",
+        "fit": item.fit or "",
         "occasion": item.occasion or [],
         "season": item.season or "",
         "wear_count": item.wear_count,
@@ -192,6 +193,7 @@ async def _get_closet_for_occasion(
                     "name": r.get("name") or "",
                     "category": r.get("category") or "",
                     "color": r.get("color") or "",
+                    "fit": r.get("fit") or "",
                     "occasion": r.get("occasion") or [],
                     "season": r.get("season") or "",
                     "wear_count": r.get("wear_count") or 0,
@@ -292,7 +294,7 @@ def _build_stylist_system_prompt(
         occasion_text = ", ".join(str(o) for o in occasions) if isinstance(occasions, list) else str(occasions)
         lines.append(
             f"- {item.get('name', 'Unnamed item')} | {item.get('category', 'uncategorised')} | "
-            f"{item.get('color') or 'unknown'} | {occasion_text}"
+            f"{item.get('color') or 'unknown'} | fit={item.get('fit') or '?'} | {occasion_text}"
         )
     closet_context = "\n".join(lines)
     return f"""You are a personal AI stylist for ClozeHive. The user's complete wardrobe is listed below. When suggesting outfits or styling advice:
@@ -301,6 +303,7 @@ def _build_stylist_system_prompt(
 - If the wardrobe lacks a suitable item for an outfit component, explicitly say so rather than inventing items
 - Consider the occasions listed for each item when making recommendations
 - Always factor in the user's style profile, body type, fit preferences, and color palette when present
+- SILHOUETTE: use each item's fit= field to balance proportions — pair a relaxed/oversized piece with a slim/fitted one; avoid volume-on-volume (oversized top with baggy bottom). When fit= is "?", judge proportion from the item's name/category instead of assuming
 
 [WARDROBE CONTEXT]
 {closet_context}

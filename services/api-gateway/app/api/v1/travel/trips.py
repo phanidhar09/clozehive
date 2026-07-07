@@ -62,6 +62,7 @@ async def _fetch_closet_items(session: AsyncSession, user_id: UUID) -> list[dict
             "brand": item.brand or "",
             "fabric": item.fabric or "",
             "pattern": getattr(item, "pattern", "") or "",
+            "fit": item.fit or "",
             "size": item.size or "",
             "season": item.season or "",
             "occasion": item.occasion or [],
