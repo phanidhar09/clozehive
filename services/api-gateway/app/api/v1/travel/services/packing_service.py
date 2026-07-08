@@ -528,6 +528,29 @@ def _compute_bag_capacity_summary(
 
 # ── AI packing prompt (activity-aware) ────────────────────────────────────────
 
+# The rich planner enumerates at most this many days of detailed outfits. Longer
+# trips get a "rotate the capsule" note instead of a per-day plan — this bounds
+# the response size (and matches the 14-day caps in the weather table and the
+# rule-based fallback). Without a bound, a 3-week trip asks the model for ~30 days
+# of JSON, overflows the token ceiling, and truncates into unparseable output.
+_MAX_PLANNED_DAYS = 14
+
+# Completion-token budget for the rich call. A day-by-day planner's JSON grows
+# roughly linearly with the number of days; a fixed 4k ceiling silently truncated
+# long trips (→ json.loads fails → invisible rule-based fallback). We size the
+# budget to the planned-day count instead, keeping the old 4k as a short-trip
+# floor and capping below the model's hard output limit (gpt-4o = 16,384).
+_PACKING_TOKENS_BASE = 1600
+_PACKING_TOKENS_PER_DAY = 900
+_PACKING_OUTPUT_TOKEN_CAP = 16000
+_PACKING_TOKENS_FLOOR = 4000
+
+
+def _packing_max_tokens(planned_days: int) -> int:
+    """Scale the completion budget to the number of days being planned."""
+    budget = _PACKING_TOKENS_BASE + _PACKING_TOKENS_PER_DAY * max(1, planned_days)
+    return max(_PACKING_TOKENS_FLOOR, min(_PACKING_OUTPUT_TOKEN_CAP, budget))
+
 
 async def _ai_activity_aware_packing(
     destination: str,
@@ -555,13 +578,24 @@ async def _ai_activity_aware_packing(
         return None
 
     bag = _get_bag_constraints(bag_size)
+    # Bound the number of enumerated days so the JSON fits the token budget.
+    planned_days = max(1, min(trip_days, _MAX_PLANNED_DAYS))
     weather_text = (
         f"{weather_summary.get('dominant_condition', 'Unknown')}, "
         f"avg high {weather_summary.get('avg_high', 22):.0f}°C / "
         f"low {weather_summary.get('avg_low', 15):.0f}°C, "
         f"{weather_summary.get('rainy_days', 0)} rainy day(s)"
     )
-    per_day_block = _per_day_weather_table(weather_days or weather_summary.get("days", []))
+    per_day_block = _per_day_weather_table((weather_days or weather_summary.get("days", []))[:planned_days])
+    if trip_days > planned_days:
+        scope_note = (
+            f"OUTPUT SCOPE: This trip is {trip_days} days. Produce detailed day_plans for the "
+            f"FIRST {planned_days} days ONLY. In trip_summary.style_direction, tell the traveller "
+            f"that days {planned_days + 1}–{trip_days} rotate and rewear the same capsule — do "
+            f"NOT enumerate a separate plan for every day."
+        )
+    else:
+        scope_note = f"OUTPUT SCOPE: Produce day_plans covering all {planned_days} day(s)."
     activities_block = _format_activities_for_prompt(activities)
     closet_text = _format_closet_for_prompt(closet_items) if closet_items else "[]"
     style_block = ""
@@ -602,6 +636,8 @@ PLANNED ACTIVITIES:
 {activities_block}
 
 BAG SIZE CONSTRAINT: {bag["hint"]}
+
+{scope_note}
 
 USER'S CLOSET (ONLY use items from this list — never invent closet items):
 {closet_text}
@@ -706,7 +742,7 @@ Return ONLY valid JSON with this structure:
     try:
         resp = await client.chat.completions.create(
             model=_packing_chat_model(),
-            max_tokens=4000,
+            max_tokens=_packing_max_tokens(planned_days),
             # Low temperature: outfit planning rewards consistent, grounded
             # choices over creative variety, and reduces id hallucination.
             temperature=0.3,
@@ -714,7 +750,20 @@ Return ONLY valid JSON with this structure:
             messages=[{"role": "user", "content": prompt}],
             timeout=45.0,
         )
-        content = resp.choices[0].message.content
+        choice = resp.choices[0]
+        # A "length" finish means the JSON hit the token ceiling and is
+        # truncated — json.loads would fail and we'd fall back to the rule-based
+        # plan. Surface it distinctly so the truncation isn't invisible.
+        if getattr(choice, "finish_reason", None) == "length":
+            logger.warning(
+                "packing_ai_truncated",
+                destination=destination,
+                trip_days=trip_days,
+                planned_days=planned_days,
+                max_tokens=_packing_max_tokens(planned_days),
+            )
+            return None
+        content = choice.message.content
         return json.loads(content) if isinstance(content, str) else content
     except Exception as exc:
         logger.warning("ai_activity_packing_error", error=str(exc))

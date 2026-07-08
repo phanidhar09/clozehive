@@ -281,6 +281,27 @@ def test_legacy_sections_derived_from_grounded_plan():
     assert [n["name"] for n in need] == ["Sun Hat"]
 
 
+# ── Completion-token budget (truncation guard) ─────────────────────────────────
+
+
+def test_max_tokens_scales_with_trip_length():
+    """Longer trips get a bigger completion budget so their JSON isn't truncated."""
+    short = ps._packing_max_tokens(1)
+    long = ps._packing_max_tokens(10)
+    assert long > short
+    # A 3-day trip must exceed the old fixed 4k ceiling that used to truncate.
+    assert ps._packing_max_tokens(3) >= ps._PACKING_TOKENS_FLOOR
+
+
+def test_max_tokens_has_floor_and_cap():
+    # Floor: even a 1-day trip keeps the previous 4k budget.
+    assert ps._packing_max_tokens(1) == ps._PACKING_TOKENS_FLOOR
+    # Cap: an absurd trip length never exceeds the model's output ceiling.
+    assert ps._packing_max_tokens(1000) == ps._PACKING_OUTPUT_TOKEN_CAP
+    # The max planned-day count stays within the cap (never asks for the impossible).
+    assert ps._packing_max_tokens(ps._MAX_PLANNED_DAYS) <= ps._PACKING_OUTPUT_TOKEN_CAP
+
+
 # ── Relevance ranking ──────────────────────────────────────────────────────────
 
 
