@@ -345,6 +345,27 @@ def _rank_closet_for_trip(
 # ── Closet grounding (anti-hallucination) ──────────────────────────────────────
 
 
+def _norm_name(name: Any) -> str:
+    """
+    Normalise an item name for matching: lowercase alphanumerics only, so
+    "Levi's 501 Jeans", "levis 501 jeans" and "Levi's  501-Jeans" all compare
+    equal. Used only for closet-membership checks, never for display.
+    """
+    return "".join(c for c in str(name or "").lower() if c.isalnum())
+
+
+def _closet_lookup_maps(
+    closet_items: list[dict[str, Any]],
+) -> tuple[dict[str, dict[str, Any]], dict[str, str]]:
+    """Return (id → closet item, normalised name → id) maps."""
+    by_id: dict[str, dict[str, Any]] = {str(it["id"]): it for it in closet_items if it.get("id")}
+    name_to_id: dict[str, str] = {
+        _norm_name(it.get("name")): str(it["id"]) for it in closet_items if it.get("id") and it.get("name")
+    }
+    name_to_id.pop("", None)
+    return by_id, name_to_id
+
+
 def _ground_day_plans_to_closet(
     day_plans: list[dict[str, Any]],
     closet_items: list[dict[str, Any]],
@@ -352,7 +373,9 @@ def _ground_day_plans_to_closet(
     """
     Verify every outfit item the model tagged as ``from_closet`` actually exists.
 
-    - A valid ``closet_item_id`` is kept as-is.
+    - A valid ``closet_item_id`` keeps its id, and its display name/category are
+      back-filled from the real closet record so the model can never pair a real
+      id with an invented name.
     - A wrong/blank id whose *name* matches a real closet item is repaired by
       back-filling the real id.
     - An item that matches neither is downgraded to ``missing_recommended`` with
@@ -360,10 +383,7 @@ def _ground_day_plans_to_closet(
 
     Returns the (mutated) day_plans and a count of corrected items.
     """
-    valid_ids = {str(it["id"]) for it in closet_items if it.get("id")}
-    name_to_id: dict[str, str] = {
-        str(it.get("name", "")).lower().strip(): str(it["id"]) for it in closet_items if it.get("id") and it.get("name")
-    }
+    by_id, name_to_id = _closet_lookup_maps(closet_items)
 
     corrected = 0
     for day in day_plans:
@@ -371,14 +391,24 @@ def _ground_day_plans_to_closet(
             for item in outfit.get("items", []):
                 source = str(item.get("source") or "").lower()
                 cid = str(item.get("closet_item_id") or "").strip()
-                name = str(item.get("item_name") or "").lower().strip()
+                name = _norm_name(item.get("item_name"))
                 claims_closet = source == "from_closet" or bool(cid)
                 if not claims_closet:
                     continue
-                if cid and cid in valid_ids:
+                if cid and cid in by_id:
                     item["source"] = "from_closet"
+                    # Real id, but the name/category must come from the closet
+                    # record — never trust the model's rendering of an owned item.
+                    real = by_id[cid]
+                    real_name = str(real.get("name") or "")
+                    if real_name and name != _norm_name(real_name):
+                        item["item_name"] = real_name
+                        corrected += 1
+                    real_cat = real.get("category")
+                    if real_cat:
+                        item["category"] = _normalise_category(str(real_cat))
                     continue
-                # id is wrong/blank — try to recover via an exact name match.
+                # id is wrong/blank — try to recover via a normalised name match.
                 if name in name_to_id:
                     item["closet_item_id"] = name_to_id[name]
                     item["source"] = "from_closet"
@@ -389,6 +419,111 @@ def _ground_day_plans_to_closet(
                 item["source"] = "missing_recommended"
                 corrected += 1
     return day_plans, corrected
+
+
+def _ground_rewear_strategy(
+    rewear_strategy: list[dict[str, Any]],
+    closet_items: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int]:
+    """
+    Ground rewear-strategy entries the same way as day plans: back-fill real
+    ids/names where recoverable and DROP entries that reference items the user
+    does not own — a rewear plan for a non-existent item is pure hallucination.
+
+    Returns (grounded entries, count dropped/corrected).
+    """
+    by_id, name_to_id = _closet_lookup_maps(closet_items)
+    grounded: list[dict[str, Any]] = []
+    corrected = 0
+    for entry in rewear_strategy:
+        if not isinstance(entry, dict):
+            corrected += 1
+            continue
+        cid = str(entry.get("closet_item_id") or "").strip()
+        name = _norm_name(entry.get("item_name"))
+        if cid and cid in by_id:
+            real_name = str(by_id[cid].get("name") or "")
+            if real_name and name != _norm_name(real_name):
+                entry["item_name"] = real_name
+                corrected += 1
+            grounded.append(entry)
+        elif name in name_to_id:
+            entry["closet_item_id"] = name_to_id[name]
+            corrected += 1
+            grounded.append(entry)
+        else:
+            corrected += 1  # invented item — drop the whole entry
+    return grounded, corrected
+
+
+def _filter_owned_from_missing(
+    missing_items: list[dict[str, Any]],
+    closet_items: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int]:
+    """
+    Drop "missing" recommendations the user demonstrably already owns (inverse
+    hallucination: telling the user to buy an item that is in their closet).
+    """
+    owned_names = {_norm_name(it.get("name")) for it in closet_items if it.get("name")}
+    kept: list[dict[str, Any]] = []
+    dropped = 0
+    for mi in missing_items:
+        if not isinstance(mi, dict):
+            dropped += 1
+            continue
+        name = _norm_name(mi.get("item_name") or mi.get("name"))
+        if name and name in owned_names:
+            dropped += 1
+        else:
+            kept.append(mi)
+    return kept, dropped
+
+
+def _compute_bag_capacity_summary(
+    day_plans: list[dict[str, Any]],
+    bag: dict[str, Any],
+    ai_summary: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """
+    Deterministic bag-capacity summary computed from the grounded day plans —
+    replaces the LLM's self-reported packing_status/total_unique_items (which it
+    routinely gets wrong) while keeping its free-text optimization_notes.
+    """
+    unique_by_cat: dict[str, set[str]] = defaultdict(set)
+    for day in day_plans:
+        for outfit in day.get("outfits", []):
+            for item in outfit.get("items", []):
+                name = str(item.get("item_name") or "")
+                if not name:
+                    continue
+                cat = _normalise_category(str(item.get("category") or "general"))
+                key = str(item.get("closet_item_id") or "") or _norm_name(name)
+                unique_by_cat[cat].add(key)
+
+    total_unique = sum(len(v) for v in unique_by_cat.values())
+    status = "fits"
+    for cat in ("tops", "bottoms", "shoes", "outerwear", "accessories"):
+        limit = int(bag.get(f"max_{cat}", 0) or 0)
+        count = len(unique_by_cat.get(cat, set()))
+        if not limit:
+            continue
+        if count > limit:
+            status = "overpacked"
+            break
+        if count == limit:
+            status = "tight"
+
+    notes = []
+    if isinstance(ai_summary, dict):
+        raw_notes = ai_summary.get("optimization_notes")
+        if isinstance(raw_notes, list):
+            notes = [str(n) for n in raw_notes if n]
+    return {
+        "packing_status": status,
+        "total_unique_items": total_unique,
+        "items_per_category": {cat: len(keys) for cat, keys in unique_by_cat.items()},
+        "optimization_notes": notes,
+    }
 
 
 # ── AI packing prompt (activity-aware) ────────────────────────────────────────
@@ -443,17 +578,25 @@ async def _ai_activity_aware_packing(
     if location_context and location_context.strip():
         location_block = f"\n{location_context.strip()}\n"
 
+    # Sanitise user-supplied trip fields before embedding in the prompt
+    # (same treatment as the legacy prompt — injection here surfaces as
+    # hallucinated/off-plan output downstream).
+    safe_destination = sanitize_user_text(destination, field="notes", max_len=120)
+    safe_purpose = sanitize_user_text(purpose, field="notes", max_len=80)
+    safe_trip_style = sanitize_user_text(trip_style or "", field="notes", max_len=80)
+    safe_notes = sanitize_user_text(notes or "", field="trip_notes") or "None"
+
     prompt = f"""You are FANI, a professional travel stylist and personal wardrobe manager. Generate a day-by-day travel outfit planner.
 
 TRIP DETAILS:
-- Destination: {destination}
+- Destination: {safe_destination}
 - Dates: {start_date} to {end_date} ({trip_days} days)
-- Purpose: {purpose}
-- Trip style: {trip_style or "not specified"}
+- Purpose: {safe_purpose}
+- Trip style: {safe_trip_style or "not specified"}
 - Bag size: {bag["label"]}
 - Weather: {weather_text}
 {per_day_block}
-- Notes: {notes or "None"}
+- Notes: {safe_notes}
 {location_block}{style_block}
 PLANNED ACTIVITIES:
 {activities_block}
@@ -578,132 +721,64 @@ Return ONLY valid JSON with this structure:
         return None
 
 
-# ── Legacy AI call (kept for fallback) ───────────────────────────────────────
+# ── Legacy sections derived from the grounded rich plan ──────────────────────
+# take_from_your_closet / you_might_still_need used to come from a second LLM
+# call, which doubled cost/latency and was an ungated hallucination surface.
+# The grounded day plans already contain everything needed, so the legacy
+# sections are now pure bookkeeping.
 
 
-async def _ai_packing_recommendations(
-    destination: str,
-    start_date: str,
-    end_date: str,
-    purpose: str,
-    trip_days: int,
-    closet_items: list[dict[str, Any]],
-    weather_summary: dict[str, Any],
-    notes: str | None,
-    style_profile_context_text: str | None = None,
-    weather_days: list[dict[str, Any]] | None = None,
-    rag_context: str | None = None,
-) -> dict[str, Any] | None:
-    """Legacy AI call for take_from_your_closet / you_might_still_need format."""
-    client = _packing_openai_client()
-    if not client:
-        return None
-
-    weather_text = (
-        f"{weather_summary.get('dominant_condition', 'Unknown')}, "
-        f"avg high {weather_summary.get('avg_high', 20):.0f}°C / "
-        f"low {weather_summary.get('avg_low', 10):.0f}°C, "
-        f"{weather_summary.get('rainy_days', 0)} rainy day(s)"
-    )
-    per_day_block = _per_day_weather_table(weather_days or weather_summary.get("days", []))
-    closet_text = _format_closet_for_prompt(closet_items) if closet_items else "[]"
-    style_block = ""
-    if style_profile_context_text and style_profile_context_text.strip():
-        style_block = f"\nPersonalisation:\n{style_profile_context_text.strip()}\n\n"
-    if rag_context and rag_context.strip():
-        style_block += f"\nRAG Context:\n{rag_context.strip()}\n\n"
-
-    # Sanitise user-supplied trip fields before embedding in the prompt.
-    safe_destination = sanitize_user_text(destination, field="notes", max_len=120)
-    safe_purpose = sanitize_user_text(purpose, field="notes", max_len=80)
-    safe_notes = sanitize_user_text(notes or "", field="trip_notes") or "None"
-
-    prompt = (
-        "You are a professional travel stylist. Help pack for this trip.\n\n"
-        f"Trip: {safe_destination} | {start_date} to {end_date} ({trip_days} days) | {safe_purpose}\n"
-        f"Weather: {weather_text}\n{per_day_block}\n"
-        f"Notes: {safe_notes}\n{style_block}"
-        f"Wardrobe:\n{closet_text}\n\n"
-        "Return ONLY valid JSON:\n"
-        '{"take_from_your_closet": [{"item_id": "<id>", "name": "<name>", "category": "<cat>", '
-        '"reason": "<why>", "recommended_days": ["Day 1"]}], '
-        '"you_might_still_need": [{"name": "<item>", "category": "<cat>", "reason": "<why>"}]}\n\n'
-        "Rules: Only use closet items in take_from_your_closet. Never invent items."
-    )
-    try:
-        resp = await client.chat.completions.create(
-            model=_packing_chat_model(),
-            max_tokens=2000,
-            response_format={"type": "json_object"},
-            messages=[{"role": "user", "content": prompt}],
-            timeout=30.0,
-        )
-        content = resp.choices[0].message.content
-        return json.loads(content) if isinstance(content, str) else content
-    except Exception as exc:
-        logger.warning("ai_packing_error", error=str(exc))
-        return None
-
-
-# ── Normalisation helpers ─────────────────────────────────────────────────────
-
-
-def _normalise_packing_output(
-    ai_data: dict[str, Any],
-    closet_items: list[dict[str, Any]],
+def _derive_legacy_sections(
+    day_plans: list[dict[str, Any]],
+    missing_items: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    _CLOSET_KEYS = [
-        "take_from_your_closet",
-        "takeFromCloset",
-        "take_from_closet",
-        "closet_items_to_pack",
-        "from_closet",
-        "wardrobe_items",
-    ]
-    _NEED_KEYS = [
-        "you_might_still_need",
-        "youMightStillNeed",
-        "still_need",
-        "missing_items",
-        "items_to_buy",
-        "shopping_list",
-    ]
-    raw_closet: list[dict] = next((ai_data[k] for k in _CLOSET_KEYS if isinstance(ai_data.get(k), list)), [])
-    raw_need: list[dict] = next((ai_data[k] for k in _NEED_KEYS if isinstance(ai_data.get(k), list)), [])
-    valid_ids = {str(item["id"]) for item in closet_items if item.get("id")}
-    valid_names_lower = {str(item.get("name", "")).lower() for item in closet_items if item.get("name")}
-
-    take_from_closet: list[dict[str, Any]] = []
-    hallucinated: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for entry in raw_closet:
-        if not isinstance(entry, dict):
-            continue
-        name = str(entry.get("name") or "").strip()
-        if not name or name.lower() in seen:
-            continue
-        item_id = str(entry.get("item_id") or entry.get("closet_item_id") or "")
-        is_real = item_id in valid_ids or name.lower() in valid_names_lower
-        normalised = {
-            "item_id": item_id or None,
-            "name": name,
-            "category": str(entry.get("category") or "").lower() or "general",
-            "reason": str(entry.get("reason") or "Recommended for this trip."),
-            "recommended_days": entry.get("recommended_days") or [],
-        }
-        if is_real:
-            take_from_closet.append(normalised)
-        else:
-            hallucinated.append({"name": name, "category": normalised["category"], "reason": normalised["reason"]})
-        seen.add(name.lower())
+    """
+    Build take_from_your_closet / you_might_still_need from the (already
+    grounded) rich plan. Every from_closet item is real by construction here,
+    so no re-validation is needed.
+    """
+    take: dict[str, dict[str, Any]] = {}
+    plan_missing: list[dict[str, Any]] = []
+    for day in day_plans:
+        day_label = f"Day {day.get('day_number', '?')}"
+        for outfit in day.get("outfits", []):
+            activity = str(outfit.get("activity") or "").strip()
+            for item in outfit.get("items", []):
+                name = str(item.get("item_name") or "").strip()
+                if not name:
+                    continue
+                source = str(item.get("source") or "").lower()
+                cid = str(item.get("closet_item_id") or "")
+                if source == "from_closet" and cid:
+                    entry = take.setdefault(
+                        cid,
+                        {
+                            "item_id": cid,
+                            "name": name,
+                            "category": _normalise_category(str(item.get("category") or "general")),
+                            "reason": f"Planned for {activity}" if activity else "Planned in your day-by-day outfits.",
+                            "recommended_days": [],
+                        },
+                    )
+                    if day_label not in entry["recommended_days"]:
+                        entry["recommended_days"].append(day_label)
+                elif source == "missing_recommended":
+                    plan_missing.append(
+                        {
+                            "name": name,
+                            "category": str(item.get("category") or "").lower() or "general",
+                            "reason": f"Needed for {activity}" if activity else "Recommended for this trip.",
+                        }
+                    )
 
     still_need: list[dict[str, Any]] = []
     seen_need: set[str] = set()
-    for entry in raw_need + hallucinated:
+    for entry in list(missing_items) + plan_missing:
         if not isinstance(entry, dict):
             continue
-        name = str(entry.get("name") or "").strip()
-        if not name or name.lower() in seen_need:
+        name = str(entry.get("item_name") or entry.get("name") or "").strip()
+        key = _norm_name(name)
+        if not name or key in seen_need:
             continue
         still_need.append(
             {
@@ -712,8 +787,8 @@ def _normalise_packing_output(
                 "reason": str(entry.get("reason") or "Consider bringing this."),
             }
         )
-        seen_need.add(name.lower())
-    return take_from_closet, still_need
+        seen_need.add(key)
+    return list(take.values()), still_need
 
 
 # ── Enrich day_plans with closet images ──────────────────────────────────────
@@ -1136,7 +1211,9 @@ async def generate_packing_list(
                 selected=len(ranked_closet),
             )
 
-        # ── New activity-aware AI call ────────────────────────────────────────
+        # ── Single activity-aware AI call ─────────────────────────────────────
+        # The legacy take_from/you_might_need sections are derived from this
+        # plan deterministically below — no second LLM call.
         ai_rich = await _ai_activity_aware_packing(
             destination,
             start_date,
@@ -1153,21 +1230,6 @@ async def generate_packing_list(
             style_profile_context_text=merged_ctx,
             rag_context=rag_context,
             location_context=location_context,
-        )
-
-        # ── Legacy AI call for backward-compat take_from / you_might_need ────
-        ai_legacy = await _ai_packing_recommendations(
-            destination,
-            start_date,
-            end_date,
-            purpose,
-            trip_days,
-            ranked_closet,
-            weather_summary,
-            notes,
-            style_profile_context_text=merged_ctx,
-            weather_days=weather_days,
-            rag_context=rag_context,
         )
 
         # ── Process rich AI output ────────────────────────────────────────────
@@ -1190,10 +1252,25 @@ async def generate_packing_list(
             location_etiquette = summary_block.get("location_etiquette")
 
             # Ground every "from_closet" pick against the FULL closet: repair
-            # recoverable ids and downgrade invented items to missing_recommended.
+            # recoverable ids/names and downgrade invented items to
+            # missing_recommended. Rewear entries and "missing" recommendations
+            # get the same treatment — every LLM field the UI renders as a fact
+            # about the user's closet must survive a closet check.
             day_plans_rich, corrected = _ground_day_plans_to_closet(day_plans_rich, closet_items)
-            if corrected:
-                logger.info("packing_grounding_corrections", destination=destination, corrected=corrected)
+            rewear_strategy, rewear_corrected = _ground_rewear_strategy(rewear_strategy, closet_items)
+            missing_items_rich, owned_dropped = _filter_owned_from_missing(missing_items_rich, closet_items)
+            if corrected or rewear_corrected or owned_dropped:
+                logger.info(
+                    "packing_grounding_corrections",
+                    destination=destination,
+                    corrected=corrected,
+                    rewear_corrected=rewear_corrected,
+                    owned_dropped_from_missing=owned_dropped,
+                )
+
+            # Bag capacity is computed, not self-reported: the model's own
+            # packing_status/total_unique_items are frequently wrong.
+            bag_capacity_summary = _compute_bag_capacity_summary(day_plans_rich, bag, bag_capacity_summary)
 
             # Enrich with closet images (after grounding back-fills real ids)
             day_plans_rich = _enrich_day_plans_with_images(day_plans_rich, closet_items)
@@ -1201,9 +1278,9 @@ async def generate_packing_list(
             # Fallback rule-based rich plans
             day_plans_rich = _rule_based_day_plans(closet_items, activities, start_date, trip_days, weather_days)
 
-        # ── Process legacy AI output ──────────────────────────────────────────
-        if ai_legacy:
-            take_from_closet, still_need = _normalise_packing_output(ai_legacy, closet_items)
+        # ── Legacy sections: derived from the grounded plan, no LLM ─────────
+        if ai_rich:
+            take_from_closet, still_need = _derive_legacy_sections(day_plans_rich, missing_items_rich)
         else:
             take_from_closet, still_need = _rule_based_packing_sections(
                 closet_items,
