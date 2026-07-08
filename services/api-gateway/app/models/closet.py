@@ -82,9 +82,7 @@ class ClosetItem(Base):
     # (see app.constants.wardrobe.Condition). Ordinal — a *soft* occasion-aware
     # styling signal (worn is fine for casual, penalised for formal), except
     # DAMAGED which is hard-excluded like an unavailable item. See migration 037.
-    condition: Mapped[str] = mapped_column(
-        String(20), nullable=False, default="good", server_default="good"
-    )
+    condition: Mapped[str] = mapped_column(String(20), nullable=False, default="good", server_default="good")
 
     # ── Vision pipeline fields (added in migration 008) ───────────────────────
     original_image_url: Mapped[str | None] = mapped_column(Text, nullable=True)
