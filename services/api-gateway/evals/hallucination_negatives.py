@@ -46,6 +46,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from app.api.v1.travel.services.packing_service import (
+    _compute_bag_capacity_summary,
+    _filter_owned_from_missing,
+    _ground_day_plans_to_closet,
+    _ground_rewear_strategy,
+)
 from app.core.ai_output_validator import (
     check_context_sufficiency,
     format_rag_citations,
@@ -287,6 +293,74 @@ def _citations_grounded() -> tuple[bool, str]:
 def _no_phantom_citation() -> tuple[bool, str]:
     block = format_rag_citations([])
     return ("[SOURCE-1]" not in block), "no docs -> no source labels"
+
+
+# ── Packing grounding (drives the real packing_service functions) ─────────────
+
+# The packing grounders match on id + normalised name, so the closet needs names.
+PACKING_CLOSET = [{"id": k, "name": v["name"], "category": v["category"]} for k, v in CLOSET.items()]
+
+
+def _packing_invented_item_downgraded() -> tuple[bool, str]:
+    """A day-plan item claiming a fake closet id must be downgraded, not shown as owned."""
+    day_plans = [
+        {"outfits": [{"items": [{"item_name": "Emerald Tuxedo", "closet_item_id": FAKE, "source": "from_closet"}]}]}
+    ]
+    grounded, _ = _ground_day_plans_to_closet(day_plans, PACKING_CLOSET)
+    item = grounded[0]["outfits"][0]["items"][0]
+    contained = item["closet_item_id"] is None and item["source"] == "missing_recommended"
+    return contained, f"source={item['source']}, id={item['closet_item_id']}"
+
+
+def _packing_wrong_name_backfilled() -> tuple[bool, str]:
+    """A real id paired with a wrong name gets the authoritative closet name."""
+    day_plans = [
+        {
+            "outfits": [
+                {"items": [{"item_name": "Burgundy Chinos", "closet_item_id": OWNED[0], "source": "from_closet"}]}
+            ]
+        }
+    ]
+    grounded, _ = _ground_day_plans_to_closet(day_plans, PACKING_CLOSET)
+    name = grounded[0]["outfits"][0]["items"][0]["item_name"]
+    return name == CLOSET[OWNED[0]]["name"], f"name={name!r}"
+
+
+def _packing_rewear_invented_dropped() -> tuple[bool, str]:
+    """A rewear entry for an item the user doesn't own is dropped whole."""
+    grounded, _ = _ground_rewear_strategy([{"item_name": "Invented Scarf", "closet_item_id": FAKE}], PACKING_CLOSET)
+    return len(grounded) == 0, f"kept={len(grounded)}"
+
+
+def _packing_owned_dropped_from_missing() -> tuple[bool, str]:
+    """A 'missing — go buy' item the user already owns is dropped (inverse hallucination)."""
+    kept, _ = _filter_owned_from_missing(
+        [{"item_name": CLOSET[OWNED[0]]["name"]}, {"item_name": "Rain Jacket"}], PACKING_CLOSET
+    )
+    names = [m["item_name"] for m in kept]
+    return names == ["Rain Jacket"], f"kept={names}"
+
+
+def _packing_bag_capacity_recomputed() -> tuple[bool, str]:
+    """Bag-capacity totals come from the grounded plan, not the model's self-report."""
+    day_plans = [
+        {
+            "outfits": [
+                {
+                    "items": [
+                        {"item_name": CLOSET[OWNED[0]]["name"], "closet_item_id": OWNED[0], "category": "bottoms"},
+                        {"item_name": CLOSET[OWNED[1]]["name"], "closet_item_id": OWNED[1], "category": "tops"},
+                    ]
+                }
+            ]
+        }
+    ]
+    bag = {"max_tops": 5, "max_bottoms": 5, "max_shoes": 5, "max_outerwear": 5, "max_accessories": 5}
+    summary = _compute_bag_capacity_summary(
+        day_plans, bag, {"total_unique_items": 999, "packing_status": "overflowing"}
+    )
+    total = summary.get("total_unique_items")
+    return total == 2, f"total={total}, status={summary.get('packing_status')}"
 
 
 def _suggestion_entry_dropped(entry: dict[str, Any]) -> tuple[bool, str]:
@@ -572,7 +646,8 @@ def build_categories() -> list[Category]:
         )
     )
 
-    # 12. Packing Hallucination — packing request without a destination.
+    # 12. Packing Hallucination — missing-context refusal + closet-grounding of
+    #     the generated plan (packing_service._ground_* functions).
     cats.append(
         Category(
             "Packing Hallucination",
@@ -583,6 +658,11 @@ def build_categories() -> list[Category]:
                     "with_destination_allowed",
                     lambda: _ctx_allowed([{"id": OWNED[0]}], "pack for my trip to Tokyo"),
                 ),
+                Probe("invented_item_downgraded", _packing_invented_item_downgraded),
+                Probe("wrong_name_backfilled", _packing_wrong_name_backfilled),
+                Probe("rewear_invented_dropped", _packing_rewear_invented_dropped),
+                Probe("owned_dropped_from_missing", _packing_owned_dropped_from_missing),
+                Probe("bag_capacity_recomputed", _packing_bag_capacity_recomputed),
             ],
         )
     )
