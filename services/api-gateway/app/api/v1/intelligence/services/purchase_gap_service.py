@@ -6,6 +6,7 @@ wardrobe gaps and generate prioritized purchase recommendations.
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections import Counter
 from typing import Any
@@ -36,6 +37,57 @@ _OCCASION_ESSENTIALS: dict[str, list[str]] = {
     "beach": ["shoes", "accessories"],
     "wedding": ["shoes", "accessories", "outerwear"],
 }
+
+# Recognized category-level slot terms the outfit LLM may return in
+# `missing_pieces`, mapped to a canonical closet category. The outfit prompt
+# asks for "categories only, never specific item names"; this allowlist grounds
+# each value to a real category and drops anything unrecognized (invented slots
+# or hallucinated specific item descriptions) before it becomes a saved gap.
+_PIECE_CATEGORY_ALIASES: dict[str, str] = {
+    # tops
+    "top": "tops", "tops": "tops", "shirt": "tops", "blouse": "tops",
+    "tee": "tops", "t-shirt": "tops", "tshirt": "tops", "sweater": "tops",
+    "knit": "tops", "polo": "tops",
+    # bottoms
+    "bottom": "bottoms", "bottoms": "bottoms", "pants": "bottoms",
+    "trousers": "bottoms", "jeans": "bottoms", "skirt": "bottoms",
+    "shorts": "bottoms", "chinos": "bottoms",
+    # shoes / footwear
+    "shoe": "shoes", "shoes": "shoes", "footwear": "shoes", "sneakers": "shoes",
+    "boots": "shoes", "heels": "shoes", "sandals": "shoes", "loafers": "shoes",
+    # outerwear
+    "outerwear": "outerwear", "jacket": "outerwear", "coat": "outerwear",
+    "blazer": "outerwear", "cardigan": "outerwear", "overcoat": "outerwear",
+    # accessories
+    "accessory": "accessories", "accessories": "accessories", "belt": "accessories",
+    "hat": "accessories", "scarf": "accessories", "bag": "accessories",
+    "jewelry": "accessories", "watch": "accessories", "tie": "accessories",
+    "sunglasses": "accessories", "gloves": "accessories", "socks": "accessories",
+    # dresses / one-pieces
+    "dress": "dresses", "dresses": "dresses", "gown": "dresses", "jumpsuit": "dresses",
+}
+
+
+def _normalize_missing_piece(piece: str) -> tuple[str, str] | None:
+    """Ground an LLM ``missing_pieces`` value to a canonical wardrobe category.
+
+    The outfit-analysis LLM is instructed to return category-level slots only,
+    but nothing upstream enforces it. This is the one place an ungrounded LLM
+    field flows into a persisted purchase gap, so we require each value to be a
+    recognized wardrobe term.
+
+    Returns ``(canonical_category, display_label)`` for a recognized term, or
+    ``None`` to drop hallucinated values — invented slots and specific item
+    descriptions (e.g. "brown suede Chelsea boots") that are not exact category
+    terms.
+    """
+    label = (piece or "").strip().lower()
+    # Strip a leading article the LLM sometimes prepends ("a belt", "the jacket").
+    label = re.sub(r"^(?:a|an|the)\s+", "", label)
+    canonical = _PIECE_CATEGORY_ALIASES.get(label)
+    if canonical is None:
+        return None
+    return canonical, label
 
 
 def _detect_closet_gaps(
@@ -141,13 +193,26 @@ async def detect_and_save_gaps(
         )
 
     if outfit_missing_pieces:
+        seen_outfit: set[str] = set()
         for piece in outfit_missing_pieces:
+            normalized = _normalize_missing_piece(piece)
+            if normalized is None:
+                logger.info(
+                    "purchase_gap_piece_rejected",
+                    user_id=user_id,
+                    piece=str(piece)[:40],
+                )
+                continue
+            category, label = normalized
+            if category in seen_outfit:
+                continue
+            seen_outfit.add(category)
             all_gaps.append(
                 {
                     "gap_type": "outfit",
-                    "missing_category": piece.lower(),
+                    "missing_category": category,
                     "missing_occasion": occasion,
-                    "reason": f"Missing {piece} to complete your {occasion or 'outfit'} look.",
+                    "reason": f"Missing {label} to complete your {occasion or 'outfit'} look.",
                     "priority_score": 0.72,
                     "source_context": {"occasion": occasion},
                     "suggested_attributes": {"occasion": occasion or "versatile"},
