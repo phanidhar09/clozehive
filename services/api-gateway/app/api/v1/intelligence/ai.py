@@ -600,6 +600,7 @@ async def packing(body: PackingRequest, user_id: CurrentUser, session: DbSession
         notes=body.notes,
         user_style_profile=prof,
         rag_context=packing_ctx or None,
+        user_id=user_id,
     )
 
 
@@ -627,6 +628,7 @@ async def packing_stream(body: PackingRequest, user_id: CurrentUser, session: Db
                 notes=body.notes,
                 user_style_profile=prof,
                 rag_context=packing_ctx or None,
+                user_id=user_id,
             )
             yield _sse({"type": "status", "message": "Matching wardrobe…"})
             summary = str(data.get("summary") or "") if isinstance(data, dict) else ""

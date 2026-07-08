@@ -8,6 +8,7 @@ bag size constraints, weather, user style profile, and real closet items.
 from __future__ import annotations
 
 import json
+import time
 from collections import defaultdict
 from datetime import date, timedelta
 from typing import Any
@@ -21,10 +22,13 @@ from app.api.v1.travel.services.location_intel_service import (
     build_location_context_block_async,
 )
 from app.api.v1.travel.services.weather_service import fetch_weather_async, summarise_weather
+from app.core.analytics import LLMTelemetry, capture_llm_generation
 from app.core.config import get_settings
 from app.core.constraint_priority import build_constraint_priority_block
+from app.core.llm_pricing import cost_usd
 from app.core.llm_safety import sanitize_user_text
 from app.core.logging import get_logger
+from app.core.metrics import record_ai_cost, record_ai_tokens
 from app.core.openai_tracing import make_openai_client, wrap_openai_client
 
 logger = get_logger("packing_service")
@@ -552,6 +556,45 @@ def _packing_max_tokens(planned_days: int) -> int:
     return max(_PACKING_TOKENS_FLOOR, min(_PACKING_OUTPUT_TOKEN_CAP, budget))
 
 
+def _record_packing_generation(
+    resp: Any,
+    elapsed: float,
+    user_id: str | None,
+    *,
+    is_error: bool = False,
+) -> None:
+    """Record token/cost metrics (Prometheus) + a PostHog $ai_generation event.
+
+    The rich call is non-streaming, so ``resp.usage`` carries exact counts. A
+    truncated ("length") response still consumed tokens, so we capture it too,
+    flagged ``is_error``. Never raises into the packing path.
+    """
+    try:
+        usage = getattr(resp, "usage", None)
+        if usage is None:
+            return
+        model = _packing_chat_model()
+        prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+        completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+        input_cost, output_cost, _ = cost_usd(model, prompt_tokens, completion_tokens)
+        record_ai_tokens(model, prompt=prompt_tokens, completion=completion_tokens)
+        record_ai_cost(model, input_cost + output_cost)
+        capture_llm_generation(
+            model=model,
+            provider="openai",
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            input_cost_usd=input_cost,
+            output_cost_usd=output_cost,
+            latency_seconds=elapsed,
+            token_source="api",
+            telemetry=LLMTelemetry(operation="packing", user_id=user_id),
+            is_error=is_error,
+        )
+    except Exception as exc:  # noqa: BLE001 — telemetry must never break packing
+        logger.debug("packing_generation_telemetry_failed", error=str(exc))
+
+
 async def _ai_activity_aware_packing(
     destination: str,
     start_date: str,
@@ -568,6 +611,7 @@ async def _ai_activity_aware_packing(
     style_profile_context_text: str | None = None,
     rag_context: str | None = None,
     location_context: str | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any] | None:
     """
     Core AI call — generates a full activity-aware day-by-day outfit planner.
@@ -740,6 +784,7 @@ Return ONLY valid JSON with this structure:
 }}"""
 
     try:
+        start = time.perf_counter()
         resp = await client.chat.completions.create(
             model=_packing_chat_model(),
             max_tokens=_packing_max_tokens(planned_days),
@@ -750,11 +795,15 @@ Return ONLY valid JSON with this structure:
             messages=[{"role": "user", "content": prompt}],
             timeout=45.0,
         )
+        elapsed = time.perf_counter() - start
         choice = resp.choices[0]
         # A "length" finish means the JSON hit the token ceiling and is
         # truncated — json.loads would fail and we'd fall back to the rule-based
         # plan. Surface it distinctly so the truncation isn't invisible.
-        if getattr(choice, "finish_reason", None) == "length":
+        truncated = getattr(choice, "finish_reason", None) == "length"
+        # Capture token/cost telemetry either way — a truncated call still billed.
+        _record_packing_generation(resp, elapsed, user_id, is_error=truncated)
+        if truncated:
             logger.warning(
                 "packing_ai_truncated",
                 destination=destination,
@@ -1194,6 +1243,7 @@ async def generate_packing_list(
     style_profile_context_text: str | None = None,
     user_style_profile: dict[str, Any] | None = None,
     rag_context: str | None = None,
+    user_id: str | None = None,
 ) -> dict[str, Any]:
     try:
         activities = activities or []
@@ -1279,6 +1329,7 @@ async def generate_packing_list(
             style_profile_context_text=merged_ctx,
             rag_context=rag_context,
             location_context=location_context,
+            user_id=user_id,
         )
 
         # ── Process rich AI output ────────────────────────────────────────────
