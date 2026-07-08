@@ -12,6 +12,7 @@ import type {
   AuthUser,
   ClosetAnalytics,
   ClosetItem,
+  ConditionGrade,
   CreateTripResponse,
   Group,
   GroupMember,
@@ -300,6 +301,7 @@ function mapClosetItem(raw: Record<string, unknown>): ClosetItem {
     is_favorite: Boolean(raw.is_favorite),
     notes: raw.notes as string | undefined,
     availability: (raw.availability as ClosetItem['availability']) ?? 'available',
+    condition: (raw.condition as ClosetItem['condition']) ?? 'good',
     created_at: String(raw.created_at ?? ''),
   }
 }
@@ -540,6 +542,7 @@ export type ClosetConfirmItemPayload = {
   price?: number
   tags?: string[]
   eco_score?: number
+  condition?: ConditionGrade
 }
 
 export type ClosetConfirmRequest = {

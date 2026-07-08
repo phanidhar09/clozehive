@@ -127,6 +127,7 @@ async def _load_closet_for_ai(session: DbSession, uid: UUID) -> list[dict]:
             ClosetItem.user_id == uid,
             ClosetItem.is_archived == False,  # noqa: E712
             ClosetItem.availability == "available",
+            ClosetItem.condition != "damaged",
         )
         .order_by(ClosetItem.wear_count.asc())
         .limit(_CLOSET_PROMPT_LIMIT)
@@ -146,6 +147,7 @@ async def _load_closet_for_ai(session: DbSession, uid: UUID) -> list[dict]:
             "tags": i.tags or [],
             "wear_count": i.wear_count,
             "last_worn": i.last_worn.isoformat() if i.last_worn else None,
+            "condition": i.condition or "",
         }
         for i in rows.scalars().all()
     ]

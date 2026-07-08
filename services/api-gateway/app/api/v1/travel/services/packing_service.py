@@ -166,7 +166,7 @@ def _format_closet_for_prompt(closet_items: list[dict[str, Any]]) -> str:
             "name": item.get("name"),
             "category": item.get("category"),
         }
-        for field in ("color", "brand", "fabric", "pattern", "fit", "season", "size", "notes"):
+        for field in ("color", "brand", "fabric", "pattern", "fit", "season", "size", "notes", "condition"):
             val = item.get(field)
             if val:
                 entry[field] = val
@@ -698,7 +698,11 @@ activity's formality and footwear needs, and the user's style profile colours an
 fit. Prefer cohesive colour pairings; do not pair clashing colours. Use each
 item's "fit" field to balance silhouettes within an outfit — pair a
 relaxed/oversized piece with a slim/fitted one rather than stacking volume on
-volume; when fit is absent, judge proportion from the item name/category.
+volume; when fit is absent, judge proportion from the item name/category. Use each
+item's "condition" field for dressy days: prefer new/excellent/good items for
+formal or business activities, and avoid assigning "worn" or "fair" items to those
+occasions when a better-condition option exists (condition does not matter for
+casual/beach/gym days).
 
 INSTRUCTIONS:
 1. ACTIVITIES ARE THE #1 PRIORITY. When the user has listed planned activities,

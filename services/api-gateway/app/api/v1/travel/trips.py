@@ -49,7 +49,13 @@ def _get_svc(session: AsyncSession) -> TripsService:
 async def _fetch_closet_items(session: AsyncSession, user_id: UUID) -> list[dict[str, Any]]:
     result = await session.execute(
         select(ClosetItem)
-        .where(ClosetItem.user_id == user_id, ClosetItem.is_archived == False)  # noqa: E712
+        # No availability filter on purpose — laundry/at-cleaners items can be
+        # washed before a trip. But never pack a damaged item.
+        .where(
+            ClosetItem.user_id == user_id,
+            ClosetItem.is_archived == False,  # noqa: E712
+            ClosetItem.condition != "damaged",
+        )
         .order_by(ClosetItem.wear_count.desc(), ClosetItem.created_at.desc())
         .limit(200)
     )
@@ -67,6 +73,7 @@ async def _fetch_closet_items(session: AsyncSession, user_id: UUID) -> list[dict
             "season": item.season or "",
             "occasion": item.occasion or [],
             "notes": item.notes or "",
+            "condition": item.condition or "",
             "image_url": item.image_url or "",
         }
         for item in result.scalars().all()

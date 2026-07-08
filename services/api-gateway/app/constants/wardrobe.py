@@ -41,6 +41,43 @@ class Availability(StrEnum):
     LENT_OUT = "lent_out"
 
 
+class Condition(StrEnum):
+    """Physical wear state of a garment — distinct from Availability (location).
+
+    Ordinal by design: use ``CONDITION_RANK`` for threshold math, not string
+    comparison. This is a *soft* styling signal, not a hard gate like
+    Availability — a WORN tee is perfectly fine for casual/beach and only
+    penalised for formal occasions. The one exception is DAMAGED, which is
+    hard-excluded from styling and packing the way an unavailable item is.
+    See the occasion×condition design note in project memory.
+    """
+
+    NEW = "new"
+    EXCELLENT = "excellent"
+    GOOD = "good"
+    FAIR = "fair"
+    WORN = "worn"
+    DAMAGED = "damaged"
+
+
+# Ordinal ranks for condition threshold math (higher = better). Occasion floors
+# and ranking penalties compare against these; DAMAGED (0) is the hard-exclude
+# floor. Keep in sync with the Condition enum above.
+CONDITION_RANK: dict[str, int] = {
+    Condition.NEW: 5,
+    Condition.EXCELLENT: 4,
+    Condition.GOOD: 3,
+    Condition.FAIR: 2,
+    Condition.WORN: 1,
+    Condition.DAMAGED: 0,
+}
+
+# Neutral default for items whose condition was never set (existing rows and
+# saves that don't specify one). GOOD passes the formal floor, so an unset
+# condition never wrongly demotes an item.
+DEFAULT_CONDITION = Condition.GOOD
+
+
 DEFAULT_CATEGORY = ClosetCategory.UNCATEGORISED
 
 CLOSET_SECTIONS = frozenset(

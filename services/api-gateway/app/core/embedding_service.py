@@ -325,8 +325,8 @@ async def pgvector_cosine_search(
 
     archived_filter = "AND is_archived = false" if filter_archived else ""
     resolved_filter = "AND resolved = false" if table == "purchase_gaps" else ""
-    # Laundry/lent-out items stay out of styling suggestions (closet_items only).
-    available_filter = "AND availability = 'available'" if filter_available else ""
+    # Laundry/lent-out and damaged items stay out of styling suggestions (closet_items only).
+    available_filter = "AND availability = 'available' AND condition != 'damaged'" if filter_available else ""
 
     exclude_filter = ""
     if exclude_id is not None:

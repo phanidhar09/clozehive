@@ -156,6 +156,7 @@ def _item_dict(item: ClosetItem) -> dict[str, Any]:
         "occasion": item.occasion or [],
         "season": item.season or "",
         "wear_count": item.wear_count,
+        "condition": item.condition or "",
     }
 
 
@@ -197,6 +198,7 @@ async def _get_closet_for_occasion(
                     "occasion": r.get("occasion") or [],
                     "season": r.get("season") or "",
                     "wear_count": r.get("wear_count") or 0,
+                    "condition": r.get("condition") or "",
                 }
                 for r in rows
             ]
@@ -207,6 +209,7 @@ async def _get_closet_for_occasion(
             ClosetItem.user_id == user_id,
             ClosetItem.is_archived == False,  # noqa: E712
             ClosetItem.availability == "available",
+            ClosetItem.condition != "damaged",
         )
         .order_by(ClosetItem.wear_count.desc(), ClosetItem.created_at.desc())
         .limit(50)

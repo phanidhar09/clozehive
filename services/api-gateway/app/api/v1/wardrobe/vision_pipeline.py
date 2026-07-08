@@ -289,6 +289,11 @@ async def save_analyzed_items(
                 confidence_score=_safe_float(req.confidence_score),
                 scan_batch_id=batch_id,
             )
+            # Only set condition when the user supplied one; otherwise leave the
+            # column unset so the DB server_default ('good') applies. Assigning
+            # None here would override the default and violate NOT NULL.
+            if req.condition:
+                new_item.condition = req.condition
             session.add(new_item)
             await session.flush()
 

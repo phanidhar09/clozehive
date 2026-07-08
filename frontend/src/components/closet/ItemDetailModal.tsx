@@ -9,6 +9,7 @@ import {
   BarChart2, Layers, Calendar, CalendarDays, DollarSign, Hash,
 } from 'lucide-react'
 import type { ClosetItem } from '@/types'
+import { CONDITION_LABELS } from '@/types'
 import Modal from '@/components/ui/Modal'
 import Badge from '@/components/ui/Badge'
 import Button from '@/components/ui/Button'
@@ -88,6 +89,11 @@ export default function ItemDetailModal({ item, open, onClose, onDelete, onSaved
     { icon: <Tag size={12} />, label: 'Size', value: current.size },
     { icon: <Tag size={12} />, label: 'Fit', value: current.fit },
     { icon: <Tag size={12} />, label: 'Brand', value: current.brand },
+    {
+      icon: <Shirt size={12} />,
+      label: 'Condition',
+      value: current.condition ? CONDITION_LABELS[current.condition] : undefined,
+    },
   ].filter(a => a.value)
 
   return (

@@ -85,7 +85,14 @@ class ClosetService:
         return _to_response(item)
 
     async def create_item(self, user_id: UUID, data: ClosetItemCreate) -> ClosetItemResponse:
-        item = await self.repo.create(user_id=user_id, **data.model_dump())
+        payload = data.model_dump()
+        # condition is NOT NULL with a server_default; an omitted value comes
+        # through as None, which would violate the constraint. Drop it so the
+        # DB default ('good') applies. (availability is kept out of the create
+        # schema entirely for the same reason.)
+        if payload.get("condition") is None:
+            payload.pop("condition", None)
+        item = await self.repo.create(user_id=user_id, **payload)
         await cache_service.invalidate_closet_list_cache(str(user_id))
         logger.info("closet_item_created", user_id=str(user_id), item_id=str(item.id))
         return _to_response(item)

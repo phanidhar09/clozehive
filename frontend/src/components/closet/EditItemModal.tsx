@@ -3,6 +3,7 @@ import { Loader2, Save, X, Heart } from 'lucide-react'
 import { closetApi } from '@/lib/api'
 import Modal from '@/components/ui/Modal'
 import type { ClosetItem } from '@/types'
+import { CONDITION_OPTIONS, CONDITION_LABELS } from '@/types'
 import { cn } from '@/lib/utils'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -82,6 +83,7 @@ export default function EditItemModal({ item, open, onClose, onSaved }: Props) {
     pattern:  item.pattern   ?? '',
     size:     item.size      ?? '',
     fit:      item.fit       ?? '',
+    condition: item.condition ?? 'good',
     price:    item.price != null ? String(item.price) : '',
     notes:      item.notes       ?? '',
     seasons:    parseSeason(item.season),
@@ -110,6 +112,7 @@ export default function EditItemModal({ item, open, onClose, onSaved }: Props) {
         pattern:  form.pattern.trim() || undefined,
         size:     form.size.trim()    || undefined,
         fit:      form.fit            || undefined,
+        condition: form.condition,
         price:    form.price !== '' ? Number(form.price) : undefined,
         notes:    form.notes.trim()   || undefined,
         season:      form.seasons.length > 0 ? form.seasons : undefined,
@@ -222,6 +225,18 @@ export default function EditItemModal({ item, open, onClose, onSaved }: Props) {
                 <option key={f} value={f} className="capitalize">
                   {f.charAt(0).toUpperCase() + f.slice(1)}
                 </option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label="Condition">
+            <select
+              className={cn(inputCls, 'appearance-none')}
+              value={form.condition}
+              onChange={e => set('condition', e.target.value as typeof form.condition)}
+            >
+              {CONDITION_OPTIONS.map(c => (
+                <option key={c} value={c}>{CONDITION_LABELS[c]}</option>
               ))}
             </select>
           </Field>

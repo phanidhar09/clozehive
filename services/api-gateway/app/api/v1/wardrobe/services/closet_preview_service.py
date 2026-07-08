@@ -492,6 +492,7 @@ async def confirm_preview(
             size=payload.size,
             fit=payload.fit,
             price=payload.price,
+            condition=payload.condition,
             image_url=proc,
             original_image_url=orig,
             processed_image_url=proc,

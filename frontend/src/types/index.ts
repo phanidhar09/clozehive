@@ -27,6 +27,8 @@ export interface ClosetItem {
   notes?: string
   /** Physical availability — anything but 'available' is hidden from FANI styling. */
   availability?: AvailabilityStatus
+  /** Physical wear state — a soft occasion-aware styling signal; 'damaged' is excluded from styling & packing. */
+  condition?: ConditionGrade
   created_at: string
 }
 
@@ -37,6 +39,21 @@ export const AVAILABILITY_LABELS: Record<AvailabilityStatus, string> = {
   in_laundry: 'In laundry',
   at_cleaners: 'At the cleaners',
   lent_out: 'Lent out',
+}
+
+/** Ordinal wear state (best → worst). Mirrors backend app.constants.wardrobe.Condition. */
+export type ConditionGrade = 'new' | 'excellent' | 'good' | 'fair' | 'worn' | 'damaged'
+
+/** Best → worst; drives dropdown ordering. */
+export const CONDITION_OPTIONS: ConditionGrade[] = ['new', 'excellent', 'good', 'fair', 'worn', 'damaged']
+
+export const CONDITION_LABELS: Record<ConditionGrade, string> = {
+  new: 'New',
+  excellent: 'Excellent',
+  good: 'Good',
+  fair: 'Fair',
+  worn: 'Worn',
+  damaged: 'Damaged',
 }
 
 /** Canonical row from POST /closet/analyze-preview (aligned with backend ClosetPreviewItem). */
