@@ -33,28 +33,12 @@ cd services/api-gateway && pip install -r requirements.txt
 
 **Option A — Docker Compose (typical)**
 
-**Phase 1 MVP (default):** postgres, redis, api-gateway, frontend, nginx, migrate
+**Default stack:** postgres, redis, redis-state, api-gateway, frontend, nginx, migrate.
+All AI (chat, outfit, vision, packing) runs in-process in the api-gateway — there
+is no separate agent or worker to start.
 
 ```bash
 docker compose up --build
-```
-
-**Optional LangGraph agent + Redpanda + topic setup + Redpanda Console** — set `KAFKA_ENABLED=true` in `.env` so the API gateway publishes Kafka events:
-
-```bash
-docker compose --profile ai up --build
-```
-
-**Optional Kafka consumer worker** (also starts Redpanda, topics, and ai-agent):
-
-```bash
-docker compose --profile worker up --build
-```
-
-**Legacy MCP tool containers** (needed for ai-agent default `http://mcp-*` URLs; often used with `--profile ai`):
-
-```bash
-docker compose --profile legacy-mcp up --build
 ```
 
 Validate the merged file: `docker compose config` (or `docker compose config --quiet`).

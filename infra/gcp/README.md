@@ -10,9 +10,8 @@ former `closet-service` was retired). Backing stores are **serverless add-ons**:
 
 | Piece | Where | Notes |
 |-------|-------|-------|
-| Frontend, api-gateway, ai-agent | Cloud Run **services** | HTTP, autoscaling |
-| ai-worker (ARQ) | Cloud Run **worker pool** | no HTTP listener, CPU always on |
-| Postgres | **Neon** | `db-url-core` (api/agent/worker) — identity + wardrobe |
+| Frontend, api-gateway | Cloud Run **services** | HTTP, autoscaling |
+| Postgres | **Neon** | `db-url-core` — identity + wardrobe |
 | Redis ×2 | **Upstash** | `redis-cache-url` (evictable) + `redis-state-url` (noeviction) |
 | Uploads | **GCS bucket** | auth via runtime service account (ADC), no JSON key |
 
@@ -69,18 +68,8 @@ The deploy prints the frontend + API URLs at the end.
 - **Logs**: `gcloud run services logs read clozehive-api --region <region>`.
 - **Rollback**: `gcloud run services update-traffic clozehive-api --to-revisions <REV>=100`.
 
-## Hardening (optional, recommended before real traffic)
-
-`ai-agent` is deployed `--allow-unauthenticated` for simplicity (it's already
-protected by the shared `INTERNAL_SERVICE_TOKEN`). To make it reachable **only**
-from other Cloud Run services, redeploy it with
-`--no-allow-unauthenticated --ingress internal`, grant the runtime SA
-`roles/run.invoker`, and the gateway's outbound calls will carry an ID token
-automatically. Left public by default so you can verify its `/health` directly
-during bring-up.
-
 ## Cost shape
 
-Pay-per-use except: api-gateway `min-instances=1` and the worker pool
-`min-instances=1` bill continuously (~a few $/mo each at idle). Neon + Upstash
-have free tiers. GCS is pennies. Scale-to-zero on ai-agent/frontend.
+Pay-per-use except api-gateway `min-instances=1`, which bills continuously
+(~a few $/mo at idle). Neon + Upstash have free tiers. GCS is pennies.
+Scale-to-zero on the frontend.

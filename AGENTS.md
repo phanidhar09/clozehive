@@ -25,24 +25,22 @@ Two topologies share one codebase:
 
 | Topology | Entry | Notes |
 |----------|-------|-------|
-| **Production (Render)** | Browser → `VITE_API_URL` → api-gateway | No nginx, no `ai-worker`. Gateway serves the full `/api/v1` surface with `SERVE_MIGRATED_DOMAIN_ROUTES=true`. |
-| **Local dev (Compose)** | Browser → nginx `:80` → frontend + api-gateway | Full stack: ai-agent, ai-worker, mailpit, one-shot migrate. Vision still in-process in the gateway. |
+| **Production (Render)** | Browser → `VITE_API_URL` → api-gateway | No nginx. Gateway serves the full `/api/v1` surface with `SERVE_MIGRATED_DOMAIN_ROUTES=true`. |
+| **Local dev (Compose)** | Browser → nginx `:80` → frontend + api-gateway | postgres, redis, redis-state, mailpit, one-shot migrate. Vision and AI run in-process in the gateway. |
 
-> **Reality check:** this is a **modular monolith** (`api-gateway`) plus a
-> dedicated **ai-agent** for FANI reasoning. Standalone `closet-service` and
-> `vision-service` were **retired** — the gateway owns wardrobe, vision, RAG
-> context assembly, and the public API. Treat `ai-worker`, `mcp/*`, and
-> Kafka/Redpanda as **optional** unless explicitly enabled.
+> **Reality check:** this is a **monolith** — the `api-gateway` owns everything.
+> Standalone `closet-service`, `vision-service`, `ai-agent`, and `ai-worker`
+> were all **retired**: the gateway owns wardrobe, vision, RAG context assembly,
+> all FANI AI (in-process against OpenAI/Gemini), and the public API. Treat
+> `mcp/*` and Kafka/Redpanda as **optional** unless explicitly enabled.
 
 ### Service map
 
 | Path | Stack | Responsibility |
 |------|-------|----------------|
 | `frontend/` | React 18 + Vite + TypeScript + Tailwind + Zustand | SPA, PWA. Pages in `src/pages/`, shared UI in `src/components/`, HTTP via `src/lib/api.ts`. |
-| `services/api-gateway/` | FastAPI + SQLAlchemy (async) + Alembic | **The product backend.** Identity, wardrobe, intelligence, travel, platform domains; **vision pipeline in-process** (analyze, smart-ingest, bg-removal); RAG/embeddings; WebSocket hub; calls ai-agent for chat/outfit/packing. |
-| `services/ai-agent/` | FastAPI + LangGraph (ReAct) | FANI LLM brain — **not public**. Gateway/worker reach it via `AI_AGENT_URL` + `X-Internal-Token`. Inline tools: `weather`, `outfit`, `packing`. Endpoints: `/api/v1/agent/chat`, `/chat/stream`, `/outfit`, `/packing`, `/vision/analyze`. |
-| `services/ai-worker/` | ARQ (Redis queue) | Durable async AI jobs — **local dev only**, not on Render. Consumes redis-state db 3; proxies to ai-agent. Gated by `HEAVY_WORK_ASYNC` (**off by default**). |
-| `services/mcp/` | MCP HTTP/SSE servers | Legacy/experimental (`--profile vision`). Default stack uses in-process tools. |
+| `services/api-gateway/` | FastAPI + SQLAlchemy (async) + Alembic | **The product backend — everything.** Identity, wardrobe, intelligence, travel, platform domains; **vision pipeline in-process** (analyze, smart-ingest, bg-removal); **all FANI AI in-process** (chat/outfit/packing over OpenAI/Gemini); RAG/embeddings; WebSocket hub. |
+| `services/mcp/` | MCP HTTP/SSE servers | Legacy/experimental, not part of the default stack. |
 | `infra/`, `nginx/` | nginx, Postgres init, observability | Local edge proxy; prod has no nginx. |
 
 ### What runs where (agent cheat sheet)
@@ -53,15 +51,16 @@ Two topologies share one codebase:
 | Closet CRUD, outfits, planner, similarity | api-gateway | Postgres + pgvector |
 | Vision upload / smart-ingest / bg-removal | api-gateway (in-process) | OpenAI/Gemini in `wardrobe/services/` |
 | Embeddings for similarity/RAG | api-gateway (BackgroundTasks) | `similarity_service.schedule_embedding_update` |
-| FANI chat, outfit gen, packing lists | api-gateway → **ai-agent** | `intelligence/services/ai_client.py` |
+| FANI chat | api-gateway (in-process) | `intelligence/services/ai_stylist_streaming.py` (model router + grounding gate) |
+| Outfit generation | api-gateway (in-process) | `intelligence/services/outfit_service.py` |
+| Packing lists | api-gateway (in-process) | `travel/services/packing_service.py` (closet-grounded) |
 | Shopping check, purchase gaps, fashion RAG | api-gateway (in-process + pgvector) | `intelligence/services/` |
-| Async outfit/packing/vision jobs | gateway `/jobs` → ai-worker → ai-agent | Dev only; prod runs sync in-process |
 
 **Data stores:** single PostgreSQL (`clozehive`) with **pgvector** for embeddings
-and agent vector store — identity, wardrobe, trips, `ai_requests`, everything.
+and the RAG/style-memory vector store — identity, wardrobe, trips, everything.
 Two Redis roles — **cache** (`REDIS_URL`, evictable) and **state**
-(`REDIS_STATE_URL`, non-evictable: OAuth CSRF, refresh tokens, rate limits, ARQ
-queue db 3). Never put security/session state on the cache Redis.
+(`REDIS_STATE_URL`, non-evictable: OAuth CSRF, refresh tokens, rate limits).
+Never put security/session state on the cache Redis.
 
 ## Domain map (api-gateway)
 
@@ -81,10 +80,10 @@ Put new endpoints in the matching domain under
 \* **Migrated** domains mount when `mount_migrated_routes` is true — dev/test by
 default, production via `SERVE_MIGRATED_DOMAIN_ROUTES=true` in `render.yaml`.
 
-Gateway AI routes stay thin: assemble closet/RAG/style context, then delegate
-reasoning to ai-agent through `ai_client.py` (timeouts, retries, circuit
-breaker). Do **not** add new direct-to-OpenAI stylist paths in the gateway
-without a strong reason — extend ai-agent tools or the existing service layer.
+Gateway AI routes assemble closet/RAG/style context, then run the model
+**in-process** through the intelligence/travel service layer (model router,
+grounding gate, semantic cache). Extend those services rather than adding new
+ad-hoc direct-to-OpenAI paths in route handlers.
 
 ## Core workflows
 
@@ -103,13 +102,15 @@ Bulk path: `/smart-ingest/*` review sessions.
 
 ### 3. FANI stylist chat (streaming)
 `/ai-stylist` → `POST /api/v1/ai-chat/stream` → gateway builds context (closet,
-style memory, RAG) → `ai_client` → `POST /api/v1/agent/chat/stream` on
-ai-agent → SSE tokens back to browser.
+style memory, RAG) → in-process model-routed completion
+(`ai_stylist_streaming.stream_chat_message`) behind the grounding gate +
+semantic cache → SSE tokens back to browser.
 
 ### 4. Outfit & packing
-Outfit builder / trips → `/api/v1/ai/*` or `/trips/{id}/packing` → ai-agent
-`/agent/outfit` or `/agent/packing` (weather tool uses OpenWeather with static
-fallback). Packing preferences: `travel/services/packing_memory`.
+Outfit builder / trips → `/api/v1/ai/*` or `/trips/{id}/packing` → in-process
+`outfit_service.generate_outfits` / `packing_service.generate_packing_list`
+(closet-grounded; weather uses OpenWeather with static fallback). Packing
+preferences: `travel/services/packing_memory`.
 
 ### 5. Shop with FANI
 `/shopping-check` → `/api/v1/shopping/*` — photo or product URL, SSRF-guarded
@@ -119,12 +120,7 @@ fetch, closet match + buy/skip verdict (`shopping_check_service`).
 `/purchase-gaps`, `/rag/*`, `/fashion-knowledge` — pgvector retrieval over
 fashion knowledge + closet embeddings (`app/rag/`).
 
-### 7. Async AI jobs (dev only)
-`POST /api/v1/jobs` → ARQ on redis-state → ai-worker → ai-agent → poll
-`GET /jobs/{id}`. In prod (`HEAVY_WORK_ASYNC=false`), same flows run
-synchronously in the gateway.
-
-### 8. Real-time notifications
+### 7. Real-time notifications
 WebSocket `/api/v1/ws` on gateway; frontend `notificationStore` + toast UI.
 
 ## Product use cases (where to look)
@@ -136,8 +132,8 @@ WebSocket `/api/v1/ws` on gateway; frontend `notificationStore` + toast UI.
 | Scan & add (vision) | `pages/Upload.tsx` | `wardrobe/vision_pipeline`, `smart_ingest` |
 | Outfit builder & saved looks | `pages/OutfitBuilder.tsx`, `SavedOutfits.tsx` | `wardrobe/outfits`, `outfit_history` |
 | Weekly planner | `pages/WeeklyPlanner.tsx` | `wardrobe/planner` |
-| FANI stylist chat | `pages/AIStylistChat.tsx` | `intelligence/ai_chat`, ai-agent |
-| Travel & packing | `pages/TravelPlanner.tsx`, `components/travel/` | `travel/trips`, ai-agent packing |
+| FANI stylist chat | `pages/AIStylistChat.tsx` | `intelligence/ai_chat` (in-process) |
+| Travel & packing | `pages/TravelPlanner.tsx`, `components/travel/` | `travel/trips`, `packing_service` (in-process) |
 | Closet insights / analytics | `pages/Analytics.tsx` | `platform/analytics` |
 | Wardrobe gaps | `pages/PurchaseGaps.tsx` | `intelligence/purchase_gaps` |
 | Shop with FANI | `pages/ShoppingCheck.tsx` | `intelligence/shopping_check` |
@@ -161,23 +157,15 @@ make test-api        # gateway only
 make test-frontend   # Vitest only
 make lint            # ruff across Python services
 make smoke           # compose validation + health
-make logs-api        # also logs-agent, logs-worker, logs-kafka
+make logs-api        # also logs-kafka
 make db-backup       # before destructive ops
 ```
 
 **Local URLs (defaults):** nginx `http://localhost` · frontend direct
-`http://localhost:3001` · API `http://localhost:8000/docs` · ai-agent
-`http://localhost:8001/health` · Mailpit `http://localhost:8025`
+`http://localhost:3001` · API `http://localhost:8000/docs` · Mailpit `http://localhost:8025`
 
-Local dev without Docker: `make dev-api` (:8000), `make dev-agent` (:8001),
-`make dev-frontend` (:3000). Set `VITE_API_URL` if origins differ.
-
-Optional profiles:
-
-```bash
-docker compose --profile vision up --build   # legacy mcp-vision
-# Kafka/Redpanda: KAFKA_ENABLED=true — see docs/ENVIRONMENT.md (off by default)
-```
+Local dev without Docker: `make dev-api` (:8000), `make dev-frontend` (:3000).
+Set `VITE_API_URL` if origins differ.
 
 Frontend (`frontend/`):
 
@@ -211,8 +199,8 @@ Backend tests are organized by domain: `tests/identity/`, `tests/wardrobe/`,
   structured key/values; never bare f-strings. Do **not** log secrets, tokens,
   passwords, or raw PII.
 - Heavy/slow work (embeddings, vision) belongs **off the request path**: use
-  `schedule_embedding_update(background_tasks, ...)` or the ARQ queue when
-  `HEAVY_WORK_ASYNC=true` — never a blocking call inside the handler.
+  `schedule_embedding_update(background_tasks, ...)` (in-process FastAPI
+  BackgroundTasks) — never a blocking call inside the handler.
 - Compare secrets with `hmac.compare_digest`, never `==`.
 
 ### Frontend (TypeScript / React)
@@ -256,19 +244,16 @@ Backend tests are organized by domain: `tests/identity/`, `tests/wardrobe/`,
 so local green predicts CI green. Prints `ALL GREEN ✓` only when everything passes:
 
 ```bash
-scripts/run-tests.sh            # lint + both test suites (CI order)
+scripts/run-tests.sh            # lint + api-gateway tests (CI order)
 scripts/run-tests.sh lint       # ruff check + ruff format --check + mypy + drift
-scripts/run-tests.sh tests      # both pytest suites, no lint
+scripts/run-tests.sh tests      # api-gateway pytest, no lint
 scripts/run-tests.sh gateway    # api-gateway pytest only
-scripts/run-tests.sh agent      # ai-agent pytest only
 LF=1 scripts/run-tests.sh …     # re-run last-failed only (fast inner loop)
 ```
 
 Lint needs the CI-pinned tools in the gateway venv (the runner prints the install
 line if missing): `.venv/bin/python -m pip install 'ruff==0.15.16' 'mypy==2.1.0'`.
-Not mirrored locally: frontend CI, ai-worker tests, coverage gates, docker builds —
-push to confirm those. CI runs ai-agent on **Python 3.11**; the local ai-agent venv
-may differ (3.14), so 3.11-only failures only show up in CI.
+Not mirrored locally: frontend CI, coverage gates, docker builds — push to confirm those.
 
 The `/fix-tests` slash command (`.claude/commands/fix-tests.md`) is one iteration
 of a self-fixing loop: run the suites, then fix the single highest-priority
@@ -287,7 +272,8 @@ root cause (never weaken or skip a test to go green). Drive it with `/loop`:
 - Commit/push only when explicitly asked. Branch off `main` first.
 - Don't add dependencies without need — check existing `package.json` /
   `requirements*.txt` first.
-- When touching AI flows, trace **gateway → ai_client → ai-agent** end-to-end.
+- When touching AI flows, stay in the **gateway intelligence/travel** services —
+  all FANI AI runs in-process; there is no separate ai-agent/ai-worker service.
 - When touching uploads/vision, stay in **gateway wardrobe** services — there is
   no separate vision microservice.
 

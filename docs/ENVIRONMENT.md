@@ -7,7 +7,6 @@ This document lists **required and optional** configuration, **how variables flo
 | Repo root `.env.example` | **Primary** template for `docker compose` and shared values |
 | `services/api-gateway/.env.example` | Service-local overrides when running the gateway without Compose |
 | `frontend/.env.example` | Vite build/dev (`VITE_*` only) |
-| `services/ai-agent/.env.example` | Optional AI agent (`--profile ai`) |
 
 **Convention:** Copy the relevant example to `.env` (never commit real `.env`). The API gateway loads **repo root `.env` first**, then a `.env` in the current working directory (see `app/core/config.py`).
 
@@ -36,7 +35,6 @@ These are enforced by `Settings` in `services/api-gateway/app/core/config.py` (o
 | Variable | Description |
 |----------|-------------|
 | `FRONTEND_URL` | Where the SPA lives; used after OAuth and in links. |
-| `AI_AGENT_URL` | Base URL of ai-agent (Compose default `http://ai-agent:8001`; host dev `http://localhost:8001`). |
 
 ---
 
@@ -55,28 +53,21 @@ Docker Compose often maps the frontend to **host port 3001**; ensure `ALLOWED_OR
 
 ## 3. Optional variables
 
-### 3.1 MCP / ai-agent
-
-| Variable | Description |
-|----------|-------------|
-| `ENABLE_MCP_TOOLS` | When `true`, ai-agent connects to MCP HTTP/SSE tool URLs (requires reachable `mcp-*` services). Default `false` = LLM-only agent. |
-| `MCP_WEATHER_URL`, `MCP_VISION_URL`, `MCP_OUTFIT_URL`, `MCP_PACKING_URL` | Defaults like `http://mcp-weather:8010/sse` for Docker; override for custom hosts. |
-
-### 3.2 Kafka / Redpanda
+### 3.1 Kafka / Redpanda
 
 | Variable | Description |
 |----------|-------------|
 | `KAFKA_ENABLED` | Gateway: enable Kafka producers/async routes when `true`. MVP Compose often sets `false`. |
 | `KAFKA_BOOTSTRAP_SERVERS` | e.g. `redpanda:9092` in Compose, `localhost:19092` from host with `--profile ai`. |
 
-### 3.3 Observability
+### 3.2 Observability
 
 | Variable | Description |
 |----------|-------------|
 | `SENTRY_DSN` | Error reporting (optional). |
 | `LANGSMITH_TRACING`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT`, `LANGSMITH_ENDPOINT` | Tracing for OpenAI/LangChain paths (optional). |
 
-### 3.4 Other useful gateway flags
+### 3.3 Other useful gateway flags
 
 See root `.env.example` for pool tuning (`DB_POOL_*`), `REDIS_CHECK_ON_READY`, `CLOSET_PREVIEW_TTL_SECONDS`, Gemini keys, OpenWeather, Firebase, etc.
 
@@ -109,8 +100,6 @@ Use a single root `.env` so Compose substitutes variables consistently.
 4. `cd services/api-gateway && alembic upgrade head` (see [§10 Troubleshooting](#10-troubleshooting) if `alembic` is missing).
 5. Run gateway: `uvicorn app.main:app --reload --port 8000` from `services/api-gateway`.
 6. Frontend: `cd frontend && npm ci && npm run dev`; set `VITE_API_URL=http://localhost:8000` (or your gateway port).
-
-Start **ai-agent** separately if needed: `services/ai-agent` with its `.env` and `ENABLE_MCP_TOOLS` / `DATABASE_URL` / `REDIS_URL` aligned with your stack.
 
 ---
 
