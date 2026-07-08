@@ -73,11 +73,6 @@ if _PROM_AVAILABLE:
         "Checked-out DB connections per engine.",
         labelnames=("engine",),  # primary | replica
     )
-    CIRCUIT_STATE = Gauge(
-        "clozehive_circuit_breaker_state",
-        "Circuit breaker state per dependency (0 closed, 1 half-open, 2 open).",
-        labelnames=("breaker",),
-    )
     PURGE_FAILED = Counter(
         "clozehive_account_purge_failed_total",
         "Account-deletion downstream purges that exhausted retries (need manual fix).",
@@ -134,14 +129,6 @@ def record_cache(result: str) -> None:
 def record_embedding_job(transport: str) -> None:
     if _PROM_AVAILABLE:
         EMBEDDING_JOBS.labels(transport=transport).inc()
-
-
-_CIRCUIT_STATES = {"closed": 0, "half_open": 1, "open": 2}
-
-
-def record_circuit_state(breaker: str, state: str) -> None:
-    if _PROM_AVAILABLE:
-        CIRCUIT_STATE.labels(breaker=breaker).set(_CIRCUIT_STATES.get(state, 0))
 
 
 def record_purge_failed() -> None:
