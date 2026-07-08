@@ -12,7 +12,7 @@
 ![Backend](https://img.shields.io/badge/Backend-FastAPI%20%2B%20Python%203.12-009688)
 ![Data](https://img.shields.io/badge/Data-PostgreSQL%20%2B%20pgvector-336791)
 ![Cache](https://img.shields.io/badge/State-Redis-dc382d)
-![AI](https://img.shields.io/badge/AI-FANI%20%C2%B7%20RAG%20%C2%B7%20LangGraph-7c3aed)
+![AI](https://img.shields.io/badge/AI-FANI%20%C2%B7%20RAG%20%C2%B7%20pgvector-7c3aed)
 
 </div>
 
@@ -43,12 +43,10 @@
 
 ClozeHive is a **wardrobe intelligence platform**. Users build a digital closet, compose and save outfits, get AI-driven styling and packing help, and track how they actually wear their clothes over time. Every recommendation is grounded in the user's real items and history through a **retrieval-augmented (RAG)** pipeline backed by vector search.
 
-The system is a domain-driven service architecture:
+The system is a domain-driven architecture:
 
 - a **React + Vite + TypeScript** single-page app,
-- a **FastAPI** api-gateway that owns the full product API — identity, wardrobe, intelligence, travel, and platform domains — and runs the **image-analysis / background-removal vision pipeline in-process**,
-- a dedicated **FANI ai-agent** (LangGraph ReAct + inline tools) the gateway calls for chat, outfit, and packing reasoning,
-- an optional **ai-worker** for durable async AI jobs (local dev only),
+- a **FastAPI** api-gateway that owns the full product API — identity, wardrobe, intelligence, travel, and platform domains — runs the **image-analysis / background-removal vision pipeline in-process**, and runs **all FANI AI (chat, outfit, packing) in-process** against OpenAI/Gemini with a RAG + grounding pipeline,
 - **PostgreSQL + pgvector** as the single source of truth and embedding store, **Redis** for cache and session/OAuth state, and
 - **nginx** as the single browser entrypoint in the local Docker topology.
 
@@ -93,12 +91,12 @@ ClozeHive runs in **two topologies that share one codebase**. The gateway is the
 
 ### Production (Render) — canonical
 
-The frontend calls the gateway directly (`VITE_API_URL`). There is no nginx and no `ai-worker`; the gateway serves the **entire** `/api/v1` surface with `SERVE_MIGRATED_DOMAIN_ROUTES=true`.
+The frontend calls the gateway directly (`VITE_API_URL`). There is no nginx; the gateway serves the **entire** `/api/v1` surface with `SERVE_MIGRATED_DOMAIN_ROUTES=true` and runs all AI in-process.
 
 ```mermaid
 flowchart LR
-    B[Browser SPA] -->|VITE_API_URL| GW[api-gateway :8000<br/>full /api/v1 surface<br/>+ in-process vision pipeline]
-    GW -->|internal token| AG[ai-agent<br/>FANI tools]
+    B[Browser SPA] -->|VITE_API_URL| GW[api-gateway :8000<br/>full /api/v1 surface<br/>+ in-process vision + AI]
+    GW -->|OpenAI / Gemini| LLM[LLM providers]
     GW --> PG[(PostgreSQL + pgvector<br/>identity · wardrobe · embeddings)]
     GW --> R[(Redis<br/>cache)]
     GW --> RS[(redis-state<br/>OAuth · refresh · rate-limit)]
@@ -107,7 +105,7 @@ flowchart LR
 
 ### Local development (`docker compose up --build`)
 
-The multi-service stack behind nginx. Vision still runs in-process inside the gateway, matching production.
+The same services behind nginx. Vision and AI still run in-process inside the gateway, matching production.
 
 ```mermaid
 flowchart TB
@@ -121,21 +119,18 @@ flowchart TB
   end
 
   subgraph app [Application]
-    GW["api-gateway :8000<br/>identity · wardrobe · intelligence · travel · platform<br/>+ in-process vision: analyze · smart-ingest · bg-removal"]
-    AG["ai-agent :8001<br/>FANI agent + inline LangGraph tools"]
-    AW["ai-worker<br/>async AI jobs (ARQ)"]
+    GW["api-gateway :8000<br/>identity · wardrobe · intelligence · travel · platform<br/>+ in-process vision: analyze · smart-ingest · bg-removal<br/>+ in-process AI: chat · outfit · packing"]
   end
 
   subgraph state [State & Storage]
     PG[(PostgreSQL + pgvector)]
     RD[(Redis — cache)]
-    RS[(redis-state — sessions/OAuth/ARQ)]
+    RS[(redis-state — sessions/OAuth/rate-limit)]
     UP[(uploads volume / GCS)]
     MP[mailpit — dev mail]
   end
 
-  subgraph optional [Optional profiles]
-    MV["mcp-vision :8011 — legacy/experimental"]
+  subgraph optional [Optional]
     MIG["migrate (one-shot) — alembic upgrade head"]
   end
 
@@ -144,12 +139,8 @@ flowchart TB
   N -->|/api/v1/* incl. vision & uploads| GW
   N -->|/api/v1/ws upgrade| GW
   GW --> PG & RD & RS & UP
-  GW -->|AI_AGENT_URL + X-Internal-Token| AG
-  AW --> RS
-  AW --> AG
-  AG --> PG & RD
+  GW -->|OpenAI / Gemini| LLM[LLM providers]
   MIG --> PG
-  AG -. legacy profile .-> MV
 ```
 
 **Key wiring**
@@ -159,10 +150,9 @@ flowchart TB
 | Browser → API | SPA uses relative `/api/v1`; nginx (local) or the gateway directly (prod) handles all `/api` paths. |
 | Auth & app data | The gateway owns auth/session and all core business routes, backed by Postgres + Redis. |
 | Real-time | Browser WebSocket connects to `/api/v1/ws`; nginx upgrades and forwards to the gateway hub. |
-| FANI chat / outfit / packing | Gateway assembles user + closet + RAG context, then calls **ai-agent** via `intelligence/services/ai_client.py` with an internal token. |
+| FANI chat / outfit / packing | Gateway assembles user + closet + RAG context and runs the model **in-process** (OpenAI/Gemini) behind the grounding gate + semantic cache. |
 | Vision & embeddings | Detection, background removal, and embedding updates run **in-process** in the gateway (`wardrobe` domain). |
-| Shopping check & RAG retrieval | Gateway in-process services + pgvector; no ai-agent hop for the core verdict path. |
-| Async AI jobs | `POST /jobs` → ARQ on redis-state → ai-worker → ai-agent (local dev; sync in-process in prod). |
+| Shopping check & RAG retrieval | Gateway in-process services + pgvector. |
 | Shared state | Single Postgres DB for everything; Redis cache + redis-state for OAuth, refresh tokens, rate limits. |
 
 **What runs where**
@@ -171,11 +161,10 @@ flowchart TB
 |------------|-------|
 | Auth, profile, trips, analytics, WebSocket | api-gateway |
 | Closet, outfits, planner, vision, embeddings | api-gateway (in-process) |
-| FANI chat, outfit generation, packing lists | api-gateway → ai-agent |
+| FANI chat, outfit generation, packing lists | api-gateway (in-process, OpenAI/Gemini) |
 | Shop with FANI, purchase gaps, fashion RAG | api-gateway + pgvector |
-| LangGraph tools (`weather`, `outfit`, `packing`) | ai-agent |
 
-> **History:** standalone `closet-service` (:8003) and `vision-service` (:8002) were **retired** — the gateway already carried those routers and prod served them in-process. The wardrobe domain and vision pipeline now live only in the api-gateway.
+> **History:** standalone `closet-service` (:8003), `vision-service` (:8002), and the `ai-agent` (:8001) + `ai-worker` (ARQ) services were all **retired** — the gateway already carried those routers and prod served them in-process, and the AI now runs in-process against OpenAI/Gemini. The wardrobe domain, vision pipeline, and all AI now live only in the api-gateway.
 
 ---
 
@@ -184,11 +173,10 @@ flowchart TB
 End-to-end paths (see [docs/SERVICES.md](docs/SERVICES.md) for sequence diagrams):
 
 1. **Garment upload** — `POST /analyze-vision/stream` (SSE per item) → user confirms → `POST /save-analyzed-items` → closet rows + background embedding update.
-2. **FANI stylist chat** — `POST /ai-chat/stream` → gateway builds closet/RAG/style context → ai-agent `/agent/chat/stream` → SSE tokens to browser.
-3. **Trip packing** — create trip → packing generation via ai-agent `/agent/packing` (live OpenWeather forecast with static fallback) → packing-memory improves future lists.
+2. **FANI stylist chat** — `POST /ai-chat/stream` → gateway builds closet/RAG/style context → in-process model-routed completion (OpenAI/Gemini) behind the grounding gate → SSE tokens to browser.
+3. **Trip packing** — create trip → in-process packing generation (`packing_service`, closet-grounded; live OpenWeather forecast with static fallback) → packing-memory improves future lists.
 4. **Shop with FANI** — photo (`POST /shopping/check`) or URL (`POST /shopping/check-url`) → closet similarity + buy/skip score → optional outfit ideas and add-to-closet.
 5. **Weekly planner** — weather-aware outfit calendar via `/planner/*`, backed by closet items and forecasts.
-6. **Async AI jobs** (dev) — enqueue via `/jobs`, poll status; production runs the same flows synchronously in the gateway.
 
 ---
 
@@ -198,10 +186,8 @@ End-to-end paths (see [docs/SERVICES.md](docs/SERVICES.md) for sequence diagrams
 |---------|------|
 | `frontend` | React + Vite + TypeScript SPA. In Docker, host port defaults to **3001** → container **3000** (`FRONTEND_HOST_PORT`). Sentry + web-vitals RUM. |
 | `nginx` | **Local only.** Single entry on **:80** — serves the SPA and proxies API, vision paths, uploads, and WebSocket upgrades to the gateway. |
-| `services/api-gateway` | The product backend. Owns identity, wardrobe, intelligence, travel, and platform domains; runs the **vision pipeline in-process**; hosts WebSocket hub; calls ai-agent for FANI reasoning; enqueues ARQ jobs when `HEAVY_WORK_ASYNC` is on. |
-| `services/ai-agent` | FANI LLM brain — **not public**. LangGraph ReAct over GPT-4o with inline tools (`weather`, `outfit`, `packing`); style memory + pgvector store. |
-| `services/ai-worker` | ARQ consumer for durable async AI jobs. **Local dev only** — not deployed to Render. |
-| `services/mcp/*` | Optional/legacy MCP HTTP/SSE servers (e.g. `mcp-vision`) for `--profile vision` experiments. |
+| `services/api-gateway` | The product backend. Owns identity, wardrobe, intelligence, travel, and platform domains; runs the **vision pipeline and all FANI AI (chat/outfit/packing) in-process** against OpenAI/Gemini; hosts the WebSocket notification hub. |
+| `services/mcp/*` | Optional/legacy MCP HTTP/SSE servers, not part of the default stack. |
 | `infra/` | Postgres init, nginx config, GCP, and observability assets. |
 | `mailpit` | Dev-only SMTP catcher (`:8025` UI) for password-reset emails. |
 
@@ -229,9 +215,9 @@ The gateway's API is organized into cohesive domains under `services/api-gateway
 | Layer | Choices |
 |-------|---------|
 | **Frontend** | React 18, Vite, TypeScript, Tailwind CSS, Zustand, Framer Motion; Vitest + Testing Library + Playwright (e2e). |
-| **Backend** | Python 3.12, FastAPI, Pydantic, SQLAlchemy (async), Alembic, ARQ (async jobs). |
-| **AI / ML** | FANI ai-agent (LangGraph ReAct), OpenAI + Gemini, RAG over pgvector embeddings. |
-| **Data & state** | PostgreSQL + pgvector (single DB), Redis cache + `redis-state` (OAuth, refresh, ARQ). |
+| **Backend** | Python 3.12, FastAPI, Pydantic, SQLAlchemy (async), Alembic. |
+| **AI / ML** | In-process FANI (OpenAI + Gemini), RAG over pgvector embeddings, grounding gate + semantic cache. |
+| **Data & state** | PostgreSQL + pgvector (single DB), Redis cache + `redis-state` (OAuth, refresh, rate limits). |
 | **Edge & infra** | nginx (local edge), Docker Compose, Render (production), GCS for image storage, Mailpit for dev mail. |
 | **Observability** | Prometheus `/metrics`, Sentry (frontend + backend), RUM via `/api/v1/rum`, optional LangSmith tracing. |
 | **Quality** | pytest (domain-organized), Ruff, mypy, ESLint, GitHub Actions CI. |
@@ -244,8 +230,8 @@ The gateway's API is organized into cohesive domains under `services/api-gateway
 # 1. Configure secrets
 cp .env.example .env        # then fill in keys (OpenAI, JWT, Google OAuth, …)
 
-# 2. Start the full stack (postgres, redis, redis-state, ai-agent,
-#    ai-worker, api-gateway, frontend, nginx, mailpit, + one-shot migrate)
+# 2. Start the stack (postgres, redis, redis-state, api-gateway,
+#    frontend, nginx, mailpit, + one-shot migrate)
 make up                     # or: docker compose up --build [-d]
 
 # 3. Verify
@@ -253,12 +239,6 @@ make health
 ```
 
 The one-shot **migrate** service runs Alembic on startup, so the schema is applied automatically. Re-apply manually any time with `make migrate`.
-
-Optional legacy MCP vision server:
-
-```sh
-docker compose --profile vision up --build
-```
 
 ### Useful URLs (defaults)
 
@@ -268,7 +248,6 @@ docker compose --profile vision up --build
 | Frontend (direct container map) | `http://localhost:3001` (`FRONTEND_HOST_PORT`) |
 | API gateway (direct) | `http://localhost:8000` — `/live`, `/ready`, `/health`, `/docs` |
 | OpenAPI / Swagger | `http://localhost:8000/docs` |
-| ai-agent (direct) | `http://localhost:8001/health` |
 | Mailpit (dev mail UI) | `http://localhost:8025` |
 
 > **Ports:** Postgres maps **5433 → 5432** and Redis **6382 → 6379** on the host by default (see `.env.example`). `redis-state` uses **6383**.
@@ -285,14 +264,12 @@ You need **PostgreSQL (with pgvector)** and **Redis**, with matching `DATABASE_U
 npm --prefix frontend install
 python3 -m venv .venv && source .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -r services/api-gateway/requirements-dev.txt
-pip install -r services/ai-agent/requirements.txt
 ```
 
 Run each process in its own terminal:
 
 ```sh
-make dev-api        # API gateway :8000 (includes in-process vision pipeline)
-make dev-agent      # FANI ai-agent :8001
+make dev-api        # API gateway :8000 (includes in-process vision + AI)
 make dev-frontend   # Vite dev server :3000
 ```
 
@@ -311,11 +288,10 @@ Point `VITE_API_URL` at your gateway if the frontend origin differs from the API
 | `JWT_SECRET` | Strong random value in production (≥ 32 chars). |
 | `DATABASE_URL` | Postgres + pgvector; host dev often uses port 5433 per the example. |
 | `REDIS_URL` | Cache; host dev often uses 6382. |
-| `REDIS_STATE_URL` | Non-evictable Redis for OAuth state, refresh tokens, rate limits, ARQ. |
-| `AI_AGENT_URL` / `INTERNAL_SERVICE_TOKEN` | Gateway → ai-agent service-to-service auth. |
+| `REDIS_STATE_URL` | Non-evictable Redis for OAuth state, refresh tokens, rate limits. |
+| `INTERNAL_SERVICE_TOKEN` | Shared secret for internal calls (e.g. account-data purge). |
 | `ALLOWED_ORIGINS` | Must list the real SPA origins. |
 | `SERVE_MIGRATED_DOMAIN_ROUTES` | Production interlock to mount wardrobe + intelligence domains. |
-| `HEAVY_WORK_ASYNC` | Off by default; when on, offloads some AI work to ai-worker (dev). |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REDIRECT_URI` | Google OAuth. |
 | `GCS_BUCKET_NAME` (+ credentials) | Cloud image storage (optional; falls back to local disk). |
 | `VITE_API_URL` / `VITE_HIDE_NON_MVP` | Frontend API origin and non-MVP feature gating. |
@@ -340,7 +316,6 @@ All routers mount under **`/api/v1`** (`services/api-gateway/app/api/v1/router.p
 - **AI chat** — persisted FANI stylist chat (`/api/v1/ai-chat/*`, SSE stream)
 - **RAG** — fashion knowledge, closet similarity, purchase gaps, unified `/rag/*`
 - **Shopping check** — photo + URL buy/skip advisor, closet match, history, add-to-closet
-- **Jobs** — enqueue/poll async AI work (ARQ, dev-oriented)
 - **Admin**, **health**, **RUM**
 - **WebSocket** — `/api/v1/ws` for notifications
 
@@ -412,8 +387,7 @@ make clean           # remove build artifacts
 
 ### Troubleshooting
 
-- **OpenAI / model errors** — verify `OPENAI_API_KEY`; restart `api-gateway` and `ai-agent` after changes.
-- **FANI / ai-agent** — inline tools run by default; check `docker compose logs ai-agent api-gateway`. For the legacy MCP profile, also check the relevant `mcp-*` service.
+- **OpenAI / model errors** — verify `OPENAI_API_KEY` / `GEMINI_API_KEY`; restart `api-gateway` after changes. FANI runs in-process, so `docker compose logs api-gateway` has the AI traces.
 - **Vision timeouts** — nginx applies longer read timeouts for AI/vision routes; check gateway logs and `GEMINI_API_KEY` / OpenAI quotas.
 - **WebSockets** — connect through a URL nginx proxies (`ws://localhost/api/v1/ws?...`) or align direct `:8000` dev with `ALLOWED_ORIGINS`.
 - **Stale builds** — `make clean`, then rebuild images or `npm run build`.

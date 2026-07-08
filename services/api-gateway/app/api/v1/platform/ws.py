@@ -1,18 +1,16 @@
 """
-WebSocket endpoint — real-time notifications and streaming.
+WebSocket endpoint — real-time notifications.
 
 Supported message types (client → server):
   { "type": "ping" }
-  { "type": "subscribe", "channel": "closet" | "social" | "ai" }
-  { "type": "chat", "message": "..." }
 
 Server → client push events:
   { "type": "pong" }
-  { "type": "subscribed", "channel": "..." }
   { "type": "notification", "channel": "...", "data": {...} }
-  { "type": "chat_token", "content": "..." }
-  { "type": "chat_done", "reply": "..." }
   { "type": "error", "message": "..." }
+
+Notifications are pushed from the server via Redis Pub/Sub (see
+``ConnectionManager``); the client does not subscribe to channels.
 """
 
 from __future__ import annotations
@@ -26,7 +24,6 @@ from typing import Any
 import structlog
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
-from app.api.v1.intelligence.services.ai_client import stream_chat as ai_stream_chat
 from app.core import cache_service
 from app.core.deps import CurrentUser
 
@@ -210,38 +207,6 @@ async def _handle_ping(ws: WebSocket) -> None:
     await manager.send(ws, {"type": "pong", "ts": time.time()})
 
 
-async def _handle_subscribe(ws: WebSocket, channel: str) -> None:
-    valid = {"closet", "social", "ai", "notifications"}
-    if channel not in valid:
-        await manager.send(ws, {"type": "error", "message": f"Unknown channel '{channel}'"})
-        return
-    await manager.send(ws, {"type": "subscribed", "channel": channel})
-
-
-async def _handle_chat(ws: WebSocket, user_id: str, message: str) -> None:
-    """Stream an AI chat reply token by token over the WebSocket."""
-    if not message.strip():
-        await manager.send(ws, {"type": "error", "message": "message cannot be empty"})
-        return
-
-    try:
-        reply_parts: list[str] = []
-        async for event in ai_stream_chat(message=message, user_id=user_id):
-            event_type = event.get("type")
-            if event_type == "token":
-                token = str(event.get("content", ""))
-                reply_parts.append(token)
-                await manager.send(ws, {"type": "chat_token", "content": token})
-            elif event_type == "error":
-                await manager.send(ws, {"type": "error", "message": event.get("message", "AI error")})
-            elif event_type == "done":
-                break
-        await manager.send(ws, {"type": "chat_done", "reply": "".join(reply_parts)})
-    except Exception as exc:
-        logger.error("ws_chat_error", user_id=user_id, error=str(exc))
-        await manager.send(ws, {"type": "error", "message": "AI service unavailable"})
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 #  Main WebSocket route
 # ─────────────────────────────────────────────────────────────────────────────
@@ -293,10 +258,6 @@ async def websocket_endpoint(
             match msg_type:
                 case "ping":
                     await _handle_ping(ws)
-                case "subscribe":
-                    await _handle_subscribe(ws, msg.get("channel", ""))
-                case "chat":
-                    await _handle_chat(ws, user_id, msg.get("message", ""))
                 case _:
                     await manager.send(
                         ws,

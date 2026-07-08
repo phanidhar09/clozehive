@@ -18,9 +18,7 @@ export RUNTIME_SA="${RUNTIME_SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 
 # ── Cloud Run service names ──────────────────────────────────────────────────
 export SVC_API="clozehive-api"
-export SVC_AGENT="clozehive-ai-agent"
 export SVC_FRONTEND="clozehive-frontend"
-export POOL_WORKER="clozehive-ai-worker"   # Cloud Run *worker pool* (no HTTP port)
 
 # ── Derived: Artifact Registry image base ────────────────────────────────────
 export IMAGE_BASE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}"
@@ -33,7 +31,6 @@ PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(project
 export PROJECT_NUMBER
 if [ -n "$PROJECT_NUMBER" ]; then
   export URL_API="https://${SVC_API}-${PROJECT_NUMBER}.${REGION}.run.app"
-  export URL_AGENT="https://${SVC_AGENT}-${PROJECT_NUMBER}.${REGION}.run.app"
   export URL_FRONTEND="https://${SVC_FRONTEND}-${PROJECT_NUMBER}.${REGION}.run.app"
 fi
 

@@ -116,13 +116,12 @@ class Settings(BaseSettings):
     oauth_debug_errors: bool = False
 
     # ── Redis (separated by purpose) ──────────────────────────────────────────
-    # Clozehive uses Redis for three jobs that scale and fail differently:
+    # Clozehive uses Redis for two jobs that scale and fail differently:
     #   • cache — ephemeral, safe to evict (allkeys-lru).
     #   • state — OAuth CSRF state, refresh tokens, rate-limit counters. These
     #             MUST NOT be evicted (noeviction); evicting them silently breaks
     #             logins and rate limiting under memory pressure.
-    #   • queue — ARQ async-job stream (arq_redis_url below).
-    # In production point each at its own instance. All three fall back to
+    # In production point each at its own instance. Both fall back to
     # redis_url, so a single-Redis dev / free-tier setup keeps working unchanged.
     redis_url: str = "redis://localhost:6379/0"
     # Dedicated cache Redis (allkeys-lru). Blank → use redis_url.
@@ -131,9 +130,6 @@ class Settings(BaseSettings):
     redis_state_url: str = ""
     # When False, /ready and /health skip Redis (local dev without Redis).
     redis_check_on_ready: bool = True
-    # ARQ task queue (async AI jobs handled by the ai-worker service). Must point
-    # at the SAME Redis DB index the worker consumes (…/3 by default).
-    arq_redis_url: str = "redis://localhost:6379/3"
     cache_ttl_profile: int = 300  # 5 min
     cache_ttl_closet: int = 120  # 2 min
     cache_ttl_weather: int = 3600  # 1 hour
@@ -167,12 +163,10 @@ class Settings(BaseSettings):
     cookie_samesite: str = "Lax"  # Lax | Strict | None
     cookie_domain: str = ""  # leave blank for same-origin (recommended)
 
-    # ── AI Agent Service ──────────────────────────────────────────────────────
-    ai_agent_url: str = "http://ai-agent:8001"
-    # Budget for a single ai-agent read. connect timeout is always 5 s (see ai_client.py).
-    ai_timeout_seconds: int = 30
-    # Shared secret sent as X-Internal-Token on every api-gateway → ai-agent request,
-    # and on api-gateway → closet-service internal calls (e.g. user-data purge).
+    # ── Internal service auth ─────────────────────────────────────────────────
+    # Shared secret sent as X-Internal-Token on internal calls (e.g. user-data
+    # purge). Used by internal-auth + account-purge. (The ai-agent/ai-worker
+    # services this once talked to were retired — all AI runs in-process now.)
     internal_service_token: str = ""
     # Legacy: base URL of the retired closet-service. Empty by default so the
     # account-purge fan-out is a clean no-op — the gateway owns closet data in
@@ -204,12 +198,6 @@ class Settings(BaseSettings):
     semantic_cache_threshold: float = 0.95
     semantic_cache_ttl: int = 3600  # 1 h — weather/trends drift beyond that
     semantic_cache_max_entries: int = 20  # per-user LRU window
-    # When True, heavy post-write work (closet item embeddings) is handed to the
-    # durable ARQ queue instead of in-process FastAPI BackgroundTasks. BackgroundTasks
-    # run inside the web process and are lost if it restarts or scales in mid-flight;
-    # ARQ jobs survive in Redis and are retried by the ai-worker. Requires the
-    # ai-worker to be running. Default False = current in-process behaviour.
-    heavy_work_async: bool = False
     # text-embedding-3-small: same 1536-dim output as ada-002 but ~20% better on
     # semantic retrieval benchmarks and cheaper.  Changing this requires running
     # POST /api/v1/closet/re-embed to regenerate all stored embeddings.

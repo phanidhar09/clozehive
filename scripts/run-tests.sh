@@ -5,18 +5,17 @@
 # exits 0 only when everything passes.
 #
 # Usage:
-#   scripts/run-tests.sh              # lint + both test suites (CI order)
+#   scripts/run-tests.sh              # lint + api-gateway tests (CI order)
 #   scripts/run-tests.sh lint         # backend-lint only (ruff/format/mypy/drift)
 #   scripts/run-tests.sh gateway      # api-gateway pytest only
-#   scripts/run-tests.sh agent        # ai-agent pytest only
-#   scripts/run-tests.sh tests        # both pytest suites, no lint
+#   scripts/run-tests.sh tests        # api-gateway pytest, no lint
 #
 # Env:
 #   LF=1   re-run only last-failed pytest tests first (fast inner loop)
 #
 # Note: lint mirrors CI's backend-lint job (ruff==0.15.16, mypy==2.1.0). If those
 # tools are missing from the gateway venv the lint step tells you how to install
-# them. CI also runs frontend, ai-worker, coverage gates and docker builds — those
+# them. CI also runs frontend, coverage gates and docker builds — those
 # are NOT mirrored here (this runner is Python lint + tests only).
 set -uo pipefail
 
@@ -74,17 +73,14 @@ run_suite() {
 case "$TARGET" in
   lint)    run_lint || fail=1 ;;
   gateway) run_suite api-gateway "$GW" || fail=1 ;;
-  agent)   run_suite ai-agent   "$ROOT/services/ai-agent" || fail=1 ;;
   tests)
     run_suite api-gateway "$GW" || fail=1
-    run_suite ai-agent   "$ROOT/services/ai-agent" || fail=1
     ;;
   all)
     run_lint || fail=1
     run_suite api-gateway "$GW" || fail=1
-    run_suite ai-agent   "$ROOT/services/ai-agent" || fail=1
     ;;
-  *) echo "usage: $0 [all|lint|tests|gateway|agent]"; exit 2 ;;
+  *) echo "usage: $0 [all|lint|tests|gateway]"; exit 2 ;;
 esac
 
 if [ $fail -eq 0 ]; then

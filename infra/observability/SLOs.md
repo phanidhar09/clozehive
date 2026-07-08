@@ -46,5 +46,5 @@ cache hit ratio, embedding-job transport mix, and vision pipeline stage timings.
   `trace_id` to jump to the failing trace in Tempo), recent deploys, DB/Redis health.
 - **DBPoolNearExhaustion** → check `clozehive_db_pool_connections_in_use`; consider
   the read replica (`DATABASE_READ_URL`) or raising `DB_POOL_SIZE`.
-- **AILatencyHigh** → check the AI provider status + `ai-agent` traces.
+- **AILatencyHigh** → check the AI provider status + the gateway's LLM traces.
 - **CacheHitRatioLow** → check Redis health, TTLs, and eviction (cache vs state split).

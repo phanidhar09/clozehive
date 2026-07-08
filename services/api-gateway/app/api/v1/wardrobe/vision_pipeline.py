@@ -302,9 +302,9 @@ async def save_analyzed_items(
     if saved:
         redis = await get_redis()
         await cache_service.invalidate_user_ai_cache(redis, user_id)
-        # Commit before scheduling the embedding refresh (durable ARQ job when
-        # HEAVY_WORK_ASYNC is on, else in-process BackgroundTask): the job opens
-        # its own session and cannot see this request's uncommitted rows.
+        # Commit before scheduling the embedding refresh (in-process
+        # BackgroundTask): the job opens its own session and cannot see this
+        # request's uncommitted rows.
         await session.commit()
         for saved_item in saved:
             await similarity_service.schedule_embedding_update(background_tasks, str(saved_item.id))
