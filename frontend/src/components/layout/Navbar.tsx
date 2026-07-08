@@ -14,7 +14,7 @@ const TITLES: Record<string, string> = {
   '/outfit-builder':   'Build Outfit',
   '/upload':           'Add to Your Closet',
   '/fashion-analysis': 'Add to Your Closet',
-  '/ai-stylist':       'FANI — AI Stylist',
+  '/ai-stylist':       'FANI',
   '/travel':           'Travel Planner',
   '/planner':          'Weekly Planner',
   '/avatar':           'Avatar Builder',

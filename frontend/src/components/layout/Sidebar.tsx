@@ -23,7 +23,7 @@ type SidebarNavGroup = {
 }
 
 // Top-level item shown alone above the grouped sections.
-const NAV_TOP: SidebarNavItem = { to: '/dashboard', label: 'Dashboard', icon: Home }
+const NAV_TOP: SidebarNavItem = { to: '/dashboard', label: 'Home', icon: Home }
 
 // Grouped destinations — every feature stays visible, parsed as 4 short sections.
 const NAV_GROUPS: SidebarNavGroup[] = [
@@ -40,13 +40,13 @@ const NAV_GROUPS: SidebarNavGroup[] = [
       { to: '/outfit-builder', label: 'Build Outfit',   icon: Wand2 },
       { to: '/planner',        label: 'Weekly Planner', icon: CalendarDays },
       { to: '/saved-outfits',  label: 'Saved Outfits',  icon: Heart },
-      { to: '/travel',         label: 'Travel Packing', icon: Plane },
+      { to: '/travel',         label: 'Travel Planner', icon: Plane },
     ],
   },
   {
     heading: 'FANI · AI',
     items: [
-      { to: '/ai-stylist',     label: 'Stylist Chat',   icon: Sparkles },
+      { to: '/ai-stylist',     label: 'FANI',           icon: Sparkles },
       { to: '/shopping-check', label: 'Shop with FANI', icon: ShoppingCart },
       { to: '/closet-match',   label: 'Fit Match',      icon: Layers },
     ],
@@ -55,7 +55,7 @@ const NAV_GROUPS: SidebarNavGroup[] = [
     heading: 'Insights',
     items: [
       { to: '/analytics',     label: 'Style Insights', icon: BarChart3 },
-      { to: '/purchase-gaps', label: 'Purchase Gaps',  icon: ShoppingBag },
+      { to: '/purchase-gaps', label: 'Wardrobe Gaps',  icon: ShoppingBag },
     ],
   },
 ]
