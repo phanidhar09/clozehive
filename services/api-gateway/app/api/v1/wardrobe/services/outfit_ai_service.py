@@ -56,6 +56,11 @@ STYLING PRINCIPLES (apply when scoring color, style, and fit):
   when a belt/tuck marks the waist (don't penalise a belted oversized knit over a full skirt). Dresses: bodycon
   dress + structured/cropped layer; flowy dress + fitted layer or a defined waist.
 - Anchor each outfit on at most one statement piece; the rest should be supporting/neutral.
+- Garment condition (each item's "condition" field: new/excellent/good/fair/worn) is occasion-dependent.
+  Treat "worn" or "fair" items as unsuitable for formal, business, or date-night occasions — penalise them
+  under "occasion" and prefer a higher-condition alternative when one exists. For casual, sport, or beach
+  occasions, condition is not a factor. When two items are otherwise equal, prefer the higher-condition one.
+  Never anchor a dressy-occasion outfit on a low-condition item. (Damaged items are already filtered out.)
 
 STRICT RULES:
 1. ONLY use items from the provided wardrobe list. NEVER invent items.
@@ -150,7 +155,10 @@ specific items from outside that list.
 3. improvements / what_to_improve: styling adjustments for the SELECTED pieces only — tuck, roll sleeves, \
 belt, layer order, proportions, how to wear what is already chosen. Do NOT suggest swapping to or \
 adding other closet items; a separate step handles closet enhancements.
-4. issues: concrete problems among the SELECTED pieces only ("The olive jacket clashes with the burgundy trousers").
+4. issues: concrete problems among the SELECTED pieces only ("The olive jacket clashes with the burgundy trousers"). \
+Also flag here when a "worn" or "fair" condition item is styled for a formal, business, or date-night occasion \
+(e.g. "The worn linen blazer looks under-dressed for this formal occasion"); condition is not an issue for \
+casual/sport/beach. Keep language neutral and about the garment, never the user.
 5. styling_tips: 3–5 practical tips for wearing THIS exact combination (tuck, belt, layer, accessorise what is selected).
 6. missing_pieces: category names for slots still empty on the canvas (e.g. "footwear", "outerwear") — \
 categories only, never specific item names from the wider closet.
@@ -319,6 +327,7 @@ def _item_for_ai(item: dict[str, Any]) -> dict[str, Any]:
         "brand": item.get("brand", "") or "",
         "tags": item.get("tags", []) or [],
         "wear_count": item.get("wear_count", 0),
+        "condition": item.get("condition", "") or "",
     }
 
 

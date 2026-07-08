@@ -192,6 +192,7 @@ async def analyze_outfit(
             "brand": item.brand or "",
             "tags": item.tags or [],
             "wear_count": item.wear_count,
+            "condition": item.condition or "",
         }
         for item in db_items
     ]
@@ -285,6 +286,7 @@ async def analyze_outfit(
                 ClosetItem.id.not_in(set(item_uuids)),
                 ClosetItem.is_archived == False,  # noqa: E712
                 ClosetItem.availability == "available",
+                ClosetItem.condition != "damaged",
             )
             .limit(50)
         )
@@ -302,6 +304,7 @@ async def analyze_outfit(
                 "season": it.season or "",
                 "occasion": it.occasion or [],
                 "brand": it.brand or "",
+                "condition": it.condition or "",
             }
             for it in remaining_db_items
         ]
@@ -469,6 +472,7 @@ async def shuffle_outfit(
                 "occasion": r.get("occasion") or [],
                 "season": r.get("season") or [],
                 "tags": r.get("tags") or [],
+                "condition": r.get("condition") or "",
                 "image_url": r.get("processed_image_url") or r.get("image_url") or r.get("original_image_url"),
             }
             for r in vector_rows
@@ -483,6 +487,7 @@ async def shuffle_outfit(
                 ClosetItem.user_id == uid,
                 ClosetItem.is_archived == False,  # noqa: E712
                 ClosetItem.availability == "available",
+                ClosetItem.condition != "damaged",
             )
             .order_by(ClosetItem.wear_count.desc())
             .limit(80)
@@ -499,6 +504,7 @@ async def shuffle_outfit(
                 "occasion": r.occasion or [],
                 "season": r.season or [],
                 "tags": r.tags or [],
+                "condition": r.condition or "",
                 "image_url": r.processed_image_url or r.image_url or r.original_image_url,
             }
             for r in all_rows.scalars().all()

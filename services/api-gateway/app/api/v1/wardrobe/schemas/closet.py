@@ -15,6 +15,11 @@ ClosetCategory = Literal["tops", "bottoms", "shoes", "outerwear", "dresses", "ac
 # Physical availability — anything but "available" is hidden from FANI styling.
 AvailabilityStatus = Literal["available", "in_laundry", "at_cleaners", "lent_out"]
 
+# Physical wear state (ordinal, see app.constants.wardrobe.Condition). A *soft*
+# occasion-aware styling signal; "damaged" is the only value later steps
+# hard-exclude. Unset (None) on create/update means "leave at the DB default".
+ConditionGrade = Literal["new", "excellent", "good", "fair", "worn", "damaged"]
+
 _CANONICAL_CATEGORIES = frozenset(
     {
         "tops",
@@ -140,6 +145,7 @@ class ClosetItemCreate(BaseModel):
     size: str | None = Field(None, max_length=20)
     fit: str | None = Field(None, max_length=30)
     price: float | None = Field(None, ge=0, le=99999.99)
+    condition: ConditionGrade | None = None
 
     original_image_url: str | None = None
     processed_image_url: str | None = None
@@ -205,6 +211,7 @@ class ClosetItemUpdate(BaseModel):
     price: float | None = Field(None, ge=0, le=99999.99)
     is_archived: bool | None = None
     availability: AvailabilityStatus | None = None
+    condition: ConditionGrade | None = None
 
     @field_validator("name", "color", "fabric", "pattern", "image_url", "notes", "brand", "size", "fit", mode="before")
     @classmethod
@@ -257,6 +264,7 @@ class ClosetItemResponse(BaseModel):
     last_worn: date | None
     is_archived: bool
     availability: str = "available"
+    condition: str = "good"
     created_at: datetime
     updated_at: datetime
 
@@ -390,6 +398,7 @@ class ClosetConfirmItemPayload(BaseModel):
     price: float | None = Field(None, ge=0, le=99999.99)
     tags: list[str] | None = Field(None, max_length=20)
     eco_score: float | None = Field(None, ge=0, le=10)
+    condition: ConditionGrade | None = None
 
     @field_validator("name", "color", "fabric", "material", "pattern", "notes", "brand", "size", "fit", mode="before")
     @classmethod
@@ -524,6 +533,7 @@ class SaveItemRequest(BaseModel):
     background_removed: bool = False
     background_removal_status: str = "not_attempted"
     scan_batch_id: str | None = None
+    condition: ConditionGrade | None = None
 
 
 class SaveAnalyzedItemsRequest(BaseModel):

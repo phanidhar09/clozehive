@@ -12,6 +12,7 @@ import Badge from '@/components/ui/Badge'
 import { useApp } from '@/store'
 import { notificationStore, toastStore } from '@/store/notificationStore'
 import { closetApi, closetSimilarityApi, resolveUploadUrl, type ClosetPreviewItem, type SimilarClosetItem } from '@/lib/api'
+import { CONDITION_OPTIONS, CONDITION_LABELS, type ConditionGrade } from '@/types'
 import { cn } from '@/lib/utils'
 import { CLOSET_SEASONS, CLOSET_OCCASIONS, CLOSET_CULTURAL_OCCASIONS } from '@/features/closet/constants'
 import { InlineError } from '@/components/system/InlineError'
@@ -178,6 +179,9 @@ const FIT_OPTIONS_SELECT = [
   ...FIT_OPTIONS.map(f => ({ value: f, label: f.charAt(0).toUpperCase() + f.slice(1) })),
 ]
 
+// Garment condition — a soft occasion-aware styling signal (see backend Condition enum).
+const CONDITION_OPTIONS_SELECT = CONDITION_OPTIONS.map(c => ({ value: c, label: CONDITION_LABELS[c] }))
+
 // Below this AI detection confidence we visually flag the item for manual review.
 // Mirrors the backend's bulk-vision low-confidence threshold (vision_service.py).
 const LOW_CONFIDENCE_THRESHOLD = 0.5
@@ -209,6 +213,7 @@ function draftsFromPreviewItems(items: ClosetPreviewItem[] | null | undefined): 
       brand: it.brand ?? '',
       size: '',
       fit: it.fit ?? '',
+      condition: 'good' as ConditionGrade,
       priceStr: '',
       preview_image_url: it.preview_image_url,
       confidence: it.confidence,
@@ -237,6 +242,7 @@ type ItemDraft = {
   brand: string
   size: string
   fit: string
+  condition: ConditionGrade
   priceStr: string
   preview_image_url: string
   confidence: number
@@ -544,6 +550,7 @@ export default function Upload() {
         brand: d.brand.trim() || undefined,
         size: d.size.trim() || undefined,
         fit: d.fit || undefined,
+        condition: d.condition,
         price: priceNum(d.priceStr),
       })),
     })
@@ -1164,6 +1171,13 @@ export default function Upload() {
                                   value={d.fit}
                                   onChange={e => updateDraft(currentWizardItem.sessionId, d.slot_index, { fit: e.target.value })}
                                   options={FIT_OPTIONS_SELECT}
+                                />
+                                <Select
+                                  label="Condition"
+                                  id={`f-${d.detected_item_id}-condition`}
+                                  value={d.condition}
+                                  onChange={e => updateDraft(currentWizardItem.sessionId, d.slot_index, { condition: e.target.value as ConditionGrade })}
+                                  options={CONDITION_OPTIONS_SELECT}
                                 />
                                 <div className="w-full">
                                   <label htmlFor={`f-${d.detected_item_id}-price`} className="label">Price</label>

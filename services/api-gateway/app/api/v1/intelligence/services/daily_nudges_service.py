@@ -130,6 +130,7 @@ async def _forgotten_gem(session: AsyncSession, user_id: UUID, today: date) -> C
             ClosetItem.user_id == user_id,
             ClosetItem.is_archived == False,  # noqa: E712
             ClosetItem.availability == "available",
+            ClosetItem.condition != "damaged",
             ClosetItem.wear_count > 0,
             ClosetItem.last_worn.is_not(None),
             ClosetItem.last_worn <= cutoff,
