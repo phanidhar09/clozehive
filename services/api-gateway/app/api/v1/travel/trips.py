@@ -139,6 +139,7 @@ async def _generate_trip_packing(
             bag_size=bag_size,
             user_style_profile=prof,
             rag_context=rag_context,
+            user_id=str(user_id),
         )
 
     try:
@@ -157,6 +158,7 @@ async def _generate_trip_packing(
             bag_size=bag_size,
             user_style_profile=prof,
             rag_context=rag_context,
+            user_id=str(user_id),
         )
 
 

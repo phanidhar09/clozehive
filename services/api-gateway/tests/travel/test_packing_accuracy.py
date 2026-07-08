@@ -302,6 +302,55 @@ def test_max_tokens_has_floor_and_cap():
     assert ps._packing_max_tokens(ps._MAX_PLANNED_DAYS) <= ps._PACKING_OUTPUT_TOKEN_CAP
 
 
+# ── Token/cost telemetry ───────────────────────────────────────────────────────
+
+
+def test_record_packing_generation_captures_tokens(monkeypatch):
+    """Non-streaming resp.usage → Prometheus + PostHog capture with exact tokens."""
+    from types import SimpleNamespace
+
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(
+        ps, "record_ai_tokens", lambda model, prompt=0, completion=0: captured.update(prompt=prompt, completion=completion)
+    )
+    monkeypatch.setattr(ps, "record_ai_cost", lambda model, usd: captured.update(cost=usd))
+    monkeypatch.setattr(ps, "capture_llm_generation", lambda **kwargs: captured.update(capture=kwargs))
+
+    resp = SimpleNamespace(usage=SimpleNamespace(prompt_tokens=1200, completion_tokens=800))
+    ps._record_packing_generation(resp, 2.5, "user-123")
+
+    assert captured["prompt"] == 1200
+    assert captured["completion"] == 800
+    assert captured["cost"] > 0
+    cap = captured["capture"]
+    assert cap["prompt_tokens"] == 1200 and cap["completion_tokens"] == 800
+    assert cap["telemetry"].operation == "packing"
+    assert cap["telemetry"].user_id == "user-123"
+    assert cap["is_error"] is False
+
+
+def test_record_packing_generation_flags_truncation_as_error(monkeypatch):
+    from types import SimpleNamespace
+
+    captured: dict[str, Any] = {}
+    monkeypatch.setattr(ps, "record_ai_tokens", lambda *a, **k: None)
+    monkeypatch.setattr(ps, "record_ai_cost", lambda *a, **k: None)
+    monkeypatch.setattr(ps, "capture_llm_generation", lambda **kwargs: captured.update(kwargs))
+
+    resp = SimpleNamespace(usage=SimpleNamespace(prompt_tokens=1000, completion_tokens=16000))
+    ps._record_packing_generation(resp, 3.0, "u1", is_error=True)
+    assert captured["is_error"] is True
+
+
+def test_record_packing_generation_no_usage_is_noop(monkeypatch):
+    from types import SimpleNamespace
+
+    called = {"n": 0}
+    monkeypatch.setattr(ps, "capture_llm_generation", lambda **k: called.update(n=called["n"] + 1))
+    ps._record_packing_generation(SimpleNamespace(usage=None), 1.0, None)
+    assert called["n"] == 0
+
+
 # ── Relevance ranking ──────────────────────────────────────────────────────────
 
 
