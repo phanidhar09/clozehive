@@ -107,9 +107,7 @@ def _item_view(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _fit_pref_factor(
-    owned_items: list[dict[str, Any]], fit_prefs: frozenset[str], fit_avoids: frozenset[str]
-) -> float:
+def _fit_pref_factor(owned_items: list[dict[str, Any]], fit_prefs: frozenset[str], fit_avoids: frozenset[str]) -> float:
     """Mean per-item fit-preference weight over an outfit's owned pieces.
 
     Each item contributes a soft multiplier from ``compat.fit_preference_weight``
@@ -118,9 +116,7 @@ def _fit_pref_factor(
     """
     if not owned_items:
         return 1.0
-    weights = [
-        compat.fit_preference_weight(it.get("fit"), fit_prefs, fit_avoids)[0] for it in owned_items
-    ]
+    weights = [compat.fit_preference_weight(it.get("fit"), fit_prefs, fit_avoids)[0] for it in owned_items]
     return sum(weights) / len(weights)
 
 

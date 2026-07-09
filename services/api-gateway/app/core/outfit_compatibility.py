@@ -556,9 +556,7 @@ _FIT_PREF_BOOST = 0.06
 _FIT_PREF_PENALTY = 0.18
 
 
-def fit_preference_weight(
-    fit: str | None, liked: frozenset[str], disliked: frozenset[str]
-) -> tuple[float, str | None]:
+def fit_preference_weight(fit: str | None, liked: frozenset[str], disliked: frozenset[str]) -> tuple[float, str | None]:
     """Per-item multiplier from the user's declared fit taste, with a reason.
 
     Loose containment match so a declared "slim" matches a "slim-fit" item (same
