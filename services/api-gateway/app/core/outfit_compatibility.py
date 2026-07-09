@@ -547,6 +547,37 @@ def silhouette_harmony(item_a: dict[str, Any], item_b: dict[str, Any]) -> tuple[
     return _silhouette_harmony(fa.fit_volume, fb.fit_volume)
 
 
+# ── Fit preference (soft, per-item, user-declared) ────────────────────────────
+# Mirrors the condition pattern: a *soft* nudge, never an exclusion. A fit the
+# user likes gets a small boost, one they avoid a gentle demote; unknown fit or
+# no declared taste is neutral (1.0). Bounded so it tilts ties, never overrides
+# real styling (color/formality/silhouette).
+_FIT_PREF_BOOST = 0.06
+_FIT_PREF_PENALTY = 0.18
+
+
+def fit_preference_weight(
+    fit: str | None, liked: frozenset[str], disliked: frozenset[str]
+) -> tuple[float, str | None]:
+    """Per-item multiplier from the user's declared fit taste, with a reason.
+
+    Loose containment match so a declared "slim" matches a "slim-fit" item (same
+    rule as the shopping-check preference scorer). Unknown fit or no declared
+    taste is neutral. An avoided fit is checked before a liked one so a token that
+    somehow lands in both errs toward caution.
+    """
+    if not fit or (not liked and not disliked):
+        return (1.0, None)
+    f = fit.strip().lower()
+    if not f:
+        return (1.0, None)
+    if any(f in d or d in f for d in disliked):
+        return (1.0 - _FIT_PREF_PENALTY, f"a {fit} fit, which you usually avoid")
+    if any(f in lk or lk in f for lk in liked):
+        return (1.0 + _FIT_PREF_BOOST, f"a {fit} fit, just how you like it")
+    return (1.0, None)
+
+
 # ── Fused compatibility ───────────────────────────────────────────────────────
 
 _WEIGHTS = {
