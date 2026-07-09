@@ -136,13 +136,27 @@ async def update_item_embedding_job(item_id: str) -> None:
 
 
 async def schedule_embedding_update(background_tasks, item_id: str) -> None:
-    """Schedule an item embedding refresh as an in-process FastAPI BackgroundTask.
+    """Schedule an item embedding refresh, off the request path.
 
-    The API response returns immediately; the embedding is computed afterwards in
-    the same process. (The durable ai-worker variant was retired — closet-service,
-    the prod owner of the wardrobe domain, generates embeddings in-process too.)
+    Two transports, selected by ``settings.heavy_work_async``:
+
+    * **arq** (True) — enqueue to the durable ``clozehive-worker`` queue so the
+      web dyno never spends CPU/DB time on embeddings. If the queue is
+      unreachable we fall back to the in-process task rather than drop the work.
+    * **inprocess** (False, default) — run as a FastAPI BackgroundTask in this
+      process after the response is sent (single-dyno behaviour, unchanged).
+
+    Either way the API response returns immediately.
     """
     from app.core.metrics import record_embedding_job
+
+    if settings.heavy_work_async:
+        from app.core.task_queue import enqueue_job
+
+        if await enqueue_job("refresh_item_embedding", item_id):
+            record_embedding_job("arq")
+            return
+        logger.warning("embedding_enqueue_fell_back_inprocess", item_id=item_id)
 
     record_embedding_job("inprocess")
     background_tasks.add_task(update_item_embedding_job, item_id)
