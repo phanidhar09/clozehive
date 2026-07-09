@@ -11,7 +11,10 @@
 #   - GCS_* if you want persistent uploads (Render disk is ephemeral)
 #
 # Note: all AI (stylist chat, outfit, vision, packing) runs in-process in the
-#       api-gateway. There is no separate ai-agent / ai-worker service.
+#       api-gateway. The only optional side service is clozehive-worker (ARQ),
+#       which offloads latency-insensitive heavy jobs (closet embedding refresh)
+#       off the web request path when HEAVY_WORK_ASYNC=true. There is no
+#       ai-agent / ai-worker service.
 
 databases:
   - name: clozehive-db
@@ -40,6 +43,75 @@ services:
     plan: free
     maxmemoryPolicy: noeviction
     ipAllowList: []
+
+  # ── Background worker (ARQ) — offloads CPU/latency-heavy work off the web
+  #    request path: closet embedding refresh (add more jobs in app/worker.py).
+  #    Consumes from the STATE Redis (noeviction) so queued jobs are never
+  #    evicted under memory pressure — the cache Redis is allkeys-lru and would
+  #    drop jobs. Background removal is intentionally NOT offloaded: it runs in
+  #    the live vision SSE stream, so the user is actively watching.
+  #    NOTE: Render workers cannot run on the free plan; smallest tier is starter.
+  #    Only deployed to effect once HEAVY_WORK_ASYNC=true on both services.
+  - type: worker
+    name: clozehive-worker
+    runtime: docker
+    plan: starter
+    region: oregon
+    dockerfilePath: services/api-gateway/Dockerfile
+    dockerContext: services/api-gateway
+    # Override the Dockerfile's uvicorn CMD — run the ARQ worker instead.
+    dockerCommand: arq app.worker.WorkerSettings
+    envVars:
+      # Flip web + worker from in-process BackgroundTasks to enqueue/consume.
+      - key: HEAVY_WORK_ASYNC
+        value: "true"
+      # The web service owns startup migrations. The worker must NOT race them.
+      - key: RUN_MIGRATIONS_ON_STARTUP
+        value: "false"
+      # Same Neon DB as the web service (paste the connection string as a secret).
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: clozehive-redis
+          property: connectionString
+      # ARQ job queue lives on the non-evictable state Redis.
+      - key: REDIS_STATE_URL
+        fromService:
+          type: redis
+          name: clozehive-redis-state
+          property: connectionString
+      - key: INTERNAL_SERVICE_TOKEN
+        generateValue: true
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: LOG_LEVEL
+        value: INFO
+      - key: ENABLE_METRICS
+        value: "true"
+      # AI / embedding config — must match the web service.
+      - key: OPENAI_MODEL
+        value: gpt-4o
+      - key: OPENAI_EMBEDDING_MODEL
+        value: text-embedding-3-small
+      - key: OPENAI_API_BASE_URL
+        value: https://api.openai.com/v1
+      # Secrets — set in Dashboard (same values as clozehive-api).
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GCS_BUCKET_NAME
+        sync: false
+      - key: GCS_PROJECT_ID
+        sync: false
+      - key: GCS_CREDENTIALS_JSON
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
 
   # ── API Gateway (public API + embedded vision/closet pipelines) ─────────────
   - type: web
@@ -116,6 +188,12 @@ services:
       # REQUIRED — without it every /api/v1/closet, /outfits, /ai request 404s.
       # (The closet-service split was retired; the gateway serves its own copies.)
       - key: SERVE_MIGRATED_DOMAIN_ROUTES
+        value: "true"
+      # When true, heavy jobs (embedding refresh) are enqueued to clozehive-worker
+      # instead of run in-process. MUST match the worker's value. Set to "false"
+      # (or leave unset) to keep single-dyno in-process behaviour — the app falls
+      # back to in-process automatically if the queue is ever unreachable.
+      - key: HEAVY_WORK_ASYNC
         value: "true"
       - key: DEBUG
         value: "false"

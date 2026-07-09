@@ -227,6 +227,10 @@ async def lifespan(app: FastAPI):
     await cache_service.close()
     await weather_service.close_client()
     await _close_firestore()
+    if settings.heavy_work_async:
+        from app.core.task_queue import close_arq_pool
+
+        await close_arq_pool()
     logger.info("shutdown_complete")
 
 
