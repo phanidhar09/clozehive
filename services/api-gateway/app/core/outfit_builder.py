@@ -107,6 +107,19 @@ def _item_view(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _fit_pref_factor(owned_items: list[dict[str, Any]], fit_prefs: frozenset[str], fit_avoids: frozenset[str]) -> float:
+    """Mean per-item fit-preference weight over an outfit's owned pieces.
+
+    Each item contributes a soft multiplier from ``compat.fit_preference_weight``
+    (>1 liked, <1 avoided, 1.0 neutral/unknown). Items with an unreadable fit stay
+    neutral, so a look built entirely from unknown fits is unaffected (factor 1.0).
+    """
+    if not owned_items:
+        return 1.0
+    weights = [compat.fit_preference_weight(it.get("fit"), fit_prefs, fit_avoids)[0] for it in owned_items]
+    return sum(weights) / len(weights)
+
+
 def _mean_pairwise(items: list[dict[str, Any]], cache: ScoreCache) -> float:
     """Mean compatibility over every unordered pair — internal coherence."""
     pairs = list(combinations(items, 2))
@@ -178,6 +191,8 @@ def build_outfits(
     *,
     max_outfits: int = _MAX_OUTFITS,
     cache: ScoreCache | None = None,
+    fit_prefs: frozenset[str] = frozenset(),
+    fit_avoids: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """Build the top complete outfits around ``anchor``.
 
@@ -187,6 +202,10 @@ def build_outfits(
 
     Pass a shared ``cache`` to reuse anchor-vs-closet scoring already done by a
     sibling call (e.g. an explicit pairing loop) on the same anchor and items.
+
+    ``fit_prefs`` / ``fit_avoids`` are the user's declared fit taste (lowercased
+    tokens). When supplied they apply a soft, bounded re-rank toward looks built
+    from liked fits — a tie-breaker, never a filter (see ``_fit_pref_factor``).
     """
     anchor_role = compat.category_role(anchor.get("category"))
     plan = _ROLE_PLAN.get(anchor_role, _ROLE_PLAN["top"])
@@ -228,6 +247,12 @@ def build_outfits(
         seen.add(key)
 
         score = _mean_pairwise(items, cache)
+        # Soft user-taste tilt: average each owned piece's fit-preference weight
+        # and apply it as a bounded multiplier. Re-ranks toward liked fits; the
+        # clamp keeps scores inside the tier thresholds and it can never zero an
+        # outfit out. The anchor is user-chosen, so it's exempt from demotion.
+        if fit_prefs or fit_avoids:
+            score = min(1.0, score * _fit_pref_factor(owned_items, fit_prefs, fit_avoids))
         forgotten = [str(it.get("id", "")) for it in owned_items if int(it.get("wear_count") or 0) == 0]
         outfits.append(
             {

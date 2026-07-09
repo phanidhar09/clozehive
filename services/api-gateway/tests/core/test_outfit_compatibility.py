@@ -205,3 +205,34 @@ def test_double_volume_clash_drags_a_pairing_down():
     balanced = oc.score_compatibility(oversized_top, slim_bottom)
     assert clash["score"] < balanced["score"]
     assert "silhouette" in clash["breakdown"]
+
+
+# ── Fit preference (soft, user-declared) ──────────────────────────────────────
+
+
+def test_fit_preference_neutral_without_signal():
+    # No declared taste, or an unreadable/absent fit → neutral, no reason.
+    assert oc.fit_preference_weight("slim", frozenset(), frozenset()) == (1.0, None)
+    assert oc.fit_preference_weight(None, frozenset({"slim"}), frozenset()) == (1.0, None)
+    assert oc.fit_preference_weight("", frozenset({"slim"}), frozenset()) == (1.0, None)
+
+
+def test_fit_preference_boosts_liked_and_demotes_avoided():
+    liked, avoided = frozenset({"slim"}), frozenset({"oversized"})
+    boost, boost_reason = oc.fit_preference_weight("slim-fit", liked, avoided)
+    demote, demote_reason = oc.fit_preference_weight("oversized", liked, avoided)
+    assert boost > 1.0 and "like" in boost_reason
+    assert demote < 1.0 and "avoid" in demote_reason
+
+
+def test_fit_preference_avoidance_wins_when_token_in_both():
+    # A fit that somehow lands in both lists errs toward caution (demote).
+    both = frozenset({"relaxed"})
+    weight, reason = oc.fit_preference_weight("relaxed", both, both)
+    assert weight < 1.0 and "avoid" in reason
+
+
+def test_fit_preference_loose_containment_match():
+    # Declared "slim" matches a "slim-fit" item and vice-versa.
+    weight, _ = oc.fit_preference_weight("slim", frozenset({"slim-fit"}), frozenset())
+    assert weight > 1.0

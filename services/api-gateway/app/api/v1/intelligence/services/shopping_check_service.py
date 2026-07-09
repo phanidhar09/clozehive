@@ -744,7 +744,17 @@ async def analyze_shopping_item(
     # Re-rank pairings toward items that appear in the best complete outfits.
     from app.core import outfit_builder
 
-    built_preview = outfit_builder.build_outfits(analysis, closet, cache=score_cache)
+    # Personal-fit signal: coloring / fit / taste vs the user's style profile.
+    # None when there's no usable profile → its weight folds into closet factors.
+    # Loaded here (ahead of the buy-score step) so the builder can soft-rank its
+    # preview outfits toward the user's declared fit taste.
+    profile = await _load_style_match_profile(session, user_id)
+    fit_prefs = frozenset(_profile_tokens(profile.get("fit_preferences")) if profile else set())
+    fit_avoids = frozenset(_profile_tokens(profile.get("avoidances")) if profile else set())
+
+    built_preview = outfit_builder.build_outfits(
+        analysis, closet, cache=score_cache, fit_prefs=fit_prefs, fit_avoids=fit_avoids
+    )
     best_ids = outfit_builder.best_pairing_ids(built_preview)
     if best_ids:
         pairings.sort(
@@ -765,9 +775,8 @@ async def analyze_shopping_item(
     new_seasons = item_seasons - owned_seasons
     fills_gap = bool(category and await _has_open_gap_for_category(session, user_id, category))
 
-    # Personal-fit signal: coloring / fit / taste vs the user's style profile.
-    # None when there's no usable profile → its weight folds into closet factors.
-    profile = await _load_style_match_profile(session, user_id)
+    # Personal-fit signal: coloring / fit / taste vs the user's style profile
+    # (loaded above, ahead of the outfit-preview build).
     style_match, style_reasons = compute_style_alignment(analysis, profile)
 
     # Pure scoring core — see compute_buy_score (unit-tested in isolation).
