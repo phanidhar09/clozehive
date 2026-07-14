@@ -1,0 +1,217 @@
+# ─────────────────────────────────────────────────────────────
+#  CLOZEHIVE — Root environment variables
+#  Copy to `.env` and fill in secrets. Never commit `.env`.
+#
+#  Detailed guide (Docker, host dev, GCP, troubleshooting):
+#    docs/ENVIRONMENT.md
+# ─────────────────────────────────────────────────────────────
+
+# ── Ports ────────────────────────────────────────────────────
+FRONTEND_PORT=3000
+API_GATEWAY_PORT=8000
+AI_AGENT_PORT=8001
+POSTGRES_HOST_PORT=5433
+# Use 6382 by default to avoid clashing with other stacks that map Redis to 6380 on the host.
+REDIS_HOST_PORT=6382
+
+# ── URLs ─────────────────────────────────────────────────────
+FRONTEND_URL=http://localhost:3000
+# VITE_API_URL: leave unset for Docker (same-origin /api + /uploads via frontend nginx).
+# For host-only `npm run dev` when the gateway is on another origin, set e.g.:
+#   VITE_API_URL=http://localhost:8000
+# Base URL for ai-agent when you run api-gateway on the HOST (uvicorn) and ai-agent on :8001.
+# Leave unset for `docker compose up` — compose sets http://ai-agent:8001 inside containers.
+# If you set localhost here, older Compose files passed it into api-gateway and broke AI (WS chat, agent packing).
+AI_AGENT_URL=http://localhost:8001
+
+# ── Internal service auth (api-gateway ↔ ai-agent) ──────────
+# Shared secret for internal service-to-service authentication. Empty = disabled (dev).
+# Used as:  X-Internal-Token header (api-gateway → ai-agent)
+# Generate a strong value for staging/production:
+#   python -c "import secrets; print(secrets.token_hex(32))"
+INTERNAL_SERVICE_TOKEN=
+
+# ── Email delivery ───────────────────────────────────────────
+# Provider: console (log only) | smtp (Mailpit in Docker dev) | resend (production).
+# Docker dev defaults to smtp → Mailpit catches everything at http://localhost:8025.
+# Host-only dev (uvicorn on the host) can use smtp with SMTP_HOST=localhost while
+# `docker compose up mailpit` is running, or fall back to console.
+EMAIL_PROVIDER=smtp
+EMAIL_FROM=Clozehive <no-reply@clozehive.local>
+SMTP_HOST=localhost
+SMTP_PORT=1025
+# Production: create an API key at https://resend.com and verify your sending
+# domain, then set EMAIL_PROVIDER=resend and EMAIL_FROM to an address on it.
+RESEND_API_KEY=
+
+# ── Phase 1 frontend (hide Groups / Avatar / AI Stylist; Outfit Builder stays in MVP)
+VITE_HIDE_NON_MVP=true
+
+# ── Database ─────────────────────────────────────────────────
+POSTGRES_USER=clozehive
+POSTGRES_PASSWORD=clozehive
+POSTGRES_DB=clozehive
+DATABASE_URL=postgresql+asyncpg://clozehive:clozehive@localhost:5433/clozehive
+# Optional read replica. Read-only endpoints (closet list/get, similar) route here
+# to offload the primary. Leave blank to use DATABASE_URL (single-DB dev setup).
+DATABASE_READ_URL=
+
+# ── Redis ───────────────────────────────────────────────────
+# Cache Redis (evictable, allkeys-lru): closet/profile/AI/vision caches + previews.
+REDIS_URL=redis://localhost:6382/0
+# State Redis (non-evictable, noeviction): OAuth CSRF/code, refresh tokens, rate
+# limits, ARQ queue. Leave blank to reuse REDIS_URL (single-Redis dev setup).
+# In production point this at a dedicated noeviction instance so security state
+# is never evicted under memory pressure.
+REDIS_STATE_URL=redis://localhost:6383/0
+REDIS_STATE_HOST_PORT=6383
+# Set false for local runs without Redis (skips Redis in /health and /ready)
+REDIS_CHECK_ON_READY=true
+# Offload closet embedding generation to the durable ARQ queue (requires ai-worker).
+# false = in-process BackgroundTasks (default, no worker needed).
+HEAVY_WORK_ASYNC=false
+# ARQ queue key + queue-depth poll interval (seconds) for worker metrics.
+ARQ_QUEUE_NAME=arq:queue
+QUEUE_DEPTH_POLL_SECONDS=15
+# Async job end-to-end SLA threshold (accepted -> terminal state) in seconds.
+AI_JOB_SLA_SECONDS=120
+# Graceful-shutdown drain window (seconds): /ready returns 503 then waits before
+# tearing down so the load balancer drains the instance. 0 = no delay.
+SHUTDOWN_DRAIN_SECONDS=0
+# When RUN_MIGRATIONS_ON_STARTUP=true:
+# true  => fail startup if migration fails (safer for production)
+# false => keep process up but /ready returns 503
+FAIL_ON_STARTUP_MIGRATION_ERROR=false
+# Staged closet upload (POST /closet/analyze-preview) session TTL in Redis
+CLOSET_PREVIEW_TTL_SECONDS=3600
+# Fast closet upload preview: one vision detection + JPEG crops only (no per-item BG removal / re-OpenAI). false = slower, richer crops.
+VISION_PREVIEW_FAST=true
+
+# ── Security ─────────────────────────────────────────────────
+JWT_SECRET=replace-with-a-long-random-secret-at-least-32-chars
+# Access / refresh token lifetimes (gateway Settings: access_token_expire_minutes, refresh_token_expire_days)
+ACCESS_TOKEN_EXPIRE_MINUTES=15
+REFRESH_TOKEN_EXPIRE_DAYS=7
+ALLOWED_ORIGINS=http://localhost:3000,http://localhost:3001,http://localhost:5173
+ENVIRONMENT=development
+DEBUG=false
+
+# ── Google OAuth ─────────────────────────────────────────────
+# Redis must be running: OAuth CSRF state is stored in Redis. Wrong REDIS_URL ⇒ sign-in fails.
+GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+GOOGLE_REDIRECT_URI=http://localhost:8000/api/v1/auth/google/callback
+# Browser redirect after tokens are issued — must match where the frontend runs (e.g. Docker: http://localhost:3001).
+
+# ── AI providers (OpenAI only — chat, vision, embeddings) ───
+OPENAI_API_KEY=sk-your-openai-key
+# Explicit base for OpenAI-compatible APIs (include /v1). App uses OPENAI_API_BASE_URL instead of OS OPENAI_BASE_URL so rogue env cannot hijack the SDK toward the wrong host.
+OPENAI_API_BASE_URL=https://api.openai.com/v1
+OPENAI_MODEL=gpt-4o
+OPENAI_MAX_TOKENS=1024
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+# Third-party API keys — use your own; never commit real values (rotate keys if they ever appeared in git history).
+OPENWEATHER_API_KEY=your-openweather-api-key
+# Tavily web search — live destination dress guidelines. Leave empty to disable
+# the web-intelligence layer (features fall back to static/LLM-inferred guidance).
+TAVILY_API_KEY=
+# Shop with FANI — screenshot fallback for "paste a product URL". Bot-protected
+# retailers (Abercrombie, Nike, Zara…) 403 server-side fetches; a real-browser
+# render service reads them. {url} is URL-encoded by the app. Empty = fallback
+# off (metadata-only; works for Shopify/smaller brands that expose OG/JSON-LD).
+# Keyless example (~50/day): https://api.microlink.io/?url={url}&screenshot=true&meta=false&embed=screenshot.url
+PRODUCT_SCREENSHOT_URL_TEMPLATE=
+# Embedding model for api-gateway / vision-service. Keep in sync
+# with OPENAI_EMBEDDING_MODEL above — all services share one 1536-dim vector
+# space, so mixing models (e.g. ada-002 + 3-small) silently degrades similarity.
+EMBEDDING_MODEL=text-embedding-3-small
+AI_CACHE_TTL=600
+AI_CACHE_ENABLED=true
+
+# ── HTTP caching (ETag / conditional GET / stale-while-revalidate) ───────────
+# Emit ETag + 304 Not Modified and SWR Cache-Control on cacheable JSON GETs.
+HTTP_CACHE_VALIDATION=true
+HTTP_CACHE_MAX_AGE=30
+HTTP_CACHE_SWR=300
+# Serve a cached value past this fraction of its TTL while refreshing in the
+# background (Redis-layer stale-while-revalidate).
+CACHE_SOFT_TTL_RATIO=0.8
+
+# ── CDN (images/static) ──────────────────────────────────────────────────────
+# Serve GCS images through a CDN edge. Blank = serve straight from GCS.
+CDN_BASE_URL=
+# Purge the CDN edge when an image is deleted (HTTP PURGE; optional webhook for
+# Cloudflare-style providers). Default off.
+CDN_PURGE_ENABLED=false
+CDN_PURGE_WEBHOOK=
+# Optional — Google Gemini (faster multi-item wardrobe detection when set). Leave empty/unset — vision uses OPENAI_* only (no Gemini key required).
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-2.0-flash
+GEMINI_MAX_TOKENS=1024
+
+# ── Virtual Try-On (fal.ai) ──────────────────────────────────
+# Get your key at https://fal.ai/dashboard/keys
+# Required for POST /api/v1/tryon — leave empty to disable the feature.
+FAL_API_KEY=
+FAL_TIMEOUT_SECONDS=90
+
+# ── Observability ────────────────────────────────────────────
+LOG_LEVEL=INFO
+# Prometheus /metrics (scraped internally; nginx blocks public access).
+ENABLE_METRICS=true
+# Sentry error tracking (api-gateway + ai-worker) — blank disables (warns in production).
+SENTRY_DSN=
+SENTRY_TRACES_SAMPLE_RATE=0.1
+# Frontend Sentry (browser errors + perf). Use the *frontend* project's DSN.
+# Blank disables. Build-time only (Vite inlines VITE_* at build).
+VITE_SENTRY_DSN=
+VITE_SENTRY_TRACES_SAMPLE_RATE=0.1
+# Sentry source-map upload (so browser stack traces show original code, not
+# minified). Only runs at BUILD time when all three are set; otherwise skipped.
+# Token: Sentry → Settings → Auth Tokens, scope "project:releases".
+# Keep SENTRY_AUTH_TOKEN secret — never commit it.
+SENTRY_AUTH_TOKEN=
+SENTRY_ORG=
+SENTRY_PROJECT=clozehive-frontend
+# PostHog product analytics (frontend). Blank disables — no events sent.
+# Project API key from PostHog → Settings → Project. Host: US or EU cloud, or self-hosted.
+VITE_POSTHOG_KEY=
+VITE_POSTHOG_HOST=https://us.i.posthog.com
+# Tags applied to both Sentry releases and PostHog events.
+VITE_ENVIRONMENT=development
+VITE_APP_VERSION=
+# OpenTelemetry distributed tracing. Set OTEL_ENABLED=true and point the OTLP
+# endpoint at a collector (Tempo/Jaeger/Honeycomb) to turn it on.
+OTEL_ENABLED=false
+OTEL_EXPORTER_OTLP_ENDPOINT=
+OTEL_SERVICE_NAME=api-gateway
+OTEL_TRACES_SAMPLE_RATE=1.0
+
+# ── LangSmith (api-gateway OpenAI + Gemini, ai-agent LangChain, legacy MCP httpx LLMs) ─
+# Set LANGSMITH_TRACING=true and LANGSMITH_API_KEY. Compose injects these into all *python-env* services.
+# Set LANGSMITH_TRACING=true and a valid LANGSMITH_API_KEY (lsv2_…).
+# Traces go to the project name you choose in LangSmith (create it in the UI if needed).
+# Do not wrap values in quotes in .env (e.g. use clozehive1 not "clozehive1").
+LANGSMITH_TRACING=false
+LANGSMITH_ENDPOINT=https://api.smith.langchain.com
+LANGSMITH_API_KEY=
+LANGSMITH_PROJECT=clozehive1
+
+# ── Google Cloud Storage (persistent image storage) ─────────
+# Set GCS_BUCKET_NAME to enable GCS uploads; leave blank for local disk (dev only).
+# Bucket must allow public read for objects (e.g. allUsers → Storage Object Viewer), or use signed URLs later.
+# With Docker: ensure these are in the same .env file you use for `docker compose` — compose forwards them into api-gateway.
+# Use a real key from GCP IAM → Service accounts → Keys → JSON. Placeholder PEM text will fail with "Unable to load PEM".
+GCS_BUCKET_NAME=
+GCS_PROJECT_ID=
+# Prefer a mounted file in Docker (avoids .env corrupting long keys):
+#   cp gcp-sa.json.template gcp-sa.json
+#   # Overwrite gcp-sa.json with your real key: GCP Console → IAM → Service accounts → Keys → Add JSON
+GCS_CREDENTIALS_FILE=/run/secrets/gcp-sa.json
+# Paste the full service-account JSON on ONE line (jq -c . key.json), or leave blank if using GCS_CREDENTIALS_FILE / ADC.
+GCS_CREDENTIALS_JSON=
+
+# ── Optional Firebase / Firestore (non–Phase 1 paths) ───────
+FIREBASE_CREDENTIALS_JSON=
+FIREBASE_PROJECT_ID=
+

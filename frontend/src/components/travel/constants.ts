@@ -87,6 +87,10 @@ export const FORMALITY_OPTS = [
   { value: 'business', label: '💼 Business' },
 ]
 
+// Soft card shadow + inner top highlight — matches the Postcard Dossier design.
+export const CARD_SHADOW =
+  'inset 0 1px 0 rgba(255,255,255,0.08), 0 1px 3px rgb(0 0 0/.06), 0 4px 16px -2px rgb(0 0 0/.07)'
+
 export const CATEGORY_EMOJI: Record<string, string> = {
   tops: '👕', bottoms: '👖', shoes: '👟', outerwear: '🧥', accessories: '👜',
   dresses: '👗', innerwear: '🩲', sleepwear: '😴', toiletries: '🧴',

@@ -63,6 +63,7 @@ from app.core.claim_grounding import (
 from app.core.embedding_service import generate_text_embedding
 from app.core.llm_safety import sanitize_user_text
 from app.core.logging import get_logger
+from app.db.session import run_in_read_session
 from app.models.ai_chat import AIChatSession
 from app.models.closet import ClosetItem
 from app.rag.query_builder import build_closet_rag_query
@@ -295,26 +296,37 @@ async def stream_chat_message(
     async def _no_weather() -> None:
         return None
 
+    # Each parallel DB task MUST own its session — a single AsyncSession is not
+    # safe for concurrent use, so the shared request session cannot be fanned
+    # out across asyncio.gather (see db.session.run_in_read_session).
     closet_task = asyncio.create_task(
-        _rag_load_closet(session, user_id, query_embedding, occasion=occasion)
+        run_in_read_session(lambda s: _rag_load_closet(s, user_id, query_embedding, occasion=occasion))
         if query_embedding
-        else _fallback_closet(session, user_id)
+        else run_in_read_session(lambda s: _fallback_closet(s, user_id))
     )
-    profile_task = asyncio.create_task(load_merged_user_profile_for_ai(session, user_id, None))
+    profile_task = asyncio.create_task(
+        run_in_read_session(lambda s: load_merged_user_profile_for_ai(s, user_id, None))
+    )
     weather_task = asyncio.create_task(
-        _resolve_weather(session, user_id, location) if (weather_required or location) else _no_weather()
+        run_in_read_session(lambda s: _resolve_weather(s, user_id, location))
+        if (weather_required or location)
+        else _no_weather()
     )
     feedback_task = asyncio.create_task(
-        get_outfit_history_for_prompt(
-            session,
-            str(user_id),
-            occasion=occasion,
-            limit=5,
-            message=message,
+        run_in_read_session(
+            lambda s: get_outfit_history_for_prompt(
+                s,
+                str(user_id),
+                occasion=occasion,
+                limit=5,
+                message=message,
+            )
         )
     )
     knowledge_task = asyncio.create_task(
-        get_fashion_context_for_prompt(session, rag_query, limit=5, occasion=occasion, weather=weather_str)
+        run_in_read_session(
+            lambda s: get_fashion_context_for_prompt(s, rag_query, limit=5, occasion=occasion, weather=weather_str)
+        )
     )
     # Live trend grounding — short-circuits to None unless the message has
     # trend intent (Phase 7; kept at parity with process_chat_message).

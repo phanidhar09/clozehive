@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Shirt, ArrowRight, Sparkles, RefreshCw, Loader2, Check,
-  CloudSun, Bookmark, AlertCircle, Star, Zap, TrendingUp,
+  CloudSun, Bookmark, AlertCircle, Zap, TrendingUp,
   ChevronRight, Calendar, ArrowUpRight, Image, Wand2, MessageSquare,
 } from 'lucide-react'
 import { useApp } from '@/store'
@@ -71,46 +71,67 @@ function WardrobePulse({ closetItems }: { closetItems: ClosetItem[] }) {
   const essential = ['tops', 'bottoms', 'shoes', 'outerwear']
   const gaps      = essential.filter(e => !cats.has(e))
 
-  const rows = [
+  const totalItems = closetItems.length
+  const catCount   = new Set(closetItems.map(i => i.category)).size
+  const worn       = closetItems.filter(i => (i.wear_count ?? 0) > 0).length
+  const activePct  = totalItems > 0 ? Math.round((worn / totalItems) * 100) : 0
+
+  const stats = [
     {
       label: 'Most Worn',
       value: mostWorn?.name ? mostWorn.name.split(' ').slice(0, 3).join(' ') : '—',
       sub:   mostWorn?.wear_count ? `${mostWorn.wear_count} wear${mostWorn.wear_count === 1 ? '' : 's'}` : 'Start tracking',
-      accent: 'bg-brand-500',
+      tone:  'text-slate-800 dark:text-white',
     },
     {
       label: 'Never Worn',
-      value: String(unworn),
-      sub:   unworn === 0 ? 'Fully active closet' : `piece${unworn === 1 ? '' : 's'} waiting for a moment`,
-      accent: unworn > 0 ? 'bg-amber-500' : 'bg-emerald-500',
+      value: `${unworn} piece${unworn === 1 ? '' : 's'}`,
+      sub:   unworn === 0 ? 'Fully active closet' : 'waiting for a moment',
+      tone:  'text-slate-800 dark:text-white',
     },
     {
-      label: 'Missing Essentials',
+      label: 'Missing',
       value: gaps.length === 0 ? 'None' : gaps.map(g => g.charAt(0).toUpperCase() + g.slice(1)).join(', '),
-      sub:   gaps.length === 0 ? 'All essentials covered' : 'Wardrobe gaps detected',
-      accent: gaps.length > 0 ? 'bg-rose-500' : 'bg-emerald-500',
+      sub:   gaps.length === 0 ? 'All essentials covered' : 'gap detected',
+      tone:  gaps.length > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400',
     },
   ]
 
   return (
-    <div className="rounded-2xl border border-cream-200 dark:border-white/[0.07] bg-white dark:bg-white/[0.03] overflow-hidden">
-      <div className="px-4 py-3 border-b border-cream-200 dark:border-white/[0.06]">
+    <div className="flex flex-col rounded-2xl border border-cream-200 dark:border-white/[0.07] bg-white dark:bg-white/[0.03] p-5">
+      <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <TrendingUp size={14} className="text-brand-500" />
-          <span className="text-sm font-semibold text-slate-800 dark:text-white">Wardrobe Pulse</span>
+          <span className="font-display text-sm font-semibold text-slate-800 dark:text-white">Wardrobe Pulse</span>
         </div>
+        <Link to="/analytics"
+              className="flex items-center gap-0.5 text-xs font-medium text-brand-600 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300 transition-colors">
+          View insights <ChevronRight size={13} />
+        </Link>
       </div>
-      <div className="divide-y divide-cream-100 dark:divide-white/[0.05]">
-        {rows.map(({ label, value, sub, accent }) => (
-          <div key={label} className="flex items-start gap-3 px-4 py-3">
-            <span className={`mt-1.5 w-2 h-2 rounded-full flex-shrink-0 ${accent}`} />
-            <div className="min-w-0 flex-1">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-white/30 mb-0.5">{label}</p>
-              <p className="text-sm font-semibold text-slate-800 dark:text-white truncate">{value}</p>
-              <p className="text-[11px] text-slate-400 dark:text-white/35 leading-tight">{sub}</p>
-            </div>
+
+      <div className="grid grid-cols-3 gap-4">
+        {stats.map(({ label, value, sub, tone }) => (
+          <div key={label} className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-white/30 mb-1">{label}</p>
+            <p className={`text-sm font-semibold truncate ${tone}`}>{value}</p>
+            <p className="text-[11px] text-slate-400 dark:text-white/35 leading-tight">{sub}</p>
           </div>
         ))}
+      </div>
+
+      <div className="mt-auto pt-5">
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-[11px] text-slate-400 dark:text-white/40">
+            {totalItems} piece{totalItems === 1 ? '' : 's'} · {catCount} categor{catCount === 1 ? 'y' : 'ies'}
+          </span>
+          <span className="text-[11px] font-bold text-brand-600 dark:text-brand-400">
+            {activePct}% <span>Active</span>
+          </span>
+        </div>
+        <div className="h-1.5 rounded-full bg-cream-200 dark:bg-white/[0.08] overflow-hidden">
+          <div className="h-full rounded-full bg-brand-500 transition-all duration-500" style={{ width: `${activePct}%` }} />
+        </div>
       </div>
     </div>
   )
@@ -121,22 +142,27 @@ function WardrobePulse({ closetItems }: { closetItems: ClosetItem[] }) {
 function StyleTipCard() {
   const { tip, tag } = FANI_TIPS[new Date().getDay()]
   return (
-    <div className="rounded-2xl border border-brand-200/60 dark:border-brand-500/20
-                    bg-gradient-to-br from-brand-50 to-brand-50
-                    dark:from-brand-900/30 dark:to-brand-900/20 p-4">
-      <div className="flex items-center gap-2 mb-2">
-        <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-brand-500 to-brand-500
+    <div className="flex flex-col rounded-2xl border border-brand-200/60 dark:border-brand-500/20
+                    bg-brand-50 dark:bg-brand-900/20 p-5">
+      <div className="flex items-center gap-2 mb-2.5">
+        <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-brand-500 to-brand-600
                         flex items-center justify-center flex-shrink-0">
           <Zap size={13} className="text-white" />
         </div>
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-widest text-brand-500 dark:text-brand-400">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-brand-600 dark:text-brand-400">
             FANI Tip
           </p>
-          <p className="text-[10px] text-brand-400 dark:text-brand-500">{tag}</p>
+          <p className="text-[10px] text-brand-500/70 dark:text-brand-500">{tag}</p>
         </div>
       </div>
       <p className="text-sm text-slate-700 dark:text-white/80 leading-relaxed">{tip}</p>
+      <Link to="/ai-stylist"
+            className="mt-auto pt-4 inline-flex items-center gap-1 text-[13px] font-semibold
+                       text-brand-600 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300
+                       transition-colors">
+        Chat with FANI <ChevronRight size={14} />
+      </Link>
     </div>
   )
 }
@@ -265,101 +291,97 @@ function TodaysLookCard({ closetItems }: { closetItems: ClosetItem[] }) {
             Boolean(data.weather),
             (data.style_tips ?? []).length,
           )
+          const matchPct = data.outfit!.style_score != null && data.outfit!.style_score > 0
+            ? Math.round(data.outfit!.style_score * 100)
+            : [58, 68, 78, 88, 96][rating.stars - 1]
           return (
-            <>
-              {/* Outfit name + rating */}
-              <div className="flex items-start justify-between gap-3 mb-4">
-                <div className="min-w-0">
-                  <h4 className="font-display text-xl font-bold text-slate-800 dark:text-white leading-tight truncate">
-                    {data.outfit.name}
-                  </h4>
-                  {data.outfit.style_notes && (
-                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400 line-clamp-2">
-                      {data.outfit.style_notes}
-                    </p>
-                  )}
-                </div>
-                <div className={`flex-shrink-0 flex items-center gap-1 rounded-full
-                                 bg-gradient-to-r ${rating.gradient} px-3 py-1.5 shadow-sm`}>
-                  {Array.from({ length: 5 }).map((_, i) => (
-                    <Star key={i} size={9}
-                      className={i < rating.stars ? 'fill-white text-white' : 'fill-white/30 text-white/30'} />
-                  ))}
-                  <span className="ml-1 text-[11px] font-bold text-white whitespace-nowrap">
-                    {rating.label}
-                  </span>
+            <div className="flex flex-col lg:flex-row lg:items-center gap-5">
+              {/* Left — details + actions */}
+              <div className="flex flex-col flex-1 min-w-0 lg:max-w-[46%]">
+                <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-brand-50 dark:bg-brand-500/10
+                                 px-2.5 py-1 text-[11px] font-bold text-brand-600 dark:text-brand-300">
+                  <Sparkles size={11} /> {matchPct}% match
+                </span>
+                <h4 className="font-display text-lg font-bold text-slate-800 dark:text-white leading-tight mt-2.5">
+                  {data.outfit.name}
+                </h4>
+                {data.outfit.style_notes && (
+                  <p className="mt-1.5 text-[13px] text-slate-500 dark:text-slate-400 leading-relaxed line-clamp-2">
+                    {data.outfit.style_notes}
+                  </p>
+                )}
+
+                {/* Style tips */}
+                {(data.style_tips ?? []).length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-3">
+                    {data.style_tips.slice(0, 2).map((tip, i) => (
+                      <span key={i}
+                            className="rounded-full border border-brand-200 bg-brand-50/80
+                                       px-2.5 py-1 text-[11px] text-brand-700
+                                       dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-300">
+                        ✦ {tip}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {/* Actions */}
+                <div className="flex items-center gap-3 mt-4">
+                  <button
+                    onClick={() => saveOutfit(data.outfit!)}
+                    disabled={saving || saved || resolvedItems.length === 0}
+                    className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold
+                                transition disabled:opacity-50 disabled:cursor-not-allowed ${
+                      saved
+                        ? 'border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300'
+                        : 'bg-gradient-to-r from-brand-600 to-brand-500 text-white shadow-sm hover:opacity-90 active:scale-[0.98]'
+                    }`}
+                  >
+                    {saving ? <><Loader2 size={13} className="animate-spin" /> Saving…</>
+                      : saved ? <><Check size={13} /> Saved</>
+                      : <><Bookmark size={13} /> Save Look</>}
+                  </button>
+                  <Link to="/outfit-builder"
+                        className="flex items-center gap-1 text-sm font-medium text-brand-600
+                                   hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300
+                                   transition-colors">
+                    Customise <ChevronRight size={14} />
+                  </Link>
                 </div>
               </div>
 
-              {/* Item strip */}
-              <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1">
-                {resolvedItems.slice(0, 5).map((item, i) => (
-                  <div key={item.id ?? i}
-                       className="flex-shrink-0 w-[90px] rounded-xl overflow-hidden
-                                  border border-cream-200 dark:border-white/[0.08]
-                                  bg-slate-50 dark:bg-slate-900 group">
-                    <LazyImage
-                      src={item.image_url}
-                      alt={item.name ?? 'Wardrobe item'}
-                      aspect="aspect-square"
-                      rounded="rounded-none"
-                      className="group-hover:scale-105"
-                      fallback={<span className="text-2xl">👕</span>}
-                    />
-                    <div className="px-2 py-1.5">
-                      <p className="truncate text-[11px] font-semibold text-slate-700 dark:text-white">
-                        {item.name}
-                      </p>
-                      <p className="truncate text-[10px] capitalize text-slate-400 dark:text-slate-500">
-                        {item.category}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-                {resolvedItems.length === 0 && (
+              {/* Right — item thumbnails (compact single row) */}
+              <div className="flex-1 min-w-0">
+                {resolvedItems.length === 0 ? (
                   <p className="text-sm text-slate-400 py-4">No wardrobe items matched.</p>
+                ) : (
+                  <div className="grid grid-cols-4 gap-2.5">
+                    {resolvedItems.slice(0, 4).map((item, i) => (
+                      <div key={item.id ?? i}
+                           className="rounded-lg overflow-hidden border border-cream-200 dark:border-white/[0.08]
+                                      bg-slate-50 dark:bg-slate-900 group">
+                        <LazyImage
+                          src={item.image_url}
+                          alt={item.name ?? 'Wardrobe item'}
+                          aspect="aspect-square"
+                          rounded="rounded-none"
+                          className="group-hover:scale-105"
+                          fallback={<span className="text-xl">👕</span>}
+                        />
+                        <div className="px-2 py-1.5">
+                          <p className="truncate text-[11px] font-semibold text-slate-700 dark:text-white">
+                            {item.name}
+                          </p>
+                          <p className="truncate text-[10px] capitalize text-slate-400 dark:text-slate-500">
+                            {item.category}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
-
-              {/* Style tips */}
-              {(data.style_tips ?? []).length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mt-4">
-                  {data.style_tips.slice(0, 3).map((tip, i) => (
-                    <span key={i}
-                          className="rounded-full border border-brand-200 bg-brand-50/80
-                                     px-3 py-1 text-xs text-brand-700
-                                     dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-300">
-                      ✦ {tip}
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              {/* Actions */}
-              <div className="flex items-center gap-3 mt-5 pt-4
-                              border-t border-cream-100 dark:border-white/[0.06]">
-                <button
-                  onClick={() => saveOutfit(data.outfit!)}
-                  disabled={saving || saved || resolvedItems.length === 0}
-                  className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold
-                              transition disabled:opacity-50 disabled:cursor-not-allowed ${
-                    saved
-                      ? 'border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300'
-                      : 'bg-gradient-to-r from-brand-600 to-brand-500 text-white shadow-sm hover:opacity-90 active:scale-[0.98]'
-                  }`}
-                >
-                  {saving ? <><Loader2 size={13} className="animate-spin" /> Saving…</>
-                    : saved ? <><Check size={13} /> Saved</>
-                    : <><Bookmark size={13} /> Save Look</>}
-                </button>
-                <Link to="/outfit-builder"
-                      className="flex items-center gap-1 text-sm font-medium text-brand-600
-                                 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300
-                                 transition-colors">
-                  Customise <ChevronRight size={14} />
-                </Link>
-              </div>
-            </>
+            </div>
           )
         })()}
 
@@ -497,9 +519,6 @@ export default function Dashboard() {
 
   const greeting  = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
   const totalItems = closetItems.length
-  const categories = new Set(closetItems.map(i => i.category)).size
-  const wornItems  = closetItems.filter(i => (i.wear_count ?? 0) > 0).length
-  const activePct  = totalItems > 0 ? Math.round((wornItems / totalItems) * 100) : 0
   const dateLabel  = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
 
   return (
@@ -509,81 +528,58 @@ export default function Dashboard() {
 
       <FaniNudge />
 
-      {/* ── Hero ──────────────────────────────────────────────────────────── */}
-      <div className="relative overflow-hidden rounded-3xl
-                      bg-gradient-to-br from-brand-700 via-brand-600 to-brand-500
-                      text-white shadow-xl">
-        {/* Subtle dot grid */}
-        <div className="pointer-events-none absolute inset-0 opacity-[0.07]"
-             style={{ backgroundImage: 'radial-gradient(rgba(255,255,255,0.7) 1px, transparent 1px)', backgroundSize: '22px 22px' }} />
-        {/* Decorative orbs */}
-        <div className="pointer-events-none absolute -top-24 -right-24 w-80 h-80 rounded-full bg-white/10 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-28 -left-10 w-72 h-72 rounded-full bg-brand-400/20 blur-3xl" />
-
-        <div className="relative px-6 py-8 lg:px-10 lg:py-10">
-          {/* Date */}
-          <div className="flex items-center gap-1.5 mb-3">
-            <Calendar size={12} className="text-white/50" />
-            <span className="text-xs font-medium text-white/60 tracking-wide">{dateLabel}</span>
+      {/* ── Header ────────────────────────────────────────────────────────── */}
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <Calendar size={12} className="text-slate-400 dark:text-white/40" />
+            <span className="text-xs font-medium text-slate-400 dark:text-white/40 tracking-wide">{dateLabel}</span>
           </div>
-
-          {/* Greeting */}
-          <h2 className="font-display text-3xl lg:text-4xl font-bold leading-tight mb-1">
+          <h2 className="font-display text-3xl lg:text-4xl font-bold leading-tight text-slate-800 dark:text-white">
             {greeting},{' '}
-            <span className="bg-gradient-to-r from-white via-amber-100 to-rose-100 bg-clip-text text-transparent">
+            <span className="text-brand-600 dark:text-brand-400">
               {currentUser?.display_name || currentUser?.username || 'there'}
             </span>
           </h2>
-          <p className="text-white/60 text-sm lg:text-base mb-8">
+          <p className="mt-1.5 text-sm text-slate-500 dark:text-slate-400">
             {closetLoading
               ? 'Loading your wardrobe…'
               : totalItems > 0
                 ? `Your wardrobe has ${totalItems} piece${totalItems === 1 ? '' : 's'} — FANI has your look for today.`
                 : 'Start building your digital wardrobe below.'}
           </p>
-
-          {/* Stats row */}
-          <div className="flex flex-wrap gap-3">
-            {[
-              { value: totalItems,  label: totalItems === 1 ? 'Piece' : 'Pieces' },
-              { value: categories,  label: categories === 1 ? 'Category' : 'Categories' },
-              { value: `${activePct}%`, label: 'Active' },
-            ].map(({ value, label }) => (
-              <div key={label}
-                   className="flex items-baseline gap-2 rounded-2xl bg-white/[0.12]
-                              backdrop-blur-sm border border-white/[0.16]
-                              px-5 py-3 min-w-[90px]">
-                <span className="text-2xl font-bold text-white">{value}</span>
-                <span className="text-xs font-medium text-white/60">{label}</span>
-              </div>
-            ))}
-          </div>
         </div>
-      </div>
+
+        <Link
+          to="/ai-stylist"
+          className="group flex items-center gap-2.5 rounded-full border border-cream-200 dark:border-white/[0.09]
+                     bg-white dark:bg-white/[0.04] px-4 py-2.5 text-sm text-slate-400 dark:text-white/40
+                     shadow-sm hover:border-brand-300 dark:hover:border-brand-500/40 transition-colors"
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-brand-500 flex-shrink-0" />
+          <span className="whitespace-nowrap">Ask FANI anything…</span>
+        </Link>
+      </header>
 
       {/* ── Weekly recap (self-hides when there's nothing to recap) ───────── */}
       {!closetLoading && totalItems > 0 && <WeeklyDigest />}
 
-      {/* ── Main two-column area ──────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-
-        {/* Left — Today's Look (2 cols) */}
-        <div className="lg:col-span-2">
-          {!closetLoading && <TodaysLookCard closetItems={closetItems} />}
-          {closetLoading && (
-            <div className="rounded-2xl border border-cream-200 dark:border-white/[0.07]
-                            bg-white dark:bg-white/[0.03] flex items-center justify-center py-20">
-              <FaniLoader size="md" />
-            </div>
-          )}
+      {/* ── Today's Look (full width) ─────────────────────────────────────── */}
+      {!closetLoading && <TodaysLookCard closetItems={closetItems} />}
+      {closetLoading && (
+        <div className="rounded-2xl border border-cream-200 dark:border-white/[0.07]
+                        bg-white dark:bg-white/[0.03] flex items-center justify-center py-20">
+          <FaniLoader size="md" />
         </div>
+      )}
 
-        {/* Right — Wardrobe Pulse + Style Tip */}
-        <div className="flex flex-col gap-4">
-          {!closetLoading && totalItems > 0 && <WardrobePulse closetItems={closetItems} />}
+      {/* ── Wardrobe Pulse + FANI tip ─────────────────────────────────────── */}
+      {!closetLoading && totalItems > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-[1.5fr_1fr] gap-5 items-stretch">
+          <WardrobePulse closetItems={closetItems} />
           <StyleTipCard />
         </div>
-      </div>
+      )}
 
       {/* ── Weekly outfit calendar ────────────────────────────────────────── */}
       {!closetLoading && <WeeklyPlanner />}
