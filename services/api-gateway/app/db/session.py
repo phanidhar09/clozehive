@@ -24,7 +24,7 @@ or open a new ``AsyncSessionLocal`` scope there.
 from __future__ import annotations
 
 import ssl
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -132,6 +132,35 @@ async def get_read_session() -> AsyncGenerator[AsyncSession, None]:
     async with ReadSessionLocal() as session:
         try:
             yield session
+        finally:
+            await session.rollback()
+            await session.close()
+
+
+# ── Concurrency helper ────────────────────────────────────────────────────────
+
+
+async def run_in_read_session[T](fn: Callable[[AsyncSession], Awaitable[T]]) -> T:
+    """Run a read-only DB coroutine in its own dedicated session.
+
+    A single ``AsyncSession`` is **not** safe for concurrent use — only one
+    operation may be in flight at a time. Fanning several queries out over one
+    shared session with ``asyncio.gather`` corrupts its state ("concurrent
+    operations are not permitted", "session is provisioning a new connection").
+
+    Use this to give each parallel task its own session::
+
+        results = await asyncio.gather(
+            run_in_read_session(lambda s: load_a(s, ...)),
+            run_in_read_session(lambda s: load_b(s, ...)),
+        )
+
+    Bound to the read replica (or primary when none is configured) and never
+    commits — for read paths only.
+    """
+    async with ReadSessionLocal() as session:
+        try:
+            return await fn(session)
         finally:
             await session.rollback()
             await session.close()

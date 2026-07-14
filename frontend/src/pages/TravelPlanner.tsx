@@ -13,7 +13,7 @@ import { FaniLoader } from '@/components/system/FaniLoader'
 import { usePageState } from '@/hooks/usePageState'
 import {
   AlertCircle, ArrowLeft, Bookmark, BookmarkPlus, Calendar, Check,
-  CheckCircle2, ChevronRight, Loader2, Package, Plane, Plus,
+  CheckCircle2, ChevronRight, ListChecks, Loader2, Package, Plane, Plus,
   RefreshCw, Shirt, Sparkles,
 } from 'lucide-react'
 import Button from '@/components/ui/Button'
@@ -633,34 +633,41 @@ export default function TravelPlanner() {
                     )}
                   </div>
 
-                  {/* Tab bar */}
-                  <div className="flex gap-1 p-1 rounded-xl bg-slate-100 dark:bg-white/[0.06] self-start overflow-x-auto">
+                  {/* Segmented control */}
+                  <div className="flex p-1 rounded-2xl bg-slate-800/[0.06] dark:bg-white/[0.06] gap-1">
                     {([
-                      { id: 'days', label: '📅 Day Plans', count: packingPlan.day_plans_rich?.length ?? 0 },
-                      { id: 'rewear', label: '🔄 Rewear Strategy', count: packingPlan.rewear_strategy?.length ?? 0 },
-                      { id: 'checklist', label: '✅ Packing Checklist', count: packingPlan.packing_checklist?.length ?? 0 },
-                    ] as const).map(tab => (
-                      <button
-                        key={tab.id}
-                        onClick={() => setPlanTab(tab.id)}
-                        className={cn(
-                          'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap',
-                          planTab === tab.id
-                            ? 'bg-white dark:bg-white/[0.12] text-slate-800 dark:text-white shadow-sm'
-                            : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white/60',
-                        )}
-                      >
-                        {tab.label}
-                        {tab.count > 0 && (
-                          <span className={cn(
-                            'text-[10px] font-bold px-1.5 py-0.5 rounded-full',
-                            planTab === tab.id ? 'bg-brand-100 dark:bg-brand-900/40 text-brand-600 dark:text-brand-400' : 'bg-slate-200 dark:bg-white/10 text-slate-500 dark:text-white/30',
-                          )}>
-                            {tab.count}
-                          </span>
-                        )}
-                      </button>
-                    ))}
+                      { id: 'days', label: 'Day Plans', icon: Calendar, count: packingPlan.day_plans_rich?.length ?? 0 },
+                      { id: 'rewear', label: 'Rewear', icon: RefreshCw, count: packingPlan.rewear_strategy?.length ?? 0 },
+                      { id: 'checklist', label: 'Checklist', icon: ListChecks, count: packingPlan.packing_checklist?.length ?? 0 },
+                    ] as const).map(tab => {
+                      const Icon = tab.icon
+                      const active = planTab === tab.id
+                      return (
+                        <button
+                          key={tab.id}
+                          onClick={() => setPlanTab(tab.id)}
+                          className={cn(
+                            'flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm transition-all',
+                            active
+                              ? 'bg-white dark:bg-white/10 text-slate-800 dark:text-white shadow-card font-semibold'
+                              : 'text-slate-500 dark:text-white/50 font-medium hover:text-slate-700 dark:hover:text-white/70',
+                          )}
+                        >
+                          <Icon size={14} className={active ? 'text-brand-500' : ''} />
+                          <span className="whitespace-nowrap">{tab.label}</span>
+                          {tab.count > 0 && (
+                            <span className={cn(
+                              'text-[10px] font-bold px-1.5 py-0.5 rounded-full',
+                              active
+                                ? 'bg-brand-100 dark:bg-brand-900/40 text-brand-600 dark:text-brand-400'
+                                : 'bg-slate-200/70 dark:bg-white/10 text-slate-500 dark:text-white/30',
+                            )}>
+                              {tab.count}
+                            </span>
+                          )}
+                        </button>
+                      )
+                    })}
                   </div>
 
                   {/* ── Day Plans Tab ──────────────────────────────────────── */}

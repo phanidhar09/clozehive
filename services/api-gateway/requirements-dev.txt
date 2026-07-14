@@ -3,3 +3,8 @@
 pytest>=8.0.0
 pytest-asyncio>=0.24.0
 aiosqlite>=0.20.0
+
+# In-memory FAISS RAG backend (RAG_VECTOR_STORE=faiss) — dev/test only. The
+# production image (requirements.txt) uses pgvector instead, so this heavy native
+# wheel is excluded there and only installed for local dev / CI test runs.
+faiss-cpu==1.13.2
