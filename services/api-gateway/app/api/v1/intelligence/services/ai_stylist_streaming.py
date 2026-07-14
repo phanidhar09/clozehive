@@ -304,9 +304,7 @@ async def stream_chat_message(
         if query_embedding
         else run_in_read_session(lambda s: _fallback_closet(s, user_id))
     )
-    profile_task = asyncio.create_task(
-        run_in_read_session(lambda s: load_merged_user_profile_for_ai(s, user_id, None))
-    )
+    profile_task = asyncio.create_task(run_in_read_session(lambda s: load_merged_user_profile_for_ai(s, user_id, None)))
     weather_task = asyncio.create_task(
         run_in_read_session(lambda s: _resolve_weather(s, user_id, location))
         if (weather_required or location)
