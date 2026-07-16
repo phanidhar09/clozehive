@@ -1,27 +1,28 @@
 /**
- * AIStylistChat — full-page version of FANI.
+ * AIStylistChat — full-page version of FANI (v2 redesign).
  *
- * Features:
- * - Session handoff from the floating chat (sessionStorage key: ch:ai-chat-handoff)
- * - Sidebar history: lists past sessions, click to load messages
- * - Clickable follow-up question chips
- * - Styling suggestions panel (same as FloatingAIChat)
- * - General question support
+ * Layout: a single centered card that holds everything.
+ *  - Card header: FANI badge, Chat / History segmented toggle, New button
+ *  - Chat tab: centered welcome + quick prompts at the start, message stream,
+ *    bottom input row
+ *  - History tab: past sessions (load / delete), replacing the old slide-out sidebar
+ *
+ * Data wiring is unchanged from the previous version:
+ *  - Session handoff from the floating chat (sessionStorage key: ch:ai-chat-handoff)
+ *  - Streamed replies with grounding-gate corrections + structured payloads
+ *  - Clickable follow-up chips, styling suggestions, purchase gaps, image upload
  */
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
-import BackButton from '@/components/ui/BackButton'
 import {
   AlertTriangle,
+  ChevronRight,
   Clock,
-  History,
   Lightbulb,
   MessageSquare,
-  RefreshCw,
+  Plus,
   Sparkles,
   Trash2,
-  X,
 } from 'lucide-react'
 import { useApp } from '@/store'
 import { generateId } from '@/lib/utils'
@@ -45,12 +46,12 @@ const WELCOME: StylistChatMessage = {
 const AI_CHAT_TRIED_KEY = 'ch_ai_chat_tried'
 
 const QUICK_PROMPTS = [
-  { label: '👕 Outfit today',     text: 'What should I wear today?' },
-  { label: '🍽️ Dinner look',      text: 'Build me an outfit for dinner tonight' },
-  { label: '💼 Office ready',     text: 'Create a smart casual office outfit' },
-  { label: '✨ Improve my style', text: 'How can I improve my style with what I own?' },
-  { label: '🔍 What am I missing', text: 'What key items am I missing from my wardrobe?' },
-  { label: '🔥 Bold outfit',      text: 'I want to look bold and confident today' },
+  { label: '👕 What should I wear today?', text: 'What should I wear today?' },
+  { label: '🍽️ Build a dinner look',       text: 'Build me an outfit for dinner tonight' },
+  { label: '💼 Office ready',              text: 'Create a smart casual office outfit' },
+  { label: '✨ Improve my style',          text: 'How can I improve my style with what I own?' },
+  { label: '🔍 What am I missing?',        text: 'What key items am I missing from my wardrobe?' },
+  { label: '🔥 Something bold',            text: 'I want to look bold and confident today' },
 ]
 
 // ── Styling hint colour map ────────────────────────────────────────────────────
@@ -88,7 +89,7 @@ function apiMsgToStylist(m: {
 
 function UserBubble({ content, images }: { content: string; images?: string[] }) {
   return (
-    <div className="flex justify-end gap-3 animate-slide-up">
+    <div className="flex justify-end animate-slide-up">
       <div className="max-w-[75%] flex flex-col items-end gap-2">
         {images && images.length > 0 && (
           <div className="flex gap-2 flex-wrap justify-end">
@@ -97,19 +98,16 @@ function UserBubble({ content, images }: { content: string; images?: string[] })
                 key={i}
                 src={src}
                 alt="uploaded"
-                className="w-28 h-28 object-cover rounded-2xl rounded-tr-sm shadow-sm border border-white/20"
+                className="w-28 h-28 object-cover rounded-2xl rounded-br-sm shadow-sm border border-white/20"
               />
             ))}
           </div>
         )}
         {content && content !== '(see attached image)' && (
-          <div className="px-4 py-3 rounded-2xl rounded-tr-sm text-sm leading-relaxed bg-gradient-brand text-white shadow-sm">
+          <div className="px-4 py-3 rounded-2xl rounded-br-sm text-sm leading-relaxed bg-gradient-brand text-white shadow-sm">
             <span style={{ whiteSpace: 'pre-wrap' }}>{content}</span>
           </div>
         )}
-      </div>
-      <div className="w-8 h-8 rounded-full bg-gradient-brand flex-shrink-0 flex items-center justify-center text-white text-xs font-bold shadow-sm mt-0.5 select-none">
-        You
       </div>
     </div>
   )
@@ -133,14 +131,14 @@ function AssistantBubble({
 
   return (
     <div className="flex gap-3 animate-slide-up">
-      <div className="w-8 h-8 rounded-full bg-slate-900 dark:bg-slate-700 flex-shrink-0 flex items-center justify-center shadow-sm mt-0.5">
-        <Sparkles size={14} className="text-white" />
+      <div className="w-[30px] h-[30px] rounded-[10px] bg-slate-900 dark:bg-slate-700 flex-shrink-0 flex items-center justify-center shadow-sm mt-0.5">
+        <Sparkles size={13} className="text-white" />
       </div>
 
-      <div className="flex flex-col gap-3 max-w-[80%] min-w-0 flex-1">
+      <div className="flex flex-col gap-3 max-w-[80%] min-w-0 flex-1 items-start">
         {/* Text reply — rendered as lightweight markdown for a polished output */}
         {msg.content && (
-          <div className="px-4 py-3 rounded-2xl rounded-tl-sm bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 shadow-card border border-cream-300 dark:border-slate-700">
+          <div className="px-4 py-3 rounded-2xl rounded-tl-sm bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 shadow-card border border-cream-200 dark:border-slate-700">
             <FormattedMessage content={msg.content} />
             {streaming && (
               <span className="inline-block w-0.5 h-4 bg-brand-500 ml-0.5 animate-pulse align-middle" />
@@ -165,7 +163,7 @@ function AssistantBubble({
 
         {/* Styling suggestions */}
         {hints.length > 0 && (
-          <div className="space-y-2">
+          <div className="space-y-2 w-full">
             <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 flex items-center gap-1.5">
               <Lightbulb size={11} /> Styling Tips
             </p>
@@ -190,7 +188,7 @@ function AssistantBubble({
 
         {/* Purchase gaps */}
         {gaps.length > 0 && (
-          <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-sm space-y-1.5">
+          <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-sm space-y-1.5 w-full">
             <p className="font-semibold text-amber-700 dark:text-amber-400 text-xs flex items-center gap-1.5">
               <AlertTriangle size={12} /> Missing from your closet
             </p>
@@ -219,10 +217,6 @@ function AssistantBubble({
             ))}
           </div>
         )}
-
-        <span className="text-[10px] text-slate-400 px-1">
-          {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-        </span>
       </div>
     </div>
   )
@@ -231,13 +225,13 @@ function AssistantBubble({
 function ThinkingBubble() {
   return (
     <div className="flex gap-3 animate-slide-up">
-      <div className="w-8 h-8 rounded-full bg-slate-900 dark:bg-slate-700 flex-shrink-0 flex items-center justify-center shadow-sm">
-        <Sparkles size={14} className="text-white" />
+      <div className="w-[30px] h-[30px] rounded-[10px] bg-slate-900 dark:bg-slate-700 flex-shrink-0 flex items-center justify-center shadow-sm">
+        <Sparkles size={13} className="text-white" />
       </div>
-      <div className="px-4 py-3 rounded-2xl rounded-tl-sm bg-white dark:bg-slate-800 border border-cream-300 dark:border-slate-700 shadow-card">
+      <div className="px-4 py-3.5 rounded-2xl rounded-tl-sm bg-white dark:bg-slate-800 border border-cream-200 dark:border-slate-700 shadow-card">
         <div className="flex gap-1 items-center">
           {[0, 1, 2].map(i => (
-            <div key={i} className="w-2 h-2 rounded-full bg-brand-400 animate-pulse-soft" style={{ animationDelay: `${i * 0.2}s` }} />
+            <div key={i} className="w-[7px] h-[7px] rounded-full bg-brand-400 animate-pulse-soft" style={{ animationDelay: `${i * 0.2}s` }} />
           ))}
         </div>
       </div>
@@ -245,46 +239,32 @@ function ThinkingBubble() {
   )
 }
 
-// ── History Sidebar ───────────────────────────────────────────────────────────
+// ── History tab ───────────────────────────────────────────────────────────────
 
-function HistorySidebar({
-  open,
-  onClose,
+function HistoryPanel({
+  active,
   onLoadSession,
   onDeleteSession,
   currentSessionId,
 }: {
-  open: boolean
-  onClose: () => void
+  active: boolean
   onLoadSession: (sessionId: string, title: string) => void
   onDeleteSession: (sessionId: string) => void
   currentSessionId: string | null
 }) {
   const [sessions, setSessions] = useState<AIChatSession[]>([])
   const [loading, setLoading] = useState(false)
-  const [loadingSession, setLoadingSession] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [deleteInProgress, setDeleteInProgress] = useState<string | null>(null)
 
   useEffect(() => {
-    if (!open) return
+    if (!active) return
     setLoading(true)
     aiChatSessionsApi.list()
       .then(s => setSessions(s))
       .catch(() => {/* silent */})
       .finally(() => setLoading(false))
-  }, [open])
-
-  const handleClick = async (session: AIChatSession) => {
-    if (loadingSession === session.id || deletingId === session.id) return
-    setDeletingId(null)
-    setLoadingSession(session.id)
-    try {
-      onLoadSession(session.id, session.title)
-    } finally {
-      setLoadingSession(null)
-    }
-  }
+  }, [active])
 
   const handleDeleteConfirm = async (sessionId: string) => {
     setDeleteInProgress(sessionId)
@@ -310,155 +290,117 @@ function HistorySidebar({
     return `${Math.floor(h / 24)}d ago`
   }
 
+  if (loading) {
+    return (
+      <div className="flex-1 min-h-0 flex items-center justify-center bg-cream-50 dark:bg-slate-950/40">
+        <div className="h-5 w-5 rounded-full border-2 border-brand-400 border-t-transparent animate-spin" />
+      </div>
+    )
+  }
+
+  if (sessions.length === 0) {
+    return (
+      <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-2 px-6 text-center bg-cream-50 dark:bg-slate-950/40">
+        <MessageSquare size={26} className="text-slate-300 dark:text-slate-600" />
+        <p className="text-sm text-slate-400">No conversations yet</p>
+        <p className="text-xs text-slate-300 dark:text-slate-600">Start chatting and your sessions will appear here</p>
+      </div>
+    )
+  }
+
   return (
-    <AnimatePresence>
-      {open && (
-        <>
-          {/* Backdrop (mobile) */}
-          <motion.div
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 z-30 bg-black/30 lg:hidden"
-            onClick={onClose}
-          />
-          <motion.aside
-            initial={{ x: -280, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: -280, opacity: 0 }}
-            transition={{ type: 'spring', stiffness: 360, damping: 32 }}
-            className="fixed left-0 top-0 bottom-0 z-40 w-72 bg-white dark:bg-slate-900 border-r border-cream-200 dark:border-slate-700 flex flex-col shadow-2xl lg:static lg:shadow-none lg:z-auto"
+    <div className="flex-1 min-h-0 overflow-y-auto chat-scroll p-6 bg-cream-50 dark:bg-slate-950/40 flex flex-col gap-2 w-full max-w-[860px] mx-auto">
+      {sessions.map(session => {
+        const isActive = currentSessionId === session.id
+        const isConfirming = deletingId === session.id
+        const isDeleting = deleteInProgress === session.id
+
+        return (
+          <div
+            key={session.id}
+            className={cn(
+              'group rounded-2xl border bg-white dark:bg-slate-800 shadow-sm transition-colors overflow-hidden',
+              isActive
+                ? 'border-brand-200 dark:border-brand-800/60 ring-1 ring-brand-100 dark:ring-brand-900/40'
+                : 'border-cream-200 dark:border-slate-700 hover:border-brand-200 dark:hover:border-brand-800/60 hover:bg-brand-50/60 dark:hover:bg-brand-900/10',
+            )}
           >
-            {/* Sidebar header */}
-            <div className="flex items-center justify-between px-4 py-4 border-b border-cream-200 dark:border-slate-700 flex-shrink-0">
-              <div className="flex items-center gap-2">
-                <History size={15} className="text-brand-500" />
-                <span className="font-semibold text-sm text-slate-800 dark:text-white">Chat History</span>
-              </div>
+            <div className="flex items-center">
               <button
-                onClick={onClose}
-                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+                type="button"
+                onClick={() => onLoadSession(session.id, session.title)}
+                disabled={isDeleting}
+                className="flex-1 flex items-center gap-3 px-4 py-3.5 text-left min-w-0"
               >
-                <X size={14} />
+                <div className={cn(
+                  'w-8 h-8 rounded-[10px] flex-shrink-0 flex items-center justify-center',
+                  isActive ? 'bg-brand-100 dark:bg-brand-500/20' : 'bg-brand-50 dark:bg-slate-700',
+                )}>
+                  <MessageSquare size={14} className="text-brand-500" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className={cn(
+                    'text-sm font-semibold truncate leading-snug',
+                    isActive ? 'text-brand-700 dark:text-brand-300' : 'text-slate-900 dark:text-slate-100',
+                  )}>
+                    {session.title}
+                  </p>
+                  <p className="text-[11px] text-slate-400 flex items-center gap-1 mt-0.5">
+                    <Clock size={9} />
+                    {relTime(session.updated_at)}
+                  </p>
+                </div>
+                <ChevronRight size={14} className="text-slate-300 dark:text-slate-600 flex-shrink-0" />
+              </button>
+
+              {/* Delete trigger — appears on row hover */}
+              <button
+                type="button"
+                onClick={e => { e.stopPropagation(); setDeletingId(isConfirming ? null : session.id) }}
+                disabled={isDeleting}
+                title="Delete this chat"
+                className={cn(
+                  'flex-shrink-0 p-2 mr-2 rounded-lg transition-all',
+                  isConfirming
+                    ? 'opacity-100 text-red-500 bg-red-50 dark:bg-red-900/20'
+                    : 'opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20',
+                )}
+              >
+                {isDeleting ? (
+                  <div className="h-3.5 w-3.5 rounded-full border-2 border-red-400 border-t-transparent animate-spin" />
+                ) : (
+                  <Trash2 size={13} />
+                )}
               </button>
             </div>
 
-            {/* Session list */}
-            <div className="flex-1 overflow-y-auto py-2">
-              {loading ? (
-                <div className="flex items-center justify-center py-8">
-                  <div className="h-5 w-5 rounded-full border-2 border-brand-400 border-t-transparent animate-spin" />
+            {/* Inline delete confirmation */}
+            {isConfirming && (
+              <div className="flex items-center justify-between gap-2 px-4 py-2.5 bg-red-50 dark:bg-red-900/20 border-t border-red-100 dark:border-red-800/40">
+                <p className="text-xs text-red-700 dark:text-red-400 font-medium">Delete this chat?</p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setDeletingId(null)}
+                    className="text-[11px] font-medium text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteConfirm(session.id)}
+                    disabled={isDeleting}
+                    className="text-[11px] font-bold text-white bg-red-500 hover:bg-red-600 px-2.5 py-1 rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    Delete
+                  </button>
                 </div>
-              ) : sessions.length === 0 ? (
-                <div className="flex flex-col items-center gap-2 py-10 px-4 text-center">
-                  <MessageSquare size={24} className="text-slate-300 dark:text-slate-600" />
-                  <p className="text-sm text-slate-400">No conversations yet</p>
-                  <p className="text-xs text-slate-300 dark:text-slate-600">Start chatting and your sessions will appear here</p>
-                </div>
-              ) : (
-                <div className="space-y-0.5 px-1">
-                  {sessions.map(session => {
-                    const isActive = currentSessionId === session.id
-                    const isConfirming = deletingId === session.id
-                    const isDeleting = deleteInProgress === session.id
-                    const isLoadingThis = loadingSession === session.id
-
-                    return (
-                      <div
-                        key={session.id}
-                        className={cn(
-                          'rounded-xl overflow-hidden transition-colors',
-                          isActive && !isConfirming
-                            ? 'bg-brand-50 dark:bg-brand-900/20 ring-1 ring-brand-200 dark:ring-brand-800/50'
-                            : 'hover:bg-slate-50 dark:hover:bg-slate-800/60',
-                        )}
-                      >
-                        {/* Row */}
-                        <div className="flex items-center group">
-                          <button
-                            type="button"
-                            onClick={() => handleClick(session)}
-                            disabled={isLoadingThis || isDeleting}
-                            className="flex-1 text-left px-3 py-2.5 flex items-start gap-2.5 min-w-0"
-                          >
-                            <div className={cn(
-                              'w-6 h-6 rounded-lg flex-shrink-0 flex items-center justify-center mt-0.5',
-                              isActive ? 'bg-brand-100 dark:bg-brand-500/20' : 'bg-slate-100 dark:bg-slate-800',
-                            )}>
-                              {isLoadingThis ? (
-                                <div className="h-3 w-3 rounded-full border-2 border-brand-400 border-t-transparent animate-spin" />
-                              ) : (
-                                <MessageSquare size={11} className={isActive ? 'text-brand-500' : 'text-slate-400'} />
-                              )}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <p className={cn(
-                                'text-sm font-medium truncate leading-snug',
-                                isActive ? 'text-brand-700 dark:text-brand-300' : 'text-slate-700 dark:text-slate-200',
-                              )}>
-                                {session.title}
-                              </p>
-                              <p className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
-                                <Clock size={9} />
-                                {relTime(session.updated_at)}
-                              </p>
-                            </div>
-                          </button>
-
-                          {/* Delete trigger — appears on row hover */}
-                          <button
-                            type="button"
-                            onClick={e => { e.stopPropagation(); setDeletingId(isConfirming ? null : session.id) }}
-                            disabled={isDeleting}
-                            title="Delete this chat"
-                            className={cn(
-                              'flex-shrink-0 p-2 mr-1 rounded-lg transition-all',
-                              isConfirming
-                                ? 'opacity-100 text-red-500 bg-red-50 dark:bg-red-900/20'
-                                : 'opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20',
-                            )}
-                          >
-                            {isDeleting ? (
-                              <div className="h-3.5 w-3.5 rounded-full border-2 border-red-400 border-t-transparent animate-spin" />
-                            ) : (
-                              <Trash2 size={13} />
-                            )}
-                          </button>
-                        </div>
-
-                        {/* Inline delete confirmation */}
-                        {isConfirming && (
-                          <div className="flex items-center justify-between gap-2 px-3 py-2 bg-red-50 dark:bg-red-900/20 border-t border-red-100 dark:border-red-800/40">
-                            <p className="text-xs text-red-700 dark:text-red-400 font-medium">
-                              Delete this chat?
-                            </p>
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => setDeletingId(null)}
-                                className="text-[11px] font-medium text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
-                              >
-                                Cancel
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteConfirm(session.id)}
-                                disabled={isDeleting}
-                                className="text-[11px] font-bold text-white bg-red-500 hover:bg-red-600 px-2.5 py-1 rounded-lg transition-colors disabled:opacity-50"
-                              >
-                                Delete
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          </motion.aside>
-        </>
-      )}
-    </AnimatePresence>
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
   )
 }
 
@@ -470,9 +412,9 @@ export default function AIStylistChat() {
   const [streaming, setStreaming] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sessionId, setSessionId] = useState<string | null>(null)
-  const [sessionTitle, setSessionTitle] = useState<string>('FANI — AI Stylist')
-  const [showHistory, setShowHistory] = useState(false)
+  const [tab, setTab] = useState<'chat' | 'history'>('chat')
   const [loadingHistory, setLoadingHistory] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const cancelRef = useRef(false)
   const hasRestored = useRef(false)
@@ -516,9 +458,9 @@ export default function AIStylistChat() {
   }, [messages])
 
   // ── Load a past session from history ────────────────────────────────────────
-  const loadSession = useCallback(async (sid: string, title: string) => {
+  const loadSession = useCallback(async (sid: string, _title: string) => {
     setLoadingHistory(true)
-    setShowHistory(false)
+    setTab('chat')
     setError(null)
     cancelRef.current = true
     setStreaming(false)
@@ -529,7 +471,6 @@ export default function AIStylistChat() {
         .filter((m): m is StylistChatMessage => m !== null)
       setMessages(converted.length > 0 ? converted : [WELCOME])
       setSessionId(sid)
-      setSessionTitle(title)
     } catch {
       setError('Could not load session. Please try again.')
     } finally {
@@ -543,6 +484,7 @@ export default function AIStylistChat() {
     if (!trimmed && (!images || images.length === 0)) return
     if (streaming) return
     cancelRef.current = false
+    setTab('chat')
 
     const userMsg: StylistChatMessage = {
       id: generateId(),
@@ -637,7 +579,7 @@ export default function AIStylistChat() {
     setStreaming(false)
     setMessages([WELCOME])
     setSessionId(null)
-    setSessionTitle('FANI — AI Stylist')
+    setTab('chat')
     setError(null)
   }, [])
 
@@ -649,141 +591,162 @@ export default function AIStylistChat() {
   }, [sessionId, newChat])
 
   const isAtStart = messages.length === 1 && messages[0].id === 'welcome'
+  const visibleMessages = messages.filter(m => m.id !== 'welcome')
+  const lastMsg = messages[messages.length - 1]
+  const showThinking =
+    streaming && lastMsg?.role === 'assistant' && lastMsg?.content === ''
+
+  const tabBtn = (t: 'chat' | 'history', label: string) => (
+    <button
+      onClick={() => setTab(t)}
+      className={cn(
+        'px-4 py-1.5 rounded-[10px] text-xs transition-colors',
+        tab === t
+          ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm font-semibold'
+          : 'text-slate-500 dark:text-slate-400 font-medium hover:text-slate-800 dark:hover:text-slate-200',
+      )}
+    >
+      {label}
+    </button>
+  )
 
   return (
-    <div className="flex flex-col h-[calc(100vh-130px)] gap-0 animate-fade-in relative">
-      <BackButton fallback="/dashboard" label="Back" className="mb-2 self-start" />
+    <div className="animate-fade-in">
+      <div className="relative w-full h-[calc(100vh-108px)] md:h-[calc(100vh-112px)] bg-white dark:bg-slate-900 rounded-[20px] border border-cream-200 dark:border-slate-700/70 shadow-card flex flex-col overflow-hidden">
 
-      {/* ── Content row ──────────────────────────────────────────────────────── */}
-      <div className="flex flex-1 min-h-0 gap-0">
-
-      {/* ── History sidebar ─────────────────────────────────────────────────── */}
-      <HistorySidebar
-        open={showHistory}
-        onClose={() => setShowHistory(false)}
-        onLoadSession={loadSession}
-        onDeleteSession={handleDeleteSession}
-        currentSessionId={sessionId}
-      />
-
-      {/* ── Main chat column ────────────────────────────────────────────────── */}
-      <div className="flex flex-col flex-1 min-w-0">
-
-        {/* Header */}
-        <div className="flex items-center justify-between mb-4 flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-brand flex items-center justify-center shadow-md flex-shrink-0">
-              <Sparkles size={18} className="text-white" />
+        {/* ── Card header ─────────────────────────────────────────────────────── */}
+        <div className="flex-shrink-0 flex items-center justify-between gap-3 px-4 sm:px-5 py-3 border-b border-cream-200 dark:border-slate-700/70">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-gradient-brand flex items-center justify-center shadow-sm flex-shrink-0">
+              <Sparkles size={16} className="text-white" />
             </div>
             <div className="min-w-0">
-              <h2 className="font-display font-bold text-xl text-slate-800 dark:text-slate-100 truncate">
-                {sessionTitle}
-              </h2>
-              <p className="text-xs text-slate-400">
-                {closetItems.length > 0
-                  ? `${closetItems.length} wardrobe items · Fashion Analysis and Nurturing Intelligence`
-                  : 'Add items to your closet for personalised suggestions'}
-              </p>
+              <div className="font-display font-bold text-[15px] leading-tight text-slate-900 dark:text-white">FANI</div>
+              <div className="text-[10px] text-slate-400 truncate">
+                {closetItems.length > 0 ? `${closetItems.length} wardrobe items` : 'Add items to your closet'}
+              </div>
             </div>
           </div>
 
-          <div className="flex gap-2 flex-shrink-0">
-            <button
-              onClick={() => setShowHistory(v => !v)}
-              className={`btn-ghost text-xs gap-1.5 ${showHistory ? 'bg-brand-50 dark:bg-brand-900/30 text-brand-600 dark:text-brand-400' : ''}`}
-              title="Chat history"
-            >
-              <History size={13} />
-              <span className="hidden sm:inline">History</span>
-            </button>
-            <button onClick={newChat} className="btn-ghost text-xs gap-1.5" title="New chat">
-              <RefreshCw size={13} />
-              <span className="hidden sm:inline">New chat</span>
-            </button>
+          <div className="flex bg-slate-100 dark:bg-slate-800 rounded-xl p-[3px] flex-shrink-0">
+            {tabBtn('chat', 'Chat')}
+            {tabBtn('history', 'History')}
           </div>
+
+          <button
+            onClick={newChat}
+            className="inline-flex items-center gap-1.5 px-3 sm:px-3.5 py-2 rounded-xl text-xs font-medium text-slate-500 dark:text-slate-400 bg-transparent border border-cream-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700 dark:hover:text-slate-200 transition-colors flex-shrink-0"
+            title="New chat"
+          >
+            <Plus size={13} />
+            <span className="hidden sm:inline">New</span>
+          </button>
         </div>
 
-        {/* Warnings */}
-        {closetItems.length === 0 && (
-          <div className="card p-3 mb-3 bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 text-xs flex items-center gap-2 flex-shrink-0">
-            <AlertTriangle size={13} />
-            Your wardrobe is empty — upload items first for the best outfit suggestions.
-          </div>
-        )}
-
-        {error && (
-          <div className="card p-2 mb-3 bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-600 dark:text-red-300 text-xs flex items-center gap-2 flex-shrink-0">
-            <AlertTriangle size={12} />
-            {error}
-          </div>
-        )}
-
-        {/* Loading history indicator */}
-        {loadingHistory && (
-          <div className="flex items-center justify-center py-8">
-            <FaniLoader size="md" messages={['Loading your chat history…']} />
-          </div>
-        )}
-
-        {/* Message area */}
-        {!loadingHistory && (
-          <div className="flex-1 overflow-y-auto chat-scroll space-y-4 pb-4 min-h-0">
-            {messages.map(msg =>
-              msg.role === 'user' ? (
-                <UserBubble key={msg.id} content={msg.content} images={msg.images} />
+        {/* ── Chat tab ────────────────────────────────────────────────────────── */}
+        {tab === 'chat' && (
+          <>
+            <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto chat-scroll bg-cream-50 dark:bg-slate-950/40">
+              {loadingHistory ? (
+                <div className="h-full flex items-center justify-center">
+                  <FaniLoader size="md" messages={['Loading your chat…']} />
+                </div>
+              ) : isAtStart ? (
+                /* Welcome / empty state */
+                <div className="h-full flex flex-col items-center justify-center gap-5 px-6 py-8 text-center">
+                  <div className="w-14 h-14 rounded-[18px] bg-gradient-brand flex items-center justify-center shadow-[0_0_24px_rgba(13,148,136,0.45)]">
+                    <Sparkles size={26} className="text-white" />
+                  </div>
+                  <div>
+                    <h1 className="font-display font-bold text-[26px] leading-tight text-slate-900 dark:text-white">
+                      What should we style today?
+                    </h1>
+                    <p className="mt-1.5 text-sm text-slate-500 dark:text-slate-400">
+                      I'll build outfits from your actual wardrobe — just ask.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2 justify-center max-w-lg">
+                    {QUICK_PROMPTS.map(p => (
+                      <button
+                        key={p.text}
+                        onClick={() => send(p.text)}
+                        disabled={streaming}
+                        className="text-xs px-3.5 py-2.5 rounded-full bg-white dark:bg-slate-800 border border-cream-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 shadow-sm hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700 dark:hover:bg-brand-900/20 dark:hover:text-brand-300 transition-colors disabled:opacity-40"
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               ) : (
-                <AssistantBubble
-                  key={msg.id}
-                  msg={msg}
-                  streaming={
-                    streaming &&
-                    msg === messages[messages.length - 1] &&
-                    msg.role === 'assistant' &&
-                    msg.content === ''
-                  }
-                  sessionId={sessionId ?? undefined}
-                  onFollowUp={streaming ? undefined : (q) => send(q)}
-                />
-              ),
+                /* Message stream */
+                <div className="p-5 sm:p-6 flex flex-col gap-4 w-full max-w-[860px] mx-auto">
+                  {visibleMessages.map(msg =>
+                    msg.role === 'user' ? (
+                      <UserBubble key={msg.id} content={msg.content} images={msg.images} />
+                    ) : (
+                      <AssistantBubble
+                        key={msg.id}
+                        msg={msg}
+                        streaming={
+                          streaming &&
+                          msg === lastMsg &&
+                          msg.role === 'assistant' &&
+                          msg.content === ''
+                        }
+                        sessionId={sessionId ?? undefined}
+                        onFollowUp={streaming ? undefined : (q) => send(q)}
+                      />
+                    ),
+                  )}
+                  {showThinking && <ThinkingBubble />}
+                  <div ref={bottomRef} />
+                </div>
+              )}
+            </div>
+
+            {/* Warnings */}
+            {(error || closetItems.length === 0) && !loadingHistory && (
+              <div className="flex-shrink-0 px-5 pt-3 space-y-2 w-full max-w-[860px] mx-auto">
+                {closetItems.length === 0 && (
+                  <div className="rounded-xl px-3 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-300 text-xs flex items-center gap-2">
+                    <AlertTriangle size={13} className="flex-shrink-0" />
+                    Your wardrobe is empty — upload items first for the best outfit suggestions.
+                  </div>
+                )}
+                {error && (
+                  <div className="rounded-xl px-3 py-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-300 text-xs flex items-center gap-2">
+                    <AlertTriangle size={12} className="flex-shrink-0" />
+                    {error}
+                  </div>
+                )}
+              </div>
             )}
 
-            {streaming &&
-              messages[messages.length - 1]?.role === 'assistant' &&
-              messages[messages.length - 1]?.content === '' && (
-                <ThinkingBubble />
-              )}
-
-            <div ref={bottomRef} />
-          </div>
+            {/* Input */}
+            <div className="flex-shrink-0 px-4 sm:px-5 py-3 border-t border-cream-200 dark:border-slate-700/70 bg-white dark:bg-slate-900">
+              <div className="w-full max-w-[860px] mx-auto">
+                <ChatInput
+                  onSend={send}
+                  streaming={streaming}
+                  onStop={stopStreaming}
+                  disabled={loadingHistory}
+                />
+              </div>
+            </div>
+          </>
         )}
 
-        {/* Quick prompts — only at start */}
-        {isAtStart && !loadingHistory && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-4 flex-shrink-0">
-            {QUICK_PROMPTS.map(p => (
-              <button
-                key={p.text}
-                onClick={() => send(p.text)}
-                disabled={streaming}
-                className="text-left text-xs px-3 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-cream-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-brand-300 dark:hover:border-brand-700 hover:bg-brand-50 dark:hover:bg-brand-900/20 transition-colors disabled:opacity-40 shadow-sm"
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Input */}
-        <div className="flex-shrink-0">
-          <ChatInput
-            onSend={send}
-            streaming={streaming}
-            onStop={stopStreaming}
-            disabled={loadingHistory}
+        {/* ── History tab ─────────────────────────────────────────────────────── */}
+        {tab === 'history' && (
+          <HistoryPanel
+            active={tab === 'history'}
+            onLoadSession={loadSession}
+            onDeleteSession={handleDeleteSession}
+            currentSessionId={sessionId}
           />
-        </div>
+        )}
       </div>
-      </div>{/* end content row */}
     </div>
   )
 }
