@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
@@ -113,6 +114,22 @@ export default function Sidebar() {
     setSidebarOpen(false)
   }
 
+  // At short viewport heights the nav list clips behind its own scroll edge
+  // with no cue that more links exist — show a bottom fade while there is
+  // still content below the fold.
+  const navRef = useRef<HTMLElement>(null)
+  const [navClipped, setNavClipped] = useState(false)
+  const updateNavClipped = useCallback(() => {
+    const el = navRef.current
+    if (!el) return
+    setNavClipped(el.scrollHeight - el.scrollTop - el.clientHeight > 4)
+  }, [])
+  useEffect(() => {
+    updateNavClipped()
+    window.addEventListener('resize', updateNavClipped)
+    return () => window.removeEventListener('resize', updateNavClipped)
+  }, [updateNavClipped])
+
   return (
     <>
       {/* Mobile backdrop */}
@@ -166,24 +183,41 @@ export default function Sidebar() {
         </div>
 
         {/* ── Navigation ───────────────────────────────────────────────── */}
-        <nav className="flex-1 overflow-y-auto py-4 px-3 md:px-2 lg:px-3 space-y-0.5">
-          {/* Dashboard — top-level, above the grouped sections */}
-          <NavItem item={NAV_TOP} onNavigate={() => setSidebarOpen(false)} />
+        <div className="relative flex-1 min-h-0 flex flex-col">
+          <nav
+            ref={navRef}
+            onScroll={updateNavClipped}
+            className="flex-1 overflow-y-auto py-4 px-3 md:px-2 lg:px-3 space-y-0.5"
+          >
+            {/* Dashboard — top-level, above the grouped sections */}
+            <NavItem item={NAV_TOP} onNavigate={() => setSidebarOpen(false)} />
 
-          {NAV_GROUPS.map(({ heading, items }) => (
-            <div key={heading} className="pt-4 first:pt-3">
-              {/* On the md rail, replace text headings with a subtle divider */}
-              <p className="px-3 pb-1.5 text-[10px] font-bold uppercase tracking-widest
-                            text-slate-400 dark:text-white/30 md:hidden lg:block">
-                {heading}
-              </p>
-              <div className="hidden md:block lg:hidden mx-2 mb-1.5 h-px bg-cream-200 dark:bg-white/[0.07]" aria-hidden />
-              {items.map((item) => (
-                <NavItem key={item.to} item={item} onNavigate={() => setSidebarOpen(false)} />
-              ))}
-            </div>
-          ))}
-        </nav>
+            {NAV_GROUPS.map(({ heading, items }) => (
+              <div key={heading} className="pt-4 first:pt-3">
+                {/* On the md rail, replace text headings with a subtle divider */}
+                <p className="px-3 pb-1.5 text-[10px] font-bold uppercase tracking-widest
+                              text-slate-400 dark:text-white/30 md:hidden lg:block">
+                  {heading}
+                </p>
+                <div className="hidden md:block lg:hidden mx-2 mb-1.5 h-px bg-cream-200 dark:bg-white/[0.07]" aria-hidden />
+                {items.map((item) => (
+                  <NavItem key={item.to} item={item} onNavigate={() => setSidebarOpen(false)} />
+                ))}
+              </div>
+            ))}
+          </nav>
+
+          {/* Scroll affordance — fades out once the last link is in view */}
+          <div
+            aria-hidden
+            className={cn(
+              'pointer-events-none absolute bottom-0 inset-x-0 h-12',
+              'bg-gradient-to-t from-white dark:from-slate-950 to-transparent',
+              'transition-opacity duration-200',
+              navClipped ? 'opacity-100' : 'opacity-0',
+            )}
+          />
+        </div>
 
         {/* ── Bottom ───────────────────────────────────────────────────── */}
         <div className="px-3 md:px-2 lg:px-3 pb-5 space-y-1.5 border-t border-cream-200 dark:border-white/[0.07] pt-4 flex-shrink-0">
