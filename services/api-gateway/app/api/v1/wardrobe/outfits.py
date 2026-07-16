@@ -22,6 +22,7 @@ from app.api.v1.wardrobe.schemas.outfit_ai import AnalyzeOutfitRequest, AnalyzeO
 from app.api.v1.wardrobe.services import outfit_ai_service
 from app.api.v1.wardrobe.services.outfit_history_service import (
     get_outfit_history_for_prompt,
+    mark_outfit_saved_in_history,
     save_outfit_history,
 )
 from app.core.constraint_priority import build_constraint_priority_block
@@ -119,6 +120,19 @@ async def create_outfit(body: OutfitCreate, user_id: CurrentUser, session: DbSes
     session.add(outfit)
     await session.flush()
     await session.refresh(outfit)
+
+    # Mirror the save into outfit_history so it shows on the Saved Outfits page
+    # (which reads history) — flips was_saved on a matching AI-generated row,
+    # or records a new one for manually built outfits.
+    await mark_outfit_saved_in_history(
+        session,
+        user_id=user_id,
+        item_ids=body.item_ids,
+        occasion=body.occasion,
+        name=body.name,
+        notes=body.notes,
+    )
+
     return {
         "id": str(outfit.id),
         "name": outfit.name,

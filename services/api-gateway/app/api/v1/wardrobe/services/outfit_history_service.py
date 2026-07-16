@@ -106,6 +106,59 @@ async def save_outfit_history_background(
         await session.commit()
 
 
+async def mark_outfit_saved_in_history(
+    session: AsyncSession,
+    user_id: str,
+    item_ids: list[str],
+    occasion: str,
+    name: str | None = None,
+    style_score: int | None = None,
+    notes: str | None = None,
+) -> OutfitHistory | None:
+    """Reflect a user "save outfit" action in outfit_history.
+
+    The Saved Outfits page reads outfit_history, but outfits saved via
+    POST /outfits/ or POST /ai-chat/save-outfit only landed in the outfits
+    table and never surfaced there. If a recent history row already covers
+    the same item set (an AI-generated look the user is now saving), flip
+    its was_saved flag; otherwise insert a fresh row. The inserted row skips
+    embedding generation (no external call on the save path) — it appears in
+    the history list but not in vector similarity search. Best-effort: never
+    raises, so a history hiccup can't fail the save itself.
+    """
+    try:
+        wanted = {str(i) for i in item_ids}
+        result = await session.execute(
+            select(OutfitHistory)
+            .where(OutfitHistory.user_id == uuid.UUID(user_id))
+            .order_by(desc(OutfitHistory.created_at))
+            .limit(25)
+        )
+        for record in result.scalars():
+            if {str(i) for i in (record.selected_item_ids or [])} == wanted:
+                record.was_saved = True
+                await session.flush()
+                logger.info("outfit_history_marked_saved", user_id=user_id, history_id=str(record.id))
+                return record
+
+        record = OutfitHistory(
+            user_id=uuid.UUID(user_id),
+            occasion=occasion,
+            selected_item_ids=list(dict.fromkeys(str(i) for i in item_ids)),
+            matching_score=style_score,
+            recommendation_text=notes or name,
+            improvement_tips=[],
+            was_saved=True,
+        )
+        session.add(record)
+        await session.flush()
+        logger.info("outfit_history_saved_from_manual_save", user_id=user_id, occasion=occasion)
+        return record
+    except Exception as exc:
+        logger.warning("outfit_history_mark_saved_failed", error=str(exc), user_id=user_id)
+        return None
+
+
 async def search_similar_outfit_history(
     session: AsyncSession,
     user_id: str,
