@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   Camera, Upload, ShoppingCart, Check, X, Minus, CheckCircle, XCircle,
   Loader2, RotateCcw, TrendingUp, Package, Sparkles, Trash2, ArrowRight,
@@ -654,6 +654,11 @@ function LoadingView({ previewUrl }: { previewUrl: string | null }) {
 }
 
 // ── Landing hero ──────────────────────────────────────────────────────────────
+//
+// Layout mirrors the "Shop with FANI" mockup: a camera-first dashed dropzone on
+// the left, upload + paste-a-link cards stacked on the right, then the 3-step
+// strip. Extras beyond the mockup: drag-and-drop an image onto the hero, and
+// paste (⌘V) an image or product URL anywhere on the landing.
 
 function LandingHero({ onFile, onUrl, disabled }: {
   onFile: (f: File) => void
@@ -663,6 +668,7 @@ function LandingHero({ onFile, onUrl, disabled }: {
   const cameraRef = useRef<HTMLInputElement>(null)
   const uploadRef = useRef<HTMLInputElement>(null)
   const [url, setUrl] = useState('')
+  const [dragging, setDragging] = useState(false)
   const valid = /^https?:\/\/.+\..+/i.test(url.trim())
 
   const pick = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -671,83 +677,147 @@ function LandingHero({ onFile, onUrl, disabled }: {
     e.target.value = ''
   }
 
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragging(false)
+    if (disabled) return
+    const f = e.dataTransfer.files?.[0]
+    if (f && f.type.startsWith('image/')) onFile(f)
+  }
+
+  // Paste an image (screenshot) or a product URL anywhere on the landing.
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      if (disabled) return
+      const items = e.clipboardData?.items
+      const img = items && Array.from(items).find(i => i.type.startsWith('image/'))
+      if (img) {
+        const f = img.getAsFile()
+        if (f) { e.preventDefault(); onFile(f) }
+        return
+      }
+      // Let text paste into inputs behave normally; elsewhere, catch URLs.
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return
+      const text = e.clipboardData?.getData('text')?.trim() ?? ''
+      if (/^https?:\/\/.+\..+/i.test(text)) setUrl(text)
+    }
+    window.addEventListener('paste', onPaste)
+    return () => window.removeEventListener('paste', onPaste)
+  }, [disabled, onFile])
+
   return (
-    <div className="space-y-4">
-      {/* Camera-first hero */}
-      <GlassCard className="p-6 flex flex-col items-center text-center gap-4">
-        <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-brand-600 to-brand-700 flex items-center justify-center shadow-glow-sm">
-          <Camera size={26} className="text-white" />
-        </div>
-        <div className="space-y-1">
-          <h2 className="text-lg font-bold text-slate-900 dark:text-white">Snap it before you buy</h2>
-          <p className="text-sm text-slate-500 dark:text-white/50 max-w-xs">
-            Point your camera at any store item and FANI scores it against the clothes you already own.
-          </p>
-        </div>
-        <div className="flex gap-2 w-full max-w-xs">
-          <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={pick} />
-          <input ref={uploadRef} type="file" accept="image/*" className="hidden" onChange={pick} />
-          <button
-            onClick={() => cameraRef.current?.click()}
-            disabled={disabled}
-            className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-semibold bg-brand-600 text-white hover:bg-brand-700 transition-colors disabled:opacity-50"
-          >
-            <Camera size={15} /> Take a photo
-          </button>
-          <button
-            onClick={() => uploadRef.current?.click()}
-            disabled={disabled}
-            className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-sm font-semibold bg-slate-100 dark:bg-white/[0.06] text-slate-700 dark:text-white/70 border border-slate-200 dark:border-white/10 hover:bg-slate-200 dark:hover:bg-white/10 transition-colors disabled:opacity-50"
-          >
-            <Upload size={15} /> Upload
-          </button>
-        </div>
-        <p className="text-[11px] text-slate-400 dark:text-white/30">JPEG · PNG · WebP</p>
-      </GlassCard>
+    <div className="space-y-4 animate-slide-up">
+      <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={pick} />
+      <input ref={uploadRef} type="file" accept="image/*" className="hidden" onChange={pick} />
 
-      {/* OR PASTE A LINK */}
-      <div className="flex items-center gap-3">
-        <div className="flex-1 h-px bg-slate-200 dark:bg-white/10" />
-        <span className="text-[11px] font-semibold text-slate-400 dark:text-white/30 uppercase tracking-wider">or paste a link</span>
-        <div className="flex-1 h-px bg-slate-200 dark:bg-white/10" />
-      </div>
-
-      <div className="flex gap-2">
-        <div className="flex-1 flex items-center gap-2 px-3 rounded-xl bg-white dark:bg-white/[0.04] border border-slate-200 dark:border-white/10 focus-within:ring-2 focus-within:ring-brand-400">
-          <Link2 size={15} className="text-slate-400 flex-shrink-0" />
-          <label htmlFor="shopping-url" className="sr-only">Product link to check</label>
-          <input
-            id="shopping-url"
-            type="url"
-            inputMode="url"
-            value={url}
-            onChange={e => setUrl(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && valid && !disabled) onUrl(url.trim()) }}
-            placeholder="https://brand.com/the-jacket-you-want"
-            disabled={disabled}
-            className="flex-1 min-w-0 py-2.5 bg-transparent text-sm text-slate-800 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/30 focus:outline-none disabled:opacity-50"
-          />
-        </div>
+      <div className="grid md:grid-cols-[1.55fr_1fr] gap-4">
+        {/* Camera-first dashed hero / dropzone */}
         <button
-          onClick={() => { if (valid && !disabled) onUrl(url.trim()) }}
-          disabled={!valid || disabled}
-          className="flex-shrink-0 px-4 rounded-xl text-sm font-semibold bg-brand-600 text-white hover:bg-brand-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          type="button"
+          onClick={() => cameraRef.current?.click()}
+          disabled={disabled}
+          onDragOver={e => { e.preventDefault(); setDragging(true) }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={handleDrop}
+          className={cn(
+            'min-h-[280px] md:min-h-[330px] flex flex-col items-center justify-center gap-4 p-8 text-center',
+            'rounded-2xl border-2 border-dashed border-cream-300 dark:border-white/15 cursor-pointer',
+            'transition-colors duration-200 hover:border-brand-400 hover:bg-brand-50 dark:hover:bg-brand-900/15',
+            'focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-400/60 disabled:opacity-60',
+            dragging && 'border-brand-400 bg-brand-50 dark:bg-brand-900/15',
+          )}
         >
-          Check it
+          <span className="w-16 h-16 rounded-[20px] bg-gradient-to-br from-brand-600 to-brand-700 flex items-center justify-center shadow-glow-sm">
+            <Camera size={30} className="text-white" />
+          </span>
+          <span className="block">
+            <span className="block font-display font-bold text-lg text-slate-900 dark:text-white">
+              Snap it before you buy
+            </span>
+            <span className="block text-[13px] text-slate-400 dark:text-white/45 max-w-[300px] mt-1.5">
+              Point your camera at any store item and FANI scores it against the clothes you already own.
+            </span>
+          </span>
+          <span className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-brand-600 to-brand-700 shadow-glow-sm hover:shadow-glow-md transition-shadow">
+            <Camera size={16} /> Take a photo
+          </span>
+          <span className="text-[11px] text-slate-400 dark:text-white/30">
+            {dragging ? 'Drop it here' : 'JPEG · PNG · WebP — or drop / paste an image'}
+          </span>
         </button>
+
+        {/* Upload + Paste a link */}
+        <div className="flex flex-col gap-4">
+          <GlassCard
+            hover
+            className="p-[18px] flex flex-col gap-3 flex-1"
+            role="button"
+            tabIndex={0}
+            onClick={() => { if (!disabled) uploadRef.current?.click() }}
+            onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && !disabled) { e.preventDefault(); uploadRef.current?.click() } }}
+          >
+            <div className="flex items-center gap-3">
+              <span className="w-10 h-10 rounded-xl bg-brand-50 dark:bg-brand-900/25 text-brand-500 flex items-center justify-center flex-shrink-0">
+                <Upload size={20} />
+              </span>
+              <h3 className="font-display font-bold text-[15px] text-slate-900 dark:text-white">Upload a photo</h3>
+            </div>
+            <p className="text-xs text-slate-400 dark:text-white/45 leading-relaxed flex-1">
+              Already have a screenshot or product pic? Add it from your device.
+            </p>
+            <span className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-slate-700 dark:text-white/75 bg-white dark:bg-white/[0.06] border border-cream-300 dark:border-white/10 hover:bg-cream-50 dark:hover:bg-white/10 transition-colors">
+              <Upload size={15} /> Browse files
+            </span>
+          </GlassCard>
+
+          <GlassCard className="p-[18px] flex flex-col gap-3">
+            <div className="flex items-center gap-3">
+              <span className="w-10 h-10 rounded-xl bg-brand-50 dark:bg-brand-900/25 text-brand-500 flex items-center justify-center flex-shrink-0">
+                <Link2 size={20} />
+              </span>
+              <h3 className="font-display font-bold text-[15px] text-slate-900 dark:text-white">Paste a link</h3>
+            </div>
+            <p className="text-xs text-slate-400 dark:text-white/45 leading-relaxed">
+              Drop a product URL — FANI reads the page for you.
+            </p>
+            <div className="flex items-center gap-2 px-3 rounded-xl bg-white dark:bg-white/[0.04] border border-cream-300 dark:border-white/10 transition-shadow focus-within:border-brand-400 focus-within:ring-[3px] focus-within:ring-brand-400/20">
+              <Link2 size={15} className="text-slate-400 flex-shrink-0" />
+              <label htmlFor="shopping-url" className="sr-only">Product link to check</label>
+              <input
+                id="shopping-url"
+                type="url"
+                inputMode="url"
+                value={url}
+                onChange={e => setUrl(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && valid && !disabled) onUrl(url.trim()) }}
+                placeholder="https://brand.com/the-jacket…"
+                disabled={disabled}
+                className="flex-1 min-w-0 py-2.5 bg-transparent text-sm text-slate-800 dark:text-white placeholder:text-slate-400 dark:placeholder:text-white/30 focus:outline-none disabled:opacity-50"
+              />
+            </div>
+            <button
+              onClick={() => { if (valid && !disabled) onUrl(url.trim()) }}
+              disabled={!valid || disabled}
+              className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-gradient-to-r from-brand-600 to-brand-700 shadow-glow-sm hover:shadow-glow-md active:scale-[0.97] transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
+            >
+              Check it
+            </button>
+          </GlassCard>
+        </div>
       </div>
 
       {/* 3-step how it works */}
-      <div className="grid grid-cols-3 gap-2 pt-1">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {[
           { n: '01', title: 'Snap or paste', desc: 'Any item, any store' },
           { n: '02', title: 'FANI scores it', desc: '0–100 vs your closet' },
           { n: '03', title: 'Decide with proof', desc: 'See what it pairs with' },
         ].map(s => (
-          <div key={s.n} className="rounded-2xl bg-slate-50 dark:bg-white/[0.04] p-3 space-y-0.5">
+          <div key={s.n} className="rounded-2xl bg-white dark:bg-white/[0.04] border border-cream-200 dark:border-white/[0.08] p-4 space-y-0.5">
             <p className="text-[11px] font-bold text-brand-500">{s.n}</p>
-            <p className="text-xs font-semibold text-slate-800 dark:text-white leading-tight">{s.title}</p>
-            <p className="text-[11px] text-slate-500 dark:text-white/45 leading-tight">{s.desc}</p>
+            <p className="font-display text-[13.5px] font-bold text-slate-800 dark:text-white leading-tight">{s.title}</p>
+            <p className="text-[11.5px] text-slate-400 dark:text-white/45 leading-snug">{s.desc}</p>
           </div>
         ))}
       </div>
@@ -801,15 +871,14 @@ function RecentCheckRow({ entry, onDeleted }: {
   return (
     <GlassCard className="overflow-hidden">
       <div className="p-3 flex items-center gap-3 group">
-        {entry.image_url && (
-          <LazyImage
-            src={resolveUploadUrl(entry.image_url)}
-            alt={name}
-            aspect="aspect-square"
-            rounded="rounded-xl"
-            wrapperClassName="w-12 h-12 flex-shrink-0"
-          />
-        )}
+        <LazyImage
+          src={entry.image_url ? resolveUploadUrl(entry.image_url) : null}
+          alt={name}
+          aspect="aspect-square"
+          rounded="rounded-xl"
+          wrapperClassName="w-12 h-12 flex-shrink-0"
+          fallback={<Shirt size={18} className="text-slate-300 dark:text-white/20" />}
+        />
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-slate-800 dark:text-white capitalize truncate">{name}</p>
           <p className="text-[11px] text-slate-400 dark:text-white/40">{timeAgo(entry.created_at)}</p>
@@ -888,11 +957,17 @@ export default function ShoppingCheck() {
     { ttl: 60_000 },
   )
 
+  // Revoke stale object URLs when the preview changes or the page unmounts.
+  useEffect(() => () => {
+    if (preview?.startsWith('blob:')) URL.revokeObjectURL(preview)
+  }, [preview])
+
   const handleFile = async (file: File) => {
     setPreview(URL.createObjectURL(file))
     setResult(null)
     setError(null)
     setLoading(true)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
     try {
       const res = await shoppingCheckApi.checkItem(file)
       setResult(res)
@@ -909,6 +984,7 @@ export default function ShoppingCheck() {
     setResult(null)
     setError(null)
     setLoading(true)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
     try {
       const res = await shoppingCheckApi.checkUrl(url)
       setPreview(res.image_url ? (resolveUploadUrl(res.image_url) ?? null) : null)
@@ -936,7 +1012,7 @@ export default function ShoppingCheck() {
   const idle = !result && !loading && !error
 
   return (
-    <Container size="sm" className="space-y-6">
+    <Container size="md" className="space-y-5">
       <BackButton fallback="/dashboard" label="Back to Dashboard" />
 
       <PageHeader
@@ -944,24 +1020,28 @@ export default function ShoppingCheck() {
         chipClassName="bg-gradient-to-br from-green-500 to-emerald-600 shadow-glow-sm"
         iconColor="text-white"
         title="Shop with FANI"
-        subtitle="Should it earn a spot in your closet? Ask before you buy."
+        subtitle="Should it earn a spot in your closet? Ask before you buy — snap, upload or paste a link and FANI scores it 0–100 against everything you already own."
         actions={
-          <a
-            href="/closet-match"
-            className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-400 border border-brand-200 dark:border-brand-700/40 hover:bg-brand-100 dark:hover:bg-brand-900/40 transition-colors whitespace-nowrap"
+          <Link
+            to="/closet-match"
+            className="flex-shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-brand-50 dark:bg-brand-900/20 text-brand-700 dark:text-brand-400 border border-brand-100 dark:border-brand-700/40 hover:bg-brand-100 dark:hover:bg-brand-900/40 transition-colors whitespace-nowrap"
           >
             <Shirt size={13} />
             Fit Match
-          </a>
+          </Link>
         }
       />
 
       {idle && <LandingHero onFile={handleFile} onUrl={handleUrl} disabled={loading} />}
 
-      {loading && <LoadingView previewUrl={preview} />}
+      {loading && (
+        <div className="max-w-2xl mx-auto animate-slide-up">
+          <LoadingView previewUrl={preview} />
+        </div>
+      )}
 
       {error && (
-        <GlassCard className="p-5 space-y-3">
+        <GlassCard className="max-w-2xl mx-auto p-5 space-y-3 animate-slide-up">
           <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
             <AlertCircle size={18} />
             <p className="text-sm font-medium">{error}</p>
@@ -972,7 +1052,11 @@ export default function ShoppingCheck() {
         </GlassCard>
       )}
 
-      {result && <ResultView result={result} previewUrl={preview} onReset={reset} />}
+      {result && (
+        <div className="max-w-2xl mx-auto animate-slide-up">
+          <ResultView result={result} previewUrl={preview} onReset={reset} />
+        </div>
+      )}
 
       {/* Recent checks */}
       {!loading && !result && (
