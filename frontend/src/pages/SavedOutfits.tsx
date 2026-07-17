@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { toastStore } from '@/store/notificationStore'
 import { useNavigate } from 'react-router-dom'
 import BackButton from '@/components/ui/BackButton'
+import LazyImage from '@/components/ui/LazyImage'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Heart, Shirt, Star, ChevronDown, Calendar,
@@ -40,22 +41,23 @@ interface OutfitCardProps {
   onDelete: (id: string) => void
 }
 
-function CollageTile({ item, children }: { item?: ClosetItem; children?: React.ReactNode }) {
+function CollageTile({ item, className, children }: {
+  item?: ClosetItem
+  className?: string
+  children?: React.ReactNode
+}) {
+  // Sized by the parent grid track (row/col spans), not by an aspect class —
+  // lets 1/2/3-item outfits use bigger tiles instead of empty placeholders.
   return (
-    <div className="relative aspect-square bg-cream-100 dark:bg-slate-800">
-      {item?.image_url ? (
-        <img
-          src={item.image_url}
-          alt={item.name}
-          loading="lazy"
-          decoding="async"
-          className="w-full h-full object-cover"
-        />
-      ) : (
-        <div className="w-full h-full flex items-center justify-center">
-          <Shirt size={22} className="text-slate-300 dark:text-slate-600" />
-        </div>
-      )}
+    <div className={cn('relative bg-cream-100 dark:bg-slate-800', className)}>
+      <LazyImage
+        src={item?.image_url}
+        alt={item?.name ?? 'Wardrobe item'}
+        aspect=""
+        rounded="rounded-none"
+        wrapperClassName="h-full w-full bg-transparent"
+        fallback={<Shirt size={22} className="text-slate-300 dark:text-slate-600" />}
+      />
       {children}
     </div>
   )
@@ -133,17 +135,36 @@ function OutfitCard({ record, closetMap, onFeedback, onDelete }: OutfitCardProps
     >
       {/* Image collage */}
       <div className="relative">
-        <div className="grid grid-cols-2 gap-0.5 bg-cream-100 dark:bg-slate-800">
-          <CollageTile item={items[0]} />
-          <CollageTile item={items[1]} />
-          <CollageTile item={items[2]} />
-          <CollageTile item={extra > 0 ? undefined : items[3]}>
-            {extra > 0 && (
-              <div className="absolute inset-0 flex items-center justify-center bg-slate-900/55 text-white text-sm font-semibold">
-                +{extra}
-              </div>
-            )}
-          </CollageTile>
+        {/* Layout adapts to how many items resolved: 1 → hero, 2 → side-by-side,
+            3 → tall lead + two stacked, 4+ → classic 2×2 with a +N overlay. */}
+        <div className="grid grid-cols-2 grid-rows-2 gap-0.5 aspect-square bg-cream-100 dark:bg-slate-800">
+          {items.length <= 1 ? (
+            <CollageTile item={items[0]} className="col-span-2 row-span-2" />
+          ) : items.length === 2 ? (
+            <>
+              <CollageTile item={items[0]} className="row-span-2" />
+              <CollageTile item={items[1]} className="row-span-2" />
+            </>
+          ) : items.length === 3 ? (
+            <>
+              <CollageTile item={items[0]} className="row-span-2" />
+              <CollageTile item={items[1]} />
+              <CollageTile item={items[2]} />
+            </>
+          ) : (
+            <>
+              <CollageTile item={items[0]} />
+              <CollageTile item={items[1]} />
+              <CollageTile item={items[2]} />
+              <CollageTile item={extra > 0 ? undefined : items[3]}>
+                {extra > 0 && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-slate-900/55 text-white text-sm font-semibold">
+                    +{extra}
+                  </div>
+                )}
+              </CollageTile>
+            </>
+          )}
         </div>
 
         {/* Occasion badge */}

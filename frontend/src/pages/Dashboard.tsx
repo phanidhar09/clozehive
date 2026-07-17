@@ -385,6 +385,29 @@ function TodaysLookCard({ closetItems }: { closetItems: ClosetItem[] }) {
           )
         })()}
 
+        {/* API succeeded but FANI couldn't assemble a look (outfit: null) */}
+        {!loading && !error && hasItems && data && !data.outfit && (
+          <div className="py-10 text-center space-y-3">
+            <div className="w-12 h-12 rounded-2xl bg-brand-50 dark:bg-brand-500/10
+                            flex items-center justify-center mx-auto">
+              <Sparkles size={20} className="text-brand-400" />
+            </div>
+            <p className="text-sm text-slate-500 dark:text-slate-400 max-w-xs mx-auto">
+              FANI couldn&apos;t put together a look just now. Give it another spin.
+            </p>
+            <button
+              onClick={load}
+              disabled={refreshing}
+              className="inline-flex items-center gap-1.5 text-sm font-semibold
+                         text-brand-600 hover:text-brand-700 dark:text-brand-400
+                         disabled:opacity-50 transition-colors"
+            >
+              <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
+              Regenerate look
+            </button>
+          </div>
+        )}
+
         {!loading && !error && !hasItems && (
           <div className="py-10 text-center space-y-3">
             <div className="w-12 h-12 rounded-2xl bg-brand-50 dark:bg-brand-500/10

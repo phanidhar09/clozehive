@@ -45,6 +45,10 @@ const WELCOME: StylistChatMessage = {
 }
 const AI_CHAT_TRIED_KEY = 'ch_ai_chat_tried'
 
+// Auto-resume the latest session only while it still feels like "today's
+// conversation" — anything older starts fresh (History keeps the rest).
+const RESUME_WINDOW_MS = 12 * 60 * 60 * 1000
+
 const QUICK_PROMPTS = [
   { label: '👕 What should I wear today?', text: 'What should I wear today?' },
   { label: '🍽️ Build a dinner look',       text: 'Build me an outfit for dinner tonight' },
@@ -418,38 +422,68 @@ export default function AIStylistChat() {
   const bottomRef = useRef<HTMLDivElement>(null)
   const cancelRef = useRef(false)
   const hasRestored = useRef(false)
+  // Set as soon as the user acts (send / pick a session / new chat) so the
+  // async resume below can never clobber an in-flight conversation.
+  const interactedRef = useRef(false)
 
-  // ── Restore handoff from floating chat ──────────────────────────────────────
+  // ── Restore handoff from floating chat, else resume the latest session ──────
   useEffect(() => {
     if (hasRestored.current) return
     hasRestored.current = true
+
+    // 1) A handoff from the floating chat widget always wins.
+    let handedOff = false
     try {
       const raw = sessionStorage.getItem('ch:ai-chat-handoff')
-      if (!raw) return
-      sessionStorage.removeItem('ch:ai-chat-handoff')
-      const { sessionId: sid, messages: msgs } = JSON.parse(raw) as {
-        sessionId: string | null
-        messages: Array<{
-          id: string; role: string; content: string
-          structured: StylistChatMessage['structured'] | null
-          timestamp: string
-        }>
-      }
-      if (msgs.length === 0) return
-      const restored: StylistChatMessage[] = msgs
-        .filter(m => m.role === 'user' || m.role === 'assistant')
-        .map(m => ({
-          id: m.id,
-          role: m.role as 'user' | 'assistant',
-          content: m.content,
-          structured: m.structured,
-          timestamp: new Date(m.timestamp),
-        }))
-      if (restored.length > 0) {
-        setMessages(restored)
-        if (sid) setSessionId(sid)
+      if (raw) {
+        sessionStorage.removeItem('ch:ai-chat-handoff')
+        const { sessionId: sid, messages: msgs } = JSON.parse(raw) as {
+          sessionId: string | null
+          messages: Array<{
+            id: string; role: string; content: string
+            structured: StylistChatMessage['structured'] | null
+            timestamp: string
+          }>
+        }
+        const restored: StylistChatMessage[] = msgs
+          .filter(m => m.role === 'user' || m.role === 'assistant')
+          .map(m => ({
+            id: m.id,
+            role: m.role as 'user' | 'assistant',
+            content: m.content,
+            structured: m.structured,
+            timestamp: new Date(m.timestamp),
+          }))
+        if (restored.length > 0) {
+          handedOff = true
+          setMessages(restored)
+          if (sid) setSessionId(sid)
+        }
       }
     } catch { /* ignore bad storage */ }
+    if (handedOff) return
+
+    // 2) Otherwise pick up where the user left off: resume the most recent
+    //    session if it's fresh. Older ones stay a tap away in History.
+    //    No unmount-cancel flag: StrictMode's dev double-mount would cancel
+    //    the fetch permanently (hasRestored blocks the re-run), and a
+    //    post-unmount setState is a harmless no-op. interactedRef keeps a
+    //    late response from clobbering anything the user started meanwhile.
+    ;(async () => {
+      try {
+        const sessions = await aiChatSessionsApi.list() // newest first
+        const latest = sessions[0]
+        if (!latest) return
+        if (Date.now() - new Date(latest.updated_at).getTime() > RESUME_WINDOW_MS) return
+        const msgs = await aiChatSessionsApi.getMessages(latest.id)
+        const converted: StylistChatMessage[] = msgs
+          .map(apiMsgToStylist)
+          .filter((m): m is StylistChatMessage => m !== null)
+        if (interactedRef.current || converted.length === 0) return
+        setMessages(converted)
+        setSessionId(latest.id)
+      } catch { /* welcome screen is a fine fallback */ }
+    })()
   }, [])
 
   // ── Auto-scroll ──────────────────────────────────────────────────────────────
@@ -459,6 +493,7 @@ export default function AIStylistChat() {
 
   // ── Load a past session from history ────────────────────────────────────────
   const loadSession = useCallback(async (sid: string, _title: string) => {
+    interactedRef.current = true
     setLoadingHistory(true)
     setTab('chat')
     setError(null)
@@ -483,6 +518,7 @@ export default function AIStylistChat() {
     const trimmed = text.trim()
     if (!trimmed && (!images || images.length === 0)) return
     if (streaming) return
+    interactedRef.current = true
     cancelRef.current = false
     setTab('chat')
 
@@ -575,6 +611,7 @@ export default function AIStylistChat() {
   const stopStreaming = () => { cancelRef.current = true; setStreaming(false) }
 
   const newChat = useCallback(() => {
+    interactedRef.current = true
     cancelRef.current = true
     setStreaming(false)
     setMessages([WELCOME])
@@ -612,7 +649,10 @@ export default function AIStylistChat() {
 
   return (
     <div className="animate-fade-in">
-      <div className="relative w-full h-[calc(100vh-108px)] md:h-[calc(100vh-112px)] bg-white dark:bg-slate-900 rounded-[20px] border border-cream-200 dark:border-slate-700/70 shadow-card flex flex-col overflow-hidden">
+      {/* Mobile: 176px = 64 header + 16 main top pad + 96 main bottom pad (clears
+          the fixed bottom nav), so the composer is never hidden behind it.
+          dvh tracks the collapsing mobile URL bar. */}
+      <div className="relative w-full h-[calc(100dvh-176px)] md:h-[calc(100vh-112px)] bg-white dark:bg-slate-900 rounded-[20px] border border-cream-200 dark:border-slate-700/70 shadow-card flex flex-col overflow-hidden">
 
         {/* ── Card header ─────────────────────────────────────────────────────── */}
         <div className="flex-shrink-0 flex items-center justify-between gap-3 px-4 sm:px-5 py-3 border-b border-cream-200 dark:border-slate-700/70">

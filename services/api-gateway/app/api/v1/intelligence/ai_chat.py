@@ -28,6 +28,7 @@ from app.api.v1.intelligence.services.daily_nudges_service import (
     serialize_nudge,
 )
 from app.api.v1.wardrobe.services.outfit_history_service import (
+    mark_outfit_saved_in_history,
     save_outfit_history,
     save_outfit_history_background,
 )
@@ -589,6 +590,18 @@ async def save_outfit(
     session.add(outfit)
     await session.flush()
     await session.refresh(outfit)
+
+    # Mirror into outfit_history so the Saved Outfits page (which reads
+    # history) shows this save — flips was_saved on the generation-time row.
+    await mark_outfit_saved_in_history(
+        session,
+        user_id=user_id,
+        item_ids=[str(i) for i in item_uuids],
+        occasion=body.occasion,
+        name=body.name,
+        style_score=body.style_score,
+        notes=body.explanation,
+    )
 
     logger.info("outfit_saved_from_chat", outfit_id=str(outfit.id), user_id=user_id)
     return {
