@@ -91,7 +91,7 @@ async def save_packing_memory(
         )
         return record
     except Exception as exc:
-        logger.warning("packing_memory_save_failed", error=str(exc), user_id=user_id)
+        logger.warning("packing_memory_save_failed", error=str(exc), user_id=user_id, exc_info=True)
         return None
 
 

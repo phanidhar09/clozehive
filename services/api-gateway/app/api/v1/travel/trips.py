@@ -99,7 +99,7 @@ async def _build_packing_rag_context(
         if fashion_ctx:
             parts.append(fashion_ctx)
     except Exception as exc:
-        logger.warning("fashion_context_unavailable", error=str(exc))
+        logger.warning("fashion_context_unavailable", error=str(exc), exc_info=True)
     try:
         memory_ctx = await get_packing_memory_for_prompt(
             session, str(user_id), destination, purpose, weather_summary, limit=2
@@ -107,7 +107,7 @@ async def _build_packing_rag_context(
         if memory_ctx:
             parts.append(memory_ctx)
     except Exception as exc:
-        logger.warning("packing_memory_unavailable", error=str(exc))
+        logger.warning("packing_memory_unavailable", error=str(exc), exc_info=True)
     return "\n\n".join(parts) or None
 
 
@@ -287,6 +287,7 @@ async def create_trip(
         )
         packing_plan = await svc.save_packing_plan(trip.id, UUID(user_id), packing_result)
     except Exception as exc:
+        logger.warning("trip_packing_failed", error=str(exc), exc_info=True)
         packing_error = str(exc)
 
     # Persist packing memory and detect purchase gaps (non-blocking)
@@ -323,7 +324,7 @@ async def create_trip(
                 },
             )
         except Exception as exc:
-            logger.warning("packing_memory_save_failed", error=str(exc))
+            logger.warning("packing_memory_save_failed", error=str(exc), exc_info=True)
 
     return CreateTripResponse(
         trip=svc._to_response(trip),
