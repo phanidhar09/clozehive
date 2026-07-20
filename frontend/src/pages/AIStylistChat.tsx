@@ -199,7 +199,13 @@ function AssistantBubble({
             {gaps.map((g, i) => (
               <p key={i} className="text-xs text-amber-700 dark:text-amber-300 flex gap-2">
                 <span>•</span>
-                <span><strong className="capitalize">{g.category}</strong> — {g.reason}</span>
+                <span>
+                  <strong className="capitalize">{g.item || g.category}</strong>
+                  {g.outfit_type ? (
+                    <span className="opacity-80"> for {g.outfit_type} outfits</span>
+                  ) : null}
+                  {' — '}{g.reason}
+                </span>
               </p>
             ))}
           </div>

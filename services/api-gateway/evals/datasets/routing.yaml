@@ -110,3 +110,63 @@ cases:
     expects_outfits: true
     closet_item_count: 40
     expected_tier: vision
+
+  # ── Additional SMALL cases (grown from common traffic patterns) ───────────
+  - id: short_chitchat_tiebreak
+    message: "thanks!"
+    expects_outfits: false
+    closet_item_count: 20
+    expected_tier: small
+
+  - id: fabric_difference_qa
+    message: "what's the difference between linen and cotton?"
+    expects_outfits: false
+    closet_item_count: 25
+    expected_tier: small
+
+  - id: weather_alone_no_outfit
+    # weather_required alone (0.05) must not escalate without outfit intent.
+    message: "is it going to rain?"
+    expects_outfits: false
+    weather_required: true
+    closet_item_count: 20
+    expected_tier: small
+
+  - id: ambiguous_band_stays_small
+    # evidence(0.15) + dense_constraints(0.20) = 0.35 — below escalate threshold;
+    # arbiter may flip this online, but the deterministic golden set expects small.
+    message: "I'm heading out later and could use a hand figuring this out"
+    expects_outfits: false
+    closet_item_count: 20
+    constraint_count: 3
+    expected_tier: small
+
+  # ── Additional LARGE cases ────────────────────────────────────────────────
+  - id: office_outfit
+    message: "what should I wear to the office?"
+    expects_outfits: true
+    closet_item_count: 18
+    expected_tier: large
+
+  - id: date_night_outfit
+    message: "dress me for a date tonight"
+    expects_outfits: true
+    closet_item_count: 22
+    constraint_count: 2
+    expected_tier: large
+
+  - id: outdoor_wedding_dense
+    message: "outfit for an outdoor wedding — warm day, garden venue"
+    expects_outfits: true
+    closet_item_count: 35
+    weather_required: true
+    constraint_count: 3
+    expected_tier: large
+
+  - id: meeting_with_history
+    message: "I need a look for tomorrow's client meeting"
+    expects_outfits: true
+    closet_item_count: 28
+    history_depth: 10
+    constraint_count: 2
+    expected_tier: large

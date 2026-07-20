@@ -43,6 +43,7 @@ from app.api.v1.intelligence.services.ai_stylist_chat_service import (
     _fallback_closet,
     _fallback_response,
     _fetch_image_lookup,
+    _insufficient_context_response,
     _rag_load_closet,
     _resolve_weather,
 )
@@ -51,7 +52,11 @@ from app.api.v1.intelligence.services.fashion_rules import build_fashion_rules_p
 from app.api.v1.intelligence.services.model_router import RouteSignals
 from app.api.v1.wardrobe.services.outfit_history_service import get_outfit_history_for_prompt
 from app.core import cache_service, semantic_cache
-from app.core.ai_output_validator import score_response_quality, validate_chat_response
+from app.core.ai_output_validator import (
+    check_context_sufficiency,
+    score_response_quality,
+    validate_chat_response,
+)
 from app.core.analytics import LLMTelemetry
 from app.core.claim_grounding import (
     GroundingContext,
@@ -384,6 +389,27 @@ async def stream_chat_message(
             yield {"type": "token", "content": str(cached_response.get("reply") or ""), "cache": "HIT"}
             yield {"type": "structured", "cached": True, "corrected": False, **cached_response}
             return
+
+    # ── Context-sufficiency gate (parity with the non-streaming path) ───────
+    # Skip generation when the wardrobe is empty or a packing ask has no
+    # destination — emit a hedge payload instead of letting the model invent.
+    is_sufficient, insufficiency_reason = check_context_sufficiency(
+        closet_items,
+        [],
+        message,
+        wardrobe_item_count=len(valid_ids),
+    )
+    if not is_sufficient:
+        logger.info("context_insufficient", reason=insufficiency_reason, user_id=str(user_id))
+        payload = _insufficient_context_response(insufficiency_reason)
+        yield {"type": "token", "content": str(payload.get("reply") or "")}
+        yield {
+            "type": "structured",
+            "corrected": False,
+            "context_insufficient": True,
+            **payload,
+        }
+        return
 
     weather_cond = (weather.get("condition") or "mild") if weather else "mild"
     fashion_rules_block = build_fashion_rules_prompt_block(

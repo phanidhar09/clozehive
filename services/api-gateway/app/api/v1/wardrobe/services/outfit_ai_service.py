@@ -14,10 +14,29 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from app.api.v1.intelligence.services import ai_service
+from app.api.v1.intelligence.services import ai_service, model_router
+from app.api.v1.intelligence.services.model_router import Task
+from app.core.analytics import LLMTelemetry
 from app.core.logging import get_logger
 
 logger = get_logger("outfit_ai_service")
+
+
+async def _routed_chat(task: Task, payload: str, system_prompt: str) -> str:
+    """Call the stylist through the shared task→tier catalog."""
+    decision = model_router.for_task(task)
+    return await ai_service.chat(
+        [{"role": "user", "content": payload}],
+        system_prompt,
+        model=decision.model,
+        max_tokens=decision.max_tokens,
+        temperature=decision.temperature,
+        telemetry=LLMTelemetry(
+            operation=task.value,
+            tier=decision.tier.value,
+            route_reasons=decision.reasons,
+        ),
+    )
 
 # ── System prompts ─────────────────────────────────────────────────────────────
 
@@ -164,8 +183,10 @@ Also flag here when a "worn" or "fair" condition item is styled for a formal, bu
 (e.g. "The worn linen blazer looks under-dressed for this formal occasion"); condition is not an issue for \
 casual/sport/beach. Keep language neutral and about the garment, never the user.
 5. styling_tips: 3–5 practical tips for wearing THIS exact combination (tuck, belt, layer, accessorise what is selected).
-6. missing_pieces: category names for slots still empty on the canvas (e.g. "footwear", "outerwear") — \
-categories only, never specific item names from the wider closet.
+6. missing_pieces: particular garments still needed to complete THIS occasion's look \
+(e.g. "black leather belt", "navy blazer", "white leather sneakers") — name a concrete \
+shopping item tied to the occasion, not bare slots like "tops" or "versatile". Never name \
+specific items from the wider closet; invent a purchase suggestion for the empty slot.
 7. confidence: 0.0–1.0 — how certain the AI is about the scoring.
 8. fit_confidence: integer 0–100 — confidence that silhouettes and sizes work for this user's profile.
 9. occasion_match, style_match: one of "High", "Medium", "Low".
@@ -205,7 +226,7 @@ EXACT RESPONSE SCHEMA:
     "why_it_works": "Short punchy sentence.",
     "what_to_improve": ["Quick win 1", "Quick win 2"]
   },
-  "missing_pieces": ["outerwear", "belt"],
+  "missing_pieces": ["navy blazer", "black leather belt"],
   "style_tips": ["General tip 1", "General tip 2"]
 }"""
 
@@ -468,10 +489,7 @@ async def generate_outfits(
     system_prompt = _GENERATE_SYSTEM_PROMPT + _location_prompt_suffix(location_context)
 
     try:
-        raw = await ai_service.chat(
-            [{"role": "user", "content": payload}],
-            system_prompt,
-        )
+        raw = await _routed_chat(Task.OUTFIT_GENERATE, payload, system_prompt)
         data = json.loads(_clean_json(raw))
         if isinstance(data, dict) and "outfits" in data:
             return data
@@ -516,10 +534,7 @@ async def analyze_outfit(
     system_prompt = _ANALYZE_SYSTEM_PROMPT + _location_prompt_suffix(location_context)
 
     try:
-        raw = await ai_service.chat(
-            [{"role": "user", "content": payload}],
-            system_prompt,
-        )
+        raw = await _routed_chat(Task.OUTFIT_ANALYZE, payload, system_prompt)
         data = json.loads(_clean_json(raw))
         if isinstance(data, dict) and "outfit" in data:
             return _normalize_analyze_output(data)
@@ -610,10 +625,7 @@ async def shuffle_outfit(
     )
 
     try:
-        raw = await ai_service.chat(
-            [{"role": "user", "content": payload}],
-            system_prompt,
-        )
+        raw = await _routed_chat(Task.OUTFIT_SHUFFLE, payload, system_prompt)
         data = json.loads(_clean_json(raw))
         alternatives = data.get("alternatives")
         if isinstance(alternatives, list):
@@ -654,10 +666,7 @@ async def suggest_pairings_from_closet(
     )
 
     try:
-        raw = await ai_service.chat(
-            [{"role": "user", "content": payload}],
-            _SUGGEST_PAIRINGS_PROMPT,
-        )
+        raw = await _routed_chat(Task.OUTFIT_SUGGEST_PAIRINGS, payload, _SUGGEST_PAIRINGS_PROMPT)
         data = json.loads(_clean_json(raw))
         pairings = data.get("suggested_pairings")
         if isinstance(pairings, list):

@@ -97,7 +97,9 @@ STRICT RULES FOR OUTFIT RECOMMENDATIONS:
 4. For every outfit, explain WHY it works in "reasoning" — reference the user's body type, colors, and style preferences where relevant.
 5. List 1–3 actionable "improvement_tips" — reference specific closet items where possible.
 6. List "fashion_rules_used" as short strings (e.g. "color harmony", "60-30-10 rule").
-7. If wardrobe has <3 suitable items, fill "purchase_gaps" with what is missing.
+7. If wardrobe has <3 suitable items, fill "purchase_gaps" with particular items to buy \
+(not generic "versatile" pieces) and name the outfit type each gap unlocks \
+(e.g. work, formal dinner, weekend casual).
 8. SILHOUETTE / PROPORTION (use each item's fit= field): balance volume with fit. Pair a relaxed/oversized piece with a slim/fitted one (e.g. an oversized top over slim jeans is a classic balanced look). AVOID pairing a relaxed/oversized top WITH a baggy/wide bottom — volume-on-volume reads shapeless. Head-to-toe slim is clean but can read severe; vary it when you can. When fit= is "?" (unknown), don't assume — judge proportion from the item name/category instead.
 9. WOMEN / FEMININE SILHOUETTES (apply when the user's gender is female or they want a feminine look): the organising principle is WAIST DEFINITION, not just volume balance. A marked waist — a tuck/half-tuck, a belt, a high-rise bottom, or a fit-and-flare cut — is what makes a look read as intentional rather than frumpy. Canonical balanced pairings: a fitted or tucked top with an A-line, full, pleated, or wide/flowy skirt; a fitted bodice with a flared bottom; high-rise bottoms to elongate the legs. IMPORTANT NUANCE: volume-on-volume CAN work for women when the waist is defined (e.g. an oversized knit belted over a full midi skirt, or a billowy blouse tucked into wide-leg trousers) — do NOT reject it outright if a belt or tuck marks the waist; suggest the belt/tuck instead. DRESSES (onepiece): pair a fitted/bodycon dress with a structured or cropped layer; pair a flowy/voluminous dress with a fitted layer or a belt to define the waist. When recommending, name the waist-defining move (e.g. "tuck the front", "add a thin belt") in the reasoning.
 
@@ -139,7 +141,12 @@ RESPONSE SCHEMA — always return valid JSON, no markdown fences, no prose outsi
     }}
   ],
   "purchase_gaps": [
-    {{"category": "shoes", "reason": "No formal footwear in wardrobe for dinner."}}
+    {{
+      "category": "shoes",
+      "item": "black leather oxfords",
+      "outfit_type": "formal dinner",
+      "reason": "No formal footwear for dinner outfits — black leather oxfords would complete the look."
+    }}
   ],
   "follow_up_questions": [
     "Would you like a more casual alternative?",
@@ -612,12 +619,17 @@ async def process_chat_message(
     )
 
     # ── Context-sufficiency gate ──────────────────────────────────────────────
-    # Check before spending tokens on the LLM call
-    is_sufficient, insufficiency_reason = check_context_sufficiency(closet_items, [], message)
+    # Check before spending tokens on the LLM call. Use the full wardrobe size
+    # (valid_ids), not the RAG subset — an empty retrieval set is not an empty closet.
+    is_sufficient, insufficiency_reason = check_context_sufficiency(
+        closet_items,
+        [],
+        message,
+        wardrobe_item_count=len(valid_ids),
+    )
     if not is_sufficient:
         logger.info("context_insufficient", reason=insufficiency_reason, user_id=str(user_id))
-        if not closet_items:
-            return _empty_wardrobe_response()
+        return _insufficient_context_response(insufficiency_reason)
 
     # ── Step 3: Build fashion rules hint ─────────────────────────────────────
     weather_cond = (weather.get("condition") or "mild") if weather else "mild"
@@ -898,5 +910,45 @@ def _empty_wardrobe_response() -> dict[str, Any]:
         "follow_up_questions": [
             "Once you've added items, what occasion would you like to dress for?",
             "Do you have a specific event coming up I can help with?",
+        ],
+    }
+
+
+def _packing_needs_destination_response() -> dict[str, Any]:
+    """Returned when a packing ask has no destination — ask before inventing a plan."""
+    return {
+        "reply": (
+            "I'd love to help you pack — which destination are you travelling to? "
+            "Once I know the city (and ideally the dates), I can pull the weather and "
+            "build a day-by-day capsule from clothes you already own."
+        ),
+        "recommended_outfits": [],
+        "styling_suggestions": [],
+        "purchase_gaps": [],
+        "follow_up_questions": [
+            "Where are you headed?",
+            "What dates will you be travelling?",
+        ],
+    }
+
+
+def _insufficient_context_response(reason: str) -> dict[str, Any]:
+    """Map a sufficiency failure reason to a grounded hedge payload (no LLM call)."""
+    low = (reason or "").lower()
+    if "destination" in low:
+        return _packing_needs_destination_response()
+    if "empty" in low:
+        return _empty_wardrobe_response()
+    return {
+        "reply": (
+            "I don't have enough information to answer that confidently yet. "
+            "Share a bit more detail and I'll ground the advice in your wardrobe."
+        ),
+        "recommended_outfits": [],
+        "styling_suggestions": [],
+        "purchase_gaps": [],
+        "follow_up_questions": [
+            "What occasion are you dressing for?",
+            "Is there a destination or date I should factor in?",
         ],
     }

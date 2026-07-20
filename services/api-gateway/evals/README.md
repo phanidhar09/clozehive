@@ -8,7 +8,7 @@ network, no LLM, and no database — a full run costs nothing.
 
 | Suite | Scores | Tunes |
 |-------|--------|-------|
-| `routing` | `model_router.route()` tier vs. an expected tier | `_ESCALATE_THRESHOLD` and the signal weights in `model_router.py` |
+| `routing` | `model_router.route()` tier vs. an expected tier | `_ESCALATE_THRESHOLD`, signal weights, and arbiter timeout (`MODEL_ROUTER_ARBITER_TIMEOUT_MS`) in `model_router.py` / config |
 | `grounding` | `validate_chat_response()` + `score_response_quality()` — item removal, empty-outfit drop, hallucination_risk, hard fallback | the validator + the streaming/non-streaming grounding gates |
 
 ## Run it

@@ -8,17 +8,13 @@ Run with:
 
 from __future__ import annotations
 
-import pytest
-
 from app.core.ai_output_validator import (
-    ValidationResult,
     check_context_sufficiency,
     format_rag_citations,
     score_response_quality,
     validate_chat_response,
 )
 from app.core.llm_safety import sanitize_user_text
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -185,6 +181,19 @@ class TestCheckContextSufficiency:
 
     def test_empty_closet_insufficient(self):
         ok, reason = check_context_sufficiency([], [], "What should I wear?")
+        assert not ok
+        assert "empty" in reason.lower()
+
+    def test_rag_empty_but_wardrobe_count_sufficient(self):
+        """RAG subset can be empty while the full closet still has items."""
+        ok, reason = check_context_sufficiency([], [], "What should I wear?", wardrobe_item_count=5)
+        assert ok
+        assert reason == ""
+
+    def test_wardrobe_count_zero_overrides_rag_hits(self):
+        ok, reason = check_context_sufficiency(
+            self.CLOSET, [], "What should I wear?", wardrobe_item_count=0
+        )
         assert not ok
         assert "empty" in reason.lower()
 

@@ -16,6 +16,8 @@ import { shoppingCheckApi, type ShoppingCheckResult, type ShoppingHistoryEntry,
   type BuiltOutfit, type GapSuggestion } from '@/lib/api'
 import { resolveUploadUrl } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { toastStore } from '@/store/notificationStore'
+import { useApp } from '@/store'
 
 const HISTORY_KEY = 'shopping:history'
 
@@ -341,29 +343,93 @@ function OutfitBuilderSection({
 
 function DecisionRow({ checkId }: { checkId: string }) {
   const navigate = useNavigate()
+  const { fetchClosetItems } = useApp()
   const [decision, setDecision] = useState<'bought' | 'skipped' | null>(null)
-  const [saving, setSaving] = useState<'idle' | 'loading' | 'done'>('idle')
+  const [saving, setSaving] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
   const [busy, setBusy] = useState(false)
 
+  const refreshCloset = () => {
+    void fetchClosetItems()
+  }
+
   const decide = async (bought: boolean) => {
-    if (busy) return
+    if (busy || decision !== null) return
     setBusy(true)
+    if (bought) setSaving('loading')
     try {
-      await shoppingCheckApi.recordDecision(checkId, bought)
+      const result = await shoppingCheckApi.recordDecision(checkId, bought)
       setDecision(bought ? 'bought' : 'skipped')
+      if (bought) {
+        let closetItem = result.closet_item
+        // Fallback: decision logged but closet insert didn't return an item.
+        if (!closetItem?.id) {
+          try {
+            const saved = await shoppingCheckApi.addToCloset(checkId)
+            closetItem = saved.closet_item
+          } catch {
+            closetItem = undefined
+          }
+        }
+        if (closetItem?.id) {
+          setSaving('done')
+          invalidateQuery(HISTORY_KEY)
+          refreshCloset()
+          const itemName = String(closetItem.name || 'Item')
+          toastStore.add({
+            variant: 'success',
+            icon: '👕',
+            title: 'Added to your closet',
+            body: `"${itemName}" is saved — open Closet (try Bottoms / Other if filtered).`,
+          })
+        } else {
+          setSaving('error')
+          toastStore.add({
+            variant: 'error',
+            icon: '👕',
+            title: 'Could not save to closet',
+            body: 'Decision logged — try Save to add it manually.',
+          })
+        }
+      } else {
+        invalidateQuery(HISTORY_KEY)
+      }
+    } catch {
+      if (bought) setSaving('idle')
+      toastStore.add({
+        variant: 'error',
+        icon: '❌',
+        title: 'Could not record decision',
+        body: 'Please try again.',
+      })
     } finally {
       setBusy(false)
     }
   }
 
   const save = async () => {
-    if (saving !== 'idle') return
+    if (saving === 'loading' || saving === 'done') return
     setSaving('loading')
     try {
-      await shoppingCheckApi.addToCloset(checkId)
+      const saved = await shoppingCheckApi.addToCloset(checkId)
       setSaving('done')
+      invalidateQuery(HISTORY_KEY)
+      refreshCloset()
+      toastStore.add({
+        variant: 'success',
+        icon: '👕',
+        title: 'Added to your closet',
+        body: saved.closet_item?.name
+          ? `"${String(saved.closet_item.name)}" is in your Closet.`
+          : undefined,
+      })
     } catch {
-      setSaving('idle')
+      setSaving('error')
+      toastStore.add({
+        variant: 'error',
+        icon: '👕',
+        title: 'Could not save to closet',
+        body: 'Please try again.',
+      })
     }
   }
 
@@ -374,7 +440,7 @@ function DecisionRow({ checkId }: { checkId: string }) {
       <div>
         <h3 className="text-sm font-semibold text-slate-800 dark:text-white">Making the call?</h3>
         <p className="text-xs text-slate-500 dark:text-white/50 mt-0.5">
-          Tell FANI what you decided — it sharpens future recommendations.
+          “I bought it” adds the item to your closet and sharpens future recommendations.
         </p>
       </div>
 
@@ -384,7 +450,13 @@ function DecisionRow({ checkId }: { checkId: string }) {
           decision === 'bought' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-500 dark:text-white/55',
         )}>
           {decision === 'bought' ? <CheckCircle size={15} /> : <XCircle size={15} />}
-          {decision === 'bought' ? 'Logged as bought — nice pick!' : 'Logged as skipped — your closet thanks you.'}
+          {decision === 'bought'
+            ? (saving === 'done'
+              ? 'Bought and saved to your closet!'
+              : saving === 'error'
+                ? 'Logged as bought — closet save failed.'
+                : 'Logging purchase…')
+            : 'Logged as skipped — your closet thanks you.'}
         </div>
       )}
 
@@ -395,7 +467,9 @@ function DecisionRow({ checkId }: { checkId: string }) {
           className={cn(btn,
             'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-700/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/40')}
         >
-          {busy && decision === null ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+          {(busy || saving === 'loading') && decision !== 'skipped'
+            ? <Loader2 size={14} className="animate-spin" />
+            : <Check size={14} />}
           I bought it
         </button>
         <button
@@ -416,7 +490,7 @@ function DecisionRow({ checkId }: { checkId: string }) {
           {saving === 'loading'
             ? <Loader2 size={14} className="animate-spin" />
             : saving === 'done' ? <Shirt size={14} /> : <Bookmark size={14} />}
-          {saving === 'done' ? 'In closet' : 'Save'}
+          {saving === 'done' ? 'View closet' : 'Save'}
         </button>
       </div>
     </GlassCard>

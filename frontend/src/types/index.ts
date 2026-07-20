@@ -780,6 +780,10 @@ export interface RecommendedOutfit {
 export interface PurchaseGapHint {
   category: string
   reason: string
+  /** Particular item to buy (preferred over bare category). */
+  item?: string | null
+  /** Outfit type this gap unlocks (e.g. work, formal dinner). */
+  outfit_type?: string | null
 }
 
 export interface StylingHint {

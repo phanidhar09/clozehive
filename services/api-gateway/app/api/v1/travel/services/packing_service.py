@@ -8,51 +8,33 @@ bag size constraints, weather, user style profile, and real closet items.
 from __future__ import annotations
 
 import json
-import time
 from collections import defaultdict
 from datetime import date, timedelta
 from typing import Any
 
 from langsmith import traceable
-from openai import AsyncOpenAI
 
-from app.api.v1.intelligence.services import festival_discovery
+from app.api.v1.intelligence.services import ai_service, festival_discovery, model_router
+from app.api.v1.intelligence.services.model_router import Task
 from app.api.v1.travel.services import venue_rules_service
 from app.api.v1.travel.services.location_intel_service import (
     build_location_context_block_async,
 )
 from app.api.v1.travel.services.weather_service import fetch_weather_async, summarise_weather
-from app.core.analytics import LLMTelemetry, capture_llm_generation
+from app.core.analytics import LLMTelemetry
 from app.core.config import get_settings
 from app.core.constraint_priority import build_constraint_priority_block
-from app.core.llm_pricing import cost_usd
 from app.core.llm_safety import sanitize_user_text
 from app.core.logging import get_logger
-from app.core.metrics import record_ai_cost, record_ai_tokens
-from app.core.openai_tracing import make_openai_client, wrap_openai_client
 
 logger = get_logger("packing_service")
 settings = get_settings()
 
-_packing_llm: AsyncOpenAI | None = None
-
-
-def _packing_openai_client() -> AsyncOpenAI | None:
-    global _packing_llm
-    if not settings.openai_api_key:
-        return None
-    if _packing_llm is None:
-        _packing_llm = wrap_openai_client(
-            make_openai_client(settings.openai_api_key, base_url=settings.openai_api_base_url),
-        )
-    return _packing_llm
-
-
-def _packing_chat_model() -> str:
-    return settings.openai_model
-
-
-# ── Category aliases ──────────────────────────────────────────────────────────
+_PACKING_SYSTEM_PROMPT = (
+    "You are FANI, ClozeHive's travel packing planner. "
+    "Respond with valid JSON only that matches the schema in the user message. "
+    "Ground every closet item in the provided wardrobe ids — never invent items."
+)
 
 _CATEGORY_ALIASES: dict[str, list[str]] = {
     "tops": ["shirt", "top", "tee", "blouse", "sweater", "hoodie", "knitwear", "polo"],
@@ -556,45 +538,6 @@ def _packing_max_tokens(planned_days: int) -> int:
     return max(_PACKING_TOKENS_FLOOR, min(_PACKING_OUTPUT_TOKEN_CAP, budget))
 
 
-def _record_packing_generation(
-    resp: Any,
-    elapsed: float,
-    user_id: str | None,
-    *,
-    is_error: bool = False,
-) -> None:
-    """Record token/cost metrics (Prometheus) + a PostHog $ai_generation event.
-
-    The rich call is non-streaming, so ``resp.usage`` carries exact counts. A
-    truncated ("length") response still consumed tokens, so we capture it too,
-    flagged ``is_error``. Never raises into the packing path.
-    """
-    try:
-        usage = getattr(resp, "usage", None)
-        if usage is None:
-            return
-        model = _packing_chat_model()
-        prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
-        completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
-        input_cost, output_cost, _ = cost_usd(model, prompt_tokens, completion_tokens)
-        record_ai_tokens(model, prompt=prompt_tokens, completion=completion_tokens)
-        record_ai_cost(model, input_cost + output_cost)
-        capture_llm_generation(
-            model=model,
-            provider="openai",
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            input_cost_usd=input_cost,
-            output_cost_usd=output_cost,
-            latency_seconds=elapsed,
-            token_source="api",
-            telemetry=LLMTelemetry(operation="packing", user_id=user_id),
-            is_error=is_error,
-        )
-    except Exception as exc:  # noqa: BLE001 — telemetry must never break packing
-        logger.debug("packing_generation_telemetry_failed", error=str(exc))
-
-
 async def _ai_activity_aware_packing(
     destination: str,
     start_date: str,
@@ -617,8 +560,7 @@ async def _ai_activity_aware_packing(
     Core AI call — generates a full activity-aware day-by-day outfit planner.
     Returns parsed dict or None if AI unavailable.
     """
-    client = _packing_openai_client()
-    if not client:
+    if not settings.openai_api_key:
         return None
 
     bag = _get_bag_constraints(bag_size)
@@ -788,36 +730,42 @@ Return ONLY valid JSON with this structure:
 }}"""
 
     try:
-        start = time.perf_counter()
-        resp = await client.chat.completions.create(
-            model=_packing_chat_model(),
+        decision = model_router.for_task(
+            Task.PACKING_PLAN,
             max_tokens=_packing_max_tokens(planned_days),
             # Low temperature: outfit planning rewards consistent, grounded
             # choices over creative variety, and reduces id hallucination.
             temperature=0.3,
-            response_format={"type": "json_object"},
-            messages=[{"role": "user", "content": prompt}],
-            timeout=45.0,
         )
-        elapsed = time.perf_counter() - start
-        choice = resp.choices[0]
-        # A "length" finish means the JSON hit the token ceiling and is
-        # truncated — json.loads would fail and we'd fall back to the rule-based
-        # plan. Surface it distinctly so the truncation isn't invisible.
-        truncated = getattr(choice, "finish_reason", None) == "length"
-        # Capture token/cost telemetry either way — a truncated call still billed.
-        _record_packing_generation(resp, elapsed, user_id, is_error=truncated)
-        if truncated:
+        raw = await ai_service.chat(
+            [{"role": "user", "content": prompt}],
+            _PACKING_SYSTEM_PROMPT,
+            use_json_mode=True,
+            model=decision.model,
+            max_tokens=decision.max_tokens,
+            temperature=decision.temperature,
+            telemetry=LLMTelemetry(
+                operation=Task.PACKING_PLAN.value,
+                user_id=user_id,
+                tier=decision.tier.value,
+                route_reasons=decision.reasons,
+            ),
+        )
+        # Truncation used to be detected via finish_reason=length on the direct
+        # client call. Through ai_service we only see the assembled text — bad
+        # JSON (including truncated payloads) falls through to the rule-based plan.
+        try:
+            return json.loads(raw) if isinstance(raw, str) else raw
+        except json.JSONDecodeError:
             logger.warning(
-                "packing_ai_truncated",
+                "packing_ai_unparseable",
                 destination=destination,
                 trip_days=trip_days,
                 planned_days=planned_days,
-                max_tokens=_packing_max_tokens(planned_days),
+                max_tokens=decision.max_tokens,
+                raw_chars=len(raw or ""),
             )
             return None
-        content = choice.message.content
-        return json.loads(content) if isinstance(content, str) else content
     except Exception as exc:
         logger.warning("ai_activity_packing_error", error=str(exc))
         return None

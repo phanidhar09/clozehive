@@ -31,7 +31,7 @@ import socket
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from typing import Any
-from urllib.parse import quote, urljoin, urlparse
+from urllib.parse import quote, unquote, urljoin, urlparse
 
 import httpx
 
@@ -439,22 +439,160 @@ def looks_like_url(value: str) -> bool:
 
 # Trailing product-id chunks in a slug we don't want in the readable name.
 _SLUG_ID_RE = re.compile(r"\b\d{5,}\b")
+_PURE_ID_RE = re.compile(r"^\d{3,}$")
+
+# Marketplace / PDP path noise — Myntra ends product URLs with /{id}/buy.
+_URL_JUNK_SEGMENTS = frozenset(
+    {
+        "p",
+        "shop",
+        "us",
+        "uk",
+        "en",
+        "product",
+        "products",
+        "buy",
+        "cart",
+        "checkout",
+        "pdp",
+        "dp",
+        "gp",
+        "item",
+        "items",
+        "detail",
+        "details",
+        "view",
+        "index",
+        "html",
+        "www",
+        "m",
+        "mobile",
+    }
+)
+
+# Single-token titles that are page chrome, not garment names.
+_USELESS_PRODUCT_LABELS = frozenset(
+    {
+        "buy",
+        "shop",
+        "cart",
+        "product",
+        "products",
+        "item",
+        "sale",
+        "new",
+        "home",
+        "unknown",
+        "untitled",
+        "n/a",
+        "na",
+        "none",
+    }
+)
+
+# Path tokens → closet category (used when vision returns "other").
+_URL_CATEGORY_HINTS: dict[str, str] = {
+    "jeans": "bottoms",
+    "trousers": "bottoms",
+    "pants": "bottoms",
+    "chinos": "bottoms",
+    "shorts": "bottoms",
+    "skirt": "bottoms",
+    "skirts": "bottoms",
+    "leggings": "bottoms",
+    "shirt": "tops",
+    "shirts": "tops",
+    "tshirt": "tops",
+    "t-shirt": "tops",
+    "tee": "tops",
+    "tees": "tops",
+    "top": "tops",
+    "tops": "tops",
+    "blouse": "tops",
+    "sweater": "tops",
+    "hoodie": "tops",
+    "polo": "tops",
+    "jacket": "outerwear",
+    "jackets": "outerwear",
+    "coat": "outerwear",
+    "coats": "outerwear",
+    "blazer": "outerwear",
+    "outerwear": "outerwear",
+    "shoe": "shoes",
+    "shoes": "shoes",
+    "sneakers": "shoes",
+    "boots": "shoes",
+    "sandals": "shoes",
+    "heels": "shoes",
+    "loafers": "shoes",
+    "dress": "dresses",
+    "dresses": "dresses",
+    "gown": "dresses",
+    "jumpsuit": "dresses",
+    "bag": "accessories",
+    "bags": "accessories",
+    "belt": "accessories",
+    "watch": "accessories",
+    "scarf": "accessories",
+}
+
+
+def is_useless_product_label(value: str | None) -> bool:
+    """True for chrome labels like \"Buy\" that must not become closet names."""
+    if value is None:
+        return True
+    cleaned = re.sub(r"\s+", " ", str(value)).strip().lower()
+    if not cleaned:
+        return True
+    if cleaned in _USELESS_PRODUCT_LABELS:
+        return True
+    # Page titles that are just a CTA word + punctuation.
+    return cleaned.strip("!.:-_|") in _USELESS_PRODUCT_LABELS
+
+
+def _path_segments(url: str) -> list[str]:
+    try:
+        path = unquote(urlparse(url).path)
+    except ValueError:
+        return []
+    out: list[str] = []
+    for raw in path.split("/"):
+        seg = raw.strip().lower()
+        if not seg or seg in _URL_JUNK_SEGMENTS:
+            continue
+        if _PURE_ID_RE.fullmatch(seg):
+            continue
+        out.append(seg)
+    return out
 
 
 def product_name_hint_from_url(url: str) -> str | None:
     """Best-effort readable product name from a URL slug — the cheap signal that
     survives even when a bot-blocked page exposes no title. E.g.
     ".../p/premium-heavyweight-20-tee-58965824?..." → "premium heavyweight 20 tee".
+
+    Skips marketplace tails like ``/buy`` and numeric product ids (Myntra-style
+    ``.../stretchable-jeans/25917818/buy``).
     """
-    try:
-        path = urlparse(url).path
-    except ValueError:
-        return None
-    segments = [s for s in path.split("/") if s and s.lower() not in ("p", "shop", "us", "product", "products")]
+    segments = _path_segments(url)
     if not segments:
         return None
-    slug = segments[-1]
-    words = slug.replace("_", "-").split("-")
-    words = [w for w in words if w and not _SLUG_ID_RE.fullmatch(w)]
+
+    # Prefer the longest descriptive slug (usually the product name segment).
+    slug = max(segments, key=lambda s: len(re.sub(r"[-_]+", " ", s).split()))
+    words = [w for w in re.split(r"[-_+]+", slug) if w and not _SLUG_ID_RE.fullmatch(w)]
     name = " ".join(words).strip()
+    if is_useless_product_label(name):
+        return None
     return name or None
+
+
+def category_hint_from_url(url: str) -> str | None:
+    """Infer a closet category from path tokens (e.g. ``/jeans/...`` → bottoms)."""
+    for seg in _path_segments(url):
+        if seg in _URL_CATEGORY_HINTS:
+            return _URL_CATEGORY_HINTS[seg]
+        for token in re.split(r"[-_+]+", seg):
+            if token in _URL_CATEGORY_HINTS:
+                return _URL_CATEGORY_HINTS[token]
+    return None
