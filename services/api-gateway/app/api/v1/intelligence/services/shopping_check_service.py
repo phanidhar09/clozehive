@@ -1079,8 +1079,7 @@ async def analyze_shopping_item_from_url(
     product_meta = meta.to_dict() if meta else {"source_url": source_url}
     title_hint = product_url_mod.product_name_hint_from_url(source_url)
     if title_hint and (
-        not product_meta.get("title")
-        or product_url_mod.is_useless_product_label(product_meta.get("title"))
+        not product_meta.get("title") or product_url_mod.is_useless_product_label(product_meta.get("title"))
     ):
         product_meta["title"] = title_hint
 
@@ -1624,10 +1623,7 @@ def _closet_fields_from_analysis(
             break
 
     category_raw = analysis.get("category")
-    if source_url and (
-        not category_raw
-        or str(category_raw).strip().lower() in {"other", "unknown", "general"}
-    ):
+    if source_url and (not category_raw or str(category_raw).strip().lower() in {"other", "unknown", "general"}):
         category_raw = category_hint_from_url(str(source_url)) or category_raw
 
     brand = _clip_str(analysis.get("brand") or analysis.get("source_brand"), 100)
@@ -1689,9 +1685,7 @@ async def _closet_owned_image_copy(source_url: str | None) -> tuple[str | None, 
         image_bytes = await asyncio.to_thread(read_upload_bytes, source_url)
         content_type = _detect_image_type(image_bytes[:32]) or "image/jpeg"
         suffix = {"image/png": ".png", "image/webp": ".webp"}.get(content_type, ".jpg")
-        closet_url = await persist_upload(
-            image_bytes, content_type, f"shopping_closet{suffix}"
-        )
+        closet_url = await persist_upload(image_bytes, content_type, f"shopping_closet{suffix}")
         logger.info(
             "shopping_closet_image_copied",
             source=str(source_url)[:80],
@@ -1774,9 +1768,7 @@ async def add_shopping_item_to_closet(
 
     if existing is not None:
         needs_upgrade = False
-        if is_useless_product_label(existing.name) or (
-            existing.category == "other" and fields["category"] != "other"
-        ):
+        if is_useless_product_label(existing.name) or (existing.category == "other" and fields["category"] != "other"):
             existing.name = fields["name"]
             existing.category = fields["category"]
             if fields.get("brand"):
