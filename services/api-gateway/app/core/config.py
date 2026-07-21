@@ -327,6 +327,12 @@ class Settings(BaseSettings):
     # prompt content. Host defaults to PostHog Cloud US.
     posthog_api_key: str = ""
     posthog_host: str = "https://us.i.posthog.com"
+    # Langfuse (self-hosted, v2) — LLM tracing + evaluation scoring. Blank keys =
+    # disabled (no-op). Host points at the self-hosted langfuse-server container.
+    # Content (prompt/response) is only captured when LANGFUSE_CAPTURE_CONTENT=true.
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_host: str = "http://localhost:3100"
     # Distributed tracing (OpenTelemetry). Enable + point OTEL_EXPORTER_OTLP_ENDPOINT
     # at a collector (Tempo/Jaeger/Honeycomb). Default off = no tracing overhead.
     otel_enabled: bool = False

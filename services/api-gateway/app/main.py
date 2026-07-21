@@ -176,6 +176,11 @@ async def lifespan(app: FastAPI):
 
     init_analytics()
 
+    # Langfuse (self-hosted) LLM tracing + eval scoring. No-op if unconfigured.
+    from app.core.langfuse_client import init_langfuse
+
+    init_langfuse()
+
     if settings.sentry_dsn:
         try:
             import sentry_sdk
@@ -222,6 +227,10 @@ async def lifespan(app: FastAPI):
     from app.core.analytics import shutdown_analytics
 
     shutdown_analytics()
+
+    from app.core.langfuse_client import shutdown_langfuse
+
+    shutdown_langfuse()
 
     await db_disconnect()
     await cache_service.close()

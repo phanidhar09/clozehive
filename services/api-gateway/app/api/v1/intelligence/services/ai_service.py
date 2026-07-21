@@ -10,6 +10,7 @@ from typing import Any
 from langsmith import traceable
 from openai import APIError, RateLimitError
 
+from app.core import langfuse_client
 from app.core.analytics import LLMTelemetry, capture_llm_generation
 from app.core.config import get_settings
 from app.core.llm_pricing import cost_usd
@@ -116,6 +117,24 @@ def _record_generation(
             token_source=token_source,
             telemetry=telemetry,
             is_error=is_error,
+        )
+
+        # Langfuse (self-hosted) trace for live production monitoring. No-op when
+        # unconfigured. Returns the trace id so callers that have computed
+        # grounding/hallucination scores can attach them via record_scores().
+        langfuse_client.record_generation(
+            trace_id=(telemetry.trace_id if telemetry else None),
+            model=model,
+            provider=provider,
+            operation=(telemetry.operation if telemetry else "stylist_chat"),
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_cost_usd=input_cost + output_cost,
+            latency_seconds=elapsed,
+            tier=(telemetry.tier if telemetry else None),
+            user_id=(telemetry.user_id if telemetry else None),
+            is_error=is_error,
+            metadata={"token_source": token_source},
         )
     except Exception as exc:  # noqa: BLE001 — telemetry must never break generation
         logger.debug("record_generation_failed", error=str(exc))
