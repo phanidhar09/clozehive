@@ -37,8 +37,27 @@ _B = 0.75
 # so we only strip the highest-frequency function words that add pure noise.
 _STOPWORDS = frozenset(
     {
-        "a", "an", "the", "and", "or", "of", "to", "in", "on", "at", "for",
-        "is", "it", "with", "as", "by", "be", "are", "this", "that", "from",
+        "a",
+        "an",
+        "the",
+        "and",
+        "or",
+        "of",
+        "to",
+        "in",
+        "on",
+        "at",
+        "for",
+        "is",
+        "it",
+        "with",
+        "as",
+        "by",
+        "be",
+        "are",
+        "this",
+        "that",
+        "from",
     }
 )
 
@@ -87,9 +106,7 @@ class LexicalIndex:
             df.update(tf.keys())
         # BM25+ idf variant (+1 inside the log) keeps idf strictly non-negative,
         # so a term appearing in most documents can never drag a score negative.
-        self._idf: dict[str, float] = {
-            term: math.log(1 + (n - freq + 0.5) / (freq + 0.5)) for term, freq in df.items()
-        }
+        self._idf: dict[str, float] = {term: math.log(1 + (n - freq + 0.5) / (freq + 0.5)) for term, freq in df.items()}
 
     def search(
         self,

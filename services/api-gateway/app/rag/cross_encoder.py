@@ -90,9 +90,7 @@ async def rerank(
     if len(candidates) <= 1:
         return documents
 
-    passages = "\n".join(
-        f"[{i}] {text_of(doc)[:passage_chars].strip()}" for i, doc in enumerate(candidates)
-    )
+    passages = "\n".join(f"[{i}] {text_of(doc)[:passage_chars].strip()}" for i, doc in enumerate(candidates))
     user_prompt = f"Query: {query.strip()}\n\nPassages:\n{passages}"
 
     try:
