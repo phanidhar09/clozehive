@@ -1,0 +1,82 @@
+# Retrieval golden set — scores the BM25 lexical retriever (app/rag/lexical.py)
+# over the fashion knowledge corpus. This is the deterministic, no-network half
+# of hybrid retrieval, so it can be graded hermetically in CI while the dense
+# vector half needs live embeddings.
+#
+# Each case: a natural-language query and the corpus document title(s) that
+# SHOULD be retrieved. The scorer computes recall@k, MRR, and nDCG@k, and passes
+# when recall@k >= min_recall (default 0.5).
+#
+# Run:  python -m evals.runner --suite retrieval
+#
+# Keys: query (required), relevant (required list of titles), k (default 5),
+# category (optional filter), min_recall (default 0.5).
+#
+# Grow this from real `fashion_kb` search logs as traffic accumulates — the
+# lexical-win cases (exact fabric/brand/regional terms) are the ones dense
+# search alone tends to miss.
+
+cases:
+  - id: color_matching
+    query: "how do I match colors in an outfit"
+    relevant: ["Color Matching Fundamentals"]
+
+  - id: skin_tone
+    query: "what colors suit my skin tone"
+    relevant: ["Skin Tone Color Matching Guide"]
+
+  - id: natural_fibers_linen_wool
+    query: "linen and wool natural fibers for clothing"
+    relevant: ["Natural Fibers Guide (Cotton, Linen, Wool, Silk)"]
+
+  - id: performance_fabric
+    query: "moisture wicking polyester performance fabric"
+    relevant: ["Synthetic & Performance Fabrics Guide"]
+
+  - id: wedding_guest
+    query: "what to wear to a wedding as a guest"
+    relevant: ["Wedding Guest Outfit Guide"]
+
+  - id: business_casual
+    query: "business casual office dress code"
+    relevant: ["Business Casual Dressing Guide"]
+
+  - id: power_dressing
+    query: "power dressing for a corporate boardroom"
+    relevant: ["Business Formal and Power Dressing Guide"]
+
+  - id: denim_styling
+    query: "how to style denim jeans"
+    relevant: ["Denim Styling and Versatility Guide"]
+
+  - id: pattern_mixing
+    query: "mixing patterns stripes and florals together"
+    relevant: ["Pattern Mixing Rules"]
+
+  - id: winter_layering
+    query: "layering clothes for cold winter weather"
+    relevant: ["Winter Dressing & Layering", "Layering Principles for All Seasons"]
+
+  - id: rainy_weather
+    query: "rainy weather waterproof outfit strategies"
+    relevant: ["Rainy Weather Outfit Strategies"]
+
+  - id: capsule_wardrobe
+    query: "building a capsule wardrobe of essentials"
+    relevant: ["Capsule Wardrobe Building Rules", "Travel Capsule Wardrobe Principles"]
+
+  - id: south_asian_festive
+    query: "south asian festive ethnic wear for a festival"
+    relevant: ["South Asian Festive & Ethnic Wear Guide"]
+
+  - id: beach_resort
+    query: "beach resort vacation packing"
+    relevant: ["Beach and Resort Packing"]
+
+  - id: monochrome
+    query: "monochrome tonal all black outfit"
+    relevant: ["Monochrome and Tonal Dressing Guide"]
+
+  - id: shoe_matching
+    query: "which shoes to wear with an outfit"
+    relevant: ["Shoe Matching Rules"]

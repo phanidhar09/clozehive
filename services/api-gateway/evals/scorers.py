@@ -15,11 +15,14 @@ Two suites today:
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
 from app.api.v1.intelligence.services.model_router import RouteSignals, Tier, route
 from app.core.ai_output_validator import score_response_quality, validate_chat_response
+from app.rag.knowledge_loader import load_seed_documents
+from app.rag.lexical import build_lexical_index
 
 
 @dataclass
@@ -109,10 +112,64 @@ def score_grounding_case(case: dict[str, Any]) -> CaseResult:
     )
 
 
+# ── Retrieval suite ───────────────────────────────────────────────────────────
+
+# BM25 index over the real corpus, built once. This is the deterministic
+# (no-network) half of hybrid retrieval, so it can be graded in CI.
+_LEXICAL_INDEX = build_lexical_index(load_seed_documents())
+
+
+def _dcg(hits: list[bool]) -> float:
+    """Discounted cumulative gain for a ranked list of binary relevances."""
+    return sum((1.0 / math.log2(rank + 1)) for rank, hit in enumerate(hits, start=1) if hit)
+
+
+def score_retrieval_case(case: dict[str, Any]) -> CaseResult:
+    """Grade the lexical retriever against expected relevant titles.
+
+    Computes recall@k, MRR, and nDCG@k. Passes when recall@k >= min_recall.
+    """
+    query = str(case.get("query", ""))
+    relevant = {str(t) for t in case.get("relevant", [])}
+    k = int(case.get("k", 5))
+    category = case.get("category")
+    min_recall = float(case.get("min_recall", 0.5))
+
+    results = _LEXICAL_INDEX.search(query, limit=k, category=category)
+    retrieved = [str(r.get("title", "")) for r in results]
+    hits = [t in relevant for t in retrieved]
+
+    found = relevant & set(retrieved)
+    recall = (len(found) / len(relevant)) if relevant else 0.0
+    first_hit = next((rank for rank, hit in enumerate(hits, start=1) if hit), 0)
+    mrr = (1.0 / first_hit) if first_hit else 0.0
+    ideal = _dcg([True] * min(len(relevant), k))
+    ndcg = (_dcg(hits) / ideal) if ideal else 0.0
+
+    passed = recall >= min_recall - 1e-9
+    detail = ""
+    if not passed:
+        missing = sorted(relevant - found)
+        detail = f"recall {recall:.2f} < {min_recall:.2f}; missing {missing}; got {retrieved}"
+
+    return CaseResult(
+        case_id=str(case.get("id", "?")),
+        suite="retrieval",
+        passed=passed,
+        detail=detail,
+        metrics={
+            "recall_at_k": round(recall, 4),
+            "mrr": round(mrr, 4),
+            "ndcg_at_k": round(ndcg, 4),
+        },
+    )
+
+
 # Registry so the runner can dispatch by dataset name.
 SUITES = {
     "routing": score_routing_case,
     "grounding": score_grounding_case,
+    "retrieval": score_retrieval_case,
 }
 
 
