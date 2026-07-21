@@ -29,8 +29,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.intelligence.services import fashion_rag_service, purchase_gap_service
 from app.api.v1.travel.services import packing_memory_service
 from app.api.v1.wardrobe.services import closet_similarity_service, outfit_history_service
+from app.core.config import get_settings
 from app.core.embedding_service import generate_text_embedding
 from app.core.logging import get_logger
+from app.rag import cross_encoder
 from app.rag.query_builder import (
     build_fashion_knowledge_query,
     build_outfit_history_query,
@@ -57,6 +59,38 @@ _THRESHOLD_PACKING = 0.60
 _THRESHOLD_CLOSET_TEXT = 0.60
 _THRESHOLD_CLOSET_ITEM = 0.65
 
+
+# ── Cross-encoder passage serializers ─────────────────────────────────────────
+# The reranker judges relevance from a short text rendering of each record.
+
+
+def _history_rerank_text(rec: dict[str, Any]) -> str:
+    """Render a past-outfit record for cross-encoder scoring."""
+    parts = [rec.get("occasion") or "", rec.get("recommendation_text") or ""]
+    weather_ctx = rec.get("weather_context")
+    if isinstance(weather_ctx, dict) and weather_ctx.get("weather"):
+        parts.append(f"weather {weather_ctx['weather']}")
+    return ". ".join(p for p in parts if p) or "past outfit"
+
+
+def _item_rerank_text(item: dict[str, Any]) -> str:
+    """Render a closet item for cross-encoder scoring."""
+    parts = [item.get("name") or "", item.get("category") or "", item.get("color") or "", item.get("brand") or ""]
+    return " ".join(p for p in parts if p) or "closet item"
+
+
+def _candidate_pool(limit: int) -> int:
+    """Candidate count to fetch when the reranker will reorder them.
+
+    When the cross-encoder is on, over-fetch up to its top_n so it has a real
+    pool to reorder before we cut back to ``limit``; otherwise fetch exactly
+    ``limit`` (no wasted retrieval).
+    """
+    if not cross_encoder.is_enabled():
+        return limit
+    return max(limit, int(get_settings().rag_cross_encoder_top_n))
+
+
 # ── Outfit context ────────────────────────────────────────────────────────────
 
 
@@ -79,6 +113,7 @@ async def retrieve_outfit_context(
     Returns a dict matching OutfitContextResponse schema.
     """
     _store = store or get_vector_store()
+    pool = _candidate_pool(limit)
     query = build_fashion_knowledge_query(
         f"Occasion: {occasion}. Weather: {weather}".strip(". "),
         occasion=occasion,
@@ -100,13 +135,20 @@ async def retrieve_outfit_context(
             user_id=user_id,
             occasion=occasion,
             weather=weather,
-            limit=limit,
+            limit=pool,
         )
     else:
         fashion_docs, outfit_history = await asyncio.gather(
             fashion_task,
-            _faiss_outfit_history_search(_store, user_id=user_id, occasion=occasion, weather=weather, limit=limit),
+            _faiss_outfit_history_search(_store, user_id=user_id, occasion=occasion, weather=weather, limit=pool),
         )
+
+    # Cross-encoder precision stage over the past-outfit candidates. No-op unless
+    # enabled; degrades to the metadata-reranked order on any failure.
+    if cross_encoder.is_enabled() and outfit_history:
+        hist_query = build_outfit_history_query(occasion=occasion, weather=weather)
+        outfit_history = await cross_encoder.rerank(hist_query, outfit_history, text_of=_history_rerank_text)
+    outfit_history = outfit_history[:limit]
 
     has_context = bool(fashion_docs or outfit_history)
 
@@ -296,19 +338,26 @@ async def retrieve_similar_items(
     query_type = "none"
     query_ref: str | None = None
 
+    # Cross-encoder reranks only the natural-language text-query case — that's the
+    # only signal with a query to judge item relevance against. Item-id and image
+    # similarity are pure attribute/visual matches with no NL query, so they keep
+    # their vector+metadata order. Over-fetch a pool only when we'll rerank.
+    rerank_text = cross_encoder.is_enabled() and bool(query)
+    search_limit = _candidate_pool(limit) if rerank_text else limit
+
     if isinstance(_store, PGVectorStore):
         # Delegate to the existing closet_similarity_service (pgvector path)
         if closet_item_id:
             results = await closet_similarity_service.find_similar_by_item_id(
-                session, closet_item_id, user_id, limit=limit
+                session, closet_item_id, user_id, limit=search_limit
             )
             query_type, query_ref = "closet_item", closet_item_id
         elif query:
-            results = await closet_similarity_service.find_similar_by_text(session, query, user_id, limit=limit)
+            results = await closet_similarity_service.find_similar_by_text(session, query, user_id, limit=search_limit)
             query_type, query_ref = "text_query", query
         elif image_url:
             results = await closet_similarity_service.find_similar_by_image_url(
-                session, image_url, user_id, limit=limit
+                session, image_url, user_id, limit=search_limit
             )
             query_type, query_ref = "image_url", image_url
     else:
@@ -319,8 +368,12 @@ async def retrieve_similar_items(
             closet_item_id=closet_item_id,
             query=query,
             image_url=image_url,
-            limit=limit,
+            limit=search_limit,
         )
+
+    if rerank_text and query and results:
+        results = await cross_encoder.rerank(query, results, text_of=_item_rerank_text)
+        results = results[:limit]
 
     return {
         "query_type": query_type,
