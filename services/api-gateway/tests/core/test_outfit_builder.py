@@ -141,3 +141,53 @@ def test_suggest_complementary_pairings_returns_compatible_items():
     suggestions = ob.suggest_complementary_pairings(selected, remaining)
     assert suggestions
     assert all(s.get("id") for s in suggestions)
+
+
+# ── Soft fit-preference re-rank ───────────────────────────────────────────────
+
+
+def _fit_closet():
+    # Two interchangeable bottoms differing only in fit, so preference — not
+    # styling — decides which look ranks first.
+    return [
+        {"id": "slim-b", "name": "Slim Chinos", "category": "bottoms", "color": "charcoal",
+         "season": ["fall"], "occasion": ["casual"], "wear_count": 3, "fit": "slim"},
+        {"id": "baggy-b", "name": "Baggy Chinos", "category": "bottoms", "color": "charcoal",
+         "season": ["fall"], "occasion": ["casual"], "wear_count": 3, "fit": "oversized"},
+        {"id": "sh", "name": "White Sneakers", "category": "shoes", "color": "white",
+         "season": ["all-season"], "occasion": ["casual"], "wear_count": 5, "fit": "regular"},
+    ]
+
+
+def _anchor():
+    return {"name": "Navy Tee", "category": "tops", "primary_color": "navy",
+            "occasion_tags": ["casual"], "season_tags": ["fall"], "fit": "regular"}
+
+
+def test_fit_preference_defaults_are_a_noop():
+    # No prefs passed → identical to the un-weighted build (pure re-rank, opt-in).
+    plain = ob.build_outfits(_anchor(), _fit_closet())
+    same = ob.build_outfits(_anchor(), _fit_closet(), fit_prefs=frozenset(), fit_avoids=frozenset())
+    assert [o["score"] for o in plain["outfits"]] == [o["score"] for o in same["outfits"]]
+
+
+def test_liked_fit_ranks_ahead_of_avoided():
+    result = ob.build_outfits(
+        _anchor(), _fit_closet(),
+        fit_prefs=frozenset({"slim"}), fit_avoids=frozenset({"oversized"}),
+    )
+    top_ids = {it["id"] for it in result["outfits"][0]["items"]}
+    assert "slim-b" in top_ids
+    assert "baggy-b" not in top_ids
+
+
+def test_fit_preference_never_excludes_or_exceeds_ceiling():
+    # A soft tilt: the avoided-fit look still surfaces (never filtered), and no
+    # score is pushed above the 1.0 ceiling by a liked-fit boost.
+    result = ob.build_outfits(
+        _anchor(), _fit_closet(), max_outfits=3,
+        fit_prefs=frozenset({"slim"}), fit_avoids=frozenset({"oversized"}),
+    )
+    all_bottoms = {it["id"] for o in result["outfits"] for it in o["items"]}
+    assert "baggy-b" in all_bottoms  # avoided fit is demoted, not removed
+    assert all(o["score"] <= 1.0 for o in result["outfits"])

@@ -1,8 +1,8 @@
 """Unit tests for purchase-gap grounding of LLM ``missing_pieces``.
 
-The outfit-analysis LLM returns a free-text ``missing_pieces`` field that flows
-straight into persisted purchase gaps. These tests pin the allowlist behavior
-that grounds each value to a canonical category and drops hallucinated values.
+Grounding keeps a recognized wardrobe category while allowing particular item
+phrases (e.g. "brown suede Chelsea boots"). Invented slots with no category
+anchor are still dropped.
 
 Run with:
     cd services/api-gateway
@@ -15,7 +15,10 @@ from __future__ import annotations
 import pytest
 
 from app.api.v1.intelligence.services.purchase_gap_service import (
+    _detect_closet_gaps,
     _normalize_missing_piece,
+    _normalize_outfit_type,
+    _specific_item_for,
 )
 
 
@@ -25,11 +28,14 @@ from app.api.v1.intelligence.services.purchase_gap_service import (
         ("outerwear", "outerwear", "outerwear"),
         ("footwear", "shoes", "footwear"),
         ("belt", "accessories", "belt"),
-        ("Belt", "accessories", "belt"),  # case-insensitive
-        ("  jacket  ", "outerwear", "jacket"),  # whitespace-trimmed
-        ("a belt", "accessories", "belt"),  # leading article stripped
+        ("Belt", "accessories", "belt"),
+        ("  jacket  ", "outerwear", "jacket"),
+        ("a belt", "accessories", "belt"),
         ("the jacket", "outerwear", "jacket"),
         ("dress", "dresses", "dress"),
+        ("brown suede chelsea boots", "shoes", "brown suede chelsea boots"),
+        ("navy blazer", "outerwear", "navy blazer"),
+        ("black leather belt", "accessories", "black leather belt"),
     ],
 )
 def test_recognized_pieces_map_to_canonical_category(
@@ -45,14 +51,48 @@ def test_recognized_pieces_map_to_canonical_category(
 @pytest.mark.parametrize(
     "piece",
     [
-        "brown suede Chelsea boots",  # specific item name, not a category
-        "vintage band tee from 2003",
-        "a statement necklace with turquoise stones",
-        "unicorn cape",  # invented slot
+        "unicorn cape",
         "",
         "   ",
         "something",
+        "a statement necklace with turquoise stones",  # no grounded alias
     ],
 )
-def test_hallucinated_or_specific_pieces_are_dropped(piece: str) -> None:
+def test_ungrounded_pieces_are_dropped(piece: str) -> None:
     assert _normalize_missing_piece(piece) is None
+
+
+def test_normalize_outfit_type_rejects_versatile():
+    assert _normalize_outfit_type("versatile") is None
+    assert _normalize_outfit_type("all-season") is None
+    assert _normalize_outfit_type("Formal Dinner") == "formal dinner"
+
+
+def test_specific_item_for_occasion_not_versatile():
+    item = _specific_item_for("shoes", "formal dinner", "shoes")
+    assert "oxford" in item or "loafer" in item
+    assert "versatile" not in item.lower()
+
+
+def test_specific_item_keeps_particular_phrase():
+    assert (
+        _specific_item_for("shoes", "casual", "brown suede chelsea boots")
+        == "brown suede chelsea boots"
+    )
+
+
+def test_structural_gaps_name_item_and_outfit_type():
+    gaps = _detect_closet_gaps(
+        [{"category": "tops", "occasion": ["work"]}],
+        user_id="user",
+    )
+    shoe_gaps = [g for g in gaps if g["missing_category"] == "shoes"]
+    assert shoe_gaps, "expected a shoes structural gap"
+    gap = shoe_gaps[0]
+    attrs = gap["suggested_attributes"]
+    assert attrs["item"]
+    assert "versatile" not in attrs["item"].lower()
+    assert attrs["outfit_type"]
+    assert gap["missing_occasion"]
+    assert "outfits" in gap["reason"].lower()
+    assert "versatile" not in gap["reason"].lower()

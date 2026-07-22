@@ -289,14 +289,21 @@ def check_context_sufficiency(
     closet_items: list[dict[str, Any]],
     fashion_docs: list[dict[str, Any]],
     message: str,
+    *,
+    wardrobe_item_count: int | None = None,
 ) -> tuple[bool, str]:
     """Determine if there is sufficient context to generate a grounded response.
 
     Returns (is_sufficient, reason). When is_sufficient is False the caller
     should return a "not enough information" response rather than letting the
     LLM guess.
+
+    ``wardrobe_item_count`` is the user's full closet size (e.g. ``len(valid_ids)``).
+    Prefer it over ``len(closet_items)`` — the latter is often a RAG subset and
+    can be empty even when the wardrobe is not.
     """
-    if not closet_items:
+    count = wardrobe_item_count if wardrobe_item_count is not None else len(closet_items)
+    if count == 0:
         return False, "Wardrobe is empty — cannot build outfit recommendations."
 
     # Detect packing / trip requests without location context.

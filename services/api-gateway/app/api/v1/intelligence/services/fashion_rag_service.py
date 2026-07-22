@@ -250,7 +250,9 @@ async def _keyword_fallback(
         result = await session.execute(stmt)
         rows = result.scalars().all()
     except Exception as exc:
-        logger.warning("fashion_kb_keyword_fallback_failed", error=str(exc))
+        # exc_info: this execute autoflushes any pending rows (e.g. a lazy KB
+        # seed), so failures here can originate far away — keep the traceback.
+        logger.warning("fashion_kb_keyword_fallback_failed", error=str(exc), exc_info=True)
         return []
 
     return [

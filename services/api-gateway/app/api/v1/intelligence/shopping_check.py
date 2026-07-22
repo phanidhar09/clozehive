@@ -138,8 +138,12 @@ async def record_purchase_decision(
     body: PurchaseDecisionRequest,
     user_id: CurrentUser,
     session: DbSession,
+    background_tasks: BackgroundTasks,
 ):
-    """Record whether the user actually purchased the checked item."""
+    """Record whether the user actually purchased the checked item.
+
+    When bought=true, also creates a closet item from the check analysis.
+    """
     result = await shopping_check_service.record_purchase_decision(
         check_id=str(check_id),
         user_id=user_id,
@@ -148,6 +152,11 @@ async def record_purchase_decision(
     )
     if not result:
         raise NotFoundError("Shopping check not found")
+    closet = result.get("closet_item") if isinstance(result, dict) else None
+    if isinstance(closet, dict) and closet.get("id"):
+        from app.api.v1.wardrobe.services import similarity_service
+
+        await similarity_service.schedule_embedding_update(background_tasks, str(closet["id"]))
     return result
 
 
@@ -217,6 +226,7 @@ async def add_shopping_item_to_closet(
     check_id: UUID,
     user_id: CurrentUser,
     session: DbSession,
+    background_tasks: BackgroundTasks,
 ):
     """
     Create a closet item directly from an analysed shopping check — no
@@ -229,4 +239,8 @@ async def add_shopping_item_to_closet(
     )
     if not item:
         raise NotFoundError("Shopping check not found")
+    if item.get("id"):
+        from app.api.v1.wardrobe.services import similarity_service
+
+        await similarity_service.schedule_embedding_update(background_tasks, str(item["id"]))
     return {"closet_item": item}

@@ -1289,8 +1289,16 @@ export const shoppingCheckApi = {
     return data
   },
 
-  async recordDecision(checkId: string, bought: boolean): Promise<void> {
-    await api.patch(`/shopping/${checkId}/decision`, { bought })
+  async recordDecision(
+    checkId: string,
+    bought: boolean,
+  ): Promise<{
+    purchase_decision?: boolean
+    added_to_closet?: boolean
+    closet_item?: Record<string, unknown>
+  }> {
+    const { data } = await api.patch(`/shopping/${checkId}/decision`, { bought })
+    return data ?? {}
   },
 
   /** Fire-and-forget Shop with FANI funnel event (instrumentation). */

@@ -12,8 +12,10 @@ import json
 from datetime import date, timedelta
 from typing import Any
 
-from app.api.v1.intelligence.services import ai_service
+from app.api.v1.intelligence.services import ai_service, model_router
+from app.api.v1.intelligence.services.model_router import Task
 from app.api.v1.wardrobe.services.outfit_ai_service import _clean_json, _item_for_ai
+from app.core.analytics import LLMTelemetry
 from app.core.logging import get_logger
 
 logger = get_logger("weekly_planner_service")
@@ -193,7 +195,19 @@ async def generate_week_plan(
     )
 
     try:
-        raw = await ai_service.chat([{"role": "user", "content": payload}], _PLAN_SYSTEM_PROMPT)
+        decision = model_router.for_task(Task.PLANNER_WEEKLY)
+        raw = await ai_service.chat(
+            [{"role": "user", "content": payload}],
+            _PLAN_SYSTEM_PROMPT,
+            model=decision.model,
+            max_tokens=decision.max_tokens,
+            temperature=decision.temperature,
+            telemetry=LLMTelemetry(
+                operation=Task.PLANNER_WEEKLY.value,
+                tier=decision.tier.value,
+                route_reasons=decision.reasons,
+            ),
+        )
         plan = _validate_plan(json.loads(_clean_json(raw)), closet_items, days)
         if plan:
             return plan

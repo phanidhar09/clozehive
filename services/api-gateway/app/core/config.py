@@ -213,6 +213,9 @@ class Settings(BaseSettings):
     # When True, the model router runs a cheap LLM micro-classifier to break ties
     # for turns whose deterministic complexity score lands in the ambiguous band.
     model_router_arbiter_enabled: bool = True
+    # Hard ceiling on the arbiter call. Grey-zone turns must not add a full
+    # serial chat hop — on timeout we keep the deterministic decision.
+    model_router_arbiter_timeout_ms: int = 400
     openai_max_tokens: int = 4096
     # ── Gemini AI ─────────────────────────────────────────────────────────────
     gemini_api_key: str = ""

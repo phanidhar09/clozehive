@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from app.api.v1.intelligence.services import ai_service
+from app.api.v1.intelligence.services import ai_service, model_router
+from app.api.v1.intelligence.services.model_router import Task
+from app.core.analytics import LLMTelemetry
 from app.core.logging import get_logger
 
 logger = get_logger("outfit_service")
@@ -75,7 +77,19 @@ Silhouette: use each wardrobe item's "fit" field (slim/regular/relaxed/oversized
         default=str,
     )
     try:
-        response = await ai_service.chat([{"role": "user", "content": user_prompt}], system_prompt)
+        decision = model_router.for_task(Task.OUTFIT_GENERATE)
+        response = await ai_service.chat(
+            [{"role": "user", "content": user_prompt}],
+            system_prompt,
+            model=decision.model,
+            max_tokens=decision.max_tokens,
+            temperature=decision.temperature,
+            telemetry=LLMTelemetry(
+                operation=Task.OUTFIT_GENERATE.value,
+                tier=decision.tier.value,
+                route_reasons=decision.reasons,
+            ),
+        )
         text = response.strip()
         if text.startswith("```"):
             text = text.split("```")[1].removeprefix("json").strip()

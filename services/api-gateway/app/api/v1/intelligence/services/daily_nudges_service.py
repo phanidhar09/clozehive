@@ -23,8 +23,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.identity.repositories.user_repo import UserRepository
-from app.api.v1.intelligence.services import ai_service, festival_calendar, festival_discovery
+from app.api.v1.intelligence.services import ai_service, festival_calendar, festival_discovery, model_router
+from app.api.v1.intelligence.services.model_router import Task
 from app.api.v1.travel.services import weather_service
+from app.core.analytics import LLMTelemetry
 from app.core.logging import get_logger
 from app.models.ai_chat import DailyNudge
 from app.models.closet import ClosetItem
@@ -206,9 +208,18 @@ def _weather_is_noteworthy(weather: dict[str, Any]) -> bool:
 async def _llm_nudge(context_text: str) -> str:
     """Ask FANI to phrase the nudge. Returns "" on failure."""
     try:
+        decision = model_router.for_task(Task.NUDGES_DAILY, max_tokens=120)
         text = await ai_service.chat(
             messages=[{"role": "user", "content": context_text}],
             system_prompt=_NUDGE_SYSTEM_PROMPT,
+            model=decision.model,
+            max_tokens=decision.max_tokens,
+            temperature=decision.temperature,
+            telemetry=LLMTelemetry(
+                operation="nudges.daily",
+                tier=decision.tier.value,
+                route_reasons=decision.reasons,
+            ),
         )
         return (text or "").strip().strip('"').strip("'")
     except Exception as exc:  # noqa: BLE001

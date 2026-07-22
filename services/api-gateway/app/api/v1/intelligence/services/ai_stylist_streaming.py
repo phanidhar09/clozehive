@@ -43,6 +43,7 @@ from app.api.v1.intelligence.services.ai_stylist_chat_service import (
     _fallback_closet,
     _fallback_response,
     _fetch_image_lookup,
+    _insufficient_context_response,
     _rag_load_closet,
     _resolve_weather,
 )
@@ -51,7 +52,11 @@ from app.api.v1.intelligence.services.fashion_rules import build_fashion_rules_p
 from app.api.v1.intelligence.services.model_router import RouteSignals
 from app.api.v1.wardrobe.services.outfit_history_service import get_outfit_history_for_prompt
 from app.core import cache_service, semantic_cache
-from app.core.ai_output_validator import score_response_quality, validate_chat_response
+from app.core.ai_output_validator import (
+    check_context_sufficiency,
+    score_response_quality,
+    validate_chat_response,
+)
 from app.core.analytics import LLMTelemetry
 from app.core.claim_grounding import (
     GroundingContext,
@@ -63,6 +68,7 @@ from app.core.claim_grounding import (
 from app.core.embedding_service import generate_text_embedding
 from app.core.llm_safety import sanitize_user_text
 from app.core.logging import get_logger
+from app.db.session import run_in_read_session
 from app.models.ai_chat import AIChatSession
 from app.models.closet import ClosetItem
 from app.rag.query_builder import build_closet_rag_query
@@ -295,26 +301,35 @@ async def stream_chat_message(
     async def _no_weather() -> None:
         return None
 
+    # Each parallel DB task MUST own its session — a single AsyncSession is not
+    # safe for concurrent use, so the shared request session cannot be fanned
+    # out across asyncio.gather (see db.session.run_in_read_session).
     closet_task = asyncio.create_task(
-        _rag_load_closet(session, user_id, query_embedding, occasion=occasion)
+        run_in_read_session(lambda s: _rag_load_closet(s, user_id, query_embedding, occasion=occasion))
         if query_embedding
-        else _fallback_closet(session, user_id)
+        else run_in_read_session(lambda s: _fallback_closet(s, user_id))
     )
-    profile_task = asyncio.create_task(load_merged_user_profile_for_ai(session, user_id, None))
+    profile_task = asyncio.create_task(run_in_read_session(lambda s: load_merged_user_profile_for_ai(s, user_id, None)))
     weather_task = asyncio.create_task(
-        _resolve_weather(session, user_id, location) if (weather_required or location) else _no_weather()
+        run_in_read_session(lambda s: _resolve_weather(s, user_id, location))
+        if (weather_required or location)
+        else _no_weather()
     )
     feedback_task = asyncio.create_task(
-        get_outfit_history_for_prompt(
-            session,
-            str(user_id),
-            occasion=occasion,
-            limit=5,
-            message=message,
+        run_in_read_session(
+            lambda s: get_outfit_history_for_prompt(
+                s,
+                str(user_id),
+                occasion=occasion,
+                limit=5,
+                message=message,
+            )
         )
     )
     knowledge_task = asyncio.create_task(
-        get_fashion_context_for_prompt(session, rag_query, limit=5, occasion=occasion, weather=weather_str)
+        run_in_read_session(
+            lambda s: get_fashion_context_for_prompt(s, rag_query, limit=5, occasion=occasion, weather=weather_str)
+        )
     )
     # Live trend grounding — short-circuits to None unless the message has
     # trend intent (Phase 7; kept at parity with process_chat_message).
@@ -374,6 +389,27 @@ async def stream_chat_message(
             yield {"type": "token", "content": str(cached_response.get("reply") or ""), "cache": "HIT"}
             yield {"type": "structured", "cached": True, "corrected": False, **cached_response}
             return
+
+    # ── Context-sufficiency gate (parity with the non-streaming path) ───────
+    # Skip generation when the wardrobe is empty or a packing ask has no
+    # destination — emit a hedge payload instead of letting the model invent.
+    is_sufficient, insufficiency_reason = check_context_sufficiency(
+        closet_items,
+        [],
+        message,
+        wardrobe_item_count=len(valid_ids),
+    )
+    if not is_sufficient:
+        logger.info("context_insufficient", reason=insufficiency_reason, user_id=str(user_id))
+        payload = _insufficient_context_response(insufficiency_reason)
+        yield {"type": "token", "content": str(payload.get("reply") or "")}
+        yield {
+            "type": "structured",
+            "corrected": False,
+            "context_insufficient": True,
+            **payload,
+        }
+        return
 
     weather_cond = (weather.get("condition") or "mild") if weather else "mild"
     fashion_rules_block = build_fashion_rules_prompt_block(

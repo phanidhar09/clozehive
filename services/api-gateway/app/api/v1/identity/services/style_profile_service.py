@@ -16,11 +16,11 @@ from app.api.v1.identity.schemas.style_profile import (
     StyleProfileResponse,
     StyleProfileUpdate,
 )
+from app.core.analytics import LLMTelemetry
 from app.core.background import spawn
 from app.core.config import get_settings
 from app.core.exceptions import ConflictError
 from app.core.logging import get_logger
-from app.core.openai_tracing import make_openai_client
 from app.models.user_style_profile import UserStyleProfile
 
 logger = get_logger("style_profile_service")
@@ -198,18 +198,28 @@ async def _background_generate_style_summary(user_id: UUID, profile_data: dict) 
         )
     user_prompt = "\n".join(parts)
     try:
-        client = make_openai_client(settings.openai_api_key, base_url=settings.openai_api_base_url)
-        completion = await client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": _STYLE_PROFILE_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ],
-            max_tokens=600,
-            temperature=0.4,
-            response_format={"type": "json_object"},
-        )
-        raw = (completion.choices[0].message.content or "").strip()
+        # Lazy imports keep identity ↔ intelligence coupling off the hot path
+        # (style summary runs in a background spawn after onboarding).
+        from app.api.v1.intelligence.services import ai_service, model_router
+        from app.api.v1.intelligence.services.model_router import Task
+
+        decision = model_router.for_task(Task.STYLE_PROFILE_SUMMARY, max_tokens=600)
+        raw = (
+            await ai_service.chat(
+                messages=[{"role": "user", "content": user_prompt}],
+                system_prompt=_STYLE_PROFILE_PROMPT,
+                use_json_mode=True,
+                model=decision.model,
+                max_tokens=decision.max_tokens,
+                temperature=decision.temperature,
+                telemetry=LLMTelemetry(
+                    operation="style_profile.summary",
+                    user_id=str(user_id),
+                    tier=decision.tier.value,
+                    route_reasons=decision.reasons,
+                ),
+            )
+        ).strip()
         if not raw:
             return
         data = json.loads(raw)

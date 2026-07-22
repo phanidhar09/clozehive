@@ -1,45 +1,43 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronUp, RefreshCw, Sparkles, Sun, Thermometer } from 'lucide-react'
-import Badge from '@/components/ui/Badge'
+import { ChevronDown, ChevronUp, RefreshCw, Sparkles, Thermometer } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { RichDayPlan } from '@/types'
-import { CATEGORY_EMOJI, SOURCE_BADGE } from './constants'
+import { CARD_SHADOW, CATEGORY_EMOJI } from './constants'
 
-// ── Outfit item card (inside day plan) ────────────────────────────────────
+// ── Outfit item tile ──────────────────────────────────────────────────────
 
-function OutfitItemCard({ item }: { item: RichDayPlan['outfits'][0]['items'][0] }) {
-  const badgeCfg = SOURCE_BADGE[item.source] ?? SOURCE_BADGE.optional
+function OutfitItemTile({ item }: { item: RichDayPlan['outfits'][0]['items'][0] }) {
   const emoji = CATEGORY_EMOJI[item.category?.toLowerCase() ?? ''] ?? '👔'
+  const sourceDot =
+    item.source === 'from_closet' ? 'bg-emerald-500' :
+    item.source === 'missing_recommended' ? 'bg-highlight-400' :
+    'bg-slate-300 dark:bg-white/20'
 
   return (
-    <div className={cn(
-      'flex items-center gap-2 p-2 rounded-xl border text-xs',
-      item.source === 'from_closet'
-        ? 'bg-emerald-50/60 dark:bg-emerald-900/10 border-emerald-200/60 dark:border-emerald-700/20'
-        : item.source === 'missing_recommended'
-          ? 'bg-amber-50/60 dark:bg-amber-900/10 border-amber-200/60 dark:border-amber-700/20'
-          : 'bg-slate-50/60 dark:bg-white/[0.03] border-slate-200/60 dark:border-white/[0.06]',
-    )}>
-      {/* Thumbnail */}
-      {item.image_url ? (
-        <img
-          src={item.image_url}
-          alt={item.item_name}
-          className="w-9 h-10 object-cover rounded-lg flex-shrink-0 bg-slate-100 dark:bg-slate-800"
-          onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
-        />
-      ) : (
-        <div className="w-9 h-10 rounded-lg flex-shrink-0 bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-lg">
-          {emoji}
-        </div>
-      )}
-      <div className="flex-1 min-w-0">
-        <p className="font-semibold text-slate-800 dark:text-white truncate">{item.item_name}</p>
-        <p className="text-slate-400 capitalize truncate">{item.category}</p>
+    <div className="flex flex-col gap-1 min-w-0">
+      <div className="aspect-square rounded-xl bg-cream-100 dark:bg-white/[0.06] border border-slate-200 dark:border-white/10 flex items-center justify-center overflow-hidden">
+        {item.image_url ? (
+          <img
+            src={item.image_url}
+            alt={item.item_name}
+            className="w-full h-full object-cover"
+            onError={e => {
+              const t = e.target as HTMLImageElement
+              t.style.display = 'none'
+              t.parentElement?.insertAdjacentText('afterbegin', emoji)
+            }}
+          />
+        ) : (
+          <span className="text-2xl">{emoji}</span>
+        )}
       </div>
-      <Badge variant={badgeCfg.variant} className="flex-shrink-0 text-[9px]">
-        {badgeCfg.label}
-      </Badge>
+      <div className="text-[11px] font-medium text-slate-700 dark:text-white/80 leading-tight line-clamp-2">
+        {item.item_name}
+      </div>
+      <div className="flex items-center gap-1 text-[10px] text-slate-400 dark:text-white/30 capitalize">
+        <span className={cn('w-1.5 h-1.5 rounded-full flex-none', sourceDot)} />
+        {item.category}
+      </div>
     </div>
   )
 }
@@ -52,87 +50,85 @@ export function DayPlanCard({ day }: { day: RichDayPlan }) {
     ? new Date(day.date + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
     : `Day ${day.day_number}`
 
-  const slotColors: Record<string, string> = {
-    morning: 'bg-amber-50 dark:bg-amber-900/10 border-amber-200/60 dark:border-amber-700/20 text-amber-700 dark:text-amber-400',
-    afternoon: 'bg-sky-50 dark:bg-sky-900/10 border-sky-200/60 dark:border-sky-700/20 text-sky-700 dark:text-sky-400',
-    evening: 'bg-brand-50 dark:bg-brand-900/10 border-brand-200/60 dark:border-brand-700/20 text-brand-700 dark:text-brand-400',
-    night: 'bg-brand-50 dark:bg-brand-900/10 border-brand-200/60 dark:border-brand-700/20 text-brand-700 dark:text-brand-400',
-    full_day: 'bg-teal-50 dark:bg-teal-900/10 border-teal-200/60 dark:border-teal-700/20 text-teal-700 dark:text-teal-400',
-  }
   const slotEmoji: Record<string, string> = {
     morning: '🌅', afternoon: '☀️', evening: '🌆', night: '🌙', full_day: '🕐',
   }
 
   return (
-    <div className="rounded-2xl border border-slate-200 dark:border-white/[0.08] bg-white dark:bg-white/[0.02] overflow-hidden shadow-sm">
+    <div
+      className="rounded-2xl bg-white dark:bg-white/[0.05] border border-slate-200 dark:border-white/10 overflow-hidden"
+      style={{ boxShadow: CARD_SHADOW }}
+    >
       {/* Day header */}
       <button
         type="button"
         onClick={() => setExpanded(v => !v)}
-        className="w-full flex items-center justify-between gap-3 px-4 py-3 bg-slate-50 dark:bg-white/[0.04] border-b border-slate-200 dark:border-white/[0.06] text-left hover:bg-slate-100 dark:hover:bg-white/[0.06] transition-colors"
+        className="w-full flex items-center justify-between gap-3 px-5 py-3.5 text-left hover:bg-slate-50/60 dark:hover:bg-white/[0.03] transition-colors"
       >
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-brand-100 dark:bg-brand-900/30 flex items-center justify-center flex-shrink-0">
-            <span className="text-sm font-bold text-brand-600 dark:text-brand-400">{day.day_number}</span>
-          </div>
-          <div>
-            <p className="font-semibold text-slate-800 dark:text-white text-sm">{dateStr}</p>
-            {day.activities.length > 0 && (
-              <p className="text-xs text-slate-400 mt-0.5 truncate max-w-[200px]">
-                {day.activities.join(' · ')}
-              </p>
-            )}
-          </div>
+        <div className="flex items-center gap-2.5 min-w-0">
+          <span className="px-2.5 py-1 rounded-lg bg-brand-50 dark:bg-brand-900/40 text-brand-700 dark:text-brand-300 text-xs font-display font-bold flex-none">
+            DAY {day.day_number}
+          </span>
+          <span className="text-sm font-semibold text-slate-800 dark:text-white truncate">{dateStr}</span>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center gap-2 flex-none">
           {day.weather_note && (
-            <span className="text-xs text-slate-400 dark:text-white/30 hidden sm:block max-w-[180px] truncate">
+            <span className="text-xs text-slate-400 dark:text-white/30 hidden sm:block max-w-[160px] truncate">
               {day.weather_note}
             </span>
           )}
-          <span className="text-xs font-medium text-slate-500 bg-slate-100 dark:bg-white/[0.06] px-2 py-0.5 rounded-full">
+          <span className="text-xs font-medium text-slate-500 dark:text-white/50 bg-slate-100 dark:bg-white/[0.06] px-2 py-0.5 rounded-full">
             {day.outfits.length} outfit{day.outfits.length !== 1 ? 's' : ''}
           </span>
-          {expanded ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
+          {expanded
+            ? <ChevronUp size={14} className="text-slate-400" />
+            : <ChevronDown size={14} className="text-slate-400" />}
         </div>
       </button>
 
       {/* Day content */}
       {expanded && (
-        <div className="p-4 space-y-4">
-          {day.weather_note && (
-            <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-white/40 bg-slate-50 dark:bg-white/[0.03] rounded-xl px-3 py-2 border border-slate-100 dark:border-white/[0.06]">
-              <Sun size={12} className="text-amber-500 flex-shrink-0" />
-              {day.weather_note}
+        <div className="px-5 pb-5 space-y-4">
+          {/* Activity bullets */}
+          {day.activities.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              {day.activities.map((act, ai) => (
+                <div key={ai} className="flex items-center gap-2 text-sm text-slate-600 dark:text-white/60">
+                  <span className="w-1.5 h-1.5 rounded-full bg-brand-400 flex-none" />
+                  {act}
+                </div>
+              ))}
             </div>
           )}
 
+          {/* Outfits per slot */}
           {day.outfits.map((outfit, oi) => (
             <div key={oi} className="space-y-2.5">
-              {/* Slot header */}
-              <div className={cn(
-                'flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-semibold w-fit',
-                slotColors[outfit.slot] ?? slotColors.morning,
-              )}>
-                <span>{slotEmoji[outfit.slot] ?? '👔'}</span>
-                <span className="capitalize">{outfit.slot.replace('_', ' ')}</span>
-                {outfit.activity && outfit.activity !== 'General' && (
-                  <>
-                    <span className="opacity-50">·</span>
-                    <span>{outfit.activity}</span>
-                  </>
-                )}
+              {/* Slot + activity label */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="text-[11px] font-semibold tracking-[0.14em] text-slate-400 dark:text-white/30 uppercase flex items-center gap-1.5">
+                  <span>{slotEmoji[outfit.slot] ?? '👔'}</span>
+                  <span>{outfit.slot.replace('_', ' ')}</span>
+                  {outfit.activity && outfit.activity !== 'General' && (
+                    <>
+                      <span className="opacity-40">·</span>
+                      <span className="text-brand-600 dark:text-brand-400 normal-case tracking-normal">
+                        {outfit.activity}
+                      </span>
+                    </>
+                  )}
+                </div>
               </div>
 
               {outfit.outfit_name && (
-                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 px-0.5">{outfit.outfit_name}</p>
+                <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">{outfit.outfit_name}</p>
               )}
 
-              {/* Outfit items */}
+              {/* Outfit item grid */}
               {outfit.items.length > 0 && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {outfit.items.map((item, ii) => (
-                    <OutfitItemCard key={ii} item={item} />
+                    <OutfitItemTile key={ii} item={item} />
                   ))}
                 </div>
               )}
@@ -146,13 +142,13 @@ export function DayPlanCard({ day }: { day: RichDayPlan }) {
                   </div>
                 )}
                 {outfit.rewear_notes && (
-                  <div className="flex items-start gap-2 text-xs text-slate-500 dark:text-white/40 bg-teal-50/50 dark:bg-teal-900/10 rounded-lg px-2.5 py-1.5">
-                    <RefreshCw size={11} className="text-teal-500 flex-shrink-0 mt-0.5" />
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-brand-700 dark:text-brand-300">
+                    <RefreshCw size={11} className="flex-shrink-0" />
                     <span>{outfit.rewear_notes}</span>
                   </div>
                 )}
                 {outfit.comfort_notes && (
-                  <div className="flex items-start gap-2 text-xs text-slate-400 dark:text-white/30 px-2.5 py-1">
+                  <div className="flex items-start gap-2 text-xs text-slate-400 dark:text-white/30 px-0.5">
                     <Thermometer size={11} className="text-sky-400 flex-shrink-0 mt-0.5" />
                     <span>{outfit.comfort_notes}</span>
                   </div>

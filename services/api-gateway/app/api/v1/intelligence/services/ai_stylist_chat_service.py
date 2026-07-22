@@ -53,6 +53,7 @@ from app.core.llm_safety import (
     sanitize_user_text,
 )
 from app.core.logging import get_logger
+from app.db.session import run_in_read_session
 from app.models.ai_chat import AIChatSession
 from app.models.closet import ClosetItem
 from app.rag.query_builder import build_closet_rag_query
@@ -96,7 +97,9 @@ STRICT RULES FOR OUTFIT RECOMMENDATIONS:
 4. For every outfit, explain WHY it works in "reasoning" — reference the user's body type, colors, and style preferences where relevant.
 5. List 1–3 actionable "improvement_tips" — reference specific closet items where possible.
 6. List "fashion_rules_used" as short strings (e.g. "color harmony", "60-30-10 rule").
-7. If wardrobe has <3 suitable items, fill "purchase_gaps" with what is missing.
+7. If wardrobe has <3 suitable items, fill "purchase_gaps" with particular items to buy \
+(not generic "versatile" pieces) and name the outfit type each gap unlocks \
+(e.g. work, formal dinner, weekend casual).
 8. SILHOUETTE / PROPORTION (use each item's fit= field): balance volume with fit. Pair a relaxed/oversized piece with a slim/fitted one (e.g. an oversized top over slim jeans is a classic balanced look). AVOID pairing a relaxed/oversized top WITH a baggy/wide bottom — volume-on-volume reads shapeless. Head-to-toe slim is clean but can read severe; vary it when you can. When fit= is "?" (unknown), don't assume — judge proportion from the item name/category instead.
 9. WOMEN / FEMININE SILHOUETTES (apply when the user's gender is female or they want a feminine look): the organising principle is WAIST DEFINITION, not just volume balance. A marked waist — a tuck/half-tuck, a belt, a high-rise bottom, or a fit-and-flare cut — is what makes a look read as intentional rather than frumpy. Canonical balanced pairings: a fitted or tucked top with an A-line, full, pleated, or wide/flowy skirt; a fitted bodice with a flared bottom; high-rise bottoms to elongate the legs. IMPORTANT NUANCE: volume-on-volume CAN work for women when the waist is defined (e.g. an oversized knit belted over a full midi skirt, or a billowy blouse tucked into wide-leg trousers) — do NOT reject it outright if a belt or tuck marks the waist; suggest the belt/tuck instead. DRESSES (onepiece): pair a fitted/bodycon dress with a structured or cropped layer; pair a flowy/voluminous dress with a fitted layer or a belt to define the waist. When recommending, name the waist-defining move (e.g. "tuck the front", "add a thin belt") in the reasoning.
 
@@ -138,7 +141,12 @@ RESPONSE SCHEMA — always return valid JSON, no markdown fences, no prose outsi
     }}
   ],
   "purchase_gaps": [
-    {{"category": "shoes", "reason": "No formal footwear in wardrobe for dinner."}}
+    {{
+      "category": "shoes",
+      "item": "black leather oxfords",
+      "outfit_type": "formal dinner",
+      "reason": "No formal footwear for dinner outfits — black leather oxfords would complete the look."
+    }}
   ],
   "follow_up_questions": [
     "Would you like a more casual alternative?",
@@ -504,28 +512,37 @@ async def process_chat_message(
     async def _no_weather() -> None:
         return None
 
+    # Each parallel DB task MUST own its session — a single AsyncSession is not
+    # safe for concurrent use, so the shared request session cannot be fanned
+    # out across asyncio.gather (see db.session.run_in_read_session).
     closet_task = asyncio.create_task(
-        _rag_load_closet(session, user_id, query_embedding, occasion=occasion)
+        run_in_read_session(lambda s: _rag_load_closet(s, user_id, query_embedding, occasion=occasion))
         if query_embedding
-        else _fallback_closet(session, user_id)
+        else run_in_read_session(lambda s: _fallback_closet(s, user_id))
     )
-    profile_task = asyncio.create_task(load_merged_user_profile_for_ai(session, user_id, None))
+    profile_task = asyncio.create_task(run_in_read_session(lambda s: load_merged_user_profile_for_ai(s, user_id, None)))
     weather_task = asyncio.create_task(
-        _resolve_weather(session, user_id, location) if (weather_required or location) else _no_weather()
+        run_in_read_session(lambda s: _resolve_weather(s, user_id, location))
+        if (weather_required or location)
+        else _no_weather()
     )
     # RAG: similar past outfits via pgvector (uses its own embedding internally)
     feedback_task = asyncio.create_task(
-        get_outfit_history_for_prompt(
-            session,
-            str(user_id),
-            occasion=occasion,
-            limit=5,
-            message=message,
+        run_in_read_session(
+            lambda s: get_outfit_history_for_prompt(
+                s,
+                str(user_id),
+                occasion=occasion,
+                limit=5,
+                message=message,
+            )
         )
     )
     # RAG: fashion knowledge base
     knowledge_task = asyncio.create_task(
-        get_fashion_context_for_prompt(session, rag_query, limit=5, occasion=occasion, weather=weather_str)
+        run_in_read_session(
+            lambda s: get_fashion_context_for_prompt(s, rag_query, limit=5, occasion=occasion, weather=weather_str)
+        )
     )
 
     # Live trend grounding — short-circuits to None unless the message has
@@ -602,12 +619,17 @@ async def process_chat_message(
     )
 
     # ── Context-sufficiency gate ──────────────────────────────────────────────
-    # Check before spending tokens on the LLM call
-    is_sufficient, insufficiency_reason = check_context_sufficiency(closet_items, [], message)
+    # Check before spending tokens on the LLM call. Use the full wardrobe size
+    # (valid_ids), not the RAG subset — an empty retrieval set is not an empty closet.
+    is_sufficient, insufficiency_reason = check_context_sufficiency(
+        closet_items,
+        [],
+        message,
+        wardrobe_item_count=len(valid_ids),
+    )
     if not is_sufficient:
         logger.info("context_insufficient", reason=insufficiency_reason, user_id=str(user_id))
-        if not closet_items:
-            return _empty_wardrobe_response()
+        return _insufficient_context_response(insufficiency_reason)
 
     # ── Step 3: Build fashion rules hint ─────────────────────────────────────
     weather_cond = (weather.get("condition") or "mild") if weather else "mild"
@@ -888,5 +910,45 @@ def _empty_wardrobe_response() -> dict[str, Any]:
         "follow_up_questions": [
             "Once you've added items, what occasion would you like to dress for?",
             "Do you have a specific event coming up I can help with?",
+        ],
+    }
+
+
+def _packing_needs_destination_response() -> dict[str, Any]:
+    """Returned when a packing ask has no destination — ask before inventing a plan."""
+    return {
+        "reply": (
+            "I'd love to help you pack — which destination are you travelling to? "
+            "Once I know the city (and ideally the dates), I can pull the weather and "
+            "build a day-by-day capsule from clothes you already own."
+        ),
+        "recommended_outfits": [],
+        "styling_suggestions": [],
+        "purchase_gaps": [],
+        "follow_up_questions": [
+            "Where are you headed?",
+            "What dates will you be travelling?",
+        ],
+    }
+
+
+def _insufficient_context_response(reason: str) -> dict[str, Any]:
+    """Map a sufficiency failure reason to a grounded hedge payload (no LLM call)."""
+    low = (reason or "").lower()
+    if "destination" in low:
+        return _packing_needs_destination_response()
+    if "empty" in low:
+        return _empty_wardrobe_response()
+    return {
+        "reply": (
+            "I don't have enough information to answer that confidently yet. "
+            "Share a bit more detail and I'll ground the advice in your wardrobe."
+        ),
+        "recommended_outfits": [],
+        "styling_suggestions": [],
+        "purchase_gaps": [],
+        "follow_up_questions": [
+            "What occasion are you dressing for?",
+            "Is there a destination or date I should factor in?",
         ],
     }

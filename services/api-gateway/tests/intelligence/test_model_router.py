@@ -86,6 +86,54 @@ def test_decision_carries_model_and_budget():
     assert small.model
     assert small.max_tokens > 0
     assert 0.0 <= small.temperature <= 1.0
+    assert small.task == "chat"
+
+
+def test_for_task_resolves_small_tasks_to_mini():
+    for task in (
+        mr.Task.NUDGES_DAILY,
+        mr.Task.STYLE_PROFILE_SUMMARY,
+        mr.Task.SHOPPING_TAKEAWAY,
+        mr.Task.OUTFIT_ANALYZE,
+        mr.Task.OUTFIT_SUGGEST_PAIRINGS,
+    ):
+        d = mr.for_task(task)
+        assert d.tier is Tier.SMALL
+        assert d.task == task.value
+        assert d.model == mr.settings.openai_model_small
+        assert any(f"task({task.value})" in r for r in d.reasons)
+
+
+def test_for_task_resolves_large_tasks_to_flagship():
+    for task in (
+        mr.Task.OUTFIT_GENERATE,
+        mr.Task.PACKING_PLAN,
+        mr.Task.SHOPPING_VERDICT,
+        mr.Task.PLANNER_WEEKLY,
+    ):
+        d = mr.for_task(task)
+        assert d.tier is Tier.LARGE
+        assert d.model == mr.settings.openai_model
+        assert d.task == task.value
+
+
+def test_for_task_accepts_string_and_overrides():
+    d = mr.for_task("shopping.takeaway", max_tokens=300, temperature=0.2)
+    assert d.tier is Tier.SMALL
+    assert d.max_tokens == 300
+    assert d.temperature == 0.2
+
+
+def test_for_task_rejects_unknown_task():
+    with pytest.raises(ValueError):
+        mr.for_task("not.a.real.task")
+
+
+def test_resolve_tier_matches_catalog():
+    d = mr.resolve_tier(Tier.VISION, reasons=["images"], score=1.0, task="chat")
+    assert d.tier is Tier.VISION
+    assert d.model == mr.settings.openai_model
+    assert d.task == "chat"
 
 
 # ── LLM micro-classifier (second stage) ─────────────────────────────────────────
@@ -139,6 +187,23 @@ async def test_arbiter_failure_falls_back_to_deterministic():
         d = await mr.route_async(_ambiguous_signals())
     assert d.tier is Tier.SMALL  # deterministic score 0.35 < threshold
     assert "arbiter_unavailable" in d.reasons
+
+
+@pytest.mark.asyncio
+async def test_arbiter_timeout_falls_back_to_deterministic():
+    """Grey-zone turns must not stall beyond the configured ceiling."""
+    import asyncio
+
+    async def _slow(_msg):
+        await asyncio.sleep(1.0)
+        return "high"
+
+    with patch.object(mr.settings, "model_router_arbiter_timeout_ms", 50):
+        with patch.object(mr, "_classify_complexity", _slow):
+            d = await mr.route_async(_ambiguous_signals())
+    assert d.tier is Tier.SMALL
+    assert "arbiter_timeout" in d.reasons
+    assert not any(r.startswith("arbiter(") for r in d.reasons)
 
 
 @pytest.mark.asyncio

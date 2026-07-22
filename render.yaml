@@ -144,10 +144,18 @@ services:
         value: INFO
       - key: OPENAI_MODEL
         value: gpt-4o
+      - key: OPENAI_MODEL_SMALL
+        value: gpt-4o-mini
       - key: OPENAI_EMBEDDING_MODEL
         value: text-embedding-3-small
       - key: OPENAI_MAX_TOKENS
         value: "1024"
+      - key: MODEL_ROUTER_ARBITER_ENABLED
+        value: "true"
+      - key: MODEL_ROUTER_ARBITER_TIMEOUT_MS
+        value: "400"
+      - key: SEMANTIC_CACHE_ENABLED
+        value: "true"
       - key: OPENAI_API_BASE_URL
         value: https://api.openai.com/v1
       - key: ACCESS_TOKEN_EXPIRE_MINUTES
@@ -160,6 +168,8 @@ services:
         value: Lax
       - key: VISION_PREVIEW_FAST
         value: "true"
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
       - key: RAG_VECTOR_STORE
         value: pgvector
       # Frontend origin for OAuth redirects and emails

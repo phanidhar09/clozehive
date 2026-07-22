@@ -19,7 +19,6 @@ export const CLOSET_CATEGORY_TABS: { value: Category; label: string; emoji: stri
 export const CLOSET_SORT_OPTIONS = [
   { value: 'recent', label: 'Recently added' },
   { value: 'worn',   label: 'Most worn' },
-  { value: 'eco',    label: 'Eco score' },
   { value: 'name',   label: 'Name A–Z' },
 ]
 

@@ -22,22 +22,25 @@ import re
 import uuid
 from typing import Any
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.intelligence.services import ai_service
+from app.api.v1.intelligence.services import ai_service, model_router
 from app.api.v1.intelligence.services.fashion_rag_service import (
     get_fashion_context_for_prompt,
     search_fashion_knowledge,
 )
+from app.api.v1.intelligence.services.model_router import Task
+from app.api.v1.wardrobe.schemas.closet import coerce_closet_category
 from app.api.v1.wardrobe.services.vision_service import analyze_for_bulk
+from app.core.analytics import LLMTelemetry
 from app.core.embedding_service import (
     generate_text_embedding,
     item_to_embedding_text,
     pgvector_cosine_search,
-    vector_literal,
 )
 from app.core.logging import get_logger
+from app.models.closet import ClosetItem
 
 logger = get_logger("shopping_check_service")
 
@@ -600,12 +603,19 @@ async def _generate_grounded_take(
         "[SOURCE-N]. Do not invent items, brands, prices, or numbers."
     )
 
+    decision = model_router.for_task(Task.SHOPPING_TAKEAWAY, max_tokens=300, temperature=0.2)
     raw = await ai_service.chat(
         messages=[{"role": "user", "content": user_msg}],
         system_prompt=_SHOPPING_TAKE_SYSTEM,
         use_json_mode=True,
-        temperature=0.2,
-        max_tokens=300,
+        model=decision.model,
+        temperature=decision.temperature,
+        max_tokens=decision.max_tokens,
+        telemetry=LLMTelemetry(
+            operation="shopping.takeaway",
+            tier=decision.tier.value,
+            route_reasons=decision.reasons,
+        ),
     )
 
     import json as _json
@@ -674,16 +684,42 @@ async def analyze_shopping_item(
 
     # 1b. Enrich with product-page metadata the image alone can't reveal (brand,
     #     marketed name, price) and keep the source for attribution in the UI.
+    #     Vision/screenshot often returns chrome labels like "Buy" — prefer URL
+    #     slug / OG title when the vision name is useless.
+    from app.core.product_url import (
+        category_hint_from_url,
+        is_useless_product_label,
+        product_name_hint_from_url,
+    )
+
+    resolved_source_url = source_url or (product_meta or {}).get("source_url")
     if product_meta:
         if product_meta.get("brand") and not analysis.get("brand"):
             analysis["brand"] = product_meta["brand"]
-        if product_meta.get("title") and not analysis.get("name"):
-            analysis["name"] = product_meta["title"]
-        analysis["source_url"] = source_url or product_meta.get("source_url")
-        analysis["source_title"] = product_meta.get("title")
+        meta_title = product_meta.get("title")
+        if meta_title and not is_useless_product_label(meta_title):
+            if is_useless_product_label(analysis.get("name")):
+                analysis["name"] = meta_title
+        analysis["source_url"] = resolved_source_url
+        analysis["source_title"] = meta_title
         analysis["source_brand"] = product_meta.get("brand")
         analysis["source_price"] = product_meta.get("price")
         analysis["source_site"] = product_meta.get("site_name")
+    elif resolved_source_url:
+        analysis["source_url"] = resolved_source_url
+
+    if resolved_source_url and is_useless_product_label(analysis.get("name")):
+        url_name = product_name_hint_from_url(str(resolved_source_url))
+        if url_name:
+            analysis["name"] = url_name
+            if is_useless_product_label(analysis.get("source_title")):
+                analysis["source_title"] = url_name
+
+    if resolved_source_url:
+        url_cat = category_hint_from_url(str(resolved_source_url))
+        vision_cat = (analysis.get("category") or "").strip().lower()
+        if url_cat and (not vision_cat or vision_cat in {"other", "unknown", "general"}):
+            analysis["category"] = url_cat
 
     item_text = _build_item_text(analysis)
     category = analysis.get("category", "").lower()
@@ -744,7 +780,17 @@ async def analyze_shopping_item(
     # Re-rank pairings toward items that appear in the best complete outfits.
     from app.core import outfit_builder
 
-    built_preview = outfit_builder.build_outfits(analysis, closet, cache=score_cache)
+    # Personal-fit signal: coloring / fit / taste vs the user's style profile.
+    # None when there's no usable profile → its weight folds into closet factors.
+    # Loaded here (ahead of the buy-score step) so the builder can soft-rank its
+    # preview outfits toward the user's declared fit taste.
+    profile = await _load_style_match_profile(session, user_id)
+    fit_prefs = frozenset(_profile_tokens(profile.get("fit_preferences")) if profile else set())
+    fit_avoids = frozenset(_profile_tokens(profile.get("avoidances")) if profile else set())
+
+    built_preview = outfit_builder.build_outfits(
+        analysis, closet, cache=score_cache, fit_prefs=fit_prefs, fit_avoids=fit_avoids
+    )
     best_ids = outfit_builder.best_pairing_ids(built_preview)
     if best_ids:
         pairings.sort(
@@ -765,9 +811,8 @@ async def analyze_shopping_item(
     new_seasons = item_seasons - owned_seasons
     fills_gap = bool(category and await _has_open_gap_for_category(session, user_id, category))
 
-    # Personal-fit signal: coloring / fit / taste vs the user's style profile.
-    # None when there's no usable profile → its weight folds into closet factors.
-    profile = await _load_style_match_profile(session, user_id)
+    # Personal-fit signal: coloring / fit / taste vs the user's style profile
+    # (loaded above, ahead of the outfit-preview build).
     style_match, style_reasons = compute_style_alignment(analysis, profile)
 
     # Pure scoring core — see compute_buy_score (unit-tested in isolation).
@@ -1030,11 +1075,14 @@ async def analyze_shopping_item_from_url(
     # Carry a product-name hint (page title, else the URL slug) — this is what
     # lets vision pick the RIGHT garment out of a fully-styled product-page
     # screenshot instead of grabbing whichever item the model also wears.
+    # Replace chrome titles like "Buy" with the URL slug when needed.
     product_meta = meta.to_dict() if meta else {"source_url": source_url}
-    if not product_meta.get("title"):
-        title_hint = product_url_mod.product_name_hint_from_url(source_url)
-        if title_hint:
-            product_meta["title"] = title_hint
+    title_hint = product_url_mod.product_name_hint_from_url(source_url)
+    if title_hint and (
+        not product_meta.get("title")
+        or product_url_mod.is_useless_product_label(product_meta.get("title"))
+    ):
+        product_meta["title"] = title_hint
 
     return await analyze_shopping_item(
         image_bytes=image_bytes,
@@ -1134,7 +1182,11 @@ async def record_purchase_decision(
     bought: bool,
     session: AsyncSession,
 ) -> dict[str, Any] | None:
-    """Record whether the user actually bought the item."""
+    """Record whether the user actually bought the item.
+
+    When ``bought`` is True, also create a closet item from the check's
+    analysis so the purchase lands in the wardrobe without a second action.
+    """
     sql = text("""
         UPDATE shopping_checks
         SET purchase_decision = :bought,
@@ -1156,7 +1208,28 @@ async def record_purchase_decision(
         return None
     await session.commit()
     await record_shopping_event(session, user_id, "verdict_acted", check_id=check_id, metadata={"bought": bought})
-    return dict(row)
+
+    payload = dict(row)
+    if bought:
+        try:
+            closet_item = await add_shopping_item_to_closet(
+                check_id=check_id,
+                user_id=user_id,
+                session=session,
+            )
+        except Exception:
+            logger.exception(
+                "shopping_bought_closet_save_failed",
+                check_id=check_id,
+                user_id=user_id,
+            )
+            closet_item = None
+        if closet_item:
+            payload["closet_item"] = closet_item
+            payload["added_to_closet"] = True
+        else:
+            payload["added_to_closet"] = False
+    return payload
 
 
 async def get_shopping_history(
@@ -1496,6 +1569,145 @@ async def get_closet_match_suggestions(
     }
 
 
+def _as_str_list(value: Any) -> list[str]:
+    """Normalise season/occasion/tags from shopping analysis into string lists."""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [s.strip().lower() for s in value.split(",") if s.strip()]
+    if isinstance(value, (list, tuple)):
+        out: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            if not item:
+                continue
+            s = str(item).strip().lower()
+            if s and s not in seen:
+                seen.add(s)
+                out.append(s)
+        return out
+    return []
+
+
+def _clip_str(value: Any, max_len: int) -> str | None:
+    if value is None:
+        return None
+    s = str(value).strip()
+    return s[:max_len] if s else None
+
+
+def _closet_fields_from_analysis(
+    analysis: dict[str, Any],
+    *,
+    image_url: str | None,
+) -> dict[str, Any]:
+    """Map shopping-check vision analysis → ClosetItem constructor kwargs."""
+    from app.core.product_url import (
+        category_hint_from_url,
+        is_useless_product_label,
+        product_name_hint_from_url,
+    )
+
+    source_url = analysis.get("source_url")
+    candidates = [
+        analysis.get("name"),
+        analysis.get("source_title"),
+        analysis.get("brand"),
+        product_name_hint_from_url(str(source_url)) if source_url else None,
+        analysis.get("category"),
+        "Shopping Item",
+    ]
+    name = "Shopping Item"
+    for cand in candidates:
+        if cand and not is_useless_product_label(str(cand)):
+            name = str(cand).strip()
+            break
+
+    category_raw = analysis.get("category")
+    if source_url and (
+        not category_raw
+        or str(category_raw).strip().lower() in {"other", "unknown", "general"}
+    ):
+        category_raw = category_hint_from_url(str(source_url)) or category_raw
+
+    brand = _clip_str(analysis.get("brand") or analysis.get("source_brand"), 100)
+    color_raw = analysis.get("primary_color") or analysis.get("color")
+    if color_raw and str(color_raw).strip().lower() in {"unknown", "other", "n/a"}:
+        color_raw = None
+    fabric_raw = analysis.get("material")
+    if fabric_raw and str(fabric_raw).strip().lower() in {"unknown", "other", "n/a"}:
+        fabric_raw = None
+    pattern_raw = analysis.get("pattern")
+    if pattern_raw and str(pattern_raw).strip().lower() in {"unknown", "other", "n/a"}:
+        pattern_raw = None
+
+    return {
+        "name": name[:255],
+        "category": coerce_closet_category(category_raw),
+        "color": _clip_str(color_raw, 100),
+        "fabric": _clip_str(fabric_raw, 100),
+        "pattern": _clip_str(pattern_raw, 100),
+        "brand": brand,
+        "season": _as_str_list(analysis.get("season_tags")),
+        "occasion": _as_str_list(analysis.get("occasion_tags")),
+        "tags": _as_str_list(analysis.get("style_tags")),
+        "notes": _clip_str(analysis.get("description"), 2000),
+        "image_url": image_url,
+        "price": parse_price_to_float(analysis.get("source_price")),
+        "analysis_source": "shopping_check",
+    }
+
+
+def _closet_item_public(item: ClosetItem) -> dict[str, Any]:
+    return {
+        "id": str(item.id),
+        "name": item.name,
+        "category": item.category,
+        "color": item.color,
+        "image_url": item.image_url,
+        "original_image_url": item.original_image_url,
+        "price": float(item.price) if item.price is not None else None,
+        "created_at": item.created_at.isoformat() if item.created_at else None,
+    }
+
+
+async def _closet_owned_image_copy(source_url: str | None) -> tuple[str | None, str | None]:
+    """Copy a shopping-check upload into a closet-owned file.
+
+    Returns ``(image_url, original_image_url)``. The closet keeps its own copy so
+    deleting the shopping-check history later cannot remove the wardrobe photo.
+    Falls back to the shared source URL if the copy fails.
+    """
+    if not source_url:
+        return None, None
+
+    import asyncio
+
+    from app.core.upload_service import _detect_image_type, persist_upload, read_upload_bytes
+
+    try:
+        image_bytes = await asyncio.to_thread(read_upload_bytes, source_url)
+        content_type = _detect_image_type(image_bytes[:32]) or "image/jpeg"
+        suffix = {"image/png": ".png", "image/webp": ".webp"}.get(content_type, ".jpg")
+        closet_url = await persist_upload(
+            image_bytes, content_type, f"shopping_closet{suffix}"
+        )
+        logger.info(
+            "shopping_closet_image_copied",
+            source=str(source_url)[:80],
+            closet_url=str(closet_url)[:80],
+            bytes=len(image_bytes),
+        )
+        return closet_url, source_url
+    except Exception as exc:  # noqa: BLE001 — never block closet save on copy
+        logger.warning(
+            "shopping_closet_image_copy_failed",
+            source=str(source_url)[:80],
+            error=str(exc),
+        )
+        return source_url, source_url
+
+
 async def add_shopping_item_to_closet(
     check_id: str,
     user_id: str,
@@ -1504,10 +1716,20 @@ async def add_shopping_item_to_closet(
     """
     Create a closet item from an already-analyzed shopping check record.
     Reuses the AI analysis data so no re-analysis is needed.
+
+    Copies the shopping photo into a closet-owned upload so the wardrobe keeps
+    the image even if the shopping-check history is later deleted.
+
+    Idempotent for a given check image: if a closet item already exists for this
+    shopping photo, that item is returned (and upgraded if needed).
     """
     import json as _json
 
-    # Fetch the shopping check
+    from sqlalchemy import or_
+
+    from app.core import cache_service
+    from app.core.product_url import is_useless_product_label
+
     fetch_sql = text("""
         SELECT id, image_url, item_analysis FROM shopping_checks
         WHERE id = CAST(:cid AS uuid)
@@ -1521,77 +1743,96 @@ async def add_shopping_item_to_closet(
     analysis = row["item_analysis"]
     if isinstance(analysis, str):
         analysis = _json.loads(analysis)
+    if not isinstance(analysis, dict):
+        analysis = {}
 
-    # Build embedding text
-    item_text = item_to_embedding_text(
-        {
-            "name": analysis.get("name", ""),
-            "category": analysis.get("category", ""),
-            "color": analysis.get("primary_color") or analysis.get("color", ""),
-            "fabric": analysis.get("material", ""),
-            "pattern": analysis.get("pattern", ""),
-            "season": analysis.get("season_tags") or [],
-            "occasion": analysis.get("occasion_tags") or [],
-            "tags": analysis.get("style_tags") or [],
-            "notes": analysis.get("description", ""),
-            "brand": analysis.get("brand", ""),
-        }
-    )
-    embedding = await generate_text_embedding(item_text)
-    emb_literal = vector_literal(embedding) if embedding else None
+    shopping_image_url = row.get("image_url")
+    user_uuid = uuid.UUID(user_id)
 
-    new_id = str(uuid.uuid4())
-    insert_sql = text(
-        """
-        INSERT INTO closet_items
-            (id, user_id, name, category, color, fabric, pattern, brand,
-             season, occasion, tags, notes, image_url, price,
-             wear_count, is_archived, created_at
-             {emb_col})
-        VALUES
-            (CAST(:id AS uuid), CAST(:uid AS uuid),
-             :name, :category, :color, :fabric, :pattern, :brand,
-             CAST(:season AS jsonb), CAST(:occasion AS jsonb), CAST(:tags AS jsonb),
-             :notes, :image_url, :price,
-             0, false, NOW()
-             {emb_val})
-        RETURNING id, name, category, color, image_url, price, created_at
-    """.format(
-            emb_col=", embedding" if emb_literal else "",
-            emb_val=f", {emb_literal}" if emb_literal else "",
+    # Closet-owned copy of the photo (plus original pointer for idempotency).
+    closet_image_url, original_image_url = await _closet_owned_image_copy(shopping_image_url)
+    fields = _closet_fields_from_analysis(analysis, image_url=closet_image_url)
+    fields["original_image_url"] = original_image_url
+
+    # Idempotency: same shopping photo already saved (shared URL or prior copy).
+    existing = None
+    if shopping_image_url:
+        existing = (
+            await session.execute(
+                select(ClosetItem)
+                .where(
+                    ClosetItem.user_id == user_uuid,
+                    ClosetItem.is_archived == False,  # noqa: E712
+                    or_(
+                        ClosetItem.image_url == shopping_image_url,
+                        ClosetItem.original_image_url == shopping_image_url,
+                    ),
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
+    if existing is not None:
+        needs_upgrade = False
+        if is_useless_product_label(existing.name) or (
+            existing.category == "other" and fields["category"] != "other"
+        ):
+            existing.name = fields["name"]
+            existing.category = fields["category"]
+            if fields.get("brand"):
+                existing.brand = fields["brand"]
+            if fields.get("color"):
+                existing.color = fields["color"]
+            if fields.get("occasion"):
+                existing.occasion = fields["occasion"]
+            needs_upgrade = True
+        # Ensure the wardrobe has its own image file, not just a shared shopping URL.
+        if not existing.image_url or existing.image_url == shopping_image_url:
+            if closet_image_url:
+                existing.image_url = closet_image_url
+                existing.original_image_url = original_image_url or existing.original_image_url
+                needs_upgrade = True
+        if needs_upgrade:
+            await session.commit()
+            await session.refresh(existing)
+            await cache_service.invalidate_closet_list_cache(user_id)
+            logger.info(
+                "shopping_closet_item_upgraded",
+                check_id=check_id,
+                closet_item_id=str(existing.id),
+                name=existing.name,
+                category=existing.category,
+                image_url=existing.image_url,
+            )
+        return _closet_item_public(existing)
+
+    new_item = ClosetItem(user_id=user_uuid, **fields)
+    session.add(new_item)
+    try:
+        await session.commit()
+        await session.refresh(new_item)
+    except Exception:
+        await session.rollback()
+        logger.exception(
+            "shopping_add_to_closet_failed",
+            check_id=check_id,
+            user_id=user_id,
         )
-    )
+        raise
 
-    import json
-
-    result = await session.execute(
-        insert_sql,
-        {
-            "id": new_id,
-            "uid": user_id,
-            "name": analysis.get("name") or analysis.get("category") or "Shopping Item",
-            "category": analysis.get("category", ""),
-            "color": analysis.get("primary_color") or analysis.get("color", ""),
-            "fabric": analysis.get("material", ""),
-            "pattern": analysis.get("pattern", ""),
-            "brand": analysis.get("brand", ""),
-            "season": json.dumps(analysis.get("season_tags") or []),
-            "occasion": json.dumps(analysis.get("occasion_tags") or []),
-            "tags": json.dumps(analysis.get("style_tags") or []),
-            "notes": analysis.get("description", ""),
-            "image_url": row.get("image_url"),
-            # Backfill price from the scraped product metadata so cost-per-wear
-            # works the moment the item is logged. None when no price was scraped.
-            "price": parse_price_to_float(analysis.get("source_price")),
-        },
-    )
-    await session.commit()
+    await cache_service.invalidate_closet_list_cache(user_id)
     await record_shopping_event(
         session,
         user_id,
         "added_to_closet",
         check_id=check_id,
-        metadata={"closet_item_id": new_id},
+        metadata={"closet_item_id": str(new_item.id), "image_url": new_item.image_url},
     )
-    created = result.mappings().first()
-    return dict(created) if created else {"id": new_id}
+    logger.info(
+        "shopping_item_added_to_closet",
+        check_id=check_id,
+        closet_item_id=str(new_item.id),
+        category=new_item.category,
+        image_url=new_item.image_url,
+    )
+    return _closet_item_public(new_item)

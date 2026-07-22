@@ -35,7 +35,7 @@ describe('Upload', () => {
 
     expect(screen.getByRole('heading', { name: /Add to Your Closet/i })).toBeInTheDocument()
     expect(
-      screen.getByText(/review each one and save/i),
+      screen.getByText(/review everything on one board/i),
     ).toBeInTheDocument()
 
     expect(
@@ -86,8 +86,8 @@ describe('Upload', () => {
     await user.click(screen.getByRole('button', { name: /Analyze with FANI/i }))
     expect(Api.closetApi.analyzePreview).toHaveBeenCalledTimes(1)
 
-    // Persistent save bar shows "Save 1" (one selected item) and confirms the preview
-    await user.click(screen.getByRole('button', { name: /^Save 1$/ }))
+    // Review board's sticky action bar shows "Save 1 to closet" and confirms the preview
+    await user.click(screen.getByRole('button', { name: /^Save 1 to closet$/ }))
     expect(Api.closetApi.confirmPreview).toHaveBeenCalledTimes(1)
     // Confirm payload must include detected_item_id so backend can validate image↔metadata correlation.
     const confirmCall = vi.mocked(Api.closetApi.confirmPreview).mock.calls[0][0]
@@ -146,13 +146,13 @@ describe('Upload', () => {
     await user.upload(input, file)
     await user.click(screen.getByRole('button', { name: /Analyze with FANI/i }))
 
-    // The wizard reviews one item at a time; "Review all" reveals the full list.
-    await user.click(await screen.findByRole('button', { name: /Review all/i }))
-    expect(screen.getAllByText('Black Shirt').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getAllByText('Blue Jeans').length).toBeGreaterThanOrEqual(1)
+    // The review board shows every detected item at once — no drilling required.
+    // Names render as editable inputs, so assert on their values.
+    expect(await screen.findByDisplayValue('Black Shirt')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('Blue Jeans')).toBeInTheDocument()
 
-    // Save the group (both items selected → "Save 2").
-    await user.click(screen.getByRole('button', { name: /^Save 2$/ }))
+    // Save the group (both items selected → "Save 2 to closet").
+    await user.click(screen.getByRole('button', { name: /^Save 2 to closet$/ }))
     const confirmCall = vi.mocked(Api.closetApi.confirmPreview).mock.calls[0][0]
 
     // Each item in the confirm payload must carry its own detected_item_id.

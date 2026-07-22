@@ -99,6 +99,6 @@ google-resumable-media==2.9.0
 proto-plus==1.28.0
 
 # ── RAG / Vector search ───────────────────────────────────────────────────────
-# faiss-cpu: in-memory FAISS index for local dev / testing (no GPU required).
-# In production pgvector (already listed above) is used instead.
-faiss-cpu==1.13.2
+# Production uses pgvector (listed above) as the RAG vector store. The optional
+# in-memory FAISS backend (RAG_VECTOR_STORE=faiss) is dev/test-only and its
+# dependency `faiss-cpu` lives in requirements-dev.txt to keep this image slim.
