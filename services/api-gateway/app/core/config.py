@@ -348,6 +348,22 @@ class Settings(BaseSettings):
     rag_vector_store: str = "pgvector"
     # Directory where FAISS indexes are persisted to disk (only used when rag_vector_store=faiss).
     faiss_index_dir: str = "./faiss_indexes"
+    # Hybrid retrieval: run dense vector search AND BM25 lexical search over the
+    # fashion KB, then fuse with Reciprocal Rank Fusion. Recovers exact-term
+    # matches (brands, fabrics, rare tokens) that dense search alone smears.
+    # Disable to fall back to vector-only + keyword fallback.
+    rag_hybrid_enabled: bool = True
+    # RRF damping constant (see app/rag/fusion.py). Larger = flatter rank weighting.
+    rag_rrf_k: int = 60
+    # Cross-encoder reranking: after hybrid retrieval + metadata rerank, score the
+    # top candidates for true query-passage relevance with an LLM (joint scoring —
+    # the biggest precision lever) and reorder. Opt-in: it adds one small-model
+    # call per reranked query, so enable per-environment once the cost is acceptable.
+    rag_cross_encoder_enabled: bool = False
+    # How many of the top retrieved candidates to rerank (the tail keeps its order).
+    rag_cross_encoder_top_n: int = 8
+    # Model for the rerank call; empty falls back to openai_model_small (cheap/fast).
+    rag_cross_encoder_model: str = ""
 
     model_config = SettingsConfigDict(
         env_file=(str(_ENV_FILE), ".env"),  # project root first, then local CWD override

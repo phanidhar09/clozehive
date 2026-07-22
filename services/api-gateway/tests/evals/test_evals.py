@@ -14,6 +14,7 @@ from evals.runner import run_suite
 # before CI fails. Tighten if the golden set grows and stabilises.
 _ROUTING_FLOOR = 0.9
 _GROUNDING_FLOOR = 1.0
+_RETRIEVAL_FLOOR = 1.0
 
 
 def _pass_rate(results) -> float:
@@ -34,3 +35,11 @@ def test_grounding_suite_all_pass():
     rate = _pass_rate(results)
     failures = [f"{r.case_id}: {r.detail}" for r in results if not r.passed]
     assert rate >= _GROUNDING_FLOOR, f"grounding pass-rate {rate:.0%} < {_GROUNDING_FLOOR:.0%}: {failures}"
+
+
+def test_retrieval_suite_meets_floor():
+    results = run_suite("retrieval")
+    assert len(results) >= 12, "retrieval golden set unexpectedly small"
+    rate = _pass_rate(results)
+    failures = [f"{r.case_id}: {r.detail}" for r in results if not r.passed]
+    assert rate >= _RETRIEVAL_FLOOR, f"retrieval recall pass-rate {rate:.0%} < {_RETRIEVAL_FLOOR:.0%}: {failures}"

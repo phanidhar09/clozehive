@@ -7,11 +7,13 @@ embedded with OpenAI and searched with pgvector cosine similarity.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.embedding_service import (
     _DEFAULT_LIMIT,
     generate_text_embedding,
@@ -19,7 +21,10 @@ from app.core.embedding_service import (
 )
 from app.core.logging import get_logger
 from app.models.rag import FashionKnowledgeDocument
+from app.rag import cross_encoder
+from app.rag.fusion import reciprocal_rank_fusion
 from app.rag.knowledge_loader import load_seed_documents
+from app.rag.lexical import build_lexical_index
 from app.rag.query_builder import (
     build_fashion_knowledge_query,
     extract_keywords,
@@ -34,6 +39,16 @@ logger = get_logger("fashion_rag_service")
 # Loaded from versioned YAML data files in app/rag/knowledge/ (see knowledge_loader).
 # Add/extend knowledge there — no code change needed. taxonomy.yaml lists what to grow next.
 _KNOWLEDGE_SEED: list[dict[str, Any]] = load_seed_documents()
+
+# BM25 index over the same corpus — the lexical half of hybrid retrieval. Built
+# once at import (cheap for a small static corpus). Titles align with the seeded
+# DB rows, so vector and lexical hits fuse cleanly on normalised title.
+_LEXICAL_INDEX = build_lexical_index(_KNOWLEDGE_SEED)
+
+
+def _title_key(doc: dict[str, Any]) -> str:
+    """Normalised title — the fusion identity shared by vector and lexical hits."""
+    return re.sub(r"\s+", " ", str(doc.get("title", "")).lower().strip())
 
 
 # Filterable metadata persisted alongside the keyword tags inside the JSONB column.
@@ -101,10 +116,13 @@ async def search_fashion_knowledge(
         category=category,
     )
 
-    docs: list[dict[str, Any]] = []
+    settings = get_settings()
+    fetch_limit = min(max(limit * 3, limit), 15)
+
+    # Dense vector half (semantic matches).
+    vector_docs: list[dict[str, Any]] = []
     embedding = await generate_text_embedding(enriched_query)
     if embedding:
-        fetch_limit = min(max(limit * 3, limit), 15)
         rows = await pgvector_cosine_search(
             session,
             table="fashion_knowledge_documents",
@@ -114,7 +132,7 @@ async def search_fashion_knowledge(
             threshold=0.55,
             filter_category=category,
         )
-        docs = [
+        vector_docs = [
             {
                 "id": str(r["id"]),
                 "title": r["title"],
@@ -127,6 +145,15 @@ async def search_fashion_knowledge(
             for r in rows
         ]
 
+    if settings.rag_hybrid_enabled:
+        # Lexical half (exact-term matches). Scored on the raw query — the
+        # enriched query's prose scaffolding ("Styling context: …") only adds
+        # low-signal tokens to BM25.
+        lexical_docs = _LEXICAL_INDEX.search(query, limit=fetch_limit, category=category)
+        docs = _fuse_hybrid(vector_docs, lexical_docs, k=settings.rag_rrf_k)
+    else:
+        docs = vector_docs
+
     if not docs:
         docs = await _keyword_fallback(session, enriched_query, category, limit)
 
@@ -136,7 +163,59 @@ async def search_fashion_knowledge(
         season=effective_season,
         weather=effective_weather or None,
     )
+
+    # Precision stage: LLM cross-encoder joint scoring over the top candidates.
+    # No-op unless rag_cross_encoder_enabled; degrades to `reranked` on any failure.
+    if cross_encoder.is_enabled():
+        reranked = await cross_encoder.rerank(query, reranked, text_of=_doc_rerank_text)
+
     return reranked[:limit]
+
+
+def _doc_rerank_text(doc: dict[str, Any]) -> str:
+    """Passage text handed to the cross-encoder — title plus a content excerpt."""
+    return f"{doc.get('title', '')}. {doc.get('content', '')}"
+
+
+def _fuse_hybrid(
+    vector_docs: list[dict[str, Any]],
+    lexical_docs: list[dict[str, Any]],
+    *,
+    k: int,
+) -> list[dict[str, Any]]:
+    """Fuse the vector and lexical result lists with Reciprocal Rank Fusion.
+
+    Documents are merged on normalised title, preferring the vector row (it
+    carries the real DB id and the cosine relevance). ``relevance_score`` is
+    overwritten with the fused score normalised to [0, 1] so the downstream
+    metadata rerank (which adds absolute boosts on top) operates on a sensible
+    base and the hybrid ordering survives.
+    """
+    if not vector_docs and not lexical_docs:
+        return []
+
+    merged: dict[str, dict[str, Any]] = {}
+    for doc in lexical_docs:  # seed with lexical first so vector overwrites
+        merged[_title_key(doc)] = dict(doc)
+    for doc in vector_docs:
+        key = _title_key(doc)
+        base = merged.get(key, {})
+        merged[key] = {**base, **doc, "id": doc.get("id") or base.get("id") or ""}
+
+    fused = reciprocal_rank_fusion([vector_docs, lexical_docs], key=_title_key, k=k)
+    if not fused:
+        return []
+    top_score = fused[0][1] or 1.0
+
+    out: list[dict[str, Any]] = []
+    for key, score in fused:
+        merged_doc = merged.get(key)
+        if merged_doc is None:
+            continue
+        clean = {k2: v for k2, v in merged_doc.items() if k2 != "lexical_score"}
+        clean["relevance_score"] = round(score / top_score, 3)
+        out.append(clean)
+    return out
 
 
 async def _keyword_fallback(
