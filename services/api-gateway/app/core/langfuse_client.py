@@ -29,7 +29,10 @@ from typing import Any
 from app.core.config import get_settings
 from app.core.logging import get_logger
 
-logger = get_logger("langfuse")
+# Must not use the name "langfuse" — the SDK sets logging.getLogger("langfuse")
+# to WARNING on client construction, which would swallow our success logs
+# (structlog's stdlib factory shares that logger).
+logger = get_logger("langfuse_client")
 settings = get_settings()
 
 _client: Any = None
