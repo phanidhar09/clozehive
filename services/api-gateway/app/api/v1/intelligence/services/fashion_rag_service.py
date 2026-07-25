@@ -125,9 +125,7 @@ async def ensure_seeded(session: AsyncSession) -> None:
         inserted += 1
 
     if inserted or refreshed:
-        logger.info(
-            "fashion_kb_seeded", inserted=inserted, refreshed=refreshed, total_seed=len(_KNOWLEDGE_SEED)
-        )
+        logger.info("fashion_kb_seeded", inserted=inserted, refreshed=refreshed, total_seed=len(_KNOWLEDGE_SEED))
 
 
 async def search_fashion_knowledge(
