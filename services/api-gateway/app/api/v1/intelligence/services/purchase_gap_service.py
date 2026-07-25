@@ -303,8 +303,8 @@ def _detect_closet_gaps(
     del user_id  # reserved for future personalization hooks
     gaps: list[dict[str, Any]] = []
     category_counts: Counter = Counter()
-    for item in closet_items:
-        cat = (item.get("category") or "").lower()
+    for closet_item in closet_items:
+        cat = (closet_item.get("category") or "").lower()
         category_counts[cat] += 1
 
     closet_outfit_type = _dominant_closet_outfit_type(closet_items)
