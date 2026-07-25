@@ -130,6 +130,13 @@ class Settings(BaseSettings):
     redis_state_url: str = ""
     # When False, /ready and /health skip Redis (local dev without Redis).
     redis_check_on_ready: bool = True
+    # Offload latency-insensitive heavy jobs (closet embedding refresh) to the
+    # ARQ worker (services/api-gateway → `arq app.worker.WorkerSettings`) instead
+    # of running them as in-process FastAPI BackgroundTasks. Requires the worker
+    # service to be deployed (see render.yaml `clozehive-worker`). The job queue
+    # lives on the state Redis (noeviction) so queued jobs are never evicted.
+    # Default False → single-dyno in-process behaviour, unchanged.
+    heavy_work_async: bool = False
     cache_ttl_profile: int = 300  # 5 min
     cache_ttl_closet: int = 120  # 2 min
     cache_ttl_weather: int = 3600  # 1 hour
