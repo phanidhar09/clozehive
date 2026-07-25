@@ -17,8 +17,11 @@ All endpoints:
 
 from __future__ import annotations
 
+import uuid as _uuid
+
 from fastapi import APIRouter, Query
 
+from app.api.v1.identity.repositories.style_profile_repo import UserStyleProfileRepository
 from app.core.deps import CurrentUser, DbSession
 from app.rag import retriever
 from app.rag.schemas import (
@@ -66,8 +69,22 @@ async def get_outfit_context(
         occasion=occasion,
         weather=weather,
         limit=limit,
+        gender=await _resolve_gender(session, user_id),
     )
     return OutfitContextResponse(**result)
+
+
+async def _resolve_gender(session: DbSession, user_id: str) -> str | None:
+    """Best-effort read of the user's style-profile gender for the metadata pre-filter.
+
+    Any failure (bad uuid, missing profile, DB hiccup) returns ``None`` so retrieval
+    silently degrades to audience-neutral rather than failing the request.
+    """
+    try:
+        profile = await UserStyleProfileRepository(session).get_by_user_id(_uuid.UUID(user_id))
+    except Exception:
+        return None
+    return getattr(profile, "gender", None) if profile else None
 
 
 # ── GET /api/v1/rag/packing-context ─────────────────────────────────────────

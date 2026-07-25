@@ -328,7 +328,9 @@ async def stream_chat_message(
     )
     knowledge_task = asyncio.create_task(
         run_in_read_session(
-            lambda s: get_fashion_context_for_prompt(s, rag_query, limit=5, occasion=occasion, weather=weather_str)
+            lambda s: get_fashion_context_for_prompt(
+                s, rag_query, limit=5, occasion=occasion, weather=weather_str, user_id=user_id
+            )
         )
     )
     # Live trend grounding — short-circuits to None unless the message has

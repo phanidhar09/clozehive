@@ -25,6 +25,7 @@ from app.rag import cross_encoder
 from app.rag.fusion import reciprocal_rank_fusion
 from app.rag.knowledge_loader import load_seed_documents
 from app.rag.lexical import build_lexical_index
+from app.rag.metadata_filter import canonical_gender, filter_by_gender, gender_of_row
 from app.rag.query_builder import (
     build_fashion_knowledge_query,
     extract_keywords,
@@ -68,29 +69,65 @@ def _build_tags_payload(doc: dict[str, Any]) -> dict[str, Any]:
 
 
 async def ensure_seeded(session: AsyncSession) -> None:
-    """Seed missing fashion knowledge documents. Idempotent — only inserts missing titles."""
-    existing_titles_result = await session.execute(select(FashionKnowledgeDocument.title))
-    existing_titles = {row[0] for row in existing_titles_result.all()}
+    """Reconcile the fashion knowledge corpus to the versioned YAML source of truth.
 
-    missing = [doc for doc in _KNOWLEDGE_SEED if doc["title"] not in existing_titles]
-    if not missing:
-        return
+    Idempotent and cheap at steady state (one SELECT, no writes):
+      - missing titles are inserted;
+      - a curated doc whose content/metadata changed in the corpus is refreshed in
+        place and re-embedded — so atomic-authoring edits actually reach an
+        already-seeded database, which a title-only insert never did.
 
-    logger.info("fashion_kb_seeding", new_docs=len(missing), total_seed=len(_KNOWLEDGE_SEED))
-    for doc in missing:
-        content_for_embedding = f"Title: {doc['title']}. {doc['content']}"
-        embedding = await generate_text_embedding(content_for_embedding)
-        db_doc = FashionKnowledgeDocument(
-            title=doc["title"],
-            content=doc["content"],
-            category=doc["category"],
-            season=doc.get("season"),
-            occasion=doc.get("occasion"),
-            tags=_build_tags_payload(doc),
-            embedding=embedding,
+    Only titles present in ``_KNOWLEDGE_SEED`` are ever read or written, so
+    learned/``user_data`` documents (mined from user activity, never in the seed)
+    are left completely untouched.
+    """
+    seed_titles = [doc["title"] for doc in _KNOWLEDGE_SEED]
+    existing_result = await session.execute(
+        select(FashionKnowledgeDocument).where(FashionKnowledgeDocument.title.in_(seed_titles))
+    )
+    existing_by_title = {row.title: row for row in existing_result.scalars().all()}
+
+    inserted = 0
+    refreshed = 0
+    for doc in _KNOWLEDGE_SEED:
+        tags = _build_tags_payload(doc)
+        row = existing_by_title.get(doc["title"])
+        if row is not None:
+            # Refresh in place only when the corpus actually diverged from the DB, so
+            # a steady-state re-run stays a no-op and never re-embeds needlessly.
+            if (
+                row.content == doc["content"]
+                and row.tags == tags
+                and row.category == doc["category"]
+                and row.season == doc.get("season")
+                and row.occasion == doc.get("occasion")
+            ):
+                continue
+            row.content = doc["content"]
+            row.category = doc["category"]
+            row.season = doc.get("season")
+            row.occasion = doc.get("occasion")
+            row.tags = tags
+            row.embedding = await generate_text_embedding(f"Title: {doc['title']}. {doc['content']}")
+            refreshed += 1
+            continue
+        session.add(
+            FashionKnowledgeDocument(
+                title=doc["title"],
+                content=doc["content"],
+                category=doc["category"],
+                season=doc.get("season"),
+                occasion=doc.get("occasion"),
+                tags=tags,
+                embedding=await generate_text_embedding(f"Title: {doc['title']}. {doc['content']}"),
+            )
         )
-        session.add(db_doc)
-    logger.info("fashion_kb_seeded", added=len(missing))
+        inserted += 1
+
+    if inserted or refreshed:
+        logger.info(
+            "fashion_kb_seeded", inserted=inserted, refreshed=refreshed, total_seed=len(_KNOWLEDGE_SEED)
+        )
 
 
 async def search_fashion_knowledge(
@@ -100,8 +137,15 @@ async def search_fashion_knowledge(
     category: str | None = None,
     occasion: str | None = None,
     weather: str = "",
+    gender: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Retrieve relevant fashion knowledge documents for a query."""
+    """Retrieve relevant fashion knowledge documents for a query.
+
+    ``gender`` is an optional audience signal (typically the user's style-profile
+    gender). When it resolves to a canonical ``men``/``women`` and the metadata
+    pre-filter is enabled, wrong-audience documents are dropped from *both* halves
+    of hybrid retrieval before ranking; ``unisex`` / untagged docs always pass.
+    """
     await ensure_seeded(session)
 
     inferred = infer_query_signals(query)
@@ -117,9 +161,16 @@ async def search_fashion_knowledge(
     )
 
     settings = get_settings()
-    fetch_limit = min(max(limit * 3, limit), 15)
+    # Audience pre-filter target — None (no filtering) unless enabled AND we have a
+    # confident binary signal that maps onto the corpus's men/women partition.
+    target_gender = canonical_gender(gender) if settings.rag_metadata_prefilter_enabled else None
+    # Over-fetch a wider pool when pre-filtering, since dropping the wrong audience
+    # shrinks the candidate list before it reaches fusion/rerank.
+    fetch_cap = 20 if target_gender else 15
+    fetch_limit = min(max(limit * (4 if target_gender else 3), limit), fetch_cap)
 
-    # Dense vector half (semantic matches).
+    # Dense vector half (semantic matches). ``tags_gender`` pre-filters at the SQL
+    # level so the ANN order/limit runs on the audience-filtered rows.
     vector_docs: list[dict[str, Any]] = []
     embedding = await generate_text_embedding(enriched_query)
     if embedding:
@@ -131,6 +182,7 @@ async def search_fashion_knowledge(
             limit=fetch_limit,
             threshold=0.55,
             filter_category=category,
+            tags_gender=target_gender,
         )
         vector_docs = [
             {
@@ -150,6 +202,9 @@ async def search_fashion_knowledge(
         # enriched query's prose scaffolding ("Styling context: …") only adds
         # low-signal tokens to BM25.
         lexical_docs = _LEXICAL_INDEX.search(query, limit=fetch_limit, category=category)
+        # Mirror the dense half's SQL pre-filter on the lexical candidate pool so
+        # both halves are audience-consistent before fusion.
+        lexical_docs = filter_by_gender(lexical_docs, target_gender, gender_of=gender_of_row)
         docs = _fuse_hybrid(vector_docs, lexical_docs, k=settings.rag_rrf_k)
     else:
         docs = vector_docs
@@ -275,9 +330,23 @@ async def get_fashion_context_for_prompt(
     limit: int = 5,
     occasion: str | None = None,
     weather: str = "",
+    gender: str | None = None,
+    user_id: Any | None = None,
 ) -> str:
-    """Return a formatted string of relevant fashion knowledge for LLM prompt injection."""
-    docs = await search_fashion_knowledge(session, query, limit=limit, occasion=occasion, weather=weather)
+    """Return a formatted string of relevant fashion knowledge for LLM prompt injection.
+
+    Pass ``gender`` when the caller already has the user's audience; otherwise pass
+    ``user_id`` and it is resolved from the style profile (best-effort) so the
+    fashion-KB metadata pre-filter can drop wrong-audience passages. ``gender`` wins
+    if both are given; neither leaves retrieval audience-neutral.
+    """
+    if gender is None and user_id is not None:
+        from app.api.v1.identity.services.style_profile_context import load_profile_gender
+
+        gender = await load_profile_gender(session, user_id)
+    docs = await search_fashion_knowledge(
+        session, query, limit=limit, occasion=occasion, weather=weather, gender=gender
+    )
     if not docs:
         return ""
     lines = ["[Fashion Knowledge Context]"]

@@ -101,6 +101,7 @@ async def retrieve_outfit_context(
     weather: str = "",
     limit: int = 5,
     store: FAISSVectorStore | PGVectorStore | None = None,
+    gender: str | None = None,
 ) -> dict[str, Any]:
     """
     Retrieve combined fashion knowledge + user's outfit history for an occasion.
@@ -109,6 +110,10 @@ async def retrieve_outfit_context(
       1. Fashion knowledge (global) — general styling rules for this occasion/weather.
       2. User's outfit history (user-scoped) — past recommendations the user has
          actually worn or saved, weighted by similarity to the current request.
+
+    ``gender`` is an optional audience signal (the caller's resolved style-profile
+    gender) forwarded to the fashion-KB metadata pre-filter; ``None`` leaves fashion
+    retrieval audience-neutral.
 
     Returns a dict matching OutfitContextResponse schema.
     """
@@ -126,7 +131,7 @@ async def retrieve_outfit_context(
     # both share one AsyncSession (which cannot execute two queries at once),
     # so they stay sequential there.
     fashion_task = fashion_rag_service.search_fashion_knowledge(
-        session, query, limit=3, category=None, occasion=occasion, weather=weather
+        session, query, limit=3, category=None, occasion=occasion, weather=weather, gender=gender
     )
     if isinstance(_store, PGVectorStore):
         fashion_docs = await fashion_task

@@ -1,5 +1,9 @@
 # Fashion knowledge — category: color
 # Edit/extend freely; the loader validates and seeds these idempotently by title.
+#
+# Authoring note (atomic docs): color season analysis is split into an OVERVIEW
+# doc (what it is + the two axes + how to identify) plus one focused doc per season
+# palette, so a query about one season retrieves an undiluted palette.
 category: color
 documents:
 - title: Color Matching Fundamentals
@@ -34,39 +38,159 @@ documents:
   region: null
   source: curated
   content: >-
-    Skin tone and undertone are the most personal factor in color selection. Warm undertones (golden,
-    peachy, yellow-based skin): best colors are earth tones — camel, terracotta, rust, olive, mustard
-    yellow, warm browns, off-white/cream, warm reds like tomato red or coral. Avoid: cool icy tones, pastel
-    lavender, cool pinks. Cool undertones (pink, rosy, blue-based skin): best colors are jewel tones —
-    sapphire blue, emerald green, true white, burgundy, plum, cool greys, silver accents, lavender, icy
-    pastels. Avoid: warm oranges, warm yellows, strong earth tones. Neutral undertones: versatile — almost
-    all colors work; use contrast level to guide. Deep/rich skin tones carry vivid saturated colors beautifully
-    — jewel tones, rich mustard, coral, bright white all pop. Avoid low-contrast beige near the face.
-    Fair/light skin tones look striking with high-contrast combinations (navy + white, black + white)
-    and soft pastels; avoid very pale tones that wash out. Olive/medium skin with warm undertone: warm
-    earthy tones and jewel tones both work well. Always match clothing color to undertone, not just skin
-    darkness level.
+    Skin undertone — not how light or dark your skin is — is the most personal factor in choosing colours.
+    Find your undertone: golden, peachy, or yellow-based skin is warm; pink, rosy, or blue-based skin is
+    cool; skin that fits neither cleanly is neutral (veins that look green lean warm, blue lean cool).
+    Match clothing colour to undertone first; skin depth and contrast are a secondary modifier that shifts
+    how saturated or high-contrast your best colours should be. See the warm, cool, and neutral undertone
+    guides, plus the depth-and-contrast guide, for specific palettes.
+- title: Warm Undertone Color Guide
+  occasion: null
+  season: null
+  tags:
+  - skin tone
+  - warm undertone
+  - earth tones
+  - color matching
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    Warm undertones (golden, peachy, yellow-based skin) are flattered by earth tones — camel, terracotta,
+    rust, olive, mustard yellow, warm browns, and off-white or cream — plus warm reds like tomato red and
+    coral. Avoid cool icy tones, pastel lavender, and cool pinks, which can leave warm skin looking sallow.
+- title: Cool Undertone Color Guide
+  occasion: null
+  season: null
+  tags:
+  - skin tone
+  - cool undertone
+  - jewel tones
+  - color matching
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    Cool undertones (pink, rosy, blue-based skin) are flattered by jewel tones — sapphire blue, emerald
+    green, burgundy, and plum — alongside true white, cool greys, silver accents, lavender, and icy pastels.
+    Avoid warm oranges, warm yellows, and strong earth tones, which tend to clash with cool skin.
+- title: Neutral Undertone Color Guide
+  occasion: null
+  season: null
+  tags:
+  - skin tone
+  - neutral undertone
+  - color matching
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    Neutral undertones (neither clearly warm nor cool) are the most versatile — almost every colour works.
+    Let contrast level guide you instead: pick shades that match how much natural contrast you have between
+    skin, hair, and eyes, and lean warm or cool by preference rather than necessity. Muted, balanced tones
+    are especially reliable.
+- title: Skin Depth and Contrast Color Guide
+  occasion: null
+  season: null
+  tags:
+  - skin tone
+  - depth
+  - contrast
+  - deep fair olive
+  - color matching
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    Beyond undertone, your skin's depth and contrast fine-tune saturation. Deep or rich skin carries vivid,
+    saturated colours beautifully — jewel tones, rich mustard, coral, and bright white all pop; avoid
+    low-contrast beige near the face. Fair or light skin looks striking in high-contrast pairings (navy +
+    white, black + white) and soft pastels; avoid very pale tones that wash you out. Olive or medium skin
+    (usually warm) suits both warm earthy tones and jewel tones.
 - title: Color Season Analysis (Spring Summer Autumn Winter)
   occasion: null
   season: null
   tags:
   - color season
   - seasonal palette
-  - spring summer autumn winter
   - personal color analysis
   gender: unisex
   formality_level: null
   region: null
   source: curated
   content: >-
-    Color season analysis matches personal coloring to a seasonal palette. SPRING (warm, light, clear):
-    warm skin with peachy/golden undertone, light or hazel eyes, golden/strawberry blonde or light auburn
-    hair. Best colors: coral, peach, warm yellow, light warm greens, turquoise, ivory, camel. Avoid: icy
-    pastels, cool greys, black near face. SUMMER (cool, light, muted): cool skin with pinkish undertone,
-    blue/grey/cool eyes, ash blonde or light cool brown hair. Best colors: dusty rose, lavender, powder
-    blue, soft grey, taupe, muted navy, soft white. Avoid: warm oranges, earth tones, pure black. AUTUMN
-    (warm, deep, muted): golden/olive/warm skin, amber/hazel/brown/green eyes, chestnut/auburn/warm brown
-    hair. Best colors: rust, burnt orange, olive, dark camel, forest green, warm brown, teal, gold. Avoid:
-    cool icy pastels, pure black, cool reds. WINTER (cool, deep, clear): cool or neutral skin, dark/intense
-    eyes, dark brown/black or starkly contrasted hair. Best colors: true white, jet black, navy, royal
-    blue, emerald, ruby red, fuchsia, icy pastels for contrast. Avoid: earth tones, warm yellows.
+    Color season analysis matches your personal colouring — skin undertone, eye colour, and hair — to one
+    of four seasonal palettes so your clothes harmonise with your natural tones. The two axes are warm vs
+    cool undertone and light/clear vs deep/muted. Spring is warm-light-clear, Summer cool-light-muted,
+    Autumn warm-deep-muted, and Winter cool-deep-clear. Identify your undertone first (warm/golden vs
+    cool/pink), then your depth and clarity, and see the individual Spring, Summer, Autumn, and Winter
+    guides for full palettes.
+- title: Spring Color Palette Guide
+  occasion: null
+  season: null
+  tags:
+  - color season
+  - spring
+  - warm palette
+  - personal color analysis
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    SPRING colouring is warm, light, and clear — warm skin with a peachy or golden undertone, light or
+    hazel eyes, and golden, strawberry-blonde, or light-auburn hair. Best colours: coral, peach, warm
+    yellow, light warm greens, turquoise, ivory, and camel. Avoid icy pastels, cool greys, and black next
+    to the face.
+- title: Summer Color Palette Guide
+  occasion: null
+  season: null
+  tags:
+  - color season
+  - summer
+  - cool palette
+  - personal color analysis
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    SUMMER colouring is cool, light, and muted — cool skin with a pinkish undertone, blue/grey/cool eyes,
+    and ash-blonde or light cool-brown hair. Best colours: dusty rose, lavender, powder blue, soft grey,
+    taupe, muted navy, and soft white. Avoid warm oranges, earth tones, and pure black.
+- title: Autumn Color Palette Guide
+  occasion: null
+  season: null
+  tags:
+  - color season
+  - autumn
+  - warm palette
+  - personal color analysis
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    AUTUMN colouring is warm, deep, and muted — golden, olive, or warm skin, amber/hazel/brown/green eyes,
+    and chestnut, auburn, or warm-brown hair. Best colours: rust, burnt orange, olive, dark camel, forest
+    green, warm brown, teal, and gold. Avoid cool icy pastels, pure black, and cool reds.
+- title: Winter Color Palette Guide
+  occasion: null
+  season: null
+  tags:
+  - color season
+  - winter
+  - cool palette
+  - personal color analysis
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    WINTER colouring is cool, deep, and clear — cool or neutral skin, dark or intense eyes, and
+    dark-brown/black or starkly contrasted hair. Best colours: true white, jet black, navy, royal blue,
+    emerald, ruby red, fuchsia, and icy pastels for contrast. Avoid earth tones and warm yellows.

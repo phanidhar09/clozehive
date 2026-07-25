@@ -357,6 +357,12 @@ class Settings(BaseSettings):
     rag_hybrid_enabled: bool = True
     # RRF damping constant (see app/rag/fusion.py). Larger = flatter rank weighting.
     rag_rrf_k: int = 60
+    # Metadata pre-filter: before ranking, drop fashion-KB documents whose
+    # structured metadata (currently gender) contradicts a known query constraint,
+    # so a wrong-audience passage can never displace a right-audience one from the
+    # candidate pool (see app/rag/metadata_filter.py). Inert until a caller supplies
+    # a gender signal, so leaving it on is a no-op for gender-agnostic queries.
+    rag_metadata_prefilter_enabled: bool = True
     # Cross-encoder reranking: after hybrid retrieval + metadata rerank, score the
     # top candidates for true query-passage relevance with an LLM (joint scoring —
     # the biggest precision lever) and reorder. Opt-in: it adds one small-model

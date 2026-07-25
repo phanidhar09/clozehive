@@ -342,7 +342,7 @@ async def chat(body: ChatRequest, user_id: CurrentUser, session: DbSession):
     # Fetch fashion knowledge relevant to this message
     fashion_ctx = ""
     try:
-        fashion_ctx = await get_fashion_context_for_prompt(session, body.message)
+        fashion_ctx = await get_fashion_context_for_prompt(session, body.message, user_id=uid)
     except Exception as exc:
         logger.warning("fashion_context_unavailable", error=str(exc))
     messages = _chat_messages(body)
@@ -406,7 +406,7 @@ async def outfit(body: OutfitRequest, user_id: CurrentUser, session: DbSession):
     profile = await _resolve_user_profile(session, uid, body.user_profile)
     rag_query = f"outfit for {body.occasion} weather:{body.weather or 'mild'}"
     fashion_ctx, history_ctx = await asyncio.gather(
-        get_fashion_context_for_prompt(session, rag_query),
+        get_fashion_context_for_prompt(session, rag_query, user_id=uid),
         get_outfit_history_for_prompt(session, user_id, body.occasion),
         return_exceptions=True,
     )
@@ -433,7 +433,7 @@ async def outfit_stream(body: OutfitRequest, user_id: CurrentUser, session: DbSe
             profile = await _resolve_user_profile(session, uid, body.user_profile)
             rag_query = f"outfit for {body.occasion} weather:{body.weather or 'mild'}"
             fashion_ctx, history_ctx = await asyncio.gather(
-                get_fashion_context_for_prompt(session, rag_query),
+                get_fashion_context_for_prompt(session, rag_query, user_id=uid),
                 get_outfit_history_for_prompt(session, user_id, body.occasion),
                 return_exceptions=True,
             )
