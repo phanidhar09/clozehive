@@ -38,6 +38,7 @@ async def _routed_chat(task: Task, payload: str, system_prompt: str) -> str:
         ),
     )
 
+
 # ── System prompts ─────────────────────────────────────────────────────────────
 
 _GENERATE_SYSTEM_PROMPT = """\

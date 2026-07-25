@@ -353,9 +353,7 @@ async def pgvector_cosine_search(
     if tags_gender is not None:
         params["tags_gender"] = tags_gender
         tags_gender_filter = (
-            "AND (tags->>'gender' IS NULL "
-            "OR tags->>'gender' = 'unisex' "
-            "OR tags->>'gender' = :tags_gender)"
+            "AND (tags->>'gender' IS NULL OR tags->>'gender' = 'unisex' OR tags->>'gender' = :tags_gender)"
         )
 
     # The vector literal is interpolated directly (not a bound param) because

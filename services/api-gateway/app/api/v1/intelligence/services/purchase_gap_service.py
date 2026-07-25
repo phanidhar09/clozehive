@@ -322,8 +322,7 @@ def _detect_closet_gaps(
                     "missing_color": color,
                     "missing_occasion": outfit_type,
                     "reason": (
-                        f"You're missing a {item} for {outfit_type} outfits — "
-                        f"you have no {cat} in your closet yet."
+                        f"You're missing a {item} for {outfit_type} outfits — you have no {cat} in your closet yet."
                     ),
                     "priority_score": 0.85 if cat in ("tops", "bottoms", "shoes") else 0.60,
                     "source_context": {"outfit_type": outfit_type},
@@ -391,9 +390,7 @@ def _detect_gaps_from_missing_items(
     """Convert 'you_might_still_need' packing items into purchase gaps."""
     gaps = []
     seen: set[str] = set()
-    purpose = _normalize_outfit_type(
-        str(source_context.get("purpose") or source_context.get("occasion") or "")
-    )
+    purpose = _normalize_outfit_type(str(source_context.get("purpose") or source_context.get("occasion") or ""))
     outfit_type = purpose or f"travel to {source}"
     for item in missing_items:
         name = (item.get("name") or "").strip()
@@ -408,8 +405,7 @@ def _detect_gaps_from_missing_items(
                 "gap_type": "trip_packing",
                 "missing_category": cat,
                 "missing_occasion": outfit_type,
-                "reason": item.get("reason")
-                or f"Pack {specific} for your {outfit_type} trip to {source}.",
+                "reason": item.get("reason") or f"Pack {specific} for your {outfit_type} trip to {source}.",
                 "priority_score": 0.78,
                 "source_context": {**source_context, "outfit_type": outfit_type},
                 "suggested_attributes": {
@@ -471,8 +467,7 @@ async def detect_and_save_gaps(
                     "missing_category": category,
                     "missing_occasion": outfit_type if outfit_type != "this outfit" else occasion,
                     "reason": (
-                        f"Add {item} to complete your {outfit_type} outfits — "
-                        f"it's the missing piece for this look."
+                        f"Add {item} to complete your {outfit_type} outfits — it's the missing piece for this look."
                     ),
                     "priority_score": 0.72,
                     "source_context": {
@@ -606,13 +601,8 @@ async def get_gap_summary_for_prompt(
     for g in gaps:
         attrs = g.get("suggested_attributes") or {}
         item = attrs.get("item") if isinstance(attrs, dict) else None
-        outfit_type = (
-            (attrs.get("outfit_type") if isinstance(attrs, dict) else None)
-            or g.get("missing_occasion")
-        )
+        outfit_type = (attrs.get("outfit_type") if isinstance(attrs, dict) else None) or g.get("missing_occasion")
         label = item or g["missing_category"]
         outfit_bit = f" for {outfit_type} outfits" if outfit_type else ""
-        lines.append(
-            f"• {label}{outfit_bit} ({g['gap_type']}): {g['reason'][:120]}"
-        )
+        lines.append(f"• {label}{outfit_bit} ({g['gap_type']}): {g['reason'][:120]}")
     return "\n".join(lines)
