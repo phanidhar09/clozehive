@@ -70,6 +70,45 @@ async def test_ensure_seeded_is_idempotent(db_session):
     assert first == second
 
 
+@pytest.mark.asyncio
+async def test_ensure_seeded_refreshes_changed_curated_and_leaves_others(db_session, monkeypatch):
+    """Atomic-authoring edits must reach an already-seeded DB: a curated doc whose
+    corpus content changed is refreshed in place (not duplicated), while a
+    learned/user_data doc that is not in the corpus is never touched."""
+    from app.models.rag import FashionKnowledgeDocument
+
+    # A mined learned doc, absent from the seed — reconciliation must leave it alone.
+    db_session.add(
+        FashionKnowledgeDocument(
+            title="Learned: user pairing",
+            content="mined",
+            category="learned",
+            tags={"tags": [], "source": "user_data"},
+            embedding=None,
+        )
+    )
+    await db_session.flush()
+
+    seed = [{"title": "Doc A", "content": "original body", "category": "styling", "tags": ["x"]}]
+    monkeypatch.setattr(fashion_rag_service, "_KNOWLEDGE_SEED", seed)
+
+    await fashion_rag_service.ensure_seeded(db_session)
+    a = next(d for d in await _all_docs(db_session) if d.title == "Doc A")
+    assert a.content == "original body"
+
+    # Corpus content changes → reseed refreshes the existing row in place.
+    seed[0]["content"] = "revised body"
+    await fashion_rag_service.ensure_seeded(db_session)
+
+    docs = await _all_docs(db_session)
+    a_rows = [d for d in docs if d.title == "Doc A"]
+    assert len(a_rows) == 1  # refreshed, not duplicated
+    assert a_rows[0].content == "revised body"
+
+    kept = [d for d in docs if d.title == "Learned: user pairing"]
+    assert len(kept) == 1 and kept[0].content == "mined"  # user_data doc untouched
+
+
 async def _seed_outfits(session, *, users: int, outfits_per_user: int) -> None:
     for _ in range(users):
         uid = uuid.uuid4()

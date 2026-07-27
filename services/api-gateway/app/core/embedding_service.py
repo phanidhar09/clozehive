@@ -287,6 +287,7 @@ async def pgvector_cosine_search(
     exclude_id: str | None = None,
     filter_category: str | None = None,
     filter_available: bool = False,
+    tags_gender: str | None = None,
 ) -> list[dict[str, Any]]:
     """Raw SQL cosine search against any table with an `embedding` vector column.
 
@@ -295,7 +296,15 @@ async def pgvector_cosine_search(
       in PostgreSQL; must use an allowlist).
     - The vector literal is validated with a strict regex before interpolation.
     - All user-supplied filter values (``user_id``, ``exclude_id``,
-      ``filter_category``) are passed as bound parameters, never interpolated.
+      ``filter_category``, ``tags_gender``) are passed as bound parameters, never
+      interpolated.
+
+    ``tags_gender`` is a *metadata pre-filter*: when set, only rows whose
+    ``tags->>'gender'`` is NULL, ``'unisex'``, or equal to the given value are
+    scanned, so the ANN order/limit runs on the audience-filtered set rather than
+    filtering after the fact. Only pass it for a table that has a ``tags`` JSONB
+    column (currently ``fashion_knowledge_documents``); ``tags->>'gender'`` yields
+    NULL for untagged rows but requires the column to exist.
     """
     if table not in _ALLOWED_TABLES:
         logger.warning("pgvector_search_blocked", table=table, reason="table_not_in_allowlist")
@@ -338,6 +347,15 @@ async def pgvector_cosine_search(
         params["filter_category"] = filter_category
         category_filter = "AND category = :filter_category"
 
+    # Metadata pre-filter on the tags JSONB. Untagged (NULL) and 'unisex' rows are
+    # audience-neutral and always kept; otherwise the audience must match.
+    tags_gender_filter = ""
+    if tags_gender is not None:
+        params["tags_gender"] = tags_gender
+        tags_gender_filter = (
+            "AND (tags->>'gender' IS NULL OR tags->>'gender' = 'unisex' OR tags->>'gender' = :tags_gender)"
+        )
+
     # The vector literal is interpolated directly (not a bound param) because
     # asyncpg cannot bind custom pgvector types via $N params.  The value is
     # pre-validated by _VEC_RE above so interpolation is safe.
@@ -350,6 +368,7 @@ async def pgvector_cosine_search(
           {available_filter}
           {exclude_filter}
           {category_filter}
+          {tags_gender_filter}
           {resolved_filter}
           AND 1 - (embedding <=> CAST('{vec}' AS vector)) >= :threshold
         ORDER BY embedding <=> CAST('{vec}' AS vector)

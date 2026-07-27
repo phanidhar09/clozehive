@@ -412,6 +412,9 @@ async def update_item(
     # commit) runs after background tasks, the two deadlock — the edit is then
     # rolled back when the pooled connection is recycled, silently losing it.
     await session.commit()
+    # Re-bust list cache after commit so concurrent GETs can't rebuild from the
+    # pre-update snapshot (update_item also invalidates pre-commit).
+    await cache_service.invalidate_closet_list_cache(user_id)
     # Recompute the embedding off the request path. Doing it inline blocked the
     # response for the full OpenAI round-trip, and any embedding error rolled
     # back the metadata update too — silently losing the user's edit.
@@ -428,6 +431,12 @@ async def delete_item(
 ):
     svc = _get_svc(session)
     image_urls = await svc.delete_item(item_id, UUID(user_id))
+    # Commit before busting the list cache — same rationale as PATCH /closet/{id}.
+    # If we invalidate while the DELETE is still uncommitted, a concurrent
+    # GET /closet/ can rebuild Redis from the old row and the item reappears
+    # on refresh even though the delete later commits.
+    await session.commit()
+    await cache_service.invalidate_closet_list_cache(user_id)
     await cache_service.invalidate_user_ai_cache(await get_redis(), user_id)
     # Clean up stored blobs after the DB row is gone — best-effort, non-blocking
     for url in image_urls:

@@ -250,7 +250,7 @@ async def analyze_outfit(
     rag_parts: list[str] = []
     try:
         fashion_ctx = await get_fashion_context_for_prompt(
-            session, f"{body.occasion} outfit {effective_weather}", limit=2
+            session, f"{body.occasion} outfit {effective_weather}", limit=2, user_id=uid
         )
         if fashion_ctx:
             rag_parts.append(fashion_ctx)
@@ -527,7 +527,7 @@ async def shuffle_outfit(
 
     # Fetch fashion knowledge + past outfit history in parallel for richer recommendations
     fashion_ctx, history_ctx = await asyncio.gather(
-        get_fashion_context_for_prompt(session, rag_query),
+        get_fashion_context_for_prompt(session, rag_query, user_id=uid),
         get_outfit_history_for_prompt(session, str(uid), body.occasion),
         return_exceptions=True,
     )

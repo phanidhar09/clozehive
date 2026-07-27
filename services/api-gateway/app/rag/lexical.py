@@ -144,6 +144,9 @@ class LexicalIndex:
                     "category": doc.get("category"),
                     "season": doc.get("season"),
                     "occasion": doc.get("occasion"),
+                    # Carried through so the metadata pre-filter can read audience
+                    # off the lexical half (app.rag.metadata_filter).
+                    "gender": doc.get("gender"),
                     "lexical_score": round(float(score), 4),
                 }
             )

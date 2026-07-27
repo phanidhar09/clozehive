@@ -6,6 +6,12 @@ constraints), not as a length heuristic. A short message can be hard
 trivial ("...anyway, is navy ok with brown?"), so message length is used only
 as a de-escalating tiebreaker — never as a primary rule.
 
+Two entry points share one tier catalog:
+
+  • :func:`route` / :func:`route_async` — chat turns (dynamic SMALL/LARGE/VISION).
+  • :func:`for_task` — named product features (nudges, shopping takeaway, …)
+    that pick a fixed default tier without re-running the chat classifier.
+
 The router consumes signals the chat pipeline has *already computed* (RAG closet
 hits, occasion, weather, images, history depth) and returns a structured
 :class:`RouteDecision`. Generation reads the decision instead of hardcoding a
@@ -22,6 +28,7 @@ Design notes:
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from enum import StrEnum
 
@@ -40,6 +47,42 @@ class Tier(StrEnum):
     VISION = "vision"  # any turn with attached images
 
 
+class Task(StrEnum):
+    """Named product AI tasks that resolve through the shared tier catalog.
+
+    Chat stays on :func:`route` / :func:`route_async`. Everything else should
+    call :func:`for_task` so model/budget/telemetry stay consistent.
+    """
+
+    NUDGES_DAILY = "nudges.daily"
+    STYLE_PROFILE_SUMMARY = "style_profile.summary"
+    SHOPPING_TAKEAWAY = "shopping.takeaway"
+    # Registered for upcoming migrations (PR2); callers land in later PRs.
+    SHOPPING_VERDICT = "shopping.verdict"
+    OUTFIT_GENERATE = "outfit.generate"
+    OUTFIT_ANALYZE = "outfit.analyze"
+    OUTFIT_SHUFFLE = "outfit.shuffle"
+    OUTFIT_SUGGEST_PAIRINGS = "outfit.suggest_pairings"
+    PACKING_PLAN = "packing.plan"
+    PLANNER_WEEKLY = "planner.weekly"
+
+
+# Default tier per product task. Chat is intentionally absent — it uses
+# signal-based routing instead of a fixed assignment.
+_TASK_TIERS: dict[Task, Tier] = {
+    Task.NUDGES_DAILY: Tier.SMALL,
+    Task.STYLE_PROFILE_SUMMARY: Tier.SMALL,
+    Task.SHOPPING_TAKEAWAY: Tier.SMALL,
+    Task.SHOPPING_VERDICT: Tier.LARGE,
+    Task.OUTFIT_GENERATE: Tier.LARGE,
+    Task.OUTFIT_ANALYZE: Tier.SMALL,
+    Task.OUTFIT_SHUFFLE: Tier.LARGE,
+    Task.OUTFIT_SUGGEST_PAIRINGS: Tier.SMALL,
+    Task.PACKING_PLAN: Tier.LARGE,
+    Task.PLANNER_WEEKLY: Tier.LARGE,
+}
+
+
 # Score at/above which a turn escalates from SMALL to LARGE. Tuned from the
 # `model_route` logs — kept as a module constant so it is easy to sweep.
 _ESCALATE_THRESHOLD = 0.45
@@ -56,6 +99,7 @@ class RouteDecision:
     temperature: float
     reasons: list[str] = field(default_factory=list)
     score: float = 0.0
+    task: str | None = None
 
 
 @dataclass
@@ -87,6 +131,66 @@ def _catalog() -> dict[Tier, tuple[str, int, float]]:
         # so a dedicated vision model can be slotted in later without touching callers.
         Tier.VISION: (settings.openai_model, settings.openai_max_tokens, 0.5),
     }
+
+
+def resolve_tier(
+    tier: Tier,
+    *,
+    reasons: list[str] | None = None,
+    score: float = 0.0,
+    task: str | None = None,
+    max_tokens: int | None = None,
+    temperature: float | None = None,
+) -> RouteDecision:
+    """Map a capability tier to concrete model/budget settings from the catalog.
+
+    Call-site overrides (``max_tokens``, ``temperature``) win over catalog
+    defaults when a feature needs a tighter budget or cooler sampling.
+    """
+    model, catalog_max_tokens, catalog_temperature = _catalog()[tier]
+    decision = RouteDecision(
+        tier=tier,
+        model=model,
+        max_tokens=max_tokens if max_tokens is not None else catalog_max_tokens,
+        temperature=temperature if temperature is not None else catalog_temperature,
+        reasons=list(reasons or []),
+        score=round(score, 3),
+        task=task,
+    )
+    logger.info(
+        "model_route",
+        tier=tier.value,
+        model=model,
+        score=decision.score,
+        reasons=decision.reasons,
+        task=task,
+        max_tokens=decision.max_tokens,
+        temperature=decision.temperature,
+    )
+    return decision
+
+
+def for_task(
+    task: Task | str,
+    *,
+    max_tokens: int | None = None,
+    temperature: float | None = None,
+) -> RouteDecision:
+    """Resolve catalog settings for a named product task (non-chat paths).
+
+    Prefer this over hardcoding ``openai_model`` / ``gpt-4o-mini`` at call sites
+    so cost tiers and ``model_route`` telemetry stay consistent across features.
+    """
+    resolved = Task(task) if not isinstance(task, Task) else task
+    tier = _TASK_TIERS[resolved]
+    return resolve_tier(
+        tier,
+        reasons=[f"task({resolved.value})"],
+        score=1.0 if tier is not Tier.SMALL else 0.0,
+        task=resolved.value,
+        max_tokens=max_tokens,
+        temperature=temperature,
+    )
 
 
 def _estimate_tokens(text: str) -> int:
@@ -180,23 +284,8 @@ def route(sig: RouteSignals) -> RouteDecision:
 
 
 def _decide(tier: Tier, reasons: list[str], *, score: float) -> RouteDecision:
-    model, max_tokens, temperature = _catalog()[tier]
-    decision = RouteDecision(
-        tier=tier,
-        model=model,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        reasons=reasons,
-        score=round(score, 3),
-    )
-    logger.info(
-        "model_route",
-        tier=tier.value,
-        model=model,
-        score=decision.score,
-        reasons=reasons,
-    )
-    return decision
+    """Chat-path helper — resolves the catalog and tags the log as task=chat."""
+    return resolve_tier(tier, reasons=reasons, score=score, task="chat")
 
 
 # ── LLM micro-classifier (second stage, ambiguous band only) ───────────────────
@@ -224,15 +313,26 @@ async def route_async(sig: RouteSignals) -> RouteDecision:
 
     ~90% of turns resolve on the deterministic pass with zero added latency/cost.
     Only scores in ``[_ARBITER_LOW, _ESCALATE_THRESHOLD)`` pay for one cheap
-    classifier call. Any failure falls back to the deterministic decision, so the
-    arbiter can only *upgrade* confidence, never break routing.
+    classifier call. Any failure or timeout falls back to the deterministic
+    decision, so the arbiter can only *upgrade* confidence, never break routing
+    or stall the request beyond ``model_router_arbiter_timeout_ms``.
     """
     decision = route(sig)
 
     if not settings.model_router_arbiter_enabled or not _needs_arbitration(decision):
         return decision
 
-    verdict = await _classify_complexity(sig.message)
+    timeout_s = max(0.05, float(settings.model_router_arbiter_timeout_ms) / 1000.0)
+    try:
+        verdict = await asyncio.wait_for(_classify_complexity(sig.message), timeout=timeout_s)
+    except TimeoutError:
+        logger.warning(
+            "model_route_arbiter_timeout",
+            timeout_ms=settings.model_router_arbiter_timeout_ms,
+        )
+        decision.reasons.append("arbiter_timeout")
+        return decision
+
     if verdict is None:
         decision.reasons.append("arbiter_unavailable")
         return decision

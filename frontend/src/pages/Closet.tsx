@@ -526,6 +526,8 @@ export default function Closet() {
       await closetApi.delete(item.id)
       removeClosetItem(item.id)
       if (selected?.id === item.id) setSelected(null)
+      // Re-fetch so we don't keep a ghost row from a stale list cache.
+      void fetchClosetItems()
     } catch (err: unknown) {
       // A 404 means the item is already gone on the server (e.g. a double-click,
       // a stale list, or a second tab). That's the desired end state of a delete,
@@ -535,6 +537,7 @@ export default function Closet() {
       if (status === 404) {
         removeClosetItem(item.id)
         if (selected?.id === item.id) setSelected(null)
+        void fetchClosetItems()
       } else {
         toastStore.add({
           title: 'Delete failed',

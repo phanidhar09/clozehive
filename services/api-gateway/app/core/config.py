@@ -220,6 +220,9 @@ class Settings(BaseSettings):
     # When True, the model router runs a cheap LLM micro-classifier to break ties
     # for turns whose deterministic complexity score lands in the ambiguous band.
     model_router_arbiter_enabled: bool = True
+    # Hard ceiling on the arbiter call. Grey-zone turns must not add a full
+    # serial chat hop — on timeout we keep the deterministic decision.
+    model_router_arbiter_timeout_ms: int = 400
     openai_max_tokens: int = 4096
     # ── Gemini AI ─────────────────────────────────────────────────────────────
     gemini_api_key: str = ""
@@ -334,6 +337,12 @@ class Settings(BaseSettings):
     # prompt content. Host defaults to PostHog Cloud US.
     posthog_api_key: str = ""
     posthog_host: str = "https://us.i.posthog.com"
+    # Langfuse (self-hosted, v2) — LLM tracing + evaluation scoring. Blank keys =
+    # disabled (no-op). Host points at the self-hosted langfuse-server container.
+    # Content (prompt/response) is only captured when LANGFUSE_CAPTURE_CONTENT=true.
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_host: str = "http://localhost:3100"
     # Distributed tracing (OpenTelemetry). Enable + point OTEL_EXPORTER_OTLP_ENDPOINT
     # at a collector (Tempo/Jaeger/Honeycomb). Default off = no tracing overhead.
     otel_enabled: bool = False
@@ -355,6 +364,12 @@ class Settings(BaseSettings):
     rag_hybrid_enabled: bool = True
     # RRF damping constant (see app/rag/fusion.py). Larger = flatter rank weighting.
     rag_rrf_k: int = 60
+    # Metadata pre-filter: before ranking, drop fashion-KB documents whose
+    # structured metadata (currently gender) contradicts a known query constraint,
+    # so a wrong-audience passage can never displace a right-audience one from the
+    # candidate pool (see app/rag/metadata_filter.py). Inert until a caller supplies
+    # a gender signal, so leaving it on is a no-op for gender-agnostic queries.
+    rag_metadata_prefilter_enabled: bool = True
     # Cross-encoder reranking: after hybrid retrieval + metadata rerank, score the
     # top candidates for true query-passage relevance with an LLM (joint scoring —
     # the biggest precision lever) and reorder. Opt-in: it adds one small-model

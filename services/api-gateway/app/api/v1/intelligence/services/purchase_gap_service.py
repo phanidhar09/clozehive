@@ -38,11 +38,9 @@ _OCCASION_ESSENTIALS: dict[str, list[str]] = {
     "wedding": ["shoes", "accessories", "outerwear"],
 }
 
-# Recognized category-level slot terms the outfit LLM may return in
-# `missing_pieces`, mapped to a canonical closet category. The outfit prompt
-# asks for "categories only, never specific item names"; this allowlist grounds
-# each value to a real category and drops anything unrecognized (invented slots
-# or hallucinated specific item descriptions) before it becomes a saved gap.
+# Recognized wardrobe terms used to ground LLM ``missing_pieces``. Exact
+# aliases map 1:1; longer phrases that *contain* an alias (e.g. "brown suede
+# Chelsea boots") keep the full specific label while still resolving a category.
 _PIECE_CATEGORY_ALIASES: dict[str, str] = {
     # tops
     "top": "tops",
@@ -55,6 +53,9 @@ _PIECE_CATEGORY_ALIASES: dict[str, str] = {
     "sweater": "tops",
     "knit": "tops",
     "polo": "tops",
+    "oxford": "tops",
+    "turtleneck": "tops",
+    "hoodie": "tops",
     # bottoms
     "bottom": "bottoms",
     "bottoms": "bottoms",
@@ -73,6 +74,8 @@ _PIECE_CATEGORY_ALIASES: dict[str, str] = {
     "heels": "shoes",
     "sandals": "shoes",
     "loafers": "shoes",
+    "oxfords": "shoes",
+    "trainers": "shoes",
     # outerwear
     "outerwear": "outerwear",
     "jacket": "outerwear",
@@ -80,6 +83,7 @@ _PIECE_CATEGORY_ALIASES: dict[str, str] = {
     "blazer": "outerwear",
     "cardigan": "outerwear",
     "overcoat": "outerwear",
+    "trench": "outerwear",
     # accessories
     "accessory": "accessories",
     "accessories": "accessories",
@@ -100,72 +104,278 @@ _PIECE_CATEGORY_ALIASES: dict[str, str] = {
     "jumpsuit": "dresses",
 }
 
+# Concrete starter pieces for empty essential categories — never "versatile".
+# Each entry names a particular item and the outfit type it unlocks.
+_STRUCTURAL_STARTERS: dict[str, dict[str, str]] = {
+    "tops": {
+        "item": "crisp white or light-blue button-down shirt",
+        "outfit_type": "work / business casual",
+        "color": "white",
+    },
+    "bottoms": {
+        "item": "dark straight-leg trousers or well-fitting jeans",
+        "outfit_type": "everyday / work",
+        "color": "navy or black",
+    },
+    "shoes": {
+        "item": "clean white leather sneakers or brown loafers",
+        "outfit_type": "everyday casual",
+        "color": "white or brown",
+    },
+    "outerwear": {
+        "item": "navy blazer or camel lightweight trench",
+        "outfit_type": "work / smart casual",
+        "color": "navy or camel",
+    },
+    "accessories": {
+        "item": "simple leather belt or everyday crossbody bag",
+        "outfit_type": "everyday outfits",
+        "color": "brown or black",
+    },
+    "dresses": {
+        "item": "solid midi wrap or shirt dress",
+        "outfit_type": "day-to-evening",
+        "color": "navy or black",
+    },
+}
+
+# When the LLM only returns a bare category (e.g. "shoes"), pick a concrete
+# shopping suggestion for the outfit occasion being built.
+_OCCASION_ITEM_HINTS: dict[str, dict[str, str]] = {
+    "formal": {
+        "tops": "crisp white dress shirt",
+        "bottoms": "tailored black or charcoal dress trousers",
+        "shoes": "black leather oxfords or polished loafers",
+        "outerwear": "structured navy or black blazer",
+        "accessories": "slim leather belt and simple dress watch",
+        "dresses": "elegant midi or cocktail dress",
+    },
+    "business": {
+        "tops": "light-blue or white oxford shirt",
+        "bottoms": "navy chinos or tailored trousers",
+        "shoes": "brown or black leather loafers",
+        "outerwear": "navy blazer",
+        "accessories": "leather belt matching your shoes",
+        "dresses": "tailored sheath or shirt dress",
+    },
+    "business casual": {
+        "tops": "light-blue or white oxford shirt",
+        "bottoms": "navy chinos or tailored trousers",
+        "shoes": "brown or black leather loafers",
+        "outerwear": "navy blazer",
+        "accessories": "leather belt matching your shoes",
+        "dresses": "tailored sheath or shirt dress",
+    },
+    "work": {
+        "tops": "polished button-down or fine-knit sweater",
+        "bottoms": "dark trousers or smart jeans",
+        "shoes": "leather loafers or clean minimal sneakers",
+        "outerwear": "blazer or structured coat",
+        "accessories": "leather belt",
+        "dresses": "smart midi dress",
+    },
+    "date": {
+        "tops": "fitted dark knit or silk blouse",
+        "bottoms": "dark well-cut jeans or trousers",
+        "shoes": "leather Chelsea boots or heeled sandals",
+        "outerwear": "leather jacket or tailored coat",
+        "accessories": "statement belt or simple jewelry",
+        "dresses": "flattering midi dress",
+    },
+    "wedding": {
+        "tops": "dress shirt suitable for a suit",
+        "bottoms": "suit trousers or formal bottoms",
+        "shoes": "polished dress shoes",
+        "outerwear": "suit jacket or dressy blazer",
+        "accessories": "dress belt and pocket square or jewelry",
+        "dresses": "occasion-appropriate cocktail or formal dress",
+    },
+    "beach": {
+        "tops": "breathable linen or resort shirt",
+        "bottoms": "shorts or lightweight trousers",
+        "shoes": "sandals or espadrilles",
+        "outerwear": "light overshirt or cover-up",
+        "accessories": "sun hat or tote bag",
+        "dresses": "sundress or resort dress",
+    },
+    "casual": {
+        "tops": "well-fitting tee or casual button-up",
+        "bottoms": "dark jeans or chinos",
+        "shoes": "white sneakers",
+        "outerwear": "denim or bomber jacket",
+        "accessories": "everyday belt or cap",
+        "dresses": "casual day dress",
+    },
+    "travel": {
+        "tops": "wrinkle-resistant knit or travel shirt",
+        "bottoms": "comfortable stretch trousers",
+        "shoes": "cushioned walking sneakers",
+        "outerwear": "packable layer or soft-shell jacket",
+        "accessories": "crossbody bag or packing belt",
+        "dresses": "easy jersey travel dress",
+    },
+}
+
+_GENERIC_ITEM_HINTS: dict[str, str] = {
+    "tops": "crisp button-down or fine-knit top",
+    "bottoms": "dark straight-leg trousers or jeans",
+    "shoes": "clean leather sneakers or loafers",
+    "outerwear": "structured blazer or light coat",
+    "accessories": "leather belt or simple bag",
+    "dresses": "solid midi dress",
+}
+
+_ALIAS_KEYS_BY_LEN = sorted(_PIECE_CATEGORY_ALIASES.keys(), key=len, reverse=True)
+
+
+def _normalize_outfit_type(occasion: str | None) -> str | None:
+    """Human label for the outfit type a gap unlocks."""
+    if not occasion:
+        return None
+    label = re.sub(r"\s+", " ", occasion.strip().lower())
+    if not label or label in {"versatile", "all", "any", "general", "all-season"}:
+        return None
+    return label
+
+
+def _specific_item_for(category: str, occasion: str | None, label: str | None = None) -> str:
+    """Prefer a concrete shopping phrase over a bare category name."""
+    raw = (label or "").strip().lower()
+    raw = re.sub(r"^(?:a|an|the)\s+", "", raw)
+    # Already a specific phrase (more than a bare alias) — keep it.
+    if raw and raw not in _PIECE_CATEGORY_ALIASES and len(raw.split()) >= 2:
+        return raw
+
+    occ = _normalize_outfit_type(occasion)
+    if occ:
+        for key, table in _OCCASION_ITEM_HINTS.items():
+            if key in occ or occ in key:
+                hint = table.get(category)
+                if hint:
+                    return hint
+    return _GENERIC_ITEM_HINTS.get(category) or raw or category
+
 
 def _normalize_missing_piece(piece: str) -> tuple[str, str] | None:
-    """Ground an LLM ``missing_pieces`` value to a canonical wardrobe category.
+    """Ground an LLM ``missing_pieces`` value to a category + shopping label.
 
-    The outfit-analysis LLM is instructed to return category-level slots only,
-    but nothing upstream enforces it. This is the one place an ungrounded LLM
-    field flows into a persisted purchase gap, so we require each value to be a
-    recognized wardrobe term.
-
-    Returns ``(canonical_category, display_label)`` for a recognized term, or
-    ``None`` to drop hallucinated values — invented slots and specific item
-    descriptions (e.g. "brown suede Chelsea boots") that are not exact category
-    terms.
+    Accepts both bare slots (``"belt"``) and particular items
+    (``"brown suede Chelsea boots"``) when they contain a recognized wardrobe
+    term. Returns ``(canonical_category, display_label)`` or ``None`` when the
+    phrase has no grounded category (invented slots like ``"unicorn cape"``).
     """
     label = (piece or "").strip().lower()
-    # Strip a leading article the LLM sometimes prepends ("a belt", "the jacket").
     label = re.sub(r"^(?:a|an|the)\s+", "", label)
-    canonical = _PIECE_CATEGORY_ALIASES.get(label)
-    if canonical is None:
+    if not label:
         return None
-    return canonical, label
+
+    exact = _PIECE_CATEGORY_ALIASES.get(label)
+    if exact is not None:
+        return exact, label
+
+    for alias in _ALIAS_KEYS_BY_LEN:
+        if re.search(rf"\b{re.escape(alias)}\b", label):
+            return _PIECE_CATEGORY_ALIASES[alias], label
+    return None
+
+
+def _dominant_closet_outfit_type(closet_items: list[dict[str, Any]]) -> str | None:
+    """Most common occasion tag in the closet — used to name structural gaps."""
+    counts: Counter[str] = Counter()
+    for item in closet_items:
+        occasions = item.get("occasion") or []
+        if isinstance(occasions, str):
+            occasions = [occasions]
+        for occ in occasions:
+            normalized = _normalize_outfit_type(str(occ))
+            if normalized:
+                counts[normalized] += 1
+    if not counts:
+        return None
+    return counts.most_common(1)[0][0]
 
 
 def _detect_closet_gaps(
     closet_items: list[dict[str, Any]],
     user_id: str,
 ) -> list[dict[str, Any]]:
-    """Detect basic structural gaps in the closet."""
+    """Detect structural gaps and attach particular items + outfit types."""
+    del user_id  # reserved for future personalization hooks
     gaps: list[dict[str, Any]] = []
     category_counts: Counter = Counter()
-    for item in closet_items:
-        cat = (item.get("category") or "").lower()
+    for closet_item in closet_items:
+        cat = (closet_item.get("category") or "").lower()
         category_counts[cat] += 1
+
+    closet_outfit_type = _dominant_closet_outfit_type(closet_items)
 
     for cat in _ESSENTIAL_CATEGORIES:
         if category_counts.get(cat, 0) == 0:
+            starter = _STRUCTURAL_STARTERS.get(cat, {})
+            outfit_type = closet_outfit_type or starter.get("outfit_type") or "everyday outfits"
+            item = _specific_item_for(cat, outfit_type, starter.get("item"))
+            color = starter.get("color")
             gaps.append(
                 {
                     "gap_type": "structural",
                     "missing_category": cat,
-                    "reason": f"You have no {cat} in your closet — this is an essential wardrobe category.",
+                    "missing_color": color,
+                    "missing_occasion": outfit_type,
+                    "reason": (
+                        f"You're missing a {item} for {outfit_type} outfits — you have no {cat} in your closet yet."
+                    ),
                     "priority_score": 0.85 if cat in ("tops", "bottoms", "shoes") else 0.60,
-                    "suggested_attributes": {"occasion": "versatile", "season": "all-season"},
+                    "source_context": {"outfit_type": outfit_type},
+                    "suggested_attributes": {
+                        "item": item,
+                        "outfit_type": outfit_type,
+                        **({"color": color} if color else {}),
+                    },
                 }
             )
 
     tops = category_counts.get("tops", 0)
     bottoms = category_counts.get("bottoms", 0) + category_counts.get("dresses", 0)
     if tops > 0 and bottoms > 0 and tops > bottoms * 2:
+        outfit_type = closet_outfit_type or "everyday / work"
+        item = _specific_item_for("bottoms", outfit_type)
         gaps.append(
             {
                 "gap_type": "proportion",
                 "missing_category": "bottoms",
-                "reason": f"You have {tops} tops but only {bottoms} bottoms/dresses — balance your wardrobe.",
+                "missing_occasion": outfit_type,
+                "reason": (
+                    f"You have {tops} tops but only {bottoms} bottoms/dresses — "
+                    f"add {item} to unlock more {outfit_type} outfits."
+                ),
                 "priority_score": 0.70,
-                "suggested_attributes": {"color": "neutral", "occasion": "versatile"},
+                "source_context": {"outfit_type": outfit_type},
+                "suggested_attributes": {
+                    "item": item,
+                    "outfit_type": outfit_type,
+                    "color": "navy or black",
+                },
             }
         )
     if bottoms > tops * 2 and tops > 0:
+        outfit_type = closet_outfit_type or "everyday / work"
+        item = _specific_item_for("tops", outfit_type)
         gaps.append(
             {
                 "gap_type": "proportion",
                 "missing_category": "tops",
-                "reason": f"You have {bottoms} bottoms but only {tops} tops — add more tops to unlock more outfit combinations.",
+                "missing_occasion": outfit_type,
+                "reason": (
+                    f"You have {bottoms} bottoms but only {tops} tops — "
+                    f"add {item} for more {outfit_type} outfit combinations."
+                ),
                 "priority_score": 0.70,
-                "suggested_attributes": {"color": "neutral", "season": "all-season"},
+                "source_context": {"outfit_type": outfit_type},
+                "suggested_attributes": {
+                    "item": item,
+                    "outfit_type": outfit_type,
+                    "color": "white or navy",
+                },
             }
         )
 
@@ -180,6 +390,8 @@ def _detect_gaps_from_missing_items(
     """Convert 'you_might_still_need' packing items into purchase gaps."""
     gaps = []
     seen: set[str] = set()
+    purpose = _normalize_outfit_type(str(source_context.get("purpose") or source_context.get("occasion") or ""))
+    outfit_type = purpose or f"travel to {source}"
     for item in missing_items:
         name = (item.get("name") or "").strip()
         cat = (item.get("category") or "general").lower()
@@ -187,14 +399,20 @@ def _detect_gaps_from_missing_items(
         if key in seen:
             continue
         seen.add(key)
+        specific = name or _specific_item_for(cat, "travel")
         gaps.append(
             {
                 "gap_type": "trip_packing",
                 "missing_category": cat,
-                "reason": item.get("reason") or f"Missing for {source}",
+                "missing_occasion": outfit_type,
+                "reason": item.get("reason") or f"Pack {specific} for your {outfit_type} trip to {source}.",
                 "priority_score": 0.78,
-                "source_context": source_context,
-                "suggested_attributes": {"occasion": "travel"},
+                "source_context": {**source_context, "outfit_type": outfit_type},
+                "suggested_attributes": {
+                    "item": specific,
+                    "outfit_type": outfit_type,
+                    "occasion": "travel",
+                },
             }
         )
     return gaps
@@ -227,6 +445,7 @@ async def detect_and_save_gaps(
 
     if outfit_missing_pieces:
         seen_outfit: set[str] = set()
+        outfit_type = _normalize_outfit_type(occasion) or "this outfit"
         for piece in outfit_missing_pieces:
             normalized = _normalize_missing_piece(piece)
             if normalized is None:
@@ -237,31 +456,47 @@ async def detect_and_save_gaps(
                 )
                 continue
             category, label = normalized
-            if category in seen_outfit:
+            item = _specific_item_for(category, occasion, label)
+            dedupe_key = f"{category}|{item}|{outfit_type}"
+            if dedupe_key in seen_outfit:
                 continue
-            seen_outfit.add(category)
+            seen_outfit.add(dedupe_key)
             all_gaps.append(
                 {
                     "gap_type": "outfit",
                     "missing_category": category,
-                    "missing_occasion": occasion,
-                    "reason": f"Missing {label} to complete your {occasion or 'outfit'} look.",
+                    "missing_occasion": outfit_type if outfit_type != "this outfit" else occasion,
+                    "reason": (
+                        f"Add {item} to complete your {outfit_type} outfits — it's the missing piece for this look."
+                    ),
                     "priority_score": 0.72,
-                    "source_context": {"occasion": occasion},
-                    "suggested_attributes": {"occasion": occasion or "versatile"},
+                    "source_context": {
+                        "occasion": occasion,
+                        "outfit_type": outfit_type,
+                        "missing_piece": label,
+                    },
+                    "suggested_attributes": {
+                        "item": item,
+                        "outfit_type": outfit_type,
+                        **({"occasion": occasion} if occasion else {}),
+                    },
                 }
             )
 
     saved: list[PurchaseGap] = []
     for gap in all_gaps:
-        existing = await session.execute(
-            select(PurchaseGap).where(
-                PurchaseGap.user_id == uid,
-                PurchaseGap.missing_category == gap["missing_category"],
-                PurchaseGap.gap_type == gap["gap_type"],
-                PurchaseGap.resolved == False,  # noqa: E712
-            )
+        existing_q = select(PurchaseGap).where(
+            PurchaseGap.user_id == uid,
+            PurchaseGap.missing_category == gap["missing_category"],
+            PurchaseGap.gap_type == gap["gap_type"],
+            PurchaseGap.resolved == False,  # noqa: E712
         )
+        # Allow the same category twice when it serves a different outfit type
+        # (e.g. casual sneakers vs formal oxfords).
+        occasion_key = gap.get("missing_occasion")
+        if occasion_key:
+            existing_q = existing_q.where(PurchaseGap.missing_occasion == occasion_key)
+        existing = await session.execute(existing_q)
         if existing.scalars().first():
             continue
 
@@ -362,7 +597,12 @@ async def get_gap_summary_for_prompt(
     gaps = await get_purchase_gaps(session, user_id, resolved=False, limit=limit)
     if not gaps:
         return ""
-    lines = ["[Wardrobe Gaps — items to consider purchasing]"]
+    lines = ["[Wardrobe Gaps — particular items to consider purchasing]"]
     for g in gaps:
-        lines.append(f"• Missing {g['missing_category']} ({g['gap_type']}): {g['reason'][:120]}")
+        attrs = g.get("suggested_attributes") or {}
+        item = attrs.get("item") if isinstance(attrs, dict) else None
+        outfit_type = (attrs.get("outfit_type") if isinstance(attrs, dict) else None) or g.get("missing_occasion")
+        label = item or g["missing_category"]
+        outfit_bit = f" for {outfit_type} outfits" if outfit_type else ""
+        lines.append(f"• {label}{outfit_bit} ({g['gap_type']}): {g['reason'][:120]}")
     return "\n".join(lines)

@@ -126,7 +126,10 @@ class ClosetService:
             if u
         ]
         await self.repo.delete(item)
-        await cache_service.invalidate_closet_list_cache(str(user_id))
+        # Cache invalidation happens in the route AFTER session.commit().
+        # Busting Redis here (pre-commit) races with concurrent GETs that can
+        # rebuild the list cache from the still-visible row and bring "deleted"
+        # items back on refresh.
         logger.info("closet_item_deleted", user_id=str(user_id), item_id=str(item_id))
         return image_urls
 

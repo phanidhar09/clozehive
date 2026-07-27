@@ -1,5 +1,10 @@
 # Fashion knowledge — category: occasion
 # Edit/extend freely; the loader validates and seeds these idempotently by title.
+#
+# Authoring note (atomic docs): each dress code is split into a UNISEX CORE doc
+# (the shared definition, avoid-list, and colour guidance) plus focused per-audience
+# docs tagged gender: men / women. One idea per document keeps each embedding
+# undiluted and lets the metadata pre-filter route audience-specific guidance.
 category: occasion
 documents:
 - title: Business Casual Dressing Guide
@@ -14,12 +19,45 @@ documents:
   region: null
   source: curated
   content: >-
-    Business casual sits between formal business and casual wear. For men: chinos or tailored trousers
-    (no jeans), a button-down shirt or polo (no tie required), loafers or Oxford shoes, and an optional
-    blazer. For women: blouses, fitted trousers, midi skirts, dresses with a blazer, or tailored jumpsuits.
-    Avoid: ripped clothing, graphic tees, athletic wear, flip-flops, and overly revealing styles. Colors:
-    navy, grey, burgundy, camel, and white are safe choices. Add personality through accessories — a quality
-    watch, belt, or structured bag elevates the look instantly.
+    Business casual sits between formal business and casual wear — polished but relaxed, with no suit or
+    tie required. Universal rules apply whatever you wear: no ripped clothing, graphic tees, athletic wear,
+    or flip-flops, and nothing overly revealing. Safe, versatile colours are navy, grey, burgundy, camel,
+    and white. Accessories do the elevating — a quality watch, a good leather belt, or a structured bag
+    lifts an otherwise plain outfit instantly.
+- title: Men's Business Casual Guide
+  occasion: business casual
+  season: null
+  tags:
+  - work
+  - office
+  - menswear
+  - chinos
+  gender: men
+  formality_level: 1
+  region: null
+  source: curated
+  content: >-
+    For men, business casual means chinos or tailored trousers (skip jeans in a stricter office), a
+    button-down shirt or a clean polo with no tie required, and loafers or Oxford shoes. A blazer is
+    optional and instantly sharpens the look. Keep fits tailored rather than baggy, tuck the shirt when the
+    setting is more formal, and match your belt leather to your shoe leather.
+- title: Women's Business Casual Guide
+  occasion: business casual
+  season: null
+  tags:
+  - work
+  - office
+  - womenswear
+  - blouse
+  gender: women
+  formality_level: 1
+  region: null
+  source: curated
+  content: >-
+    For women, business casual spans blouses with fitted trousers, midi skirts, a dress worn under a blazer,
+    or a tailored jumpsuit. Structure is what reads as work-appropriate — a blazer or a defined waist keeps
+    softer pieces from looking too casual. Finish with closed or elegant flats and low-to-mid heels, and
+    keep hemlines and necklines office-suitable.
 - title: Formal Outfit Rules
   occasion: formal
   season: null
@@ -33,13 +71,44 @@ documents:
   region: null
   source: curated
   content: >-
-    Formal dress codes require precision. Black tie: tuxedo or dark suit with bow tie for men; floor-length
-    gown or formal midi dress for women. Cocktail attire: knee-length dress or chic separates for women;
-    dark suit with tie for men. Key formal rules: ensure garments are well-fitted and wrinkle-free; shoes
-    must be polished leather (men) or elegant heels/formal flats (women); accessories should be minimal
-    and high-quality. Avoid: casual fabrics like denim or cotton, bright logos, sneakers. Dark colors
-    (black, navy, charcoal) are classic; jewel tones (emerald, sapphire) add personality without breaking
-    formality.
+    Formal dress codes reward precision. Whatever the garment, it must be well-fitted and wrinkle-free,
+    the shoes clean and appropriate, and accessories minimal and high-quality. Avoid casual fabrics like
+    denim or cotton twill, visible logos, and sneakers. Dark colours — black, navy, charcoal — are the
+    classic base; jewel tones such as emerald or sapphire add personality without breaking the formality.
+- title: Men's Formal & Black-Tie Guide
+  occasion: formal
+  season: null
+  tags:
+  - black tie
+  - formal
+  - menswear
+  - tuxedo
+  gender: men
+  formality_level: 4
+  region: null
+  source: curated
+  content: >-
+    For men, black tie means a tuxedo or a very dark suit with a bow tie; a step down (cocktail or
+    "formal") allows a dark suit with a conservative tie. Shoes are polished leather — Oxfords, or patent
+    for black tie. Make sure the jacket closes cleanly, the trousers just break at the shoe, and the shirt
+    is crisp. Keep accessories restrained: cufflinks and a simple watch, nothing more.
+- title: Women's Formal & Black-Tie Guide
+  occasion: formal
+  season: null
+  tags:
+  - black tie
+  - formal
+  - womenswear
+  - gown
+  gender: women
+  formality_level: 4
+  region: null
+  source: curated
+  content: >-
+    For women, black tie calls for a floor-length gown or an elegant formal midi; cocktail or "formal"
+    allows a knee-length dress or refined separates. Finish with elegant heels or formal flats and minimal,
+    high-quality jewellery. Prioritise fabric and fit that hold a clean line — structured crepe, satin, or
+    chiffon over anything clingy — and choose a hemline and neckline suited to the venue.
 - title: Wedding Guest Outfit Guide
   occasion: wedding
   season: null
@@ -70,12 +139,42 @@ documents:
   region: null
   source: curated
   content: >-
-    Smart casual is the most versatile dress code — elevated but not formal. Key formula: one elevated
-    piece (blazer, tailored trouser, structured dress) paired with one casual piece (dark jeans, a simple
-    tee). For men: dark slim-fit jeans + button-down or knit sweater + leather shoes or smart sneakers.
-    For women: tailored trousers + silk blouse, or a midi dress + denim jacket, or a jumpsuit with heeled
-    mules. Avoid: athletic wear, overly casual graphics, flip-flops. Footwear is key: Chelsea boots, loafers,
-    or clean white sneakers elevate a smart casual look instantly.
+    Smart casual is the most versatile dress code — elevated but not formal. The formula: pair one elevated
+    piece (a blazer, a tailored trouser, a structured dress) with one relaxed piece (dark jeans, a simple
+    tee). Avoid athletic wear, loud graphics, and flip-flops. Footwear carries the look — Chelsea boots,
+    loafers, or clean white sneakers elevate a smart-casual outfit instantly.
+- title: Men's Smart Casual Guide
+  occasion: smart casual
+  season: null
+  tags:
+  - smart casual
+  - menswear
+  - dinner
+  gender: men
+  formality_level: 1
+  region: null
+  source: curated
+  content: >-
+    For men, a reliable smart-casual base is dark slim-fit jeans with a button-down shirt or a fine knit,
+    finished with leather shoes or clean minimal sneakers. An unstructured blazer or an overshirt adds
+    polish without tipping into formal. Keep the palette tight — navy, grey, olive, white — and the fit
+    trim rather than loose.
+- title: Women's Smart Casual Guide
+  occasion: smart casual
+  season: null
+  tags:
+  - smart casual
+  - womenswear
+  - dinner
+  gender: women
+  formality_level: 1
+  region: null
+  source: curated
+  content: >-
+    For women, smart casual works as tailored trousers with a silk blouse, a midi dress under a denim or
+    leather jacket, or a jumpsuit with heeled mules. One structured or waist-defining element keeps a
+    relaxed outfit looking intentional. Ankle boots, loafers, mules, or clean sneakers all suit it — match
+    the shoe's polish to how dressy the occasion is.
 - title: Business Formal and Power Dressing Guide
   occasion: business formal
   season: null
@@ -86,17 +185,64 @@ documents:
   - interview
   - boardroom
   gender: unisex
-  formality_level: null
+  formality_level: 4
   region: null
   source: curated
   content: >-
-    Business formal requires precision and authority. Men: tailored suit (navy, charcoal, or grey), white
-    or pale blue dress shirt, conservative tie, Oxford or Derby shoes, matching belt. Women: tailored
-    trouser suit, pencil skirt + blazer, structured shift dress, or a formal pantsuit. Colors: navy, charcoal,
-    black, and grey project authority. Power dressing principles: ensure perfect fit — tailoring is non-negotiable;
-    choose structured fabrics (wool, wool-blend, crepe); avoid overly trendy silhouettes; quality accessories
-    elevate (leather portfolio, structured bag, quality watch). Interview dressing: mirror the company
-    dress code one level up — business casual company means wear business formal for the interview. Grooming
-    is as important as the outfit. Women's power colors: navy (trust), red (authority/confidence), black
-    (sharp/serious), grey (neutral/analytical). Men's suit color guide: navy = approachable authority;
-    charcoal = serious/formal; mid-grey = versatile everyday; black = most formal only.
+    Business formal projects precision and authority, and the principles below are shared across audiences.
+    Power colours carry meaning: navy signals approachable authority, charcoal reads serious and formal,
+    mid-grey is versatile everyday, and black is the most formal — reserve it for the highest-stakes
+    settings. Choose structured fabrics (wool, wool-blend, crepe) over anything soft or shiny. Interview
+    rule: mirror the company's dress code one level up — a business-casual employer means arrive in business
+    formal. Grooming matters as much as the garments. For garment-level fit, see the men's and women's
+    guides.
+- title: Men's Suit Fit and Tailoring Guide
+  occasion: business formal
+  season: null
+  tags:
+  - suit
+  - tailoring
+  - business formal
+  - menswear
+  - interview
+  gender: men
+  formality_level: 4
+  region: null
+  source: curated
+  content: >-
+    Men's business formal is won on fit, not on buying more. The jacket: shoulder seams should end exactly
+    where your shoulder does (no divot, no overhang); the collar hugs the shirt with no gap; roughly a
+    quarter-inch of shirt cuff shows below the sleeve. Fasten the top button of a two-button jacket (never
+    the bottom) and unbutton when seated. Trousers: aim for a slight-to-no break — the hem grazes the shoe
+    with at most one soft fold. Shirt: a slim or darted cut so it doesn't billow; the collar takes one
+    finger. Tie: the tip should just reach the waistband, and its width should roughly mirror the lapel.
+    Shoes and belt must match in leather and tone — black with charcoal or navy, brown with lighter greys.
+    Suit colours by message: navy = approachable authority, charcoal = serious and formal, mid-grey =
+    versatile everyday, black = reserve for the most formal or evening. Choose worsted wool that holds a
+    press and avoid shiny blends. A pressed shirt and clean grooming read as put-together faster than any
+    accessory.
+- title: Women's Power Dressing and Silhouette Guide
+  occasion: business formal
+  season: null
+  tags:
+  - power dressing
+  - business formal
+  - silhouette
+  - womenswear
+  - interview
+  gender: women
+  formality_level: 4
+  region: null
+  source: curated
+  content: >-
+    Women's business formal offers more silhouettes than menswear, and the organising principle is a clean,
+    intentional line — most often through waist definition and structure. Core options: a tailored trouser
+    suit (most authority, most versatile), a pencil-skirt-and-blazer pairing (hemline at or just above the
+    knee), a structured shift dress under a blazer, or a sharp jumpsuit for modern boardrooms. Fit rules:
+    the blazer should close without pulling at the bust, shoulders sit flat, sleeves end at the wrist bone;
+    trousers skim rather than cling; skirts still allow a full stride. Fabric does the heavy lifting — wool,
+    wool-crepe, ponte, and structured cotton keep their shape and resist wrinkling, while thin jersey that
+    clings undermines the line. Heels are optional: a low-to-mid block heel, a pointed flat, or a loafer all
+    read as polished, so prioritise what you can walk in confidently. Power colours: navy signals trust,
+    charcoal and black read sharp and serious, grey is analytical and neutral, and a single saturated accent
+    (oxblood, emerald) adds presence without noise. Keep jewellery minimal and structured.

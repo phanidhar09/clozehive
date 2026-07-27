@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import uuid as _uuid
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +12,27 @@ from app.api.v1.identity.repositories.style_profile_repo import UserStyleProfile
 from app.api.v1.identity.repositories.user_repo import UserRepository
 from app.models.user import User
 from app.models.user_style_profile import UserStyleProfile
+
+
+async def load_profile_gender(session: AsyncSession, user_id: Any) -> str | None:
+    """Best-effort raw style-profile gender for the RAG metadata pre-filter.
+
+    Returns the user's stated gender (the specific ``custom_gender`` when gender is
+    ``"custom"``), or ``None`` on a missing profile / any failure — so retrieval
+    silently degrades to audience-neutral rather than erroring the request. The
+    caller maps the raw value onto the corpus partition (see
+    ``app.rag.metadata_filter.canonical_gender``).
+    """
+    try:
+        uid = user_id if isinstance(user_id, _uuid.UUID) else _uuid.UUID(str(user_id))
+        row = await UserStyleProfileRepository(session).get_by_user_id(uid)
+    except Exception:
+        return None
+    if not row:
+        return None
+    if row.gender == "custom" and row.custom_gender:
+        return row.custom_gender
+    return row.gender
 
 
 def style_profile_table_to_prompt_dict(row: UserStyleProfile) -> dict[str, Any]:

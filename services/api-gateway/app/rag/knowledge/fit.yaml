@@ -1,5 +1,9 @@
 # Fashion knowledge — category: fit
 # Edit/extend freely; the loader validates and seeds these idempotently by title.
+#
+# Authoring note (atomic docs): body-type advice is split into an OVERVIEW doc
+# (how to identify your shape + the balancing principle) plus one focused doc per
+# body shape and frame, so each embedding targets a single retrieval intent.
 category: fit
 documents:
 - title: Body Fit and Proportion Guidelines
@@ -28,27 +32,134 @@ documents:
   tags:
   - body type
   - silhouette
-  - hourglass
-  - pear
-  - apple
-  - rectangle
-  - petite
-  - tall
+  - proportion
   gender: unisex
   formality_level: null
   region: null
   source: curated
   content: >-
-    Dress to flatter your natural body type and proportions. Hourglass (balanced shoulders and hips, defined
-    waist): wrap dresses, fitted blouses, high-waisted trousers, belted coats. Avoid: boxy shapes that
-    hide the waist. Pear / triangle (narrower shoulders, wider hips): emphasise the upper body with boat
-    necks, statement shoulders, bright tops; choose darker bottoms in straight cuts. Apple / round (weight
-    around the midsection): empire waist dresses, A-line skirts, flowy tops, vertical stripe details.
-    Avoid: clingy fabrics around the middle. Rectangle / straight (similar shoulder and hip width, minimal
-    waist): create curves with peplum tops, ruffles, cropped jackets, wide-leg trousers. Belt everything.
-    Inverted triangle (broader shoulders, narrower hips): balance with voluminous bottoms, wide-leg trousers,
-    A-line skirts, avoid heavy shoulder details. Petite frames (under 5'4"): high-waisted bottoms elongate
-    legs; cropped tops; avoid oversized or heavily layered looks that overwhelm the silhouette. Tall frames
-    (over 5'9"): wide-leg trousers, longline coats, maxi dresses all work beautifully; horizontal stripes
-    add volume; cropped lengths are flattering. Plus-size: vertical lines, wrap silhouettes, well-fitted
-    clothes (never too baggy or too tight). Structured pieces provide shape and confidence.
+    Dressing well for your body starts with balancing your natural proportions, not hiding them. Identify
+    your shape by comparing shoulder, waist, and hip width, and note your overall scale (petite, tall,
+    plus). The aim is a balanced, intentional silhouette — most often achieved by defining or creating a
+    waist and drawing the eye where you want it. See the shape-specific guides (hourglass, pear, apple,
+    rectangle, inverted triangle) and the frame guides (petite, tall, plus-size) for tailored advice.
+- title: Hourglass Body Shape Styling
+  occasion: null
+  season: null
+  tags:
+  - body type
+  - hourglass
+  - waist definition
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    Hourglass — balanced shoulders and hips with a naturally defined waist. Play to the waist: wrap dresses,
+    fitted blouses, high-waisted trousers, and belted coats all showcase the balanced silhouette. Avoid
+    boxy, straight-cut shapes that hide the waist and flatten the natural curve.
+- title: Pear (Triangle) Body Shape Styling
+  occasion: null
+  season: null
+  tags:
+  - body type
+  - pear
+  - triangle
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    Pear or triangle — narrower shoulders with wider hips. Draw the eye upward: boat necks, statement
+    shoulders, and brighter or detailed tops balance the frame, while darker bottoms in straight (not
+    clingy) cuts keep the lower half streamlined.
+- title: Apple (Round) Body Shape Styling
+  occasion: null
+  season: null
+  tags:
+  - body type
+  - apple
+  - round
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    Apple or round — weight carried around the midsection. Skim rather than cling: empire-waist dresses,
+    A-line skirts, and flowy tops draped from the bust elongate the torso, and vertical details lengthen.
+    Avoid clingy fabrics pulled tight across the middle.
+- title: Rectangle (Straight) Body Shape Styling
+  occasion: null
+  season: null
+  tags:
+  - body type
+  - rectangle
+  - straight
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    Rectangle or straight — similar shoulder and hip width with little waist definition. Create curves and
+    a waist: peplum tops, ruffles, cropped jackets, and wide-leg trousers add shape, and a belt at the
+    waist is your most reliable move — belt almost everything.
+- title: Inverted Triangle Body Shape Styling
+  occasion: null
+  season: null
+  tags:
+  - body type
+  - inverted triangle
+  - shoulders
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    Inverted triangle — broader shoulders tapering to narrower hips. Add volume below to balance the top:
+    wide-leg trousers, full or A-line skirts, and fuller bottoms even out the silhouette, while heavy
+    shoulder details such as padding or large statement sleeves are best avoided.
+- title: Petite Frame Styling
+  occasion: null
+  season: null
+  tags:
+  - body type
+  - petite
+  - proportion
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    Petite frames (under about 5'4"): keep proportions long and uncluttered. High-waisted bottoms and
+    cropped tops elongate the legs, monochrome outfits create an unbroken line, and tailored fits flatter —
+    avoid oversized or heavily layered looks that overwhelm a small frame.
+- title: Tall Frame Styling
+  occasion: null
+  season: null
+  tags:
+  - body type
+  - tall
+  - proportion
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    Tall frames (over about 5'9"): make the most of length. Wide-leg trousers, longline coats, and maxi
+    dresses all hang beautifully; horizontal stripes and cropped lengths add visual width and break up the
+    vertical line flatteringly. Bold proportions simply work.
+- title: Plus-Size Styling Principles
+  occasion: null
+  season: null
+  tags:
+  - body type
+  - plus size
+  - fit
+  gender: unisex
+  formality_level: null
+  region: null
+  source: curated
+  content: >-
+    Plus-size styling: fit is everything — clothes should be neither too baggy nor too tight. Vertical
+    lines, wrap silhouettes, and structured pieces provide shape and elongate, and well-fitted tailoring
+    reads as polished and confident. Choose garments that define rather than drape shapelessly.

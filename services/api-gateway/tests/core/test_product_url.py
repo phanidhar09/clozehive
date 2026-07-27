@@ -159,3 +159,13 @@ def test_product_name_hint_from_url():
     assert h("https://www.abercrombie.com/shop/us/p/premium-heavyweight-20-tee-58965824?categoryId=12835") == "premium heavyweight 20 tee"
     assert h("https://brand.com/products/charcoal-slim-chinos") == "charcoal slim chinos"
     assert h("https://brand.com/") is None
+    # Myntra-style …/slug/{id}/buy — must not return "buy"
+    myntra = (
+        "https://www.myntra.com/jeans/jack+%26+jones/"
+        "jack--jones-men-bootcut-mid-rise-clean-look-stretchable-jeans/25917818/buy"
+    )
+    assert h(myntra) == "jack jones men bootcut mid rise clean look stretchable jeans"
+    assert product_url.category_hint_from_url(myntra) == "bottoms"
+    assert product_url.is_useless_product_label("Buy")
+    assert product_url.is_useless_product_label("buy")
+    assert not product_url.is_useless_product_label("bootcut jeans")
