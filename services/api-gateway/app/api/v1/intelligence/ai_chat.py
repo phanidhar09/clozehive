@@ -21,6 +21,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 
+from app.api.v1.intelligence.services import pair_learning_service
 from app.api.v1.intelligence.services.ai_stylist_chat_service import process_chat_message
 from app.api.v1.intelligence.services.ai_stylist_streaming import stream_chat_message
 from app.api.v1.intelligence.services.daily_nudges_service import (
@@ -540,6 +541,17 @@ async def submit_feedback(
     session.add(feedback)
     await session.flush()
     await session.refresh(feedback)
+
+    # Close the learning loop: reinforce the item pairings this outfit is made of so
+    # the builder can tilt future looks toward them. Deliberately best-effort —
+    # personalization must never make recording feedback fail.
+    try:
+        weight = pair_learning_service.signal_weight(body.rating, body.was_worn)
+        await pair_learning_service.apply_feedback_signal(
+            session, uid, body.closet_item_ids or [], weight
+        )
+    except Exception:  # noqa: BLE001 — learning is non-critical; never break feedback capture
+        logger.warning("pair_learning_apply_failed", exc_info=True)
 
     return {
         "id": str(feedback.id),

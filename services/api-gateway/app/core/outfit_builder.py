@@ -120,6 +120,27 @@ def _fit_pref_factor(owned_items: list[dict[str, Any]], fit_prefs: frozenset[str
     return sum(weights) / len(weights)
 
 
+# Width of the learned-affinity tilt. Mean affinity ∈ [-1, 1] maps to a multiplier
+# in [1 - band, 1 + band], so learned taste can only reorder near-ties — never jump
+# a look across a tier boundary and never override grounded compatibility.
+_PAIR_LEARNING_BAND = 0.12
+
+
+def _pair_learning_factor(items: list[dict[str, Any]], pair_affinity: dict[frozenset[str], float]) -> float:
+    """Mean learned affinity over every pair in a look → a bounded multiplier.
+
+    ``pair_affinity`` maps a ``frozenset`` of two item ids to their affinity in
+    ``[-1, 1]`` (see :func:`app.core.pair_learning.affinity`). Pairs the user has
+    never reinforced are absent and contribute a neutral 0, so a cold-start closet
+    (no rows) yields factor 1.0 and reproduces today's ranking exactly.
+    """
+    pairs = list(combinations(items, 2))
+    if not pairs:
+        return 1.0
+    total = sum(pair_affinity.get(frozenset((str(a.get("id", "")), str(b.get("id", "")))), 0.0) for a, b in pairs)
+    return 1.0 + _PAIR_LEARNING_BAND * (total / len(pairs))
+
+
 def _mean_pairwise(items: list[dict[str, Any]], cache: ScoreCache) -> float:
     """Mean compatibility over every unordered pair — internal coherence."""
     pairs = list(combinations(items, 2))
@@ -193,6 +214,7 @@ def build_outfits(
     cache: ScoreCache | None = None,
     fit_prefs: frozenset[str] = frozenset(),
     fit_avoids: frozenset[str] = frozenset(),
+    pair_affinity: dict[frozenset[str], float] | None = None,
 ) -> dict[str, Any]:
     """Build the top complete outfits around ``anchor``.
 
@@ -206,6 +228,12 @@ def build_outfits(
     ``fit_prefs`` / ``fit_avoids`` are the user's declared fit taste (lowercased
     tokens). When supplied they apply a soft, bounded re-rank toward looks built
     from liked fits — a tie-breaker, never a filter (see ``_fit_pref_factor``).
+
+    ``pair_affinity`` is the learned feedback signal: a map from a ``frozenset`` of
+    two item ids to their affinity in ``[-1, 1]``, built from the user's outfit
+    feedback (see ``app.core.pair_learning``). When supplied it applies a second
+    bounded tilt toward pairings the user has accepted/worn. Absent/empty ⇒ no
+    effect, so behaviour is identical to today for users with no feedback history.
     """
     anchor_role = compat.category_role(anchor.get("category"))
     plan = _ROLE_PLAN.get(anchor_role, _ROLE_PLAN["top"])
@@ -253,6 +281,11 @@ def build_outfits(
         # outfit out. The anchor is user-chosen, so it's exempt from demotion.
         if fit_prefs or fit_avoids:
             score = min(1.0, score * _fit_pref_factor(owned_items, fit_prefs, fit_avoids))
+        # Learned feedback tilt — toward pairings the user has accepted/worn. Same
+        # clamp discipline as the fit-preference tilt: bounded and applied after the
+        # grounded compatibility score, so it can only reorder near-ties.
+        if pair_affinity:
+            score = min(1.0, score * _pair_learning_factor(items, pair_affinity))
         forgotten = [str(it.get("id", "")) for it in owned_items if int(it.get("wear_count") or 0) == 0]
         outfits.append(
             {
