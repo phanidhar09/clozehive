@@ -547,9 +547,7 @@ async def submit_feedback(
     # personalization must never make recording feedback fail.
     try:
         weight = pair_learning_service.signal_weight(body.rating, body.was_worn)
-        await pair_learning_service.apply_feedback_signal(
-            session, uid, body.closet_item_ids or [], weight
-        )
+        await pair_learning_service.apply_feedback_signal(session, uid, body.closet_item_ids or [], weight)
     except Exception:  # noqa: BLE001 — learning is non-critical; never break feedback capture
         logger.warning("pair_learning_apply_failed", exc_info=True)
 

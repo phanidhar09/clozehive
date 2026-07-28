@@ -55,6 +55,4 @@ class ItemPairScore(Base):
     )
     raw_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     signal_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    last_signal_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
+    last_signal_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
