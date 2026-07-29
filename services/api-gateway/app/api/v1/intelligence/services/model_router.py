@@ -65,6 +65,11 @@ class Task(StrEnum):
     OUTFIT_SUGGEST_PAIRINGS = "outfit.suggest_pairings"
     PACKING_PLAN = "packing.plan"
     PLANNER_WEEKLY = "planner.weekly"
+    # Tool-calling agents. Every turn in the loop resolves through the same tier,
+    # so the whole run is billed and traced under one task name.
+    AGENT_WARDROBE_ANALYST = "agent.wardrobe_analyst"
+    AGENT_SHOPPING_ADVISOR = "agent.shopping_advisor"
+    AGENT_TRAVEL_ADVISOR = "agent.travel_advisor"
 
 
 # Default tier per product task. Chat is intentionally absent — it uses
@@ -80,6 +85,11 @@ _TASK_TIERS: dict[Task, Tier] = {
     Task.OUTFIT_SUGGEST_PAIRINGS: Tier.SMALL,
     Task.PACKING_PLAN: Tier.LARGE,
     Task.PLANNER_WEEKLY: Tier.LARGE,
+    # Tool *selection* is where small models fail hardest — they skip lookups and
+    # answer from priors, which is exactly the failure an agent exists to avoid.
+    Task.AGENT_WARDROBE_ANALYST: Tier.LARGE,
+    Task.AGENT_SHOPPING_ADVISOR: Tier.LARGE,
+    Task.AGENT_TRAVEL_ADVISOR: Tier.LARGE,
 }
 
 

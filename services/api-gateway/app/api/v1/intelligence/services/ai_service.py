@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
 from typing import Any
 
 from langsmith import traceable
@@ -279,3 +280,174 @@ async def chat(
     ):
         parts.append(chunk)
     return "".join(parts)
+
+
+# ── Tool-calling path (agents) ────────────────────────────────────────────────
+#
+# ``stream_chat`` deliberately yields only ``delta.content`` — a tool call would
+# arrive as ``delta.tool_calls`` and be dropped on the floor, so the streaming
+# path cannot carry tools. Agents therefore use the non-streaming call below and
+# get a structured turn back instead of a string. Everything else (retries,
+# token/cost capture, Langfuse tracing) is shared.
+
+
+@dataclass(frozen=True)
+class ToolCall:
+    """One tool invocation the model asked for."""
+
+    id: str
+    name: str
+    arguments: str  # raw JSON string as emitted by the model — parsed by the caller
+
+
+@dataclass(frozen=True)
+class ToolTurn:
+    """One assistant turn on the tool-calling path.
+
+    Either ``content`` (a final answer) or ``tool_calls`` (work to do first) is
+    populated; the agent loop branches on which. ``assistant_message`` is the raw
+    message dict to append verbatim to the transcript — the API rejects a
+    follow-up request whose ``tool`` results have no matching assistant turn.
+    """
+
+    content: str | None
+    tool_calls: list[ToolCall] = field(default_factory=list)
+    finish_reason: str | None = None
+    assistant_message: dict[str, Any] = field(default_factory=dict)
+    is_error: bool = False
+
+
+def _tool_transcript(system_prompt: str, transcript: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """System prompt + the loop's transcript, passed through verbatim.
+
+    Unlike :func:`_chat_messages` this must preserve ``assistant`` messages that
+    carry ``tool_calls`` and the ``tool`` messages that answer them — dropping
+    either makes the API reject the next request. The agent loop is the only
+    writer of this list, and it sanitises tool *output* before it lands here.
+    """
+    return [{"role": "system", "content": system_prompt}, *transcript]
+
+
+def _parse_tool_calls(message: Any) -> list[ToolCall]:
+    """Extract tool calls from a completion message, ignoring malformed entries."""
+    calls: list[ToolCall] = []
+    for raw in getattr(message, "tool_calls", None) or []:
+        function = getattr(raw, "function", None)
+        name = getattr(function, "name", None)
+        if not name:
+            continue  # nothing actionable — the loop would have no handler to run
+        calls.append(
+            ToolCall(
+                id=str(getattr(raw, "id", "") or ""),
+                name=str(name),
+                arguments=str(getattr(function, "arguments", "") or "{}"),
+            )
+        )
+    return calls
+
+
+@traceable(name="gateway_openai_tool_turn", run_type="chain")
+async def chat_with_tools(
+    transcript: list[dict[str, Any]],
+    system_prompt: str,
+    *,
+    tools: list[dict[str, Any]] | None = None,
+    max_tokens: int | None = None,
+    temperature: float = 0.3,
+    model: str | None = None,
+    telemetry: LLMTelemetry | None = None,
+) -> ToolTurn:
+    """Run one non-streaming turn that may return tool calls.
+
+    Args:
+        transcript: Full message list built by the agent loop (user + assistant
+            tool-call turns + ``tool`` result messages), excluding the system prompt.
+        tools: OpenAI tool schemas. Pass ``None``/``[]`` to forbid tool use and
+            force a text answer — how the loop closes out at its iteration cap.
+        temperature: Defaults lower than chat; tool selection wants determinism.
+        telemetry: Call-site context for token/cost capture. Each turn records its
+            own generation, so an agent run shows up as N generations sharing one
+            ``trace_id``.
+
+    Never raises: provider failures come back as ``is_error=True`` with a
+    user-safe ``content`` string, so a partial run still answers.
+    """
+    resolved_model = model or settings.openai_model
+    if not settings.openai_api_key:
+        return ToolTurn(
+            content="OpenAI API key is not configured. Please set OPENAI_API_KEY.",
+            is_error=True,
+        )
+
+    messages = _tool_transcript(system_prompt, transcript)
+    request_params: dict[str, Any] = {
+        "model": resolved_model,
+        "max_tokens": max_tokens or settings.openai_max_tokens,
+        "temperature": temperature,
+        "messages": messages,
+    }
+    if tools:
+        request_params["tools"] = tools
+        request_params["tool_choice"] = "auto"
+
+    start = time.perf_counter()
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            response = await _get_client().chat.completions.create(**request_params)
+            choice = response.choices[0] if response.choices else None
+            message = choice.message if choice else None
+            content = getattr(message, "content", None)
+            tool_calls = _parse_tool_calls(message)
+
+            # Preserve the assistant turn exactly as the API returned it — the
+            # follow-up request must echo the tool_call ids back.
+            assistant_message: dict[str, Any] = {"role": "assistant", "content": content}
+            if tool_calls:
+                assistant_message["tool_calls"] = [
+                    {
+                        "id": call.id,
+                        "type": "function",
+                        "function": {"name": call.name, "arguments": call.arguments},
+                    }
+                    for call in tool_calls
+                ]
+
+            _record_generation(
+                model=resolved_model,
+                messages=messages,
+                output_chars=len(content or "") + sum(len(c.arguments) for c in tool_calls),
+                usage=getattr(response, "usage", None),
+                elapsed=time.perf_counter() - start,
+                telemetry=telemetry,
+            )
+            return ToolTurn(
+                content=content,
+                tool_calls=tool_calls,
+                finish_reason=getattr(choice, "finish_reason", None) if choice else None,
+                assistant_message=assistant_message,
+            )
+        except (RateLimitError, APIError) as exc:
+            retryable = isinstance(exc, RateLimitError) or getattr(exc, "status_code", 0) >= 500
+            if attempt < _MAX_RETRIES and retryable:
+                delay = _RETRY_BASE_DELAY * (2**attempt)
+                logger.warning("openai_tool_turn_retry", attempt=attempt + 1, delay=delay)
+                await asyncio.sleep(delay)
+                continue
+            logger.error("openai_tool_turn_error", error=str(exc), status=getattr(exc, "status_code", None))
+            _record_generation(
+                model=resolved_model,
+                messages=messages,
+                output_chars=0,
+                usage=None,
+                elapsed=time.perf_counter() - start,
+                telemetry=telemetry,
+                is_error=True,
+            )
+            return ToolTurn(
+                content="The AI stylist is temporarily unavailable. Please try again shortly.",
+                is_error=True,
+            )
+
+    # Unreachable: every branch above returns or continues, and the final attempt
+    # always returns. Kept explicit so the function is total for mypy.
+    return ToolTurn(content="The AI stylist is temporarily unavailable.", is_error=True)

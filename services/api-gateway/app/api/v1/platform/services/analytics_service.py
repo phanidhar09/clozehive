@@ -94,6 +94,28 @@ class AnalyticsService:
             purchase_gap_insights=purchase_gap_insights,
         )
 
+    async def get_readonly_snapshot(self, user_id: UUID) -> ClosetAnalyticsResponse:
+        """The same insights as :meth:`get_closet_analytics`, minus the writes.
+
+        ``get_closet_analytics`` calls ``detect_and_save_gaps``, which *persists*
+        purchase gaps as a side effect. Callers that only read — notably the
+        wardrobe-analyst agent, whose whole tool surface is guaranteed read-only —
+        use this instead, and reach for the stored gaps separately if they need them.
+        """
+        result = await self.session.execute(select(ClosetItem).where(ClosetItem.user_id == user_id))
+        items = result.scalars().all()
+
+        return ClosetAnalyticsResponse(
+            summary=self._compute_summary(items),
+            category_coverage=self._compute_category_coverage(items),
+            color_stats=self._compute_color_stats(items),
+            category_stats=self._compute_category_stats(items),
+            outfit_readiness=self._compute_outfit_readiness(items),
+            usage_insights=None,
+            value_insights=await self._compute_value_insights(user_id, items),
+            purchase_gap_insights=[],
+        )
+
     def _compute_summary(self, items: Sequence[ClosetItem]) -> ClosetSummary:
         if not items:
             return ClosetSummary(

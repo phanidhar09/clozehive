@@ -224,6 +224,25 @@ class Settings(BaseSettings):
     # serial chat hop — on timeout we keep the deterministic decision.
     model_router_arbiter_timeout_ms: int = 400
     openai_max_tokens: int = 4096
+    # ── Tool-calling agents ───────────────────────────────────────────────────
+    # Off by default. Agents let the model pick its own lookups, which costs N
+    # generations per turn instead of one — enable per environment once the
+    # cost/latency profile has been measured against the fixed pipelines.
+    wardrobe_analyst_agent_enabled: bool = False
+    # Follow-up Q&A on a completed shopping check. The check itself stays a
+    # deterministic pipeline — this only answers questions *about* its verdict.
+    shopping_advisor_agent_enabled: bool = False
+    # Follow-up Q&A on a generated packing plan (weather/festival/venue research +
+    # closet). The plan itself stays a grounded pipeline; this only extends it.
+    travel_advisor_agent_enabled: bool = False
+    # Hard ceiling on tool-calling rounds. At the cap the loop makes one final
+    # no-tools call, so the worst case is (max + 1) generations per request.
+    agent_max_iterations: int = 5
+    # Per-tool wall clock. Tools are local DB/embedding reads; anything slower
+    # than this is a stuck dependency, and the model can answer without it.
+    agent_tool_timeout_seconds: float = 10.0
+    # Backstop truncation for a tool result before it re-enters the prompt.
+    agent_tool_result_max_chars: int = 4000
     # ── Gemini AI ─────────────────────────────────────────────────────────────
     gemini_api_key: str = ""
     # 2.5 Flash: stronger fashion/attribute reasoning than 1.5 with comparable latency,

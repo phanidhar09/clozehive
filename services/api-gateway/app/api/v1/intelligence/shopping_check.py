@@ -4,17 +4,21 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, File, Query, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, File, Query, Request, UploadFile, status
 from pydantic import BaseModel, Field
 
 from app.api.v1.intelligence.services import shopping_check_service
+from app.api.v1.intelligence.services.agents import shopping_advisor
+from app.core.config import get_settings
 from app.core.deps import CurrentUser, DbSession
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import NotFoundError, ServiceUnavailableError
 from app.core.logging import get_logger
+from app.core.rate_limit import limiter
 from app.core.upload_service import delete_upload, persist_upload, read_validated_image
 
 router = APIRouter(prefix="/shopping", tags=["Shopping Check"])
 logger = get_logger("shopping_check_api")
+settings = get_settings()
 
 
 @router.post("/check", status_code=status.HTTP_201_CREATED)
@@ -126,6 +130,33 @@ async def build_outfits_for_check(
     if result is None:
         raise NotFoundError("Shopping check not found")
     return result
+
+
+class AdvisorRequest(BaseModel):
+    question: str = Field(..., min_length=1, max_length=500)
+
+
+@router.post("/{check_id}/ask", status_code=status.HTTP_200_OK)
+# Tighter than the other shopping routes: one call runs a tool-calling loop of up
+# to (agent_max_iterations + 1) generations.
+@limiter.limit("6/minute")
+async def ask_shopping_advisor(
+    request: Request,
+    check_id: UUID,
+    body: AdvisorRequest,
+    user_id: CurrentUser,
+    session: DbSession,
+):
+    """Ask a follow-up question about a completed check.
+
+    The check's rating is computed deterministically and stays authoritative —
+    this only explains and extends it ("what would I wear it with?", "would black
+    be smarter?"). Gated behind ``SHOPPING_ADVISOR_AGENT_ENABLED``.
+    """
+    if not settings.shopping_advisor_agent_enabled:
+        raise ServiceUnavailableError("The shopping advisor is not enabled in this environment.")
+
+    return await shopping_advisor.advise(session, user_id, str(check_id), body.question)
 
 
 class PurchaseDecisionRequest(BaseModel):

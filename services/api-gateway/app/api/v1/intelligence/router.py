@@ -9,6 +9,7 @@ from app.api.v1.intelligence import (
     purchase_gaps,
     rag,
     shopping_check,
+    wardrobe_analyst,
 )
 
 router = APIRouter()
@@ -18,3 +19,4 @@ router.include_router(fashion_rag.router)
 router.include_router(purchase_gaps.router)
 router.include_router(rag.router)
 router.include_router(shopping_check.router)
+router.include_router(wardrobe_analyst.router)
