@@ -103,6 +103,7 @@ export const SOURCE_BADGE: Record<string, { label: string; variant: 'green' | 'a
   optional: { label: 'Optional', variant: 'gray' },
   essential: { label: 'Essential', variant: 'blue' },
   custom: { label: 'Custom', variant: 'gray' },
+  user_added: { label: 'You added', variant: 'blue' },
 }
 
 export interface ActivityDraft extends TripActivity {

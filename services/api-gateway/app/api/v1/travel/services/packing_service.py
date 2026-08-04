@@ -555,10 +555,15 @@ async def _ai_activity_aware_packing(
     rag_context: str | None = None,
     location_context: str | None = None,
     user_id: str | None = None,
+    pinned_day_plans: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     """
     Core AI call — generates a full activity-aware day-by-day outfit planner.
     Returns parsed dict or None if AI unavailable.
+
+    ``pinned_day_plans`` are days the user has hand-edited. They are shown to
+    the model as already-committed (so rewear advice accounts for them) but
+    excluded from the days it is asked to plan; the caller splices them back.
     """
     if not settings.openai_api_key:
         return None
@@ -582,6 +587,39 @@ async def _ai_activity_aware_packing(
         )
     else:
         scope_note = f"OUTPUT SCOPE: Produce day_plans covering all {planned_days} day(s)."
+
+    # ── Pinned days: the user hand-edited these; they are not up for re-planning ─
+    pinned_block = ""
+    pinned_numbers = sorted(
+        {int(d.get("day_number") or 0) for d in (pinned_day_plans or []) if str(d.get("day_number") or "").isdigit()}
+    )
+    if pinned_numbers:
+        pinned_lines = []
+        for day in pinned_day_plans or []:
+            num = day.get("day_number")
+            worn = []
+            for outfit in day.get("outfits", []):
+                for item in outfit.get("items", []):
+                    name = str(item.get("item_name") or "").strip()
+                    if name and name not in worn:
+                        worn.append(name)
+            if worn:
+                pinned_lines.append(f"  Day {num}: {', '.join(worn)}")
+        open_days = [d for d in range(1, planned_days + 1) if d not in pinned_numbers]
+        pinned_block = (
+            "\nUSER-FINALISED DAYS (DO NOT PLAN THESE):\n"
+            + "\n".join(pinned_lines)
+            + f"\n\nThe traveller has already finalised day(s) {', '.join(map(str, pinned_numbers))} by hand. "
+            "Do NOT output day_plans entries for those days — they are fixed and will be kept as-is. "
+            f"Produce day_plans ONLY for day(s): {', '.join(map(str, open_days)) or 'none'}. "
+            "DO take the finalised outfits into account: count those items toward the bag limits, "
+            "and build rewear_strategy across BOTH the finalised days and the days you plan.\n"
+        )
+        scope_note = (
+            f"OUTPUT SCOPE: Produce day_plans ONLY for day(s) {', '.join(map(str, open_days)) or 'none'} "
+            f"of this {trip_days}-day trip. Days {', '.join(map(str, pinned_numbers))} are user-finalised — omit them."
+        )
+
     activities_block = _format_activities_for_prompt(activities)
     closet_text = _format_closet_for_prompt(closet_items) if closet_items else "[]"
     style_block = ""
@@ -622,7 +660,7 @@ PLANNED ACTIVITIES:
 {activities_block}
 
 BAG SIZE CONSTRAINT: {bag["hint"]}
-
+{pinned_block}
 {scope_note}
 
 USER'S CLOSET (ONLY use items from this list — never invent closet items):
@@ -864,6 +902,15 @@ def _enrich_day_plans_with_images(
 # ── Packing checklist builder ─────────────────────────────────────────────────
 
 
+def checklist_key(entry: dict[str, Any]) -> str:
+    """
+    Canonical external key for a checklist row — the key ``checklist_state`` and
+    the frontend both use. Defined once here so the packed-state map, the
+    removal deltas and the UI can never drift apart.
+    """
+    return str(entry.get("closet_item_id") or entry.get("item_name") or "").lower()
+
+
 def _build_packing_checklist(
     day_plans: list[dict[str, Any]],
     missing_items: list[dict[str, Any]],
@@ -950,6 +997,219 @@ def _build_packing_checklist(
             }
 
     return list(checklist.values())
+
+
+# ── User edits: the delta layer over a derived plan ──────────────────────────
+# Everything the planner returns is recomputed from day_plans_rich, so a user
+# edit written into a derived field is erased on the next generation. User
+# intent therefore lives in PackingPlan.user_edits (migration 039) and is
+# replayed over each freshly-derived plan by the helpers below.
+
+
+def _apply_checklist_overrides(
+    checklist: list[dict[str, Any]],
+    user_edits: dict[str, Any],
+    closet_by_id: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    Replay the user's checklist add/remove deltas over a freshly-derived list.
+
+    Added items are grounded against the real closet: an id the user no longer
+    owns is silently skipped rather than rendered as a phantom row.
+    """
+    added = user_edits.get("checklist_added") or []
+    removed = {str(k).lower() for k in (user_edits.get("checklist_removed") or [])}
+
+    present: set[str] = {str(e["closet_item_id"]) for e in checklist if e.get("closet_item_id")}
+    for entry in added:
+        if not isinstance(entry, dict):
+            continue
+        cid = str(entry.get("closet_item_id") or "").strip()
+        # Skip items already planned into an outfit (they're on the list
+        # already) and items that have since left the closet.
+        if not cid or cid in present:
+            continue
+        real = closet_by_id.get(cid)
+        if not real:
+            continue
+        checklist.append(
+            {
+                "item_name": str(real.get("name") or "Wardrobe item"),
+                "category": _normalise_category(str(real.get("category") or "general")),
+                "closet_item_id": cid,
+                "image_url": real.get("image_url") or None,
+                "source": "user_added",
+                "quantity": 1,
+                "planned_days": [],
+                "activities": [],
+                "rewear_count": 0,
+                "is_packed": False,
+                "note": str(entry.get("note") or "") or None,
+            }
+        )
+        present.add(cid)
+
+    if removed:
+        checklist = [e for e in checklist if checklist_key(e) not in removed]
+    return checklist
+
+
+def _refresh_rewear_strategy(
+    rewear_strategy: list[dict[str, Any]],
+    day_plans: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    Re-sync rewear entries against the (possibly edited) day plans.
+
+    ``worn_on_days`` / ``worn_for`` are facts and get recomputed from the plan.
+    ``reason`` is LLM-authored prose that cannot be re-derived, so it is carried
+    over as-is for items still worn; entries whose item no longer appears
+    anywhere in the plan are dropped rather than left describing a phantom.
+    """
+    days_by_item: dict[str, list[str]] = defaultdict(list)
+    activities_by_item: dict[str, list[str]] = defaultdict(list)
+    for day in day_plans:
+        label = f"Day {day.get('day_number', '?')}"
+        for outfit in day.get("outfits", []):
+            activity = str(outfit.get("activity") or "").strip()
+            for item in outfit.get("items", []):
+                key = str(item.get("closet_item_id") or "") or _norm_name(item.get("item_name"))
+                if not key:
+                    continue
+                if label not in days_by_item[key]:
+                    days_by_item[key].append(label)
+                if activity and activity not in activities_by_item[key]:
+                    activities_by_item[key].append(activity)
+
+    refreshed: list[dict[str, Any]] = []
+    for entry in rewear_strategy:
+        if not isinstance(entry, dict):
+            continue
+        key = str(entry.get("closet_item_id") or "") or _norm_name(entry.get("item_name"))
+        worn = days_by_item.get(key) or []
+        # A rewear entry only means something when the item is worn 2+ times.
+        if len(worn) < 2:
+            continue
+        entry["worn_on_days"] = worn
+        entry["worn_for"] = activities_by_item.get(key) or entry.get("worn_for") or []
+        refreshed.append(entry)
+    return refreshed
+
+
+def recompute_plan_sections(
+    day_plans_rich: list[dict[str, Any]],
+    *,
+    closet_items: list[dict[str, Any]],
+    missing_items: list[dict[str, Any]],
+    rewear_strategy: list[dict[str, Any]],
+    trip_days: int,
+    bag_size: str | None,
+    user_edits: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Re-derive every field that hangs off ``day_plans_rich`` — with NO LLM call.
+
+    This is the whole basis of plan editing: a swapped outfit item only needs
+    the day plans mutated, and the checklist, bag capacity, closet-take list,
+    legacy daily plan and rewear strategy all fall out of this function. Any
+    caller that mutates day_plans_rich MUST run this afterwards, or the derived
+    fields silently disagree with the plan the user is looking at.
+    """
+    user_edits = user_edits or {}
+    bag = _get_bag_constraints(bag_size)
+    closet_by_id, _ = _closet_lookup_maps(closet_items)
+
+    # Re-ground first: an edit could have introduced an id the user doesn't own.
+    day_plans_rich, _ = _ground_day_plans_to_closet(day_plans_rich, closet_items)
+    day_plans_rich = _enrich_day_plans_with_images(day_plans_rich, closet_items)
+
+    take_from_closet, still_need = _derive_legacy_sections(day_plans_rich, missing_items)
+    checklist = _build_packing_checklist(day_plans_rich, missing_items, trip_days)
+    checklist = _apply_checklist_overrides(checklist, user_edits, closet_by_id)
+
+    return {
+        "day_plans_rich": day_plans_rich,
+        "rewear_strategy": _refresh_rewear_strategy(rewear_strategy, day_plans_rich),
+        "bag_capacity_summary": _compute_bag_capacity_summary(day_plans_rich, bag, None),
+        "packing_checklist": checklist,
+        "daily_plan": _build_legacy_daily_plan(day_plans_rich, closet_items),
+        "take_from_your_closet": take_from_closet,
+        "you_might_still_need": still_need,
+    }
+
+
+# ── Closet-gap suggestions ────────────────────────────────────────────────────
+
+
+def suggest_closet_additions(
+    day_plans_rich: list[dict[str, Any]],
+    *,
+    closet_items: list[dict[str, Any]],
+    weather_summary: dict[str, Any],
+    activities: list[dict[str, Any]],
+    purpose: str,
+    trip_style: str | None,
+    bag_size: str | None,
+    limit_per_category: int = 3,
+) -> list[dict[str, Any]]:
+    """
+    Suggest items from the user's own closet for roles the plan under-covers.
+
+    Distinct from ``you_might_still_need``, which means "you don't own this".
+    These are items the user already has that would fill a gap — computed by
+    reusing the same trip-relevance scoring the planner ranks candidates with.
+    """
+    bag = _get_bag_constraints(bag_size)
+    planned_ids: set[str] = set()
+    per_cat: dict[str, int] = defaultdict(int)
+    for day in day_plans_rich:
+        for outfit in day.get("outfits", []):
+            for item in outfit.get("items", []):
+                cid = str(item.get("closet_item_id") or "")
+                if cid and cid not in planned_ids:
+                    planned_ids.add(cid)
+                    per_cat[_normalise_category(str(item.get("category") or "general"))] += 1
+
+    avg_high = float(weather_summary.get("avg_high", 20) or 20)
+    rainy = bool(weather_summary.get("rainy_days", 0))
+    keywords = _trip_keywords(activities, purpose, trip_style)
+
+    suggestions: list[dict[str, Any]] = []
+    for category in ("tops", "bottoms", "shoes", "outerwear", "accessories"):
+        limit = int(bag.get(f"max_{category}", 0) or 0)
+        have = per_cat.get(category, 0)
+        # Only suggest where the plan is genuinely short of the bag allowance.
+        if not limit or have >= limit:
+            continue
+        candidates = [
+            it
+            for it in closet_items
+            if str(it.get("id")) not in planned_ids and _normalise_category(str(it.get("category", ""))) == category
+        ]
+        if not candidates:
+            continue
+        scored = sorted(
+            (
+                (_score_item_for_trip(it, avg_high=avg_high, rainy=rainy, trip_keywords=keywords), it)
+                for it in candidates
+            ),
+            key=lambda t: t[0],
+            reverse=True,
+        )
+        for _, it in scored[: min(limit_per_category, limit - have)]:
+            suggestions.append(
+                {
+                    "closet_item_id": str(it.get("id")),
+                    "item_name": it.get("name"),
+                    "category": category,
+                    "image_url": it.get("image_url") or None,
+                    "reason": (
+                        f"Your plan has {have} of {limit} {category} for this bag — "
+                        f"this one suits the forecast and your activities."
+                    ),
+                }
+            )
+    return suggestions
 
 
 # ── Rule-based fallback structures ───────────────────────────────────────────
@@ -1196,9 +1456,13 @@ async def generate_packing_list(
     user_style_profile: dict[str, Any] | None = None,
     rag_context: str | None = None,
     user_id: str | None = None,
+    pinned_day_plans: list[dict[str, Any]] | None = None,
+    user_edits: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     try:
         activities = activities or []
+        pinned_day_plans = pinned_day_plans or []
+        user_edits = user_edits or {}
         start = date.fromisoformat(start_date)
         end = date.fromisoformat(end_date)
         trip_days = max(1, (end - start).days + 1)
@@ -1282,6 +1546,7 @@ async def generate_packing_list(
             rag_context=rag_context,
             location_context=location_context,
             user_id=user_id,
+            pinned_day_plans=pinned_day_plans,
         )
 
         # ── Process rich AI output ────────────────────────────────────────────
@@ -1320,29 +1585,54 @@ async def generate_packing_list(
                     owned_dropped_from_missing=owned_dropped,
                 )
 
-            # Bag capacity is computed, not self-reported: the model's own
-            # packing_status/total_unique_items are frequently wrong.
-            bag_capacity_summary = _compute_bag_capacity_summary(day_plans_rich, bag, bag_capacity_summary)
-
-            # Enrich with closet images (after grounding back-fills real ids)
-            day_plans_rich = _enrich_day_plans_with_images(day_plans_rich, closet_items)
         else:
             # Fallback rule-based rich plans
             day_plans_rich = _rule_based_day_plans(closet_items, activities, start_date, trip_days, weather_days)
 
-        # ── Legacy sections: derived from the grounded plan, no LLM ─────────
-        if ai_rich:
-            take_from_closet, still_need = _derive_legacy_sections(day_plans_rich, missing_items_rich)
-        else:
+        # ── Splice user-finalised days back over the fresh plan ───────────────
+        # The model was told to skip pinned days; a stray duplicate is dropped in
+        # favour of the user's version, which always wins.
+        if pinned_day_plans:
+            pinned_by_num = {
+                int(d["day_number"]): d for d in pinned_day_plans if str(d.get("day_number") or "").isdigit()
+            }
+            merged = [d for d in day_plans_rich if int(d.get("day_number") or 0) not in pinned_by_num]
+            merged.extend(pinned_by_num.values())
+            day_plans_rich = sorted(merged, key=lambda d: int(d.get("day_number") or 0))
+            logger.info(
+                "packing_pinned_days_preserved",
+                destination=destination,
+                pinned=sorted(pinned_by_num),
+            )
+
+        # ── Re-derive every dependent section from the final day plans ────────
+        # Single source of truth: checklist, bag capacity, closet-take list,
+        # legacy daily_plan and rewear all fall out of day_plans_rich. User
+        # checklist deltas are replayed on top.
+        derived = recompute_plan_sections(
+            day_plans_rich,
+            closet_items=closet_items,
+            missing_items=missing_items_rich,
+            rewear_strategy=rewear_strategy,
+            trip_days=trip_days,
+            bag_size=bag_size,
+            user_edits=user_edits,
+        )
+        day_plans_rich = derived["day_plans_rich"]
+        rewear_strategy = derived["rewear_strategy"]
+        bag_capacity_summary = derived["bag_capacity_summary"]
+        packing_checklist = derived["packing_checklist"]
+        take_from_closet = derived["take_from_your_closet"]
+        still_need = derived["you_might_still_need"]
+
+        if not ai_rich:
+            # Rule-based path keeps its own closet-take/needs heuristics.
             take_from_closet, still_need = _rule_based_packing_sections(
                 closet_items,
                 purpose,
                 trip_days,
                 weather_summary,
             )
-
-        # ── Build checklist ───────────────────────────────────────────────────
-        packing_checklist = _build_packing_checklist(day_plans_rich, missing_items_rich, trip_days)
 
         # ── Legacy packing_list (rule-based, backward compat) ─────────────────
         by_category: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -1462,7 +1752,7 @@ async def generate_packing_list(
             )
 
         # ── Build legacy daily_plan from rich plans ────────────────────────────
-        daily_plan = _build_legacy_daily_plan(day_plans_rich, closet_items)
+        daily_plan = derived["daily_plan"]
 
         weather_alerts = _weather_alerts(weather_summary, trip_days)
         missing_alerts = [f"Missing: {', '.join({i['category'] for i in missing_legacy})}"] if missing_legacy else []

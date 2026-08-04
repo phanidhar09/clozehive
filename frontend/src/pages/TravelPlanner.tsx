@@ -21,13 +21,14 @@ import Input, { Select } from '@/components/ui/Input'
 import { useApp } from '@/store'
 import { tripsApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import type { PackingPlan, Trip, TripActivity } from '@/types'
+import type { ClosetSuggestion, PackingPlan, Trip, TripActivity } from '@/types'
 import {
   ACTIVITY_PRESETS, BAG_SIZE_OPTS, PURPOSE_OPTIONS, TRIP_STYLE_OPTS,
   tripApiErr, type ActivityDraft,
 } from '@/components/travel/constants'
 import { ActivityChip } from '@/components/travel/ActivityChip'
-import { DayPlanCard } from '@/components/travel/DayPlanCard'
+import { ClosetItemPicker } from '@/components/travel/ClosetItemPicker'
+import { DayPlanCard, type OutfitEdit } from '@/components/travel/DayPlanCard'
 import { DestinationInput } from '@/components/travel/DestinationInput'
 import { MissingItemsPanel } from '@/components/travel/MissingItemsPanel'
 import { OccasionPlanner } from '@/components/travel/OccasionPlanner'
@@ -70,6 +71,34 @@ export default function TravelPlanner() {
   const [savingPlanner, setSavingPlanner] = useState(false)
   const [plannerSaved, setPlannerSaved] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+
+  // Plan editing
+  const [editing, setEditing] = useState(false)
+  const [pendingEdit, setPendingEdit] = useState<OutfitEdit | null>(null)
+  const [checklistPickerOpen, setChecklistPickerOpen] = useState(false)
+  const [suggestions, setSuggestions] = useState<ClosetSuggestion[]>([])
+  const [confirmRegen, setConfirmRegen] = useState(false)
+
+  const pinnedDays = packingPlan?.pinned_days ?? []
+
+  /** Items already in the outfit being edited — greyed out in the picker. */
+  const outfitItemIdsForPendingEdit = useMemo(() => {
+    if (!pendingEdit || !packingPlan) return []
+    const day = packingPlan.day_plans_rich?.find(d => d.day_number === pendingEdit.dayNumber)
+    const outfit = day?.outfits.find(o => o.slot === pendingEdit.slot)
+    return (outfit?.items ?? [])
+      .map(i => i.closet_item_id)
+      // On a swap the item being replaced must stay pickable-adjacent — it is
+      // simply excluded like the rest, since re-picking it is a no-op.
+      .filter((id): id is string => Boolean(id))
+  }, [pendingEdit, packingPlan])
+
+  const checklistItemIds = useMemo(
+    () => (packingPlan?.packing_checklist ?? [])
+      .map(i => i.closet_item_id)
+      .filter((id): id is string => Boolean(id)),
+    [packingPlan],
+  )
 
   const tripDays = useMemo(() => {
     if (!form.start_date || !form.end_date) return 7
@@ -220,22 +249,106 @@ export default function TravelPlanner() {
     }
   }
 
+  // ── Plan editing ──────────────────────────────────────────────────────────
+  // Every edit endpoint returns the whole re-derived plan, so the local state is
+  // just replaced — the checklist, bag capacity and rewear panel stay in step
+  // with the day plans without any client-side recomputation.
+
+  const applyPlanUpdate = (plan: PackingPlan) => {
+    setPackingPlan(plan)
+    setPackedState(plan.checklist_state || {})
+    setPlannerSaved(false)
+  }
+
+  const refreshSuggestions = async (tripId: string) => {
+    try { setSuggestions(await tripsApi.getClosetSuggestions(tripId)) } catch { setSuggestions([]) }
+  }
+
+  /** Remove needs no picker; swap/add open one. */
+  const handleOutfitEdit = async (edit: OutfitEdit) => {
+    if (!trip) return
+    if (edit.operation !== 'remove') { setPendingEdit(edit); return }
+    setEditing(true)
+    try {
+      applyPlanUpdate(await tripsApi.editOutfitItem(trip.id, edit.dayNumber, edit.slot, {
+        operation: 'remove',
+        replace_item_id: edit.targetItemId,
+      }))
+      void refreshSuggestions(trip.id)
+    } catch (err: unknown) {
+      toastStore.add({ variant: 'error', icon: '👕', title: 'Edit failed', body: tripApiErr(err, 'Could not update the outfit.') })
+    } finally {
+      setEditing(false)
+    }
+  }
+
+  const handlePickerConfirm = async (itemIds: string[]) => {
+    if (!trip || !pendingEdit || itemIds.length === 0) return
+    setEditing(true)
+    try {
+      applyPlanUpdate(await tripsApi.editOutfitItem(trip.id, pendingEdit.dayNumber, pendingEdit.slot, {
+        operation: pendingEdit.operation,
+        closet_item_id: itemIds[0],
+        replace_item_id: pendingEdit.targetItemId,
+      }))
+      setPendingEdit(null)
+      void refreshSuggestions(trip.id)
+    } catch (err: unknown) {
+      toastStore.add({ variant: 'error', icon: '👕', title: 'Edit failed', body: tripApiErr(err, 'Could not update the outfit.') })
+    } finally {
+      setEditing(false)
+    }
+  }
+
+  const handleAddChecklistItems = async (itemIds: string[]) => {
+    if (!trip || itemIds.length === 0) return
+    setEditing(true)
+    try {
+      applyPlanUpdate(await tripsApi.addChecklistItems(trip.id, itemIds))
+      setChecklistPickerOpen(false)
+      void refreshSuggestions(trip.id)
+    } catch (err: unknown) {
+      toastStore.add({ variant: 'error', icon: '🧳', title: 'Could not add', body: tripApiErr(err, 'Failed to add items.') })
+    } finally {
+      setEditing(false)
+    }
+  }
+
+  const handleRemoveChecklistItem = async (key: string) => {
+    if (!trip) return
+    setEditing(true)
+    try {
+      applyPlanUpdate(await tripsApi.removeChecklistItem(trip.id, key))
+      void refreshSuggestions(trip.id)
+    } catch (err: unknown) {
+      toastStore.add({ variant: 'error', icon: '🧳', title: 'Could not remove', body: tripApiErr(err, 'Failed to remove the item.') })
+    } finally {
+      setEditing(false)
+    }
+  }
+
   // ── Regenerate ────────────────────────────────────────────────────────────
 
-  const handleRegenerate = async () => {
+  const handleRegenerate = async (keepPinned = true) => {
     if (!trip) return
+    setConfirmRegen(false)
     setLoading(true)
     setGenError(null)
     try {
-      const plan = await tripsApi.regeneratePacking(trip.id)
-      setPackingPlan(plan)
-      setPackedState(plan.checklist_state || {})
-      setPlannerSaved(false)
+      const plan = await tripsApi.regeneratePacking(trip.id, keepPinned)
+      applyPlanUpdate(plan)
+      void refreshSuggestions(trip.id)
     } catch (err: unknown) {
       setGenError(tripApiErr(err, 'Failed to regenerate plan.'))
     } finally {
       setLoading(false)
     }
+  }
+
+  /** Edited days need a confirm so the user knows what will and won't change. */
+  const requestRegenerate = () => {
+    if (pinnedDays.length > 0) setConfirmRegen(true)
+    else void handleRegenerate(true)
   }
 
   // ── Reset ─────────────────────────────────────────────────────────────────
@@ -555,7 +668,7 @@ export default function TravelPlanner() {
                 </Button>
                 <Button
                   variant="secondary"
-                  onClick={handleRegenerate}
+                  onClick={requestRegenerate}
                   disabled={loading}
                   className="flex items-center gap-2 ml-auto"
                   icon={loading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
@@ -675,7 +788,14 @@ export default function TravelPlanner() {
                     <div className="space-y-3">
                       {(packingPlan.day_plans_rich ?? []).length > 0
                         ? packingPlan.day_plans_rich.map(day => (
-                            <DayPlanCard key={day.day_number} day={day} />
+                            <DayPlanCard
+                              key={day.day_number}
+                              day={day}
+                              editable
+                              busy={editing}
+                              pinned={pinnedDays.includes(day.day_number)}
+                              onEdit={handleOutfitEdit}
+                            />
                           ))
                         : (
                           <div className="card p-8 text-center text-slate-400 dark:text-white/30 text-sm">
@@ -702,6 +822,12 @@ export default function TravelPlanner() {
                       items={packingPlan.packing_checklist ?? []}
                       packedState={packedState}
                       onToggle={handleChecklistToggle}
+                      editable
+                      busy={editing}
+                      suggestions={suggestions}
+                      onAddItems={() => setChecklistPickerOpen(true)}
+                      onAddSuggestion={id => void handleAddChecklistItems([id])}
+                      onRemoveItem={key => void handleRemoveChecklistItem(key)}
                     />
                   )}
                 </>
@@ -709,6 +835,66 @@ export default function TravelPlanner() {
             </div>
           )}
         </>
+      )}
+
+      {/* ── Outfit item picker (swap / add within a day) ────────────────── */}
+      <ClosetItemPicker
+        open={pendingEdit !== null}
+        title={pendingEdit?.operation === 'swap' ? 'Swap for…' : 'Add to this outfit'}
+        closetItems={closetItems}
+        initialCategory={pendingEdit?.targetCategory ?? undefined}
+        excludeIds={outfitItemIdsForPendingEdit}
+        confirmLabel={pendingEdit?.operation === 'swap' ? 'Swap' : 'Add'}
+        busy={editing}
+        onConfirm={ids => void handlePickerConfirm(ids)}
+        onClose={() => setPendingEdit(null)}
+      />
+
+      {/* ── Checklist picker (pack extras) ──────────────────────────────── */}
+      <ClosetItemPicker
+        open={checklistPickerOpen}
+        title="Add to your packing list"
+        closetItems={closetItems}
+        excludeIds={checklistItemIds}
+        multiple
+        confirmLabel="Add to list"
+        busy={editing}
+        onConfirm={ids => void handleAddChecklistItems(ids)}
+        onClose={() => setChecklistPickerOpen(false)}
+      />
+
+      {/* ── Regenerate confirmation ─────────────────────────────────────── */}
+      {confirmRegen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <button
+            type="button"
+            aria-label="Cancel"
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            onClick={() => setConfirmRegen(false)}
+          />
+          <div className="relative w-full max-w-md rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 shadow-2xl p-6 space-y-4">
+            <h3 className="text-base font-semibold text-slate-800 dark:text-white">Regenerate your plan?</h3>
+            <p className="text-sm text-slate-600 dark:text-white/60">
+              You've hand-edited{' '}
+              <span className="font-semibold text-slate-800 dark:text-white">
+                day{pinnedDays.length > 1 ? 's' : ''} {pinnedDays.join(', ')}
+              </span>
+              . FANI will keep {pinnedDays.length > 1 ? 'those days' : 'that day'} exactly as you set{' '}
+              {pinnedDays.length > 1 ? 'them' : 'it'} up and re-plan the rest.
+            </p>
+            <div className="flex flex-col gap-2 pt-1">
+              <Button onClick={() => void handleRegenerate(true)} className="w-full">
+                Keep my edits, re-plan the rest
+              </Button>
+              <Button variant="ghost" onClick={() => void handleRegenerate(false)} className="w-full">
+                Start fresh (discards all edits)
+              </Button>
+              <Button variant="ghost" onClick={() => setConfirmRegen(false)} className="w-full">
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

@@ -1,8 +1,9 @@
 import { useMemo } from 'react'
-import { Check, RefreshCw } from 'lucide-react'
+import { Check, Plus, RefreshCw, Sparkles, X } from 'lucide-react'
 import Badge from '@/components/ui/Badge'
+import Button from '@/components/ui/Button'
 import { cn } from '@/lib/utils'
-import type { PackingChecklistItem } from '@/types'
+import type { ClosetSuggestion, PackingChecklistItem } from '@/types'
 import { CARD_SHADOW, CATEGORY_EMOJI, SOURCE_BADGE } from './constants'
 
 // ── Packing checklist panel ───────────────────────────────────────────────
@@ -13,11 +14,20 @@ const CHECKLIST_CATEGORY_ORDER = [
 ]
 
 export function PackingChecklistPanel({
-  items, packedState, onToggle,
+  items, packedState, onToggle, editable = false, busy = false,
+  suggestions = [], onAddItems, onAddSuggestion, onRemoveItem,
 }: {
   items: PackingChecklistItem[]
   packedState: Record<string, boolean>
   onToggle: (key: string, val: boolean) => void
+  /** Enables the add/remove affordances and the suggestions strip. */
+  editable?: boolean
+  busy?: boolean
+  /** Items the user already owns that would fill a gap in the plan. */
+  suggestions?: ClosetSuggestion[]
+  onAddItems?: () => void
+  onAddSuggestion?: (closetItemId: string) => void
+  onRemoveItem?: (key: string) => void
 }) {
   // Group by category
   const grouped = useMemo(() => {
@@ -69,7 +79,64 @@ export function PackingChecklistPanel({
             style={{ width: `${pct}%` }}
           />
         </div>
+        {editable && (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="w-full mt-3"
+            disabled={busy}
+            onClick={onAddItems}
+          >
+            <Plus size={13} className="mr-1.5" />
+            Add from your closet
+          </Button>
+        )}
       </div>
+
+      {/* Closet gap suggestions — items the user already owns */}
+      {editable && suggestions.length > 0 && (
+        <div className="rounded-2xl border border-brand-200/70 dark:border-brand-700/30 bg-brand-50/50 dark:bg-brand-900/10 p-4">
+          <div className="flex items-center gap-1.5 mb-2.5">
+            <Sparkles size={12} className="text-brand-500" />
+            <h4 className="text-xs font-bold uppercase tracking-widest text-brand-700 dark:text-brand-300">
+              Also in your closet
+            </h4>
+          </div>
+          <p className="text-xs text-slate-500 dark:text-white/40 mb-3">
+            Your bag has room for these and they suit the trip.
+          </p>
+          <div className="space-y-1.5">
+            {suggestions.map(s => (
+              <div
+                key={s.closet_item_id}
+                className="flex items-center gap-2.5 p-2 rounded-xl bg-white dark:bg-white/[0.04] border border-slate-200 dark:border-white/[0.07]"
+              >
+                {s.image_url ? (
+                  <img src={s.image_url} alt={s.item_name ?? ''} className="w-8 h-9 object-cover rounded-lg flex-shrink-0" />
+                ) : (
+                  <div className="w-8 h-9 rounded-lg bg-cream-100 dark:bg-slate-800 flex items-center justify-center text-base flex-shrink-0">
+                    {CATEGORY_EMOJI[s.category] ?? '📦'}
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-slate-800 dark:text-white truncate">{s.item_name}</p>
+                  <p className="text-[10px] text-slate-400 dark:text-white/30 line-clamp-1">{s.reason}</p>
+                </div>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => onAddSuggestion?.(s.closet_item_id)}
+                  className="flex-shrink-0 p-1.5 rounded-lg text-brand-600 dark:text-brand-400 hover:bg-brand-100 dark:hover:bg-brand-900/30 transition-colors disabled:opacity-50"
+                  aria-label={`Pack ${s.item_name}`}
+                  title={`Pack ${s.item_name}`}
+                >
+                  <Plus size={15} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {orderedCategories.map(cat => {
         const catPacked = grouped[cat].filter(i => {
@@ -172,6 +239,20 @@ export function PackingChecklistPanel({
                     <Badge variant={badgeCfg.variant} className="flex-shrink-0 text-[9px] hidden sm:flex">
                       {badgeCfg.label}
                     </Badge>
+
+                    {editable && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        // Inside a <label>: stop the click from toggling the checkbox.
+                        onClick={e => { e.preventDefault(); e.stopPropagation(); onRemoveItem?.(key) }}
+                        className="flex-shrink-0 p-1 rounded-lg text-slate-300 dark:text-white/20 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 transition-colors disabled:opacity-50"
+                        aria-label={`Remove ${item.item_name} from the list`}
+                        title="Remove from list"
+                      >
+                        <X size={13} />
+                      </button>
+                    )}
                   </label>
                 )
               })}

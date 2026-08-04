@@ -42,6 +42,12 @@ class PackingPlan(Base):
     bag_capacity_summary: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     packing_checklist: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     checklist_state: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # ── User-authored deltas ──────────────────────────────────────────────────
+    # Everything above is derived from day_plans_rich and rebuilt on every save,
+    # so user edits cannot live there. This column is the durable delta layer:
+    # pinned days survive regeneration verbatim, checklist add/remove deltas are
+    # re-applied on top of each fresh plan. See migration 039.
+    user_edits: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     # ─────────────────────────────────────────────────────────────────────────
     is_saved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(

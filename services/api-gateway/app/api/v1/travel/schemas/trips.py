@@ -124,6 +124,10 @@ class PackingPlanResponse(BaseModel):
     trip_style_direction: str | None = None
     climate_summary: str | None = None
     location_etiquette: str | None = None
+    # ── User edits ────────────────────────────────────────────────────────────
+    # Days the user hand-edited. These are preserved verbatim across a
+    # regenerate; the UI badges them so the reshuffle scope is visible.
+    pinned_days: list[int] = []
     # ─────────────────────────────────────────────────────────────────────────
     is_saved: bool = False
     created_at: str
@@ -161,3 +165,59 @@ class ChecklistUpdateRequest(BaseModel):
 
     item_key: str
     is_packed: bool
+
+
+# ── Plan editing ──────────────────────────────────────────────────────────────
+
+OutfitEditOperation = Literal["add", "remove", "swap"]
+
+
+class OutfitEditRequest(BaseModel):
+    """Body for PATCH /trips/{trip_id}/planner/days/{day_number}/outfits/{slot}."""
+
+    operation: OutfitEditOperation
+    closet_item_id: str | None = Field(
+        None, description="Item being added, or the replacement in a swap. Required for add/swap."
+    )
+    replace_item_id: str | None = Field(None, description="Item being replaced (swap) or removed (remove).")
+
+    @model_validator(mode="after")
+    def validate_operands(self):
+        if self.operation in ("add", "swap") and not self.closet_item_id:
+            raise ValueError(f"closet_item_id is required for '{self.operation}'")
+        if self.operation == "swap" and not self.replace_item_id:
+            raise ValueError("replace_item_id is required for 'swap'")
+        if self.operation == "remove" and not (self.replace_item_id or self.closet_item_id):
+            raise ValueError("remove requires the id of the item to drop")
+        return self
+
+
+class ChecklistAddRequest(BaseModel):
+    """Body for POST /trips/{trip_id}/planner/checklist/items."""
+
+    closet_item_ids: list[str] = Field(..., min_length=1, max_length=30)
+    note: str | None = Field(None, max_length=200)
+
+
+class ClosetSuggestion(BaseModel):
+    """An item the user already owns that would fill a gap in the plan."""
+
+    closet_item_id: str
+    item_name: str | None = None
+    category: str
+    image_url: str | None = None
+    reason: str
+
+
+class ClosetSuggestionsResponse(BaseModel):
+    suggestions: list[ClosetSuggestion] = []
+
+
+class RegenerateRequest(BaseModel):
+    """Body for POST /trips/{trip_id}/regenerate-packing."""
+
+    keep_pinned_days: bool = Field(
+        default=True,
+        description="Preserve hand-edited days verbatim and re-plan only the rest. "
+        "Set false for a clean rebuild that discards all edits.",
+    )

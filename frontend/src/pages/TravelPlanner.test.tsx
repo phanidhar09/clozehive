@@ -117,6 +117,7 @@ describe('TravelPlanner', () => {
       activities: [],
       day_plans_rich: [],
       rewear_strategy: [],
+      pinned_days: [],
       packing_checklist: [],
       checklist_state: {},
       is_saved: true,
