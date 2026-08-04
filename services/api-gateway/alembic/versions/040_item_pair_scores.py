@@ -19,7 +19,7 @@ Additive and reversible — an empty table replays as "no learned signal", which
 reproduces today's builder output exactly (every pair contributes neutral 0).
 
 Revision ID: 040
-Revises: 038
+Revises: 039
 Create Date: 2026-07-27
 """
 
@@ -29,7 +29,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from alembic import op
 
 revision = "040"
-down_revision = "038"
+down_revision = "039"
 branch_labels = None
 depends_on = None
 
