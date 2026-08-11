@@ -105,6 +105,22 @@ export default function OutfitRecommendationCard({ outfit, rank = 0, sessionId, 
     }
   }
 
+  const handleWear = async () => {
+    if (worn || outfit.items.length === 0) return
+    setWorn(true)
+    const itemIds = outfit.items.map(i => i.id)
+    await logOutfitWorn(itemIds)
+    // Wearing a look is the strongest signal that its pieces belong together, but
+    // logOutfitWorn only records per-item wear. Also send it through the feedback
+    // channel (was_worn, no rating) so the pair-learning loop reinforces the
+    // pairing. Best-effort — a failed signal must not undo "worn".
+    try {
+      await submitOutfitFeedback({ closet_item_ids: itemIds, was_worn: true })
+    } catch {
+      // fire-and-forget — pair reinforcement is non-critical
+    }
+  }
+
   const scoreBreakdown = outfit.score_breakdown
   const scoreEntries: Array<[string, number, number]> = scoreBreakdown
     ? [
@@ -232,11 +248,7 @@ export default function OutfitRecommendationCard({ outfit, rank = 0, sessionId, 
 
             {/* Primary CTA — Wear this today */}
             <button
-              onClick={async () => {
-                if (worn || outfit.items.length === 0) return
-                setWorn(true)
-                await logOutfitWorn(outfit.items.map(i => i.id))
-              }}
+              onClick={handleWear}
               disabled={worn || outfit.items.length === 0}
               className={cn(
                 'w-full flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold transition-all',

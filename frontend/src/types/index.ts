@@ -356,6 +356,8 @@ export interface OutfitSlot {
   styling_notes?: string
   comfort_notes?: string
   rewear_notes?: string
+  /** Set once the user edits this outfit — the styling prose may describe items that are no longer in it. */
+  notes_stale?: boolean
 }
 
 export interface RichDayPlan {
@@ -427,11 +429,24 @@ export interface PackingPlan {
   trip_style_direction?: string | null
   climate_summary?: string | null
   location_etiquette?: string | null
+  /** Days the user hand-edited. Preserved verbatim when the plan is regenerated. */
+  pinned_days: number[]
   // ─────────────────────────────────────────────────────────────────────────
   is_saved: boolean
   created_at: string
   updated_at: string
 }
+
+/** An item the user already owns that would fill a gap in the current plan. */
+export interface ClosetSuggestion {
+  closet_item_id: string
+  item_name?: string | null
+  category: string
+  image_url?: string | null
+  reason: string
+}
+
+export type OutfitEditOperation = 'add' | 'remove' | 'swap'
 
 export interface CreateTripResponse {
   trip: Trip

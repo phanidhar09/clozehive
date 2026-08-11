@@ -18,9 +18,13 @@ from app.api.v1.intelligence.services.fashion_rag_service import get_fashion_con
 from app.api.v1.intelligence.services.purchase_gap_service import detect_and_save_gaps
 from app.api.v1.travel.schemas.trips import (
     AddActivitiesRequest,
+    ChecklistAddRequest,
     ChecklistUpdateRequest,
+    ClosetSuggestionsResponse,
     CreateTripResponse,
+    OutfitEditRequest,
     PackingPlanResponse,
+    RegenerateRequest,
     SavePlannerResponse,
     TripCreate,
     TripListResponse,
@@ -124,12 +128,17 @@ async def _generate_trip_packing(
     trip_style: str | None = None,
     bag_size: str | None = None,
     rag_context: str | None = None,
+    pinned_day_plans: list[dict[str, Any]] | None = None,
+    user_edits: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     Generate packing plan via the in-gateway packing_service — the single,
     full-featured packing implementation (RAG-grounded, honours activities /
     trip_style / bag_size, returns a graceful mock on AI failure). 50s hard
     timeout; packing_service supplies its own per-step fallbacks within it.
+
+    ``pinned_day_plans`` are user-finalised days carried through untouched;
+    ``user_edits`` carries the checklist deltas replayed over the fresh plan.
     """
     prof = await load_merged_user_profile_for_ai(session, user_id, None)
 
@@ -147,6 +156,8 @@ async def _generate_trip_packing(
             user_style_profile=prof,
             rag_context=rag_context,
             user_id=str(user_id),
+            pinned_day_plans=pinned_day_plans,
+            user_edits=user_edits,
         )
 
     try:
@@ -166,7 +177,26 @@ async def _generate_trip_packing(
             user_style_profile=prof,
             rag_context=rag_context,
             user_id=str(user_id),
+            pinned_day_plans=pinned_day_plans,
+            user_edits=user_edits,
         )
+
+
+async def _load_trip_orm(session: AsyncSession, trip_id: UUID, user_id: UUID):
+    """Fetch the Trip row (ownership-scoped) — needed for trip_days / bag_size."""
+    from sqlalchemy import select as sa_select
+
+    from app.models.trips import Trip as TripModel
+
+    raw = await session.execute(sa_select(TripModel).where(TripModel.id == trip_id, TripModel.user_id == user_id))
+    trip = raw.scalar_one_or_none()
+    if not trip:
+        raise NotFoundError(f"Trip {trip_id} not found")
+    return trip
+
+
+def _trip_days(trip: Any) -> int:
+    return max(1, (trip.end_date - trip.start_date).days + 1)
 
 
 # ── List / Get ────────────────────────────────────────────────────────────────
@@ -354,20 +384,37 @@ async def add_trip_activities(
 async def regenerate_packing_plan(
     user_id: CurrentUser,
     trip_id: UUID,
+    body: RegenerateRequest | None = None,
     session: AsyncSession = Depends(get_session),
 ):
-    """Regenerate the packing plan for a trip (e.g. after updating activities)."""
-    from sqlalchemy import select as sa_select
+    """
+    Regenerate the packing plan for a trip.
 
-    from app.models.trips import Trip as TripModel
-
-    stmt = sa_select(TripModel).where(TripModel.id == trip_id, TripModel.user_id == UUID(user_id))
-    raw = await session.execute(stmt)
-    trip = raw.scalar_one_or_none()
-    if not trip:
-        raise NotFoundError(f"Trip {trip_id} not found")
-
+    By default this is a *partial* regeneration: days the user hand-edited are
+    pinned and carried through verbatim, and only the untouched days are
+    re-planned. Checklist add/remove deltas are replayed on top. Pass
+    ``keep_pinned_days=false`` for a clean rebuild that discards all edits.
+    """
+    trip = await _load_trip_orm(session, trip_id, UUID(user_id))
     svc = _get_svc(session)
+    keep_pinned = body.keep_pinned_days if body is not None else True
+
+    # Existing edits — the plan may not exist yet, in which case there are none.
+    existing = await svc.get_plan_row(trip_id, UUID(user_id))
+    user_edits: dict[str, Any] = dict((existing.user_edits or {}) if existing else {})
+    pinned_day_plans: list[dict[str, Any]] = []
+    if keep_pinned and existing:
+        pinned_numbers = {int(d) for d in (user_edits.get("pinned_days") or []) if str(d).isdigit()}
+        pinned_day_plans = [
+            d for d in (existing.day_plans_rich or []) if int(d.get("day_number") or 0) in pinned_numbers
+        ]
+    if not keep_pinned:
+        # Explicit clean rebuild — drop every delta, not just the pinned days.
+        user_edits = {}
+        if existing:
+            existing.user_edits = {}
+            existing.checklist_state = {}
+
     closet_items = await _fetch_closet_items(session, UUID(user_id))
     acts = trip.activities or []
     rag_context = await _build_packing_rag_context(session, UUID(user_id), trip.destination, trip.purpose, acts)
@@ -384,8 +431,120 @@ async def regenerate_packing_plan(
         trip_style=trip.trip_style,
         bag_size=trip.bag_size,
         rag_context=rag_context,
+        pinned_day_plans=pinned_day_plans,
+        user_edits=user_edits,
     )
+    if pinned_day_plans:
+        logger.info(
+            "trip_packing_regenerated_partial",
+            trip_id=str(trip_id),
+            pinned_days=sorted({int(d.get("day_number") or 0) for d in pinned_day_plans}),
+        )
     return await svc.save_packing_plan(trip.id, UUID(user_id), packing_result)
+
+
+# ── Plan editing ─────────────────────────────────────────────────────────────
+# All of these re-derive the plan deterministically — no LLM call, no added
+# hallucination surface. Every user-supplied id is checked against the caller's
+# own closet before it can enter the plan.
+
+
+@router.patch("/{trip_id}/planner/days/{day_number}/outfits/{slot}", response_model=PackingPlanResponse)
+async def edit_outfit(
+    user_id: CurrentUser,
+    trip_id: UUID,
+    day_number: int,
+    slot: str,
+    body: OutfitEditRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Add, remove or swap one item inside a single day's outfit."""
+    trip = await _load_trip_orm(session, trip_id, UUID(user_id))
+    closet_items = await _fetch_closet_items(session, UUID(user_id))
+    return await _get_svc(session).edit_outfit_items(
+        trip_id,
+        UUID(user_id),
+        day_number=day_number,
+        slot=slot,
+        operation=body.operation,
+        closet_item_id=body.closet_item_id,
+        replace_item_id=body.replace_item_id,
+        closet_items=closet_items,
+        trip_days=_trip_days(trip),
+        bag_size=trip.bag_size,
+    )
+
+
+@router.post("/{trip_id}/planner/checklist/items", response_model=PackingPlanResponse)
+async def add_checklist_items(
+    user_id: CurrentUser,
+    trip_id: UUID,
+    body: ChecklistAddRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Pack extra closet items that aren't part of any planned outfit."""
+    trip = await _load_trip_orm(session, trip_id, UUID(user_id))
+    closet_items = await _fetch_closet_items(session, UUID(user_id))
+    return await _get_svc(session).add_checklist_items(
+        trip_id,
+        UUID(user_id),
+        closet_item_ids=body.closet_item_ids,
+        note=body.note,
+        closet_items=closet_items,
+        trip_days=_trip_days(trip),
+        bag_size=trip.bag_size,
+    )
+
+
+@router.delete("/{trip_id}/planner/checklist/items/{item_key}", response_model=PackingPlanResponse)
+async def remove_checklist_item(
+    user_id: CurrentUser,
+    trip_id: UUID,
+    item_key: str,
+    session: AsyncSession = Depends(get_session),
+):
+    """Drop a row from the packing checklist."""
+    trip = await _load_trip_orm(session, trip_id, UUID(user_id))
+    closet_items = await _fetch_closet_items(session, UUID(user_id))
+    return await _get_svc(session).remove_checklist_item(
+        trip_id,
+        UUID(user_id),
+        item_key=item_key,
+        closet_items=closet_items,
+        trip_days=_trip_days(trip),
+        bag_size=trip.bag_size,
+    )
+
+
+@router.get("/{trip_id}/planner/suggestions", response_model=ClosetSuggestionsResponse)
+async def get_closet_suggestions(
+    user_id: CurrentUser,
+    trip_id: UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Items the user already owns that would fill a gap in the current plan.
+
+    Distinct from ``you_might_still_need`` (things they don't own and might buy).
+    """
+    trip = await _load_trip_orm(session, trip_id, UUID(user_id))
+    svc = _get_svc(session)
+    plan = await svc.get_plan_row(trip_id, UUID(user_id))
+    if not plan:
+        raise NotFoundError(f"No packing plan found for trip {trip_id}")
+
+    closet_items = await _fetch_closet_items(session, UUID(user_id))
+    raw = plan.raw_result or {}
+    suggestions = packing_service.suggest_closet_additions(
+        list(plan.day_plans_rich or []),
+        closet_items=closet_items,
+        weather_summary=plan.weather_summary or raw.get("weather_summary") or {},
+        activities=trip.activities or [],
+        purpose=trip.purpose,
+        trip_style=trip.trip_style,
+        bag_size=trip.bag_size,
+    )
+    return ClosetSuggestionsResponse(suggestions=suggestions)
 
 
 # ── Packing plan ─────────────────────────────────────────────────────────────

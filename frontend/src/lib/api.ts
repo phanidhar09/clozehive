@@ -12,12 +12,14 @@ import type {
   AuthUser,
   ClosetAnalytics,
   ClosetItem,
+  ClosetSuggestion,
   ConditionGrade,
   CreateTripResponse,
   Group,
   GroupMember,
   OnboardingStatus,
   OutfitAnalysis,
+  OutfitEditOperation,
   OutfitSuggestion,
   PackingPlan,
   PlannedDay,
@@ -734,13 +736,59 @@ export const tripsApi = {
     return mapTrip(data as Record<string, unknown>)
   },
 
-  async regeneratePacking(tripId: string): Promise<PackingPlan> {
-    const { data } = await api.post<PackingPlan>(`/trips/${tripId}/regenerate-packing`, {}, { timeout: 120_000 })
+  /**
+   * Regenerate the plan. By default days the user hand-edited are pinned and
+   * carried through untouched — only the rest is re-planned. Pass
+   * keepPinnedDays=false for a clean rebuild that discards every edit.
+   */
+  async regeneratePacking(tripId: string, keepPinnedDays = true): Promise<PackingPlan> {
+    const { data } = await api.post<PackingPlan>(
+      `/trips/${tripId}/regenerate-packing`,
+      { keep_pinned_days: keepPinnedDays },
+      { timeout: 120_000 },
+    )
     return data
   },
 
   async updateChecklistItem(tripId: string, itemKey: string, isPacked: boolean): Promise<void> {
     await api.patch(`/trips/${tripId}/planner/checklist`, { item_key: itemKey, is_packed: isPacked })
+  },
+
+  // ── Plan editing ──────────────────────────────────────────────────────────
+  // These re-derive the plan server-side and return it whole, so callers just
+  // replace their local plan with the response.
+
+  async editOutfitItem(
+    tripId: string,
+    dayNumber: number,
+    slot: string,
+    body: { operation: OutfitEditOperation; closet_item_id?: string | null; replace_item_id?: string | null },
+  ): Promise<PackingPlan> {
+    const { data } = await api.patch<PackingPlan>(
+      `/trips/${tripId}/planner/days/${dayNumber}/outfits/${encodeURIComponent(slot)}`,
+      body,
+    )
+    return data
+  },
+
+  async addChecklistItems(tripId: string, closetItemIds: string[], note?: string): Promise<PackingPlan> {
+    const { data } = await api.post<PackingPlan>(`/trips/${tripId}/planner/checklist/items`, {
+      closet_item_ids: closetItemIds,
+      note: note ?? null,
+    })
+    return data
+  },
+
+  async removeChecklistItem(tripId: string, itemKey: string): Promise<PackingPlan> {
+    const { data } = await api.delete<PackingPlan>(
+      `/trips/${tripId}/planner/checklist/items/${encodeURIComponent(itemKey)}`,
+    )
+    return data
+  },
+
+  async getClosetSuggestions(tripId: string): Promise<ClosetSuggestion[]> {
+    const { data } = await api.get<{ suggestions: ClosetSuggestion[] }>(`/trips/${tripId}/planner/suggestions`)
+    return data.suggestions ?? []
   },
 
   async getPackingList(tripId: string): Promise<unknown> {

@@ -25,7 +25,7 @@ from typing import Any
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.v1.intelligence.services import ai_service, model_router
+from app.api.v1.intelligence.services import ai_service, model_router, pair_learning_service
 from app.api.v1.intelligence.services.fashion_rag_service import (
     get_fashion_context_for_prompt,
     search_fashion_knowledge,
@@ -788,8 +788,19 @@ async def analyze_shopping_item(
     fit_prefs = frozenset(_profile_tokens(profile.get("fit_preferences")) if profile else set())
     fit_avoids = frozenset(_profile_tokens(profile.get("avoidances")) if profile else set())
 
+    # Learned feedback signal: pairings this user has rated/worn. Empty for users
+    # with no feedback history, so the preview ranks exactly as before for them.
+    pair_affinity = await pair_learning_service.load_affinity_map(
+        session, user_id, [str(it.get("id", "")) for it in closet]
+    )
+
     built_preview = outfit_builder.build_outfits(
-        analysis, closet, cache=score_cache, fit_prefs=fit_prefs, fit_avoids=fit_avoids
+        analysis,
+        closet,
+        cache=score_cache,
+        fit_prefs=fit_prefs,
+        fit_avoids=fit_avoids,
+        pair_affinity=pair_affinity,
     )
     best_ids = outfit_builder.best_pairing_ids(built_preview)
     if best_ids:
