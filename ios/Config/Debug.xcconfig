@@ -1,0 +1,7 @@
+// Debug configuration — points at a locally running api-gateway.
+// The `$()` between the slashes is the standard xcconfig escape so `//` is
+// NOT parsed as a comment. Expands to: http://localhost:8000
+API_BASE_URL = http:/$()/localhost:8000
+
+// The iOS Simulator shares the host's network, so `localhost` reaches the
+// api-gateway started via `docker compose up api-gateway` (port 8000).

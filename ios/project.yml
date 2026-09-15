@@ -1,0 +1,61 @@
+name: ClozeHive
+options:
+  bundleIdPrefix: com.clozehive
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+    # Leave DEVELOPMENT_TEAM empty; set it in Xcode signing or via a local
+    # xcconfig override when running on a physical device. Simulator builds
+    # need no team.
+    DEVELOPMENT_TEAM: ""
+
+targets:
+  ClozeHive:
+    type: application
+    platform: iOS
+    configFiles:
+      Debug: Config/Debug.xcconfig
+      Release: Config/Release.xcconfig
+    sources:
+      - path: ClozeHive
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.clozehive.app
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_FILE: ClozeHive/Info.plist
+        TARGETED_DEVICE_FAMILY: "1" # iPhone
+        ENABLE_PREVIEWS: YES
+    dependencies: []
+
+  ClozeHiveTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: ClozeHiveTests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.clozehive.app.tests
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: ClozeHive
+
+schemes:
+  ClozeHive:
+    build:
+      targets:
+        ClozeHive: all
+        ClozeHiveTests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - ClozeHiveTests
