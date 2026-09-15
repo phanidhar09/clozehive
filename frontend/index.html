@@ -1,15 +1,18 @@
 <!DOCTYPE html>
-<html lang="en" class="">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="description" content="ClozéHive — AI-powered wardrobe stylist. Manage your closet, get outfit recommendations, save and organize outfits, and spot wardrobe purchase gaps to dress smarter every day." />
-    <meta name="theme-color" content="#14B8A6" />
+    <meta name="color-scheme" content="light dark" />
+    <!-- Address-bar tint follows the active scheme instead of a single fixed teal. -->
+    <meta name="theme-color" content="#F5F4F0" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#020617" media="(prefers-color-scheme: dark)" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="ClozéHive" />
     <!-- Open Graph / Social sharing -->
     <meta property="og:type" content="website" />
@@ -25,6 +28,27 @@
     <meta name="twitter:description" content="AI-powered wardrobe management, outfit recommendations, saved outfits, and purchase-gap insights." />
     <meta name="twitter:image" content="https://cloze-hive.onrender.com/og-image.png" />
     <title>ClozéHive — AI Wardrobe & Personal Stylist</title>
+
+    <!-- Resolve the color scheme before first paint so there is no light→dark
+         flash on load. Mirrors the store's key + system fallback exactly
+         (see src/store/index.ts). Kept tiny and dependency-free on purpose. -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('clozehive-color-scheme');
+          var scheme =
+            stored === 'dark' || stored === 'light'
+              ? stored
+              : window.matchMedia('(prefers-color-scheme: dark)').matches
+                ? 'dark'
+                : 'light';
+          if (scheme === 'dark') document.documentElement.classList.add('dark');
+        } catch (e) {
+          /* private mode / storage blocked — fall through to light. */
+        }
+      })();
+    </script>
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <!-- Load fonts without blocking first paint: preload the stylesheet, then
@@ -39,9 +63,154 @@
     <noscript>
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Sora:wght@400;600;700&display=swap" rel="stylesheet" />
     </noscript>
+
+    <!-- Pre-hydration splash. Inlined (no Tailwind dependency) so it renders on
+         the very first frame while the app bundle downloads. Deliberately
+         restrained: one hairline accent, the hive mark, the wordmark — no
+         gradient wash, no spinner, no emoji. -->
+    <style>
+      :root {
+        --splash-bg: #f5f4f0;
+        --splash-ink: #1c1b19;
+        --splash-muted: #8a877f;
+        --splash-line: rgba(0, 0, 0, 0.09);
+        --splash-accent: #0d9488;
+      }
+      html.dark {
+        --splash-bg: #020617;
+        --splash-ink: #f1f3f6;
+        --splash-muted: #6b7280;
+        --splash-line: rgba(255, 255, 255, 0.1);
+        --splash-accent: #2dd4bf;
+      }
+
+      #app-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483647;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 22px;
+        background: var(--splash-bg);
+        opacity: 1;
+        transition: opacity 0.42s cubic-bezier(0.16, 1, 0.3, 1);
+        -webkit-font-smoothing: antialiased;
+      }
+      #app-splash.is-hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      #app-splash .mark {
+        width: 52px;
+        height: 52px;
+        color: var(--splash-accent);
+        animation: splash-breathe 2.6s ease-in-out infinite;
+      }
+      #app-splash .mark svg { display: block; width: 100%; height: 100%; }
+
+      #app-splash .wordmark {
+        margin: 0;
+        font-family: "Sora", ui-sans-serif, system-ui, -apple-system, sans-serif;
+        font-weight: 600;
+        font-size: 22px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--splash-ink);
+      }
+      #app-splash .wordmark .accent { color: var(--splash-accent); }
+
+      /* Slim indeterminate track — a calm boot cue, not a spinner. */
+      #app-splash .track {
+        position: relative;
+        width: 128px;
+        height: 2px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: var(--splash-line);
+      }
+      #app-splash .track::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        height: 100%;
+        width: 40%;
+        border-radius: 999px;
+        background: var(--splash-accent);
+        animation: splash-slide 1.15s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+      }
+
+      @keyframes splash-breathe {
+        0%, 100% { opacity: 0.9; transform: translateY(0); }
+        50% { opacity: 1; transform: translateY(-2px); }
+      }
+      @keyframes splash-slide {
+        0% { transform: translateX(-120%); }
+        100% { transform: translateX(320%); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #app-splash .mark { animation: none; }
+        #app-splash .track::after { animation-duration: 2.4s; }
+      }
+    </style>
   </head>
-  <body class="bg-cream-100 dark:bg-slate-950 text-slate-800 dark:text-slate-100 antialiased">
+  <body>
     <div id="root"></div>
+
+    <div id="app-splash" role="status" aria-label="Loading ClozéHive">
+      <span class="mark" aria-hidden="true">
+        <!-- Hive motif: a hexagon with an inner cell. -->
+        <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M24 3 42 13.5 42 34.5 24 45 6 34.5 6 13.5 Z"
+                stroke="currentColor" stroke-width="2.4" stroke-linejoin="round" />
+          <path d="M24 15 33 20.25 33 30.75 24 36 15 30.75 15 20.25 Z"
+                fill="currentColor" opacity="0.16" />
+          <path d="M24 15 33 20.25 33 30.75 24 36 15 30.75 15 20.25 Z"
+                stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+        </svg>
+      </span>
+      <p class="wordmark">Cloz<span class="accent">é</span>Hive</p>
+      <span class="track" aria-hidden="true"></span>
+    </div>
+
+    <script>
+      // Fade the splash out the instant React mounts its first node into #root,
+      // rather than on a fixed timer — the app decides when it is ready.
+      (function () {
+        var splash = document.getElementById("app-splash");
+        var root = document.getElementById("root");
+        if (!splash || !root) return;
+
+        var removed = false;
+        function dismiss() {
+          if (removed) return;
+          removed = true;
+          splash.classList.add("is-hidden");
+          splash.addEventListener("transitionend", function () {
+            if (splash.parentNode) splash.parentNode.removeChild(splash);
+          }, { once: true });
+          // Safety net if transitionend never fires (tab backgrounded, etc.).
+          setTimeout(function () {
+            if (splash.parentNode) splash.parentNode.removeChild(splash);
+          }, 700);
+        }
+
+        if (root.childNodes.length) return dismiss();
+        var obs = new MutationObserver(function () {
+          if (root.childNodes.length) {
+            obs.disconnect();
+            dismiss();
+          }
+        });
+        obs.observe(root, { childList: true });
+        // Absolute fallback so the splash can never get stuck on screen.
+        setTimeout(function () { obs.disconnect(); dismiss(); }, 10000);
+      })();
+    </script>
+
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
